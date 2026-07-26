@@ -1,0 +1,11 @@
+uint8 MOVE_AMR = 1
+uint8 STOP_AMR = 2
+uint8 PAUSE_AMR = 3
+uint8 RESUME_AMR = 4
+uint8 TRANSLATE_AMR = 5
+uint8 TURN_AMR = 6
+
+uint8 action
+---
+bool received
+

@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>trnav_qd_kinematics</name>
+  <version>0.1.0</version>
+  <description>QD (Quad-Drive diagonal) platform kinematics: QdInverseKinematics (DualSteer IK), QdCrabInverseKinematics (CRAB sideways IK), QdBicycleModel. Pure math (stdlib only, no ROS). Moved out of trnav_motion_qd per AD-012 amendment (2026-07-04) to collect QD/DD kinematics under src/Control/Kinematics/. Identifiers keep the AD-012 triple prefix (files qd_*, classes Qd*, namespace trnav::motion::qd).</description>
+  <maintainer email="amap@t-robotics.com">amap</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

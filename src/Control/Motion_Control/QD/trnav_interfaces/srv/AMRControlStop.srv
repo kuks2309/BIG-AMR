@@ -1,0 +1,10 @@
+# AMRControlStop Service
+# trnav_interfaces/srv/AMRControlStop
+
+uint8 SAFETY_STOP = 1    # velocity=0, keep current steer angle
+uint8 ESTOP = 2          # velocity=0, steer angle=0 (return to center)
+
+uint8 stop_type
+---
+bool success
+string message
