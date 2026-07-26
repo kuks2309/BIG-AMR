@@ -1,0 +1,12 @@
+<launch>
+  <!-- [DEPRECATED] 정본 launch 는 iahrs_driver.py (드라이버 + base_link->imu_link
+       static TF 를 함께 발행). 본 XML 은 드라이버 단독 기동용 참고로만 유지하며
+       static TF 를 발행하지 않으므로, SLAM IMU 통합에는 iahrs_driver.py 를 쓸 것. -->
+  <node pkg="iahrs_driver" exec="iahrs_driver" name="iahrs_driver" output="screen">
+    <!-- udev 심링크 /dev/imu (대문자 /dev/IMU 는 본 시스템에 미존재) -->
+    <param name="serial_port" value="/dev/imu"/>
+    <!-- 동적 base_link->imu_link TF 금지 (IMU 자세를 TF 회전에 싣는 방식 — SLAM 부적합) -->
+    <param name="m_bSingle_TF_option" value="false"/>
+   </node>
+
+</launch>
