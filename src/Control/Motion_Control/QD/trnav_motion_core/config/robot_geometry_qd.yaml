@@ -1,0 +1,20 @@
+/**:
+  ros__parameters:
+    # ── Platform identification ──
+    # One of: QD_DIAGONAL, DD, FWS_INDEPENDENT, ACKERMANN
+    # Reference: src/Control-Abstract/docs/trnav_motion_mux_architecture.md §플랫폼별 배열 해석
+    platform: "QD_DIAGONAL"
+
+    # ── QD diagonal wheel positions (robot frame, meters) ──
+    # Copied from: src/Control/AMR-Motion-Control/amr_motion_control/config/robot_params.yaml L6-L10
+    # Reference: Carrier_AGV_기구LAYOUT Rev.1.3
+    w1_x: 0.330         # m (+330 mm, 전방좌측)
+    w1_y: 0.135         # m (+135 mm, 도면 기준)
+    w2_x: -0.330        # m (-330 mm, 후방우측)
+    w2_y: -0.135        # m (-135 mm, 도면 기준)
+
+    wheel_radius: 0.080 # m (Ø160 mm)
+
+    # ── Walk motor gear ratio (RPM feedback display only) ──
+    # Copied from: robot_params.yaml L14
+    gear_walk: 20.0

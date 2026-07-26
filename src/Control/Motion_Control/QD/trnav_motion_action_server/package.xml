@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>trnav_motion_action_server</name>
+  <version>0.1.0</version>
+  <description>AMR Motion Action Server — per-action pilot nodes (spin, translate, …) built on trnav_motion_core. Publishes trnav_msgs/WheelSetArray on trnav_motion_mux topics.</description>
+  <maintainer email="amap@t-robotics.com">amap</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>trnav_interfaces</depend>
+  <depend>trnav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>trnav_motion_core</depend>
+  <depend>trnav_motion_qd</depend>
+  <depend>trnav_qd_kinematics</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
