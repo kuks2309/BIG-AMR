@@ -1,0 +1,50 @@
+/trnav_yaw_control_node:
+  ros__parameters:
+    # ── Platform (trnav_2ws_core::loadGeometry) ──
+    platform: "QD_DIAGONAL"
+
+    # ── 로봇 기하 (Carrier_AGV_기구LAYOUT Rev.1.3) ──
+    body_length: 1.1974
+    body_width: 0.648
+    w1_x: 0.330
+    w1_y: 0.135
+    w2_x: -0.330
+    w2_y: -0.135
+    wheel_radius: 0.080
+    steer_limit_deg: 90.0
+    gear_walk: 20.0
+
+    # ── ActionServerBase 공통 ──
+    control_rate_hz: 50.0
+    steer_tolerance_deg: 1.0
+    steer_timeout_sec: 5.0
+
+    # ── YawControl PID 기본값 (ROS1 원본 기준, HIL 후 튜닝) ──
+    # 참고: counter_steer=true 시 omega=2*vx*tan(delta)/L 이므로 Kp 절반 권장
+    # counter_steer=false (전륜만): Kp=0.5, Kd=0.1, Ki=0.0
+    # counter_steer=true  (4WS):   Kp=0.25, Kd=0.05, Ki=0.0
+    # 실제 게인은 goal에서 직접 지정하므로 이 값은 참고용
+
+    # ── YawControl 파라미터 ──
+    yaw_control_max_steer_deg: 25.0
+    yaw_control_i_max_deg: 10.0
+    yaw_control_max_timeout_sec: 60.0
+    yaw_control_walk_accel_limit: 0.5
+    yaw_control_walk_decel_limit: 1.0
+    yaw_control_steer_rate_limit: 0.35
+    yaw_control_min_vx: 0.02   # vx_profile floor (m/s) — 시작 시 정지 방지 (translate_min_vx 동일 패턴)
+
+    # ── LocalizationMonitor ──
+    yaw_control_pose_topic: "/robot_pose"  # Phase2(2026-06-09): 코드가 이제 사용(이전 dead, /rtabmap/localization_pose 는 타입불일치 미수신값이었음). 실차 fused 교체는 yaw_control.launch.py override
+    yaw_control_pose_qos: 2                       # 0=default 1=reliable 2=sensor_data  (주의: 현재 코드 미사용 dead param — 실제 monitor 는 RELIABLE 기본)
+    yaw_control_localization_timeout_sec: 2.0
+    yaw_control_position_jump_threshold: 0.3
+    yaw_control_enable_localization_watchdog: true
+
+    # ── TransientGuard ──
+    transient_vy_rate_limit: 0.3
+    transient_omega_rate_limit: 0.5
+    transient_steer_gate_threshold_deg: 3.0
+    transient_steer_error_max_deg: 10.0
+    transient_enable_proportional_decel: true
+    transient_runtime_gate_threshold_deg: 15.0

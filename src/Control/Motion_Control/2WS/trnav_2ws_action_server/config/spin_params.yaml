@@ -1,0 +1,49 @@
+/trnav_spin_node:
+  ros__parameters:
+    # ── Platform (trnav_2ws_core::loadGeometry) ──
+    platform: "QD_DIAGONAL"
+
+    # ── 로봇 기하 (Carrier_AGV_기구LAYOUT Rev.1.3) ──
+    body_length: 1.1974       # m (1197.4 mm)
+    body_width: 0.648         # m (648 mm)
+    w1_x: 0.330               # m (+330 mm, 전방좌측)
+    w1_y: 0.135               # m (+135 mm, 도면 기준)
+    w2_x: -0.330              # m (-330 mm, 후방우측)
+    w2_y: -0.135              # m (-135 mm, 도면 기준)
+    wheel_radius: 0.080       # m (Ø160 mm)
+    steer_limit_deg: 90.0     # deg (조향 플립 기준)
+
+    # ── 감속비 (motors_canopen.hpp 확인값, Feedback RPM 계산용) ──
+    gear_walk: 20.0           # Walk 모터 (하드웨어 실측)
+
+    # ── 제어 파라미터 ──
+    control_rate_hz: 50.0     # 제어/피드백 주기 (Hz) — 20→50 (이산화 지연 50ms→20ms, overshoot 저감 테스트)
+    steer_tolerance_deg: 1.0  # 조향 도달 임계값 (deg)
+    steer_timeout_sec: 5.0    # Phase 0/4 타임아웃 (sec)
+
+    # -- Spin precision parameters --
+    spin_max_timeout_sec: 60.0      # Spin 글로벌 타임아웃 (sec)
+    fine_correction_threshold_deg: 0.3  # 종료 각오차 임계값 (deg) — PID 종료 게이트 tol 로 재사용
+    start_yaw_avg_samples: 10       # start_yaw 원형 이동평균 샘플 수 (윈도우 = N / control_rate_hz)
+
+    # -- 하이브리드: Stage1(사다리꼴 coarse) → 남은오차 ≤ pid_band → Stage2(PID fine) --
+    pid_band_deg: 30.0              # coarse→PID 핸드오프 임계 (deg) — 실차 HIL 튜닝값 (2026-06-02)
+
+    # -- Stage2 PID 게인 (bang-bang fine 대체) --
+    # ω_cmd[deg/s] = kp·e + ki·∫e + kd·de/dt, |ω| 하한 min_speed_dps / 상한 max_angular_speed.
+    # 실차 HIL 확정 (2026-06-02): ±10~±180.1 전 각도 |오차|≤0.42°, overshoot~0, ±180 방향 일관.
+    kp_spin: 1.7                    # 비례 게인 (deg/s per deg)
+    ki_spin: 0.0                    # 적분 게인 (정상오차 0화; 정지마찰 클 때만 소량)
+    kd_spin: 0.1                    # 미분 게인 (derivative-on-measurement, overshoot 댐핑)
+    integral_limit_deg: 30.0        # I항 anti-windup clamp (deg·s)
+
+    # -- 공용 (Stage1+Stage2) --
+    min_speed_dps: 2.0              # |ω| 하한 (Stage1 floor; Stage2 fine 은 floor 없음)
+    # fine timeout 은 코드에서 진행시간(target/max_ω)×3 으로 적응 계산 (아래 값 미사용)
+    fine_correction_timeout_sec: 3.0
+
+    # -- (하이브리드 전환으로 미사용; yaml 호환 위해 유지) --
+    settle_rate_dps: 2.0
+    settle_count: 5
+    fine_correction_speed_dps: 3.0
+    settling_delay_ms: 200

@@ -1,0 +1,56 @@
+# AMRMotionYawControlReverse Action - Reverse direction yaw tracking with bicycle model
+# trnav_2ws_interfaces/action/AMRMotionYawControlReverse
+#
+# Forward(또는 양방향) 액션은 별도: trnav_2ws_interfaces/action/AMRMotionYawControl
+#
+# Reverse 의미:
+#   - vx_max 는 magnitude 만 받음 (>0). 내부적으로 항상 -vx 로 사용 (후진).
+#   - target_yaw_deg, current_yaw_deg 는 map yaw absolute 그대로 사용
+#     (PathController 미사용 — IMU yaw 직접 PID 추종이라 effective_yaw 보정 불필요).
+#   - PID error 부호 반전 자동 적용 (forward 분기 제거).
+#   - feedback current_vx 항상 ≤ 0.
+# (참고) IK 가 vx_signed<0 입력으로 wheel direction 자동 처리하므로 출력단에 추가 부호
+# 곱하기 *없음*. translate_reverse 의 vel*=-1 패턴은 PathController forward 재사용 trick
+# 의 부산물이라 본 액션엔 적용하지 않는다.
+#
+# 즉 외부 인터페이스(target_yaw_deg, target_distance) 는 yaw_control 과 동일 의미.
+# yaw_control 의 vx_max<0 분기 사용 대신 reverse 전용 노드로 분리한 이유:
+#   1) translate_forward/reverse 와 일관된 카테고리 분리
+#   2) mux source_id 별도 할당 → supervisor 에서 명시적 선택
+#   3) reverse 전용 파라미터 튜닝 자유도
+
+# Goal
+float64 target_yaw_deg       # target yaw (deg, +CCW, +-180 wrap, map-frame absolute)
+float64 target_distance      # exit distance (m, > 0)
+float64 vx_max               # bicycle longitudinal speed magnitude (m/s, > 0 — 내부 항상 -vx 적용)
+float64 acceleration         # vx trapezoidal accel (m/s^2)
+float64 max_steer_deg        # PID output clamp (e.g. 25)
+float64 kp
+float64 kd
+float64 ki
+float64 i_max_deg            # I-term windup limit (deg)
+bool    counter_steer        # steer distribution: false=front-only, true=4WS counter-steer
+bool    hold_steer           # true: skip Phase 4
+float64 exit_steer_angle     # Phase 4 target steer (deg, ignored if hold_steer)
+float64 max_timeout_sec
+# Per-goal Localization watchdog 토글 (acs_gui Link.enable_localization_watchdog 전파, 2026-05-18)
+# Effective = 본 필드 AND node param (translate_enable_localization_watchdog 등). 둘 다 true 여야 작동.
+bool enable_localization_watchdog true
+---
+# Result
+int8    status               # 0=success, -1=cancelled, -2=invalid, -3=timeout, -4=loc_timeout, -5=loc_jump, -6=tf_lookup_fail
+float64 actual_distance      # m (achieved magnitude, 양수)
+float64 final_yaw_deg
+float64 final_error_deg
+float64 elapsed_time
+---
+# Feedback
+float64 current_distance     # m (magnitude, 양수)
+float64 remaining_distance
+float64 current_yaw_deg
+float64 current_error_deg
+float64 current_steer_deg
+float64 current_vx           # m/s (signed — reverse 시 항상 음수)
+uint8   phase                # 0=steer_align, 1=accel, 2=cruise, 3=decel, 4=steer_return
+float64 w1_drive_rpm         # signed (reverse 시 음수)
+float64 w2_drive_rpm         # signed (reverse 시 음수)
