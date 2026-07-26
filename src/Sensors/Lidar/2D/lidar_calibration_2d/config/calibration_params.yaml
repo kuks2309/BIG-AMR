@@ -1,0 +1,49 @@
+# =============================================================================
+# lidar_calibration_2d - Calibration Parameters
+# =============================================================================
+# Automatic 2D LiDAR extrinsic calibration using scan_front-centric SVD-ICP.
+# Method: Fix scan_front as reference, align scan_rear to it via ICP on overlap.
+# Run: ros2 launch lidar_calibration_2d calibrate.launch.py
+# =============================================================================
+
+lidar_calibration_2d_node:
+  ros__parameters:
+    # --- Topic configuration ---
+    scan_topic_front: "scan_front"        # First LiDAR scan topic (reference sensor, fixed)
+    scan_topic_rear: "scan_rear"          # Second LiDAR scan topic (to be calibrated)
+
+    # --- Sensor mounting (base_link 기준 위치, 방향) ---
+    # 위치는 docs/sensor_mounting.md 참고
+    front_tx: 0.504                      # scan_front X position from base_link
+    front_ty: -0.254                     # scan_front Y position from base_link
+    front_yaw: -0.785398                 # scan_front yaw (rad) from base_link
+    front_upside_down: true              # scan_front 뒤집힘 (바닥면이 위)
+    rear_tx: -0.504                      # scan_rear X position from base_link
+    rear_ty: 0.254                       # scan_rear Y position from base_link
+    rear_yaw: 2.35619449                 # scan_rear yaw (rad) from base_link
+    rear_upside_down: true               # scan_rear 뒤집힘 (바닥면이 위)
+
+    # --- Preprocessing ---
+    enable_average_filter: true           # Apply 3-point moving average to raw ranges before conversion
+
+    # --- Calibration parameters ---
+    num_samples: 30                       # Number of scan pairs to collect and average
+    sample_interval: 0.1                  # Seconds between samples (skip some for diversity)
+    min_range: 0.5                        # Min range for valid points (meters)
+    max_range: 40.0                       # Max range for valid points (meters)
+    min_overlap_points: 50                # Minimum points required per cloud after downsample
+    downsample_stride: 10                 # Take every N-th point (reduces ~1650 to ~165 points)
+
+    # --- SVD-ICP parameters ---
+    icp_max_iterations: 50                # Maximum ICP iterations per sample
+    icp_transform_epsilon: 0.000001       # Convergence threshold for transform change
+    icp_max_correspondence_dist: 0.5      # Max distance for ICP correspondence matching (meters)
+    icp_min_correspondences: 30           # Min correspondences required per ICP iteration
+
+    # --- Verification TF broadcast ---
+    broadcast_corrected_tf: true          # Broadcast corrected rear sensor frame after calibration
+    tf_broadcast_duration: 30.0           # Seconds to broadcast corrected TF before shutdown
+
+    # --- Output ---
+    output_file: "calibration_result.yaml"  # Output filename
+    output_dir: ""                          # Output directory (empty = current working directory)

@@ -1,0 +1,28 @@
+# =============================================================================
+# lidar_tf_publisher - Static TF Publisher Parameters
+# =============================================================================
+# Publishes: base_link -> scan_front, base_link -> scan_rear, base_link -> scan_merged
+# Run: ros2 launch lidar_calibration_2d tf_publisher.launch.py
+# =============================================================================
+
+lidar_tf_publisher:
+  ros__parameters:
+    # --- Sensor mounting (base_link 기준 위치, 방향) ---
+    # 위치는 docs/sensor_mounting.md 참고
+    front_tx: 0.504                      # scan_front X position from base_link
+    front_ty: -0.254                     # scan_front Y position from base_link
+    front_tz: 0.2865                     # scan_front Z position from base_link
+    front_yaw: -0.785398                 # scan_front yaw (rad) from base_link (-45deg)
+    front_upside_down: true              # scan_front 뒤집힘 (바닥면이 위) -> roll=π
+
+    rear_tx: -0.504                      # scan_rear X position from base_link
+    rear_ty: 0.254                       # scan_rear Y position from base_link
+    rear_tz: 0.2865                      # scan_rear Z position from base_link
+    rear_yaw: 2.35619449                 # scan_rear yaw (rad) from base_link (135deg)
+    rear_upside_down: true               # scan_rear 뒤집힘 (바닥면이 위) -> roll=π
+
+    # --- Frame names ---
+    front_frame: "scan_front"
+    rear_frame: "scan_rear"
+    merged_frame: "scan_merged"
+    base_frame: "base_link"

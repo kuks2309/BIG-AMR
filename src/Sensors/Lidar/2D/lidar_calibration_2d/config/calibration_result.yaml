@@ -1,0 +1,42 @@
+# Big-AMR extrinsics — SEER install_info 기반 (2026-07-25)
+# 원본(참조 로봇, 0.504/-0.254)은 scratchpad/calibration_result_ORIG.yaml 백업.
+# 출처: SEER SRC 192.168.44.82:19204 Robot Status API 1009, laser[].install_info
+#   FrontLiDAR: x=0.8808743642346627 y=-0.5783268634147752 yaw=-45.57274026382727 deg
+#   RearLiDAR : x=-0.8564035555844536 y=0.6067443643452458 yaw=135.0925107833687 deg
+# install_info 는 2D(x/y/yaw)만 제공 → z/roll=0. flipped 는 물리 장착 기준(참조와 동일 가정: ⚠ 시각 검증 필요).
+# icp_correction=0 (Seer 값이 이미 로봇 캘리브 — use_forLoc=true. 스캔중첩 ICP 미적용).
+# merged_lidar(=scan_merged) 원점 = base_footprint (base->scan_merged 는 merger launch 에서 identity).
+# 갱신: src/Sensors/Lidar/2D/seer_read_lidar_install.py 재조회 후 아래 tx/ty/yaw 반영.
+calibration:
+  reference_frame: merged_lidar
+  reference_sensor: /scan_front
+  calibrated_sensor: /scan_rear
+  icp_correction:
+    dx: 0.0
+    dy: 0.0
+    dyaw_rad: 0.0
+    dyaw_deg: 0.0
+  merged_lidar_to_scan_front:
+    tx: 0.8808743642346627
+    ty: -0.5783268634147752
+    yaw_rad: -0.795394026
+    yaw_deg: -45.57274026382727
+    flipped: true
+  merged_lidar_to_scan_rear_original:
+    tx: -0.8564035555844536
+    ty: 0.6067443643452458
+    yaw_rad: 2.357809439
+    yaw_deg: 135.0925107833687
+    flipped: true
+  merged_lidar_to_scan_rear_corrected:
+    tx: -0.8564035555844536
+    ty: 0.6067443643452458
+    yaw_rad: 2.357809439
+    yaw_deg: 135.0925107833687
+    flipped: true
+  statistics:
+    num_samples: 0
+    successful_alignments: 1
+    median_correspondence_distance: 0.0
+    average_filter_enabled: false
+    downsample_stride: 1

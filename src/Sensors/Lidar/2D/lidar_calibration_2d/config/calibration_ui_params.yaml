@@ -1,0 +1,37 @@
+# =============================================================================
+# lidar_calibration_2d UI - Calibration UI Parameters
+# =============================================================================
+# PyQt5 UI for interactive 2D LiDAR extrinsic calibration.
+# Run: ros2 launch lidar_calibration_2d calibrate_ui.launch.py
+# =============================================================================
+
+lidar_calibration_2d_ui:
+  ros__parameters:
+    # --- Topic configuration ---
+    scan_topic_front: "scan_front"
+    scan_topic_rear: "scan_rear"
+
+    # --- Preprocessing ---
+    enable_average_filter: true
+    min_range: 0.1
+    max_range: 40.0
+
+    # --- Default ICP parameters (editable in UI) ---
+    icp_max_iterations: 50
+    icp_max_correspondence_dist: 0.3
+    icp_min_correspondences: 30
+    downsample_stride: 1
+
+    # --- Sensor mounting (base_link 기준 위치, 방향) ---
+    # 위치는 docs/sensor_mounting.md 참고
+    front_tx: 0.504                      # scan_front X position from base_link
+    front_ty: -0.254                     # scan_front Y position from base_link
+    front_yaw: -0.785398                 # scan_front yaw (rad) from base_link
+    front_upside_down: true              # scan_front 뒤집힘 (바닥면이 위)
+    rear_tx: -0.504                      # scan_rear X position from base_link
+    rear_ty: 0.254                       # scan_rear Y position from base_link
+    rear_yaw: 2.35619449                 # scan_rear yaw (rad) from base_link
+    rear_upside_down: true               # scan_rear 뒤집힘 (바닥면이 위)
+
+    # --- TF ---
+    transform_tolerance: 0.1

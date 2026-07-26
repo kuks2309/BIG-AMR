@@ -1,0 +1,18 @@
+# Exclusion zones for AMR body reflection filtering
+# Coordinates are in merged_scan frame (meters)
+# Each zone is an axis-aligned rectangle: points where
+#   x_min <= x <= x_max AND y_min <= y <= y_max
+# are removed from the merged cloud.
+#
+# Sensor positions (Big-AMR, from SEER install_info 2026-07-25):
+#   scan_front: tx=0.881,  ty=-0.578
+#   scan_rear:  tx=-0.856, ty=0.607
+# 아래 zone = 두 센서 bounding box + 10cm margin (참조 로봇 ±0.6/±0.35 에서 확대).
+# ⚠ 실제 로봇 body footprint 로 튜닝할 것: 과대 설정은 근접 실장애물을 지움(내비 위험).
+exclusion_zones:
+  # Robot body: covers area between both sensors + 10cm margin
+  - name: "robot_body"
+    x_min: -0.96
+    x_max: 0.98
+    y_min: -0.68
+    y_max: 0.71
