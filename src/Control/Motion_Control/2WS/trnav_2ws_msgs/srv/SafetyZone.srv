@@ -1,0 +1,5 @@
+float64 stop_distance
+float64 deceleration_distance
+float64 expansion_distance
+---
+bool result

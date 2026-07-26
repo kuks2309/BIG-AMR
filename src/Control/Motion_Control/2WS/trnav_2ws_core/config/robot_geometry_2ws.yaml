@@ -1,0 +1,23 @@
+/**:
+  ros__parameters:
+    # ── Platform identification ──
+    # 2WS = inline dual-steer: 앞뒤 "센터라인"에 조향-구동 휠 2개 (대각 아님).
+    # Seer 분류상 multisteer(2 모듈). QD_DIAGONAL enum 은 wheel_set_packer 의 "2륜 pack"
+    # 경로일 뿐이라 대각/inline 무관 동일 동작 → 재사용(전용 enum 불필요).
+    platform: "QD_DIAGONAL"
+
+    # ── Foil_A082 실측 휠 위치 (robot frame, meters) — inline 센터라인 ──
+    # 정본(2 source 교차확인):
+    #   1) Tools/Kinematics/chassis_kinematics.py  (Seer live_models.hpp 추출: KIN_NODE_XY)
+    #   2) src/Actuators/motor_control/config/tongyi_amr.yaml (실물 driver: module_x/module_y)
+    # W1 = Front(앞), W2 = Rear(뒤). 둘 다 y ≈ 0 (센터라인) — 대각(Carrier AGV) 아님.
+    w1_x: 0.6039      # m  Front(앞)  (motor_control node2 = +0.6039)
+    w1_y: -0.0014     # m  (센터라인)
+    w2_x: -0.5961     # m  Rear(뒤)   (motor_control node1 = -0.5961)
+    w2_y: -0.0014     # m  (센터라인)
+    # wheelbase = 0.6039 + 0.5961 = 1.200 m  (tongyi_amr.yaml track_width: 1.2)
+
+    wheel_radius: 0.125   # m  (chassis_kinematics r=0.125, driver_node WHEEL_RADIUS=0.125)
+
+    # ── Walk motor gear ratio (RPM feedback display only) ──
+    gear_walk: 32.0       # reduction=32 (chassis_kinematics M_S_PER_UNIT 주석)

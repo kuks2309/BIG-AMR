@@ -1,0 +1,12 @@
+float32[] warning_point1 
+float32[] warning_point2
+float32[] warning_point3
+float32[] warning_point4
+float32[] warning_point5
+float32[] warning_point6
+float32[] stop_point1 
+float32[] stop_point2
+float32[] stop_point3
+float32[] stop_point4
+float32[] stop_point5
+float32[] stop_point6

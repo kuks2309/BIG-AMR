@@ -1,0 +1,362 @@
+cmake_minimum_required(VERSION 3.8)
+project(trnav_2ws_action_server)
+
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
+endif()
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+# ── Dependencies ──
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(trnav_2ws_interfaces REQUIRED)
+find_package(trnav_2ws_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(trnav_2ws_core REQUIRED)
+find_package(trnav_2ws_motion REQUIRED)
+find_package(trnav_2ws_kinematics REQUIRED)
+
+# ── Spin pilot node ──
+add_executable(amr_spin_node
+  src/spin/spin_main.cpp
+  src/spin/spin_action_server.cpp
+)
+
+target_include_directories(amr_spin_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(amr_spin_node
+  rclcpp
+  rclcpp_action
+  trnav_2ws_interfaces
+  trnav_2ws_msgs
+  sensor_msgs
+  std_msgs
+  tf2
+  trnav_2ws_core
+  trnav_2ws_motion
+)
+
+target_link_libraries(amr_spin_node
+  trnav_2ws_kinematics::qd_inverse_kinematics
+  trnav_2ws_core::motion_profile
+  trnav_2ws_motion::qd_wheel_set_packer
+)
+
+# ── Translate Forward pilot node (BICYCLE 고정, forward direction only) ──
+add_executable(amr_translate_forward_node
+  src/translate_forward/translate_forward_main.cpp
+  src/translate_forward/translate_forward_action_server.cpp
+)
+
+target_include_directories(amr_translate_forward_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(amr_translate_forward_node
+  rclcpp
+  rclcpp_action
+  trnav_2ws_interfaces
+  trnav_2ws_msgs
+  sensor_msgs
+  std_msgs
+  geometry_msgs
+  nav_msgs
+  tf2
+  tf2_ros
+  trnav_2ws_core
+  trnav_2ws_motion
+)
+
+target_link_libraries(amr_translate_forward_node
+  trnav_2ws_kinematics::qd_inverse_kinematics
+  trnav_2ws_core::motion_profile
+  trnav_2ws_motion::qd_wheel_set_packer
+  trnav_2ws_kinematics::qd_bicycle_model
+  trnav_2ws_motion::qd_path_controller
+  trnav_2ws_core::transient_guard
+  trnav_2ws_core::localization_monitor
+)
+
+# ── Translate Reverse pilot node (BICYCLE 고정, reverse direction) ──
+add_executable(amr_translate_reverse_node
+  src/translate_reverse/translate_reverse_main.cpp
+  src/translate_reverse/translate_reverse_action_server.cpp
+)
+
+target_include_directories(amr_translate_reverse_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(amr_translate_reverse_node
+  rclcpp
+  rclcpp_action
+  trnav_2ws_interfaces
+  trnav_2ws_msgs
+  sensor_msgs
+  std_msgs
+  geometry_msgs
+  nav_msgs
+  tf2
+  tf2_ros
+  trnav_2ws_core
+  trnav_2ws_motion
+)
+
+target_link_libraries(amr_translate_reverse_node
+  trnav_2ws_kinematics::qd_inverse_kinematics
+  trnav_2ws_core::motion_profile
+  trnav_2ws_motion::qd_wheel_set_packer
+  trnav_2ws_kinematics::qd_bicycle_model
+  trnav_2ws_motion::qd_path_controller
+  trnav_2ws_core::transient_guard
+  trnav_2ws_core::localization_monitor
+)
+
+# ── CrabLinear pilot node (target_yaw 능동 유지 + start↔end 직선 closed-loop 추종, 2026-05-21) ──
+#   기존 crab (open-loop integration) 폐기, 동일 source_id=4 슬롯 재사용.
+add_executable(amr_crab_linear_node
+  src/crab_linear/crab_linear_main.cpp
+  src/crab_linear/crab_linear_action_server.cpp
+)
+
+target_include_directories(amr_crab_linear_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(amr_crab_linear_node
+  rclcpp
+  rclcpp_action
+  trnav_2ws_interfaces
+  trnav_2ws_msgs
+  sensor_msgs
+  std_msgs
+  geometry_msgs
+  nav_msgs
+  tf2
+  tf2_ros
+  trnav_2ws_core
+  trnav_2ws_motion
+)
+
+target_link_libraries(amr_crab_linear_node
+  trnav_2ws_kinematics::qd_inverse_kinematics
+  trnav_2ws_kinematics::qd_crab_inverse_kinematics
+  trnav_2ws_core::motion_profile
+  trnav_2ws_motion::qd_wheel_set_packer
+  trnav_2ws_motion::qd_path_controller
+  trnav_2ws_core::transient_guard
+  trnav_2ws_core::localization_monitor
+)
+
+# ── Turn pilot node (R-turn arc motion, T-Robot ROS2 원본 그대로 이식 2026-04-28) ──
+add_executable(amr_turn_node
+  src/turn/turn_main.cpp
+  src/turn/turn_action_server.cpp
+)
+
+target_include_directories(amr_turn_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(amr_turn_node
+  rclcpp
+  rclcpp_action
+  trnav_2ws_interfaces
+  trnav_2ws_msgs
+  sensor_msgs
+  std_msgs
+  tf2
+  trnav_2ws_core
+  trnav_2ws_motion
+)
+
+target_link_libraries(amr_turn_node
+  trnav_2ws_kinematics::qd_inverse_kinematics
+  trnav_2ws_core::motion_profile
+  trnav_2ws_motion::qd_wheel_set_packer
+)
+
+# ── YawControl pilot node (ROS1 개념 + bicycle + 거리 종료, 신규 설계 2026-04-28) ──
+add_executable(amr_yaw_control_node
+  src/yaw_control/yaw_control_main.cpp
+  src/yaw_control/yaw_control_action_server.cpp
+)
+
+target_include_directories(amr_yaw_control_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(amr_yaw_control_node
+  rclcpp
+  rclcpp_action
+  trnav_2ws_interfaces
+  trnav_2ws_msgs
+  sensor_msgs
+  std_msgs
+  geometry_msgs
+  nav_msgs
+  tf2
+  tf2_ros
+  trnav_2ws_core
+  trnav_2ws_motion
+)
+
+target_link_libraries(amr_yaw_control_node
+  trnav_2ws_kinematics::qd_inverse_kinematics
+  trnav_2ws_core::motion_profile
+  trnav_2ws_motion::qd_wheel_set_packer
+  trnav_2ws_kinematics::qd_bicycle_model
+  trnav_2ws_core::transient_guard
+  trnav_2ws_core::localization_monitor
+)
+
+# ── MPC pilot node (nav_msgs/Path 다중 waypoint, kinematic bicycle NLopt SLSQP, 2026-05-28) ──
+add_executable(amr_mpc_node
+  src/mpc/mpc_main.cpp
+  src/mpc/mpc_action_server.cpp
+)
+
+target_include_directories(amr_mpc_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(amr_mpc_node
+  rclcpp
+  rclcpp_action
+  trnav_2ws_interfaces
+  trnav_2ws_msgs
+  sensor_msgs
+  std_msgs
+  geometry_msgs
+  nav_msgs
+  tf2
+  tf2_ros
+  trnav_2ws_core
+  trnav_2ws_motion
+)
+
+target_link_libraries(amr_mpc_node
+  trnav_2ws_kinematics::qd_inverse_kinematics
+  trnav_2ws_core::motion_profile
+  trnav_2ws_motion::qd_wheel_set_packer
+  trnav_2ws_kinematics::qd_bicycle_model
+  trnav_2ws_motion::qd_mpc_controller
+  trnav_2ws_core::transient_guard
+  trnav_2ws_core::localization_monitor
+)
+
+# ── YawControlReverse pilot node (yaw_control 의 reverse 분리, 2026-04-28) ──
+#   vx_max magnitude(>0) + 내부 부호 반전. effective_yaw 보정 미적용.
+add_executable(amr_yaw_control_reverse_node
+  src/yaw_control_reverse/yaw_control_reverse_main.cpp
+  src/yaw_control_reverse/yaw_control_reverse_action_server.cpp
+)
+
+target_include_directories(amr_yaw_control_reverse_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(amr_yaw_control_reverse_node
+  rclcpp
+  rclcpp_action
+  trnav_2ws_interfaces
+  trnav_2ws_msgs
+  sensor_msgs
+  std_msgs
+  geometry_msgs
+  nav_msgs
+  tf2
+  tf2_ros
+  trnav_2ws_core
+  trnav_2ws_motion
+)
+
+target_link_libraries(amr_yaw_control_reverse_node
+  trnav_2ws_kinematics::qd_inverse_kinematics
+  trnav_2ws_core::motion_profile
+  trnav_2ws_motion::qd_wheel_set_packer
+  trnav_2ws_kinematics::qd_bicycle_model
+  trnav_2ws_core::transient_guard
+  trnav_2ws_core::localization_monitor
+)
+
+# ── MPC Reverse pilot node (2026-05-28) ──
+#   effective_yaw = robot_yaw + π 보정 → MpcController 사용
+#   wheel 출력 × -1. translate_reverse 패턴 준용. mux source_id=9.
+add_executable(amr_mpc_reverse_node
+  src/mpc_reverse/mpc_reverse_main.cpp
+  src/mpc_reverse/mpc_reverse_action_server.cpp
+)
+
+target_include_directories(amr_mpc_reverse_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(amr_mpc_reverse_node
+  rclcpp
+  rclcpp_action
+  trnav_2ws_interfaces
+  trnav_2ws_msgs
+  sensor_msgs
+  std_msgs
+  geometry_msgs
+  nav_msgs
+  tf2
+  tf2_ros
+  trnav_2ws_core
+  trnav_2ws_motion
+)
+
+target_link_libraries(amr_mpc_reverse_node
+  trnav_2ws_kinematics::qd_inverse_kinematics
+  trnav_2ws_core::motion_profile
+  trnav_2ws_motion::qd_wheel_set_packer
+  trnav_2ws_kinematics::qd_bicycle_model
+  trnav_2ws_motion::qd_mpc_controller
+  trnav_2ws_core::transient_guard
+  trnav_2ws_core::localization_monitor
+)
+
+# ── Install ──
+install(TARGETS
+  amr_spin_node
+  amr_translate_forward_node
+  amr_translate_reverse_node
+  amr_crab_linear_node
+  amr_turn_node
+  amr_yaw_control_node
+  amr_yaw_control_reverse_node
+  amr_mpc_node
+  amr_mpc_reverse_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY launch config
+  DESTINATION share/${PROJECT_NAME}
+)
+
+install(DIRECTORY include/
+  DESTINATION include
+)
+
+ament_package()

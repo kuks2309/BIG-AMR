@@ -1,0 +1,30 @@
+/trnav_turn_node:
+  ros__parameters:
+    # ── Platform (trnav_2ws_core::loadGeometry) ──
+    platform: "QD_DIAGONAL"
+
+    # ── 로봇 기하 (Carrier_AGV_기구LAYOUT Rev.1.3) ──
+    body_length: 1.1974       # m (1197.4 mm)
+    body_width: 0.648         # m (648 mm)
+    w1_x: 0.330               # m (+330 mm, 전방좌측)
+    w1_y: 0.135               # m (+135 mm, 도면 기준)
+    w2_x: -0.330              # m (-330 mm, 후방우측)
+    w2_y: -0.135              # m (-135 mm, 도면 기준)
+    wheel_radius: 0.080       # m (Ø160 mm)
+    steer_limit_deg: 90.0     # deg (조향 플립 기준)
+
+    # ── 감속비 (motors_canopen.hpp 확인값, Feedback RPM 계산용) ──
+    gear_walk: 20.0           # Walk 모터 (하드웨어 실측)
+
+    # ── 제어 파라미터 ──
+    control_rate_hz: 20.0     # 제어/피드백 주기 (Hz)
+    steer_tolerance_deg: 1.0  # 조향 도달 임계값 (deg)
+    steer_timeout_sec: 5.0    # Phase 0/4 타임아웃 (sec)
+
+    # ── Turn precision parameters ──
+    imu_deadband_deg: 0.05              # IMU noise deadband (deg)
+    min_speed_dps: 2.0                  # Decel min speed clamp (deg/s)
+    fine_correction_threshold_deg: 0.3  # Fine correction entry threshold (deg)
+    fine_correction_speed_dps: 3.0      # Fine correction angular speed (deg/s)
+    fine_correction_timeout_sec: 3.0    # Fine correction timeout (sec)
+    settling_delay_ms: 200              # Settling delay between Phase 3 and fine correction (ms)
