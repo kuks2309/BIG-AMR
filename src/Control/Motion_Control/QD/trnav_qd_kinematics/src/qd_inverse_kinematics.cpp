@@ -52,7 +52,13 @@ WheelOutput QdDualSteerIK::computeWheel(double vx, double vy) const
     double angle = std::atan2(vy, vx);
     int direction = 1; // FWD by default (same as _make_free: direction=1)
 
-    // ±90° normalization
+    // ±90° normalization — 의도: 유일해(canonical) 확정. 한 바퀴 속도벡터는 항상 등가 2해
+    // (θ,+v) ≡ (θ∓180°,−v) 를 갖는데, [-90°,+90°](반원, 180° 폭)로 정규화하면 방향↔각도가
+    // 1:1(전단사)이 되어 정확히 한 해만 남고 항상 최소 조향각을 고른다. atan2 분기·입력 이력에
+    // 무관한 결정론적 출력 → 상위 heading/CTE 폐루프가 요구하는 연속·유일 조향 목표 보장.
+    // Seer(±140°, chassis_kinematics.py:64)는 접기범위 280°>반원이라 90~140°에서 2해가 공존(비유일).
+    // Big-AMR 조향 한계 > 90° 이므로 ±90° 정규화는 항상 물리범위 내(한계초과 위험 0).
+    // 상세: docs/adr/2026-07-26-qd-ik-pm90-unique-solution.md
     double steer = normalizeAngle(angle, direction);
 
     // RPM for feedback display
