@@ -1,0 +1,7 @@
+# IMU sensor (iAHRS) - Silicon Labs CP2102 USB to UART Bridge (VID:10c4 PID:ea60)
+# Creates a stable /dev/imu symlink regardless of ttyUSB enumeration order.
+# 주의: CP210x 는 기본 serial 이 "0001" 인 경우가 많다. 시스템에 CP210x 기반
+#       장치가 2개 이상이면 serial 로는 구분이 안 되므로 KERNELS(포트 경로)나
+#       고유 serial 재기입으로 규칙을 분리할 것.
+# 설치: sudo cp 99-imu.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="0001", SYMLINK+="imu", GROUP="dialout", MODE="0660"
