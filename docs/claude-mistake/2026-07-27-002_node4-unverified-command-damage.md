@@ -6,6 +6,8 @@ status: open
 reflected_assets:
   - docs/claude-mistake/2026-07-27-002_node4-unverified-command-damage.md (하드웨어 지령 검증 원칙)
   - .claude memory biguamr-motor-node4-sign-crab (실측 부호·crab 정합)
+  - Tool/amr_test_gui/amr_test_gui/ramp.py (2026-07-27 신설 — GUI 경로 한정 강제 인터록, 부분 충족)
+  - Tool/amr_test_gui/test/test_ramp.py (급점프·범위이탈·FAULT 래치 회귀 16건)
 ---
 
 # 2026-07-27 18:30 (KST) — 검증 안 된 조향지령으로 node4 물리 손상 + 세션 반복 추측
@@ -48,6 +50,14 @@ advisory였고, **하드웨어를 실제 작동시키는 지령**에 대해 "실
 - (지식) 메모리 `biguamr-motor-node4-sign-crab` 신설 — 실측 확정: STEER_HOME=[7871815,7840086],
   홈에서 단계 램프면 ±90° 둘 다 정상, node4 137° 갇힘은 급점프/범위이탈이 원인,
   crab = 조향 90° + 구동부호로 좌/우(양수+90°=왼쪽, IMU 실증), `kin_steer_sign` 단정 금지.
-- (강제 gap) "하드웨어 지령 전 정본대조·램프 강제" hook 미설치 — 후속 과제.
+- (부분 충족, 2026-07-27) `Tool/amr_test_gui/amr_test_gui/ramp.py` `SteerRamp` 신설 —
+  위 ①~④ 절차를 **코드로 강제**한다: ±90° 하드 클램프(범위이탈 지령 생성 불가) · ≤30° 단계 전진 ·
+  단계별 실측 추종 확인 후에만 다음 단계 · 기한 내 미추종 시 FAULT 래치(지령 홈 0° 강제·구동 금지,
+  해제는 운전자 명시 `reset()`). 램프 입력 실측은 조향축 중 **최악 편차**를 쓰므로 한 축만 뒤처져도
+  전진하지 않는다. 회귀 테스트 `test_ramp.py` 16건이 이 속성들을 고정한다(137° 지령을 넣어도
+  지령이 90°를 못 넘음을 검증).
+- (잔존 gap) **GUI 경로에 한정된 강제다.** 필드 스크립트(`Tool/docking_field_kit/*.py`)나 임시
+  스크립트로 0x607A 를 직접 송신하면 램프를 우회한다. 저장소 전역 강제(hook 또는 공용 지령 래퍼)는
+  여전히 미설치 — 이 때문에 `status: open` 유지.
 
 **owner**: claude
