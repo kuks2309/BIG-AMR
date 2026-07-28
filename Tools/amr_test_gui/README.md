@@ -11,6 +11,9 @@ PC(Personal Computer)가 CAN relay(판다) 경유로 Tongyi 4축 AMR(Autonomous 
 >
 > 화면에 소프트 E-STOP 버튼을 두지 않는다 — **하드웨어 E-STOP 이 권위**다(사용자 결정).
 
+> **다음 작업**: 리팩터링 계획이 [HANDOFF-2026-07-28-refactor.md](HANDOFF-2026-07-28-refactor.md)
+> 에 이관돼 있다 — 목표 구조·이관 순서·**바꾸면 안 되는 값 목록**·함정.
+
 ADR: [2026-07-28-old-gui-removal.md](../../docs/adr/2026-07-28-old-gui-removal.md)
 (구 패키지 폐기·대체표) · 원 ADR [2026-07-27-amr-test-gui.md](../../docs/adr/2026-07-27-amr-test-gui.md)
 (**구현 결정은 Superseded**, 안전 원칙만 유효)
@@ -18,8 +21,12 @@ ADR: [2026-07-28-old-gui-removal.md](../../docs/adr/2026-07-28-old-gui-removal.m
 ## 실행
 
 ```bash
-DISPLAY=:0 python3 gui.py
+can_relay              # 어느 디렉터리에서든 (~/.bashrc 등록, 2026-07-28)
+DISPLAY=:0 python3 gui.py   # 직접 실행
 ```
+
+`can_relay` 는 `~/.bashrc` 의 alias 다. `DISPLAY` 가 비어 있으면 `:0` 을 쓴다.
+이름은 사용자 지정이며, 실행 대상은 CAN relay 도구가 아니라 이 GUI 다.
 
 순서: **판다 USB 연결 → 제어권 획득 → 조그/슬라이더**.
 제어권을 잡기 전에는 조향 지령이 거부된다(로그에 사유 표시).
@@ -48,7 +55,9 @@ DISPLAY=:0 python3 gui.py
 - **단계 램프는 쓰지 않는다** — 시스템의 방식이 아니다. 실기 캡처에서 Seer 는 최종 절대 목표를
   반복 송신할 뿐이고 이동 프로파일은 드라이브가 수행한다
   ([2026-07-28-003](../../docs/claude-mistake/2026-07-28-003_invented-steer-ramp-mechanism.md)).
-- **슬라이더 지령은 손을 뗄 때 1회** — 끄는 동안 매 틱 보내면 버스가 지령으로 찬다.
+- **슬라이더는 명령 입력이다** — 실측을 되쓰지 않는다(되먹이면 눈금이 튕겨 먹통이 된다).
+  마우스로 끄는 동안은 보내지 않고 놓을 때 1회, 키보드·홈 클릭은 바뀌는 즉시 1회.
+  목표와 실측은 슬라이더 옆 라벨이 `+30°  (실측 +12.3°)` 로 나란히 보여준다.
 - **바퀴 그림 출처 우선순위** — ① 제어권 보유 → 판다 직독 ② 제어권 없음 + Seer 폴링 생존 →
   Seer 1040 ③ 실측 없음 → 슬라이더(미리보기). 실측이 있으면 슬라이더를 이긴다.
   ⚠ 두 축 중 한쪽만 실측이 있으면 양쪽 모두 슬라이더로 떨어진다(현재 구현의 한계).
@@ -99,8 +108,9 @@ QT_QPA_PLATFORM=offscreen python3 -m pytest test/ -q
 | [`test_gui_tables.py`](test/test_gui_tables.py) | 10 | 모터·Seer 두 표의 공용 헬퍼(형태·행 순서·포맷·`None` 처리·두 표 독립성) |
 | [`test_homing.py`](test/test_homing.py) | 13 | 호밍 SDO 프레임(서브인덱스 4 · `0x6098` 미기록 · 조향축 한정 · 순서) · 완료 판정 · 인터록 |
 | [`test_safe_release.py`](test/test_safe_release.py) | 16 | 종료 4경로의 제어권 반환 배선 |
+| [`test_slider.py`](test/test_slider.py) | 12 | 실측 되먹임 금지 · 지령 송신 조건 · 라벨 · **슬라이더 크기**(폭 ≥240 px, 1 px ≤1°) |
 
-전 76건이 하드웨어 없이 돈다. 창을 여는 테스트도 판다·CAN 을 열지 않는다.
+전 **88건**이 하드웨어 없이 돈다. 창을 여는 테스트도 판다·CAN 을 열지 않는다.
 
 ⚠ **실기 상호작용(실제 CAN 왕복·Seer 응답)은 여전히 자동 검증이 없다**(debt-011 잔여).
 

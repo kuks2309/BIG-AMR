@@ -34,6 +34,18 @@ SEER_GUI = "/home/nvidia/T-Robot_seer_gui"
 VEL_PER_MMPS, VEL_MAX_UNITS = 24.447, 4889   # 구동 raw 환산, 상한(≈0.2 m/s)
 STEER_LIMIT_DEG = 90.0              # 조향 지령 허용 범위 ±90°
 
+# SDO abort 코드 — 드라이브가 쓰기를 거부한 사유. 진단 전용이며 동작에 관여하지 않는다.
+_ABORT = {
+    0x05040001: "명령 지정자 불량",
+    0x06010002: "읽기 전용 객체에 쓰기",
+    0x06020000: "객체 없음",
+    0x06090011: "서브인덱스 없음",
+    0x06090030: "값 범위 초과",
+    0x06070010: "데이터 길이 불일치",
+    0x08000020: "저장 불가",
+    0x08000022: "현재 장치 상태에서 전송 불가",
+}
+
 
 # ── 순수 환산 (Qt·하드웨어 무의존 — 회귀 테스트가 여기를 고정한다) ──────────
 def steer_counts(node: int, deg: float):
@@ -195,6 +207,7 @@ class MainWindow(QWidget):
         self._meas_deg = {3: None, 4: None}
         self._status = {}               # node -> 0x6041 상태워드 (호밍 완료 판정용)
         self._homing = False
+        self._aborts = set()   # 이미 보고한 SDO 거부(같은 것 반복 방지)
         self._seer_deg: dict = {}       # Seer 1040 이 보는 조향각(제어권 없을 때 그림 출처)
         self.setWindowTitle("Tongyi 4축 AMR 구동 테스트 GUI")
         self.resize(1200, 800)
@@ -359,43 +372,50 @@ class MainWindow(QWidget):
         슬라이더 range 자체가 ±90° 라 범위 밖은 만들 수 없다.
         """
         g = QGroupBox("앞뒤 바퀴 조정")
-        grid = QGridLayout(g)
-        grid.setSpacing(6)
+        v = QVBoxLayout(g)
+        v.setSpacing(2)
         self.sld_front = QSlider(Qt.Horizontal)
         self.sld_rear = QSlider(Qt.Horizontal)
-        self.lab_front = QLabel("0°")
-        self.lab_rear = QLabel("0°")
-        for sld, lab in ((self.sld_front, self.lab_front), (self.sld_rear, self.lab_rear)):
+        self.lab_front = QLabel("+0°")
+        self.lab_rear = QLabel("+0°")
+
+        # **슬라이더는 자기 줄을 통째로 쓴다.** 이름·값과 한 줄에 나란히 놓았더니 폭이
+        # 78 px 밖에 남지 않아(±90° = 181 단계) 1 px 이 2.3° 였고 핸들을 잡을 수 없었다.
+        for node, name, sld, lab in ((3, "앞바퀴 (N3)", self.sld_front, self.lab_front),
+                                     (4, "뒷바퀴 (N4)", self.sld_rear, self.lab_rear)):
+            head = QHBoxLayout()
+            head.addWidget(QLabel(name))
+            head.addStretch(1)
+            lab.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            head.addWidget(lab)
+            v.addLayout(head)
+
             sld.setRange(-90, 90)
             sld.setValue(0)
             sld.setTickInterval(30)
             sld.setTickPosition(QSlider.TicksBelow)
-            sld.valueChanged.connect(self._on_wheel_adj)
-            lab.setMinimumWidth(46)
-            lab.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        # 지령은 손을 뗀 순간 1회 — 끄는 동안 매 틱 보내면 버스가 지령으로 찬다.
-        self.sld_front.sliderReleased.connect(lambda: self._on_wheel_released(3))
-        self.sld_rear.sliderReleased.connect(lambda: self._on_wheel_released(4))
-        for r, (name, sld, lab) in enumerate((("앞바퀴 (N3)", self.sld_front, self.lab_front),
-                                              ("뒷바퀴 (N4)", self.sld_rear, self.lab_rear))):
-            grid.addWidget(QLabel(name), r, 0)
-            grid.addWidget(sld, r, 1)
-            grid.addWidget(lab, r, 2)
-        grid.setColumnStretch(1, 1)
+            sld.setMinimumHeight(30)          # 잡기 쉬운 높이
+            sld.setPageStep(5)                # 홈을 클릭하면 5°씩
+            sld.valueChanged.connect(lambda _val, n=node: self._on_wheel_changed(n))
+            sld.sliderReleased.connect(lambda n=node: self._send_steer(n))
+            v.addWidget(sld)
+            v.addSpacing(4)
         return g
 
-    def _on_wheel_adj(self):
-        """슬라이더를 끄는 동안은 라벨만 갱신(지령은 손을 뗄 때 1회)."""
-        f, r = self.sld_front.value(), self.sld_rear.value()
-        self.lab_front.setText(f"{f:+d}°")
-        self.lab_rear.setText(f"{r:+d}°")
-        self._redraw_wheel()              # 실측이 있으면 그쪽이 이긴다
+    def _on_wheel_changed(self, node: int):
+        """슬라이더 값이 바뀌었다.
 
-    def _on_wheel_released(self, node: int):
-        """슬라이더에서 손을 뗀 순간 그 축에만 조향 지령을 보낸다.
-
-        끄는 동안 매 틱 보내면 버스가 지령으로 가득 차므로 released 에서 1 회만 보낸다.
+        마우스로 **끄는 중**이면 아직 보내지 않는다 — 매 틱 보내면 버스가 지령으로 찬다.
+        손을 떼면 `sliderReleased` 가 1 회 보낸다. 반대로 키보드·홈 클릭처럼 한 번에
+        값이 뛰는 조작은 `sliderReleased` 가 오지 않으므로 **여기서** 보낸다.
         """
+        self._redraw_wheel()
+        sld = self.sld_front if node == 3 else self.sld_rear
+        if not sld.isSliderDown():
+            self._send_steer(node)
+
+    def _send_steer(self, node: int):
+        """그 축에만 조향 지령을 보낸다."""
         if not self._run:
             self.log("조향 지령 불가 — 제어권을 먼저 획득하세요")
             return
@@ -596,45 +616,30 @@ class MainWindow(QWidget):
                 self._seer_deg[node] = deg
         self._redraw_wheel()
 
+    def _meas_angle(self, node: int):
+        """그 축의 실측 조향각. 제어권이 있으면 판다 직독, 없으면 Seer. 없으면 None."""
+        return (self._meas_deg if self._run else self._seer_deg).get(node)
+
     def _redraw_wheel(self):
-        """바퀴 그림의 출처를 우선순위로 고른다 — 실측이 있으면 슬라이더를 이긴다.
+        """바퀴 그림을 실측으로 그린다. 실측이 없을 때만 슬라이더 값을 미리보기로 쓴다.
 
-        ① 제어권 보유 → 판다 직접 read(`_meas_deg`).
-        ② 제어권 없음 + Seer 폴링 생존 → Seer 1040 position(`_seer_deg`).
-           제어권을 놓으면 조향은 Seer 가 잡으므로 그림도 그쪽 실측을 따라야 한다.
-        ③ 실측이 하나도 없을 때만 슬라이더 값(각도 확인용 미리보기).
-
-        ⚠ ②의 부호 정합은 아직 미검증이다. 두 축 모두 0° 인 상태에서만 대조했으므로
-          (판다 +0.0 / Seer +0.0) Seer position 의 부호가 판다 실측과 같은 방향인지
-          확인되지 않았다. Seer 로 한쪽 조향을 틀어 두 표의 부호를 대조할 것.
+        **슬라이더에는 절대 되쓰지 않는다.** 슬라이더는 사용자가 목표를 넣는 *명령* 입력이라
+        실측을 되먹이면 방금 넣은 목표가 지워진다(실제로 그렇게 만들어 슬라이더가 먹통이 됐다).
+        목표와 실측의 차이는 슬라이더 옆 라벨이 나란히 보여준다.
         """
-        src = self._meas_deg if self._run else self._seer_deg
-        f, r = src.get(3), src.get(4)
+        f, r = self._meas_angle(3), self._meas_angle(4)
         if f is None or r is None:
-            f, r = self.sld_front.value(), self.sld_rear.value()   # ③ 미리보기
-        else:
-            self._sync_sliders(f, r)                               # ①② 실측 → 눈금 추종
+            f, r = self.sld_front.value(), self.sld_rear.value()   # 실측 없음 → 미리보기
         self.wheel.set_angles(f, r)
+        self._update_wheel_labels()
 
-    def _sync_sliders(self, front: float, rear: float):
-        """실측 각도로 슬라이더 눈금을 맞춘다 — 눈금이 실제와 다른 값을 가리키지 않게.
-
-        · 끄는 중(`isSliderDown`)인 축은 건드리지 않는다(사용자 조작을 뺏지 않는다).
-        · `blockSignals` 로 `valueChanged` 를 막아 재진입을 끊고, 라벨은 직접 갱신한다.
-          막지 않으면 setValue → _on_wheel_adj → _redraw_wheel 로 되돌아온다.
-        · `sliderReleased` 는 발생하지 않으므로 이 동기화가 지령을 유발하지는 않는다.
-        """
-        for deg, sld, lab in ((front, self.sld_front, self.lab_front),
-                              (rear, self.sld_rear, self.lab_rear)):
-            if sld.isSliderDown():
-                continue
-            iv = int(round(max(-STEER_LIMIT_DEG, min(STEER_LIMIT_DEG, deg))))
-            if iv == sld.value():
-                continue
-            sld.blockSignals(True)
-            sld.setValue(iv)
-            sld.blockSignals(False)
-            lab.setText(f"{iv:+d}°")
+    def _update_wheel_labels(self):
+        """`목표°  (실측 …°)` — 슬라이더를 건드리지 않고 둘을 나란히 보여준다."""
+        for node, sld, lab in ((3, self.sld_front, self.lab_front),
+                               (4, self.sld_rear, self.lab_rear)):
+            meas = self._meas_angle(node)
+            lab.setText(f"{sld.value():+d}°" +
+                        ("" if meas is None else f"  (실측 {meas:+.1f}°)"))
 
     def _build_wheel(self) -> QGroupBox:
         g = QGroupBox("차량 바퀴 상태")
@@ -722,7 +727,9 @@ class MainWindow(QWidget):
 
     # ── 동작 ────────────────────────────────────────────────────────────
     def log(self, msg: str):
-        self.txt_log.appendPlainText(f"{time.strftime('%H:%M:%S')}  {msg}")
+        line = f"{time.strftime('%H:%M:%S')}  {msg}"
+        self.txt_log.appendPlainText(line)
+        print(f"[gui] {line}", flush=True)      # 창 밖(로그 파일)에서도 보이도록
 
     def scan(self):
         """연결 가능한 판다 열거 — USB 를 열지 않는다(목록만).
@@ -1015,10 +1022,19 @@ class MainWindow(QWidget):
                         continue
                     node = addr - 0x580
                     idx = dat[1] | (dat[2] << 8)
-                    if dat[0] == 0x43:                       # 4 바이트 응답
+                    if dat[0] == 0x43:                       # 4 바이트 읽기 응답
                         val = int.from_bytes(dat[4:8], "little", signed=True)
-                    elif dat[0] == 0x4B:                     # 2 바이트 응답
+                    elif dat[0] == 0x4B:                     # 2 바이트 읽기 응답
                         val = int.from_bytes(dat[4:6], "little", signed=True)
+                    elif dat[0] == 0x80:                     # SDO abort — 드라이브가 거부했다
+                        code = int.from_bytes(dat[4:8], "little")
+                        key = (node, idx, dat[3], code)
+                        if key not in self._aborts:          # 같은 거부는 1회만 (버스가 반복한다)
+                            self._aborts.add(key)
+                            self.log_line.emit(
+                                f"SDO 거부 N{node} 0x{idx:04X}:{dat[3]:02X} "
+                                f"→ abort 0x{code:08X} ({_ABORT.get(code, '사유 미상')})")
+                        continue
                     else:
                         continue
                     out.setdefault(node, {})[idx] = val

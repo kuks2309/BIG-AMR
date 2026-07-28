@@ -22,6 +22,7 @@ _jog_run
 log
 _loop
 main
+_meas_angle
 _motor_table
 _on_clear_fatal
 _on_motor_data
@@ -30,8 +31,7 @@ _on_seer_status
 _on_stop_signal
 _on_take
 _on_usb
-_on_wheel_adj
-_on_wheel_released
+_on_wheel_changed
 paintEvent
 _panda_class
 _px
@@ -41,14 +41,15 @@ scan
 _sdo_write
 seer_log
 _seer_loop
+_send_steer
 _set_alarm_color
 set_angles
 set_motor_values
 _steer_axis
 steer_counts
 _steer_to
-_sync_sliders
 _toggle
+_update_wheel_labels
 _wait_homed
 _wait_settle
 work
