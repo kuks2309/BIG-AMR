@@ -10,6 +10,7 @@ CAN 도 판다도 열리지 않는다.
   · 트리거는 서브인덱스 4 다(`0x60FB:04`). 서브인덱스가 0 으로 나가면 다른 객체가 된다.
   · 완료 판정은 bit15 의 **0→1 전이**다. 1 만 보면 이미 호밍된 축을 즉시 완료로 오독한다.
   · **완료 시점에 바퀴는 원점(리밋)에 있다** — 이어서 조향 0° 복귀를 우리가 지령한다.
+  · 탐색 중에도 `0x6064` 는 실측을 보고한다 — 각도 표시를 끄지 않고 **정확한 0 만** 거른다.
     Seer 는 `0x607A` 를 끊김 없이 스트리밍해 위치 루프가 알아서 되돌리지만, 우리 GUI 는
     유휴 시 상태 읽기만 하므로(`_loop` 읽기 전용) 복귀를 보내지 않으면 리밋에 얹힌 채 남는다.
 """
@@ -195,15 +196,35 @@ def test_homing_refused_without_authority(win):
     assert win.can.homing is False
 
 
-def test_position_is_not_trusted_during_limit_search(win):
-    """리밋 탐색 중 0x6064 는 0 을 돌려준다 — 그대로 쓰면 바퀴 그림이 0° 로 튄다."""
-    win.can._pos_frozen = True
+def test_zero_sample_is_discarded_as_glitch(win):
+    """정확히 0 인 `0x6064` 표본은 버린다 — 그대로 쓰면 바퀴 그림이 −137° 로 튄다."""
     win.can._meas_deg = {3: None, 4: None}
     win._on_motor_data({3: {0x6064: 0}, 4: {0x6064: 0}})
     assert win.can._meas_deg == {3: None, 4: None}
-    win.can._pos_frozen = False
     win._on_motor_data({3: {0x6064: tongyi_can.STEER_HOME[3]}})
     assert win.can._meas_deg[3] == pytest.approx(0.0)
+
+
+def test_real_angle_is_shown_even_while_homing(win):
+    """**호밍 중에도 실측 각도가 실시간 반영돼야 한다** — 표시를 통째로 끄지 않는다.
+
+    2026-07-29 실기: 탐색 중 `0x6064` 는 실제 엔코더 값을 계속 보고하고 정확한 0 은
+    간헐적으로만 섞인다. 전에는 호밍 구간 전체를 동결해 바퀴 그림이 멈춰 있었다
+    (claude-mistake 2026-07-29-004).
+    """
+    win.can.homing = True
+    win.can._meas_deg = {3: None, 4: None}
+    win._on_motor_data({3: {0x6064: tongyi_can.STEER_HOME[3] - 45 * 57344}})
+    assert win.can._meas_deg[3] == pytest.approx(-45.0)
+
+
+def test_glitch_does_not_erase_the_last_real_angle(win):
+    """간헐 0 이 섞여 들어와도 직전 실측이 지워지면 안 된다."""
+    win.can.homing = True
+    win._on_motor_data({3: {0x6064: tongyi_can.STEER_HOME[3] + 30 * 57344}})
+    assert win.can._meas_deg[3] == pytest.approx(30.0)
+    win._on_motor_data({3: {0x6064: 0}})
+    assert win.can._meas_deg[3] == pytest.approx(30.0), "글리치가 실측을 덮어썼다"
 
 
 # ── 원점 도달 후 조향 0° 복귀 ──────────────────────────────────────────────
@@ -237,12 +258,6 @@ def test_no_return_when_origin_was_not_confirmed(win, sent):
     win.can._status = {3: BIT15, 4: BIT15}      # 시작 전부터 1 → 개시 미관측
     _run_homing(win, sent, [], settle=False)
     assert not [f for f in sent if f[1] == 0x607A], "원점 미확립인데 복귀가 나갔다"
-
-
-def test_position_readout_resumes_after_origin(win, sent):
-    """복귀 이동을 그리려면 원점 확립 직후 판독이 되살아나야 한다."""
-    _run_homing(win, sent, DONE)
-    assert win.can._pos_frozen is False
 
 
 def test_homing_method_is_still_never_written_with_return(win, sent):

@@ -27,12 +27,12 @@ jog_busy
 _jog_run
 _jog_stop
 list_pandas
-log
 _log
+log
 _loop
 main
-_meas_angle
 meas_angle
+_meas_angle
 _motor_table
 _on_clear_fatal
 _on_motor_data

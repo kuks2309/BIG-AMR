@@ -111,7 +111,6 @@ class TongyiCan:
         self._jog_th = None
         self._jog_stop = False
         self._meas_deg = {3: None, 4: None}
-        self._pos_frozen = False      # 리밋 탐색 중에는 0x6064 가 0 을 돌려준다
         self._status = {}             # node -> 0x6041 상태워드 (호밍 완료 판정용)
         self._aborts = set()          # 이미 보고한 SDO 거부(같은 것 반복 방지)
         self._log_cb = log
@@ -305,6 +304,10 @@ class TongyiCan:
         `0x6098`(homing method)은 **쓰지 않는다**. 드라이브 저장값을 그대로 쓰며,
         덮어쓰면 리셋 모드가 꺼져 호밍 자체가 동작하지 않는다.
 
+        탐색 중에도 `0x6064` 는 **실제 엔코더 값을 보고한다**(2026-07-29 실기). 그래서 이
+        구간의 각도 표시를 통째로 끄지 않는다 — 간헐적으로 섞이는 정확한 0 만 걸러낸다
+        (`decode_frames`). 바퀴 그림이 호밍 스윙을 그대로 따라간다.
+
         **복귀를 우리가 직접 지령해야 하는 이유** — 호밍이 끝나는 지점(`0x6041` bit15
         0→1)에서 바퀴는 **원점(리밋)에 있다**(실기 캡처: 완료 직후 `0x6064`=596 counts
         ≈ +0.01°, 이후 3.0 s 만에 +137.45° 직진 도달). Seer 는 `0x607A` 를 ~50 Hz 로
@@ -317,7 +320,6 @@ class TongyiCan:
             self._jog_stop = False
             self.drive(0)                        # 호밍 전 구동은 반드시 0
             self._status.clear()                 # 직전 상태워드를 완료로 오독하지 않도록
-            self._pos_frozen = True              # 탐색 중 0x6064 는 실위치가 아니다
             for n in STEER_NODES:
                 self.sdo_write(n, 0x6040, 0x86, 2)                 # 축 준비
                 self.sdo_write(n, 0x6099, self.HOMING_SPEED, 4)    # 호밍 속도
@@ -327,7 +329,6 @@ class TongyiCan:
             if not ok:
                 self._log(f"호밍 미확인 — {why}")
                 return
-            self._pos_frozen = False             # 원점 확립됨 — 실위치 판독 재개
             self._log(f"원점 도달 — {why} 이어서 조향 0° 로 복귀합니다(100° 이상 회전).")
             for n in STEER_NODES:
                 self.steer_axis(n, 0.0)
@@ -339,7 +340,6 @@ class TongyiCan:
         except Exception as exc:
             self._log(f"호밍 중단: {type(exc).__name__}: {exc}")
         finally:
-            self._pos_frozen = False
             self.homing = False
             emit(self._homing_done_cb)
 
@@ -427,17 +427,29 @@ class TongyiCan:
 
         counts→도, 0.1 r/min, 0.01 A 환산이 여기 있다. 화면은 결과만 받아 그린다.
 
-        호밍의 **리밋 탐색 구간**에서 `0x6064` 는 실위치가 아니라 0 을 돌려준다 — 그대로
-        쓰면 바퀴 그림이 0° 로 튀어 실제 자세를 오해하게 만든다(`_pos_frozen`). 원점이
-        확립된 뒤(bit15 0→1)에는 판독이 되살아나므로 0° 복귀 이동은 정상적으로 그려진다.
+        **`0x6064` 가 정확히 0 인 표본은 버린다** — 실측 글리치다. 그대로 쓰면 바퀴 그림이
+        −137° 로 튀어 실제 자세를 오해하게 만든다.
+
+        근거(2026-07-29 실기, 우리 GUI 가 intercept 를 쥐고 직접 폴링):
+        호밍 중에도 `0x6064` 는 **실제 엔코더 값을 계속 보고**하고(node3 7,871,817 /
+        node4 7,840,084 대다수), 정확한 0 이 **간헐적으로** 섞인다. 그래서 호밍 구간의
+        표시를 통째로 끄지 않는다. 리밋에 실제로 있을 때의 판독도 596·543 처럼 0 이
+        아니므로, **정확한 0** 은 실위치가 아니라 sentinel 로 본다.
+
+        ⚠ 2026-07-27 캡처(`Log/homing_capture_220350.jsonl`)에서는 같은 구간 3,105/3,105
+        표본이 전부 0 이었다. 그것은 **Seer 의 폴링에 대한 응답**을 수동청취한 것이라
+        우리 폴링 경로와 조건이 다르다 — 그 성질을 우리 경로로 옮긴 것이 잘못이었다
+        (claude-mistake 2026-07-29-004). 간헐 0 의 발생원(드라이브 재기준 vs 두 마스터
+        폴링 경합)은 **미확정**이다(debt-017) — 어느 쪽이든 0 필터로 해결된다.
         """
         rows, angles = {}, {}
         for node, vals in data.items():
             deg = rpm = amp = None
             if 0x6041 in vals:
                 self._status[node] = vals[0x6041]
-            if 0x6064 in vals and node in STEER_HOME and not self._pos_frozen:
-                deg = (vals[0x6064] - STEER_HOME[node]) / COUNTS_PER_DEG
+            raw = vals.get(0x6064)
+            if raw is not None and node in STEER_HOME and raw != 0:
+                deg = (raw - STEER_HOME[node]) / COUNTS_PER_DEG
                 angles[node] = deg
                 self._meas_deg[node] = deg
             if 0x606C in vals:
