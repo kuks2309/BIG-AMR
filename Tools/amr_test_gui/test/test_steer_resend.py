@@ -26,6 +26,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tongyi_can import STEER_HOME, TongyiCan, steer_counts  # noqa: E402
 
 
+def _feed(can, **deg):
+    """실제 폴링처럼 `decode_frames` 를 거쳐 실측을 넣는다(신선도 타임스탬프 포함).
+
+    직접 `_meas_deg` 에 써 넣으면 타임스탬프가 없어 낡은 값으로 취급된다 — 그것이
+    바로 `wait_settle` 이 막아야 할 상태다.
+    """
+    can.decode_frames({int(k[1:]): {0x6064: steer_counts(int(k[1:]), v)[1]}
+                       for k, v in deg.items()})
+
+
 def _can():
     """`sdo_write` 를 가로채는 CAN 계층. 반환 `(can, 송신기록)`."""
     can = TongyiCan()
@@ -74,13 +84,16 @@ def test_each_resend_carries_the_apply_command():
 def test_lagging_axis_recovers_and_settles():
     """한 축이 뒤처져 있어도 재송신 뒤 따라오면 정착으로 판정돼야 한다."""
     can, sent = _can()
-    can._meas_deg = {3: -10.0, 4: 0.0}          # node4 만 첫 지령을 놓친 상태
 
-    def catch_up():                              # 재송신을 받고 뒤늦게 움직인다
-        time.sleep(0.25)
-        can._meas_deg[4] = -10.0
+    def poll():                                  # 폴링이 도는 상황을 흉내낸다
+        for _ in range(6):                       # node4 만 첫 지령을 놓친 상태
+            _feed(can, n3=-10.0, n4=0.0)
+            time.sleep(0.05)
+        while True:                              # 재송신을 받고 뒤늦게 따라온다
+            _feed(can, n3=-10.0, n4=-10.0)
+            time.sleep(0.05)
 
-    threading.Thread(target=catch_up, daemon=True).start()
+    threading.Thread(target=poll, daemon=True).start()
     assert can.wait_settle(-10.0, 3.0, timeout=2.0) is True
     assert _targets(sent, -10.0)[4] >= 1, "뒤처진 축에 재송신이 가지 않았다"
 
@@ -88,8 +101,16 @@ def test_lagging_axis_recovers_and_settles():
 def test_without_resend_a_lagging_axis_never_settles():
     """재송신을 끄면 결손이 영구화된다 — 이 대비가 재송신의 존재 이유다."""
     can, sent = _can()
-    can._meas_deg = {3: -10.0, 4: 0.0}
+    stop = []
+
+    def poll():
+        while not stop:
+            _feed(can, n3=-10.0, n4=0.0)         # node4 는 끝내 안 따라온다
+            time.sleep(0.05)
+
+    threading.Thread(target=poll, daemon=True).start()
     assert can.wait_settle(-10.0, 3.0, timeout=0.5, resend=False) is False
+    stop.append(1)
     assert sent == [], "resend=False 인데 지령이 나갔다"
 
 
@@ -97,8 +118,16 @@ def test_without_resend_a_lagging_axis_never_settles():
 def test_no_resend_once_already_settled():
     """이미 정착해 있으면 한 프레임도 보내지 않는다 — 유휴는 읽기 전용이다."""
     can, sent = _can()
-    can._meas_deg = {3: -10.0, 4: -10.0}
+    stop = []
+
+    def poll():
+        while not stop:
+            _feed(can, n3=-10.0, n4=-10.0)
+            time.sleep(0.02)
+
+    threading.Thread(target=poll, daemon=True).start()
     assert can.wait_settle(-10.0, 3.0, timeout=1.0) is True
+    stop.append(1)
     assert sent == [], f"정착 상태인데 {len(sent)}프레임이 나갔다"
 
 
@@ -119,3 +148,37 @@ def test_resend_uses_clamped_counts():
     for n in (3, 4):
         assert all(val == STEER_HOME[n] + 90 * 57344
                    for node, idx, val in sent if node == n and idx == 0x607A)
+
+
+# ── 신선도 게이트 (거짓 정착 방지) ─────────────────────────────────────────
+def test_stale_measurement_never_settles():
+    """지령 전 자세가 우연히 목표 근처여도 **새 표본 없이** 통과하면 안 된다.
+
+    실기(2026-07-29): 호밍 탐색 31 s 동안 `0x6064` 표본 1,310/1,312 이 0 이라 전부
+    필터되고 `_meas_deg` 가 호밍 **이전** 값(0.00°)으로 남았다. 그 상태에서 0° 복귀
+    정착을 물으니 낡은 0.00° 를 보고 즉시 통과했고 — 바퀴는 리밋(−137°)에 있었는데
+    "조향 0° 복귀 확인" 이 찍혔다.
+    """
+    can, sent = _can()
+    can._meas_deg = {3: 0.0, 4: 0.0}            # 낡은 값(타임스탬프 없음)
+    assert can.wait_settle(0.0, 3.0, timeout=0.5) is False, "낡은 실측으로 정착했다"
+
+
+def test_measurement_taken_before_the_wait_is_ignored():
+    """대기 시작 **이전**에 받은 표본은 인정하지 않는다."""
+    can, sent = _can()
+    _feed(can, n3=0.0, n4=0.0)                  # 대기 시작 전에 도착
+    time.sleep(0.05)
+    assert can.wait_settle(0.0, 3.0, timeout=0.4) is False
+
+
+def test_fresh_measurement_settles():
+    """대기 시작 이후 표본이 목표에 들면 정착한다."""
+    can, sent = _can()
+
+    def poll():
+        time.sleep(0.1)
+        _feed(can, n3=0.0, n4=0.0)
+
+    threading.Thread(target=poll, daemon=True).start()
+    assert can.wait_settle(0.0, 3.0, timeout=2.0) is True

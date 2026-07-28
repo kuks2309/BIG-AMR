@@ -111,6 +111,7 @@ class TongyiCan:
         self._jog_th = None
         self._jog_stop = False
         self._meas_deg = {3: None, 4: None}
+        self._meas_at = {3: 0.0, 4: 0.0}   # 그 축 실측이 갱신된 시각(신선도 판정용)
         self._status = {}             # node -> 0x6041 상태워드 (호밍 완료 판정용)
         self._aborts = set()          # 이미 보고한 SDO 거부(같은 것 반복 방지)
         self._log_cb = log
@@ -271,17 +272,25 @@ class TongyiCan:
         보내 이런 결손이 20 ms 만에 스스로 메워졌다. 그 성질을 **지령이 살아있는 동안**
         으로 좁혀 되살린 것이다(유휴 시에는 여전히 상태 읽기만 한다).
 
+        **낡은 실측으로는 통과하지 않는다** — 대기 시작(`t0`) 이후에 갱신된 값만 본다.
+        그러지 않으면 지령 전 자세가 우연히 목표 근처일 때 즉시 통과한다.
+
         A/B 실측(2026-07-29): 한 축에만 −10° 를 넣어 결손을 만든 뒤
         재송신 없음 → 6 s 내내 미복구 · 재송신 → 0.5 s 만에 양축 정착.
         """
         if timeout is None:
             timeout = self.SETTLE_TIMEOUT_S
         t0 = time.time()
-        next_send = 0.0
+        next_send = 1.0 / self.STEER_RESEND_HZ   # 첫 표본이 올 틈을 준 뒤 재송신 시작
         while time.time() - t0 < timeout:
             if self._jog_stop:
                 return False
-            cur = [self._meas_deg.get(n) for n in STEER_NODES]
+            # **대기 시작 이후에 들어온 표본만** 인정한다. 낡은 값을 그대로 보면 지령 전
+            # 자세가 우연히 목표 근처일 때 즉시 통과해 버린다 — 실기에서 호밍 뒤
+            # "조향 0° 복귀 확인" 이 거짓으로 난 원인이다(바퀴는 리밋에 있었다).
+            # 탐색 구간처럼 실측이 끊기는 동안에는 통과하지 않고 계속 기다린다.
+            cur = [self._meas_deg.get(n) if self._meas_at.get(n, 0.0) >= t0 else None
+                   for n in STEER_NODES]
             if all(c is not None and abs(target - c) <= tol for c in cur):
                 return True
             if resend and time.time() - t0 >= next_send:
@@ -373,37 +382,41 @@ class TongyiCan:
 
     # ── 폴링 (모터 값 읽기 전용 — 지령은 보내지 않는다) ────────────────
     def _loop(self):
-        """0x6064(위치)·0x606C(속도)·0x6078(전류)·0x6041(상태워드)를 읽어 콜백으로 낸다.
+        """상태 읽기 루프 — `0x6064`(위치)·`0x606C`(속도)·`0x6078`(전류)·`0x6041`(상태워드).
 
-        0x6041 은 화면에 띄우지 않고 호밍 완료 판정(bit15)에만 쓴다.
+        `0x6041` 은 화면에 띄우지 않고 호밍 완료 판정(bit15)에만 쓴다.
 
-        ⚠ 읽기만 한다. 0x60FF(속도지령)·0x607A(위치지령)는 보내지 않는다.
+        ⚠ 읽기만 한다. `0x60FF`(속도지령)·`0x607A`(위치지령)는 보내지 않는다.
+
+        **호밍 중에도 status 는 계속 읽는다.** 조향축(3·4)의 위치·상태워드를 빠른 주기로,
+        나머지(구동축·속도·전류)는 `SLOW_EVERY` 주기마다 섞어 읽는다. 두 가지가 다 필요하다 —
+        `0x6041` 이 끊기면 완료 판정이 서지 않고, `0x6064` 가 성기면 복귀 스윙을 놓친다
+        (탐색 구간의 `0x6064` 응답은 대부분 0 이고 실값은 드물게 섞인다).
         """
         P = panda_class()
+        FAST = [(n, idx) for n in STEER_NODES for idx in (0x6064, 0x6041)]
+        FULL = [(n, idx) for n in (1, 2, 3, 4)
+                for idx in (0x6064, 0x606C, 0x6078, 0x6041)]
+        SLOW_EVERY = 8          # 호밍 중 전체 집합을 섞는 주기
+        tick = 0
         while self.running:
             try:
-                # heartbeat(0xf3) 를 매 루프(≈0.2 s) 보낸다.
+                # heartbeat(0xf3) 를 매 루프 보낸다.
                 # 끊기면 펌웨어가 fail-safe 로 intercept 를 푼다(임계는 초 단위).
                 self.panda._handle.controlWrite(P.REQUEST_OUT, 0xf3, 0, 0, b"")
-                # 호밍 중에는 조향 위치만 집중해서 읽는다. 탐색 구간의 `0x6064` 응답은
-                # 대부분 0(실위치 아님)이고 실값은 드물게 섞이므로, 폴링이 느리면 그
-                # 드문 표본을 통째로 놓쳐 바퀴 그림이 멈춘 것처럼 보인다(2026-07-29 실측:
-                # 스윙 초반 2 s 에 비영 132/463, 이후 탐색 구간은 비영 0).
                 if self.homing:
-                    with self._can_lock:
-                        for n in STEER_NODES:
-                            self.panda.can_send(
-                                0x600 + n, bytes([0x40, 0x64, 0x60, 0, 0, 0, 0, 0]), MOTOR_BUS)
-                    time.sleep(0.012)
+                    req = FAST if tick % SLOW_EVERY else FAST + FULL
+                    gather, idle = 0.012, 0.008
                 else:
-                    with self._can_lock:
-                        for n in (1, 2, 3, 4):
-                            for idx in (0x6064, 0x606C, 0x6078, 0x6041):
-                                self.panda.can_send(
-                                    0x600 + n,
-                                    bytes([0x40, idx & 0xFF, idx >> 8, 0, 0, 0, 0, 0]),
-                                    MOTOR_BUS)
-                    time.sleep(0.08)
+                    req, gather, idle = FULL, 0.08, 0.12
+                tick += 1
+                with self._can_lock:
+                    for n, idx in req:
+                        self.panda.can_send(
+                            0x600 + n,
+                            bytes([0x40, idx & 0xFF, idx >> 8, 0, 0, 0, 0, 0]),
+                            MOTOR_BUS)
+                time.sleep(gather)
                 out = {}
                 for addr, _t, dat, bus in self.panda.can_recv():
                     if bus != MOTOR_BUS or not (0x581 <= addr <= 0x584) or len(dat) < 8:
@@ -432,7 +445,7 @@ class TongyiCan:
                 self.running = False
                 self._log(f"폴링 중단: {type(exc).__name__}: {exc}")
                 return
-            time.sleep(0.008 if self.homing else 0.12)
+            time.sleep(idle)
 
     def decode_frames(self, data: dict):
         """폴링 프레임 → 상태 반영 + 표시값 산출. 반환 `({node: (deg, rpm, amp)}, 각도갱신여부)`.
@@ -464,6 +477,7 @@ class TongyiCan:
                 deg = (raw - STEER_HOME[node]) / COUNTS_PER_DEG
                 angles[node] = deg
                 self._meas_deg[node] = deg
+                self._meas_at[node] = time.time()
             if 0x606C in vals:
                 rpm = vals[0x606C] / 10.0                    # 0.1 r/min
             if 0x6078 in vals:
