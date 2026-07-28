@@ -14,6 +14,9 @@ can_relay/drive_gui.py 에서 **기구학 부분만** 추출(CAN·PyQt 의존성
 
 ⚠ 미검증 가정(ADR §가정): 노드 매핑(node1=Rear, node2=Front)·KIN_STEER_SIGN(조향 부호)은
   실차 미검증. 첫 실차 구동은 저속에서 크랩/스핀 방향 확인 후 사용.
+  ⚠ 2026-07-27 감사 격상: 노드 매핑은 이제 단순 '미검증 가정'이 아니라 **반증 보고 있음(미판정)** 이다 —
+  protocol-reference:11-12 은 node1=Front(+0.604)/node2=Rear(−0.596) 로 정반대다. 상세는 아래
+  KIN_NODE_XY 위의 감사 주석 참조. (값 변경 0건)
 
 함수표:
   kin_inverse(vx, vy, w, vmax)   → {구동노드: [θ(rad), v(m/s)]}   역기구학 core
@@ -28,7 +31,23 @@ import math
 # ── 바퀴 기하 / 노드 매핑 (kin_viz 이식 상수 @b0bce72) ─────────────────────
 # 기하: Roll_A084 실측 config (live_models.hpp:67) — Front x=+0.6039, Rear x=-0.5961,
 #       y=-0.0014 (휠베이스 1.200 m). 노드 매핑은 SPIN 부호 정합에서 도출한 가정.
-KIN_NODE_XY = {1: (-0.5961, -0.0014), 2: (+0.6039, -0.0014)}  # 구동노드 → (x, y) m
+#
+# ⚠ 2026-07-27 감사 — 아래 KIN_NODE_XY 의 전/후 노드 귀속에는 **반증 보고가 있다**(미판정).
+#   (위 2줄 원문은 이력 보존용으로 남김. **값·부호 변경 0건**.)
+#   · 반증 근거: References/Tongyi-Motor-Controller/docs/tongyi-canopen-protocol-reference.md:11-12
+#     (EasyDRIVE canID config, ✓ 실측/설정 직접) 는 **node1 = FrontWalk x=+0.604**,
+#     **node2 = RealWalk x=−0.596** 으로 아래 KIN_NODE_XY 와 정반대다.
+#   · **같은 파일 내부 불일치**: 아래 KIN_STEER_OF = {1:3, 2:4} 는 그 레퍼런스(:13-14
+#     node3=FrontSteer +0.604, node4=RearSteer −0.596)와 정합한다. 따라서 node1 을 −0.5961(Rear)로
+#     두면 FrontSteer(node3)가 뒤쪽 모듈에 짝지어져 두 상수가 서로 어긋난다.
+#   · 동일 반전이 docs/code_review/motor_control-can-consistency/2026-07-26.md:59-68 에
+#     「🔴 HIGH — 모듈 전/후(module_x) 노드 배정 반전 (실측 데이터와 정면 모순)」 로 등록됐고
+#     **미해소**다(같은 문서 :116 「§3 HIGH 의 권고 값은 본 감사에서 적용하지 않았다」).
+#   ⇒ **미판정**이므로 값을 바꾸지 않는다 — 이 부호가 실배선 및 KIN_DRIVE_SIGN(아래)과 상쇄되는지
+#     확정되지 않았고, 어느 쪽으로든 고치면 spin/크랩 모멘트암과 yaw 부호가 즉시 뒤집힌다.
+#   판정에 필요한 측정: 잭업(바퀴 지면 이격) 후 **node1 만 저속 단독 구동**하여 앞/뒤 어느 바퀴가
+#     도는지 육안 확인(≤0.05 m/s, E-STOP 상비).
+KIN_NODE_XY = {1: (-0.5961, -0.0014), 2: (+0.6039, -0.0014)}  # 구동노드 → (x, y) m  ⚠ 전/후 귀속 미판정(위 감사주석)
 KIN_STEER_OF = {1: 3, 2: 4}     # 구동노드 → 짝 조향노드
 KIN_DRIVE_SIGN = -1             # FORWARD 모드 vel=-s 실측: 양수 모터값 = 차체 -x
 KIN_STEER_SIGN = +1             # +counts = +θ(CCW) 가정 — 실차 검증 필요
