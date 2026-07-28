@@ -1,0 +1,33 @@
+# Tongyi 4축 AMR 파라미터 — 출처 docs/ros2_driver/2026-07-09-design-inputs.md
+# ⚠ 파일 전체를 '실측 확정'으로 읽지 말 것(✓실측·⚠가정 혼재) — 미판정 항목은 docs/debt/registry.md 참조
+motor_control_node:
+  ros__parameters:
+    can_channel: "can1"          # PCAN Pro FD 모터측 채널
+    # ⚠ 단독 마스터(Seer 분리)는 기동 전 운전자 전제이고 비트레이트는 본 config 미설정 — registry.md 「미등록 사항」 참조
+    kinematics: "dual_steer"     # dual_steer | diff_drive
+    # ⚠ diff_drive 는 인라인 차체에 부적합(검증 전 사용 금지) — registry.md 「미등록 사항」 track_width 항 참조
+    vmax: 0.2                    # m/s — 초기 안전 상한 (최대 1.23)
+    wmax: 0.3                    # rad/s
+    cmd_timeout: 0.2             # s — cmd_vel 워치독
+    allow_homing_motion: false   # 홈 이탈(0x6064) 상태의 브링업 거부 게이트 — 끄지 말 것
+    # ⚠ 호밍 스윙 방어선이 아니다(검출은 0x6064 이탈뿐) — registry.md 「debt-007 부분 판정」 §③ 참조
+    steer_settle_tol_deg: 3.0    # 조향 정착 게이트
+    homing_tol_deg: 5.0          # 0x6064 ↔ steer_home_counts 이탈 판정 임계
+    drive_sign: -1               # 전진(+x) = 모터 음수
+    # ⚠ '실측 확정' vs '미검증' 라벨 상충 — 미판정, registry.md 「미등록 사항」 참조
+    kin_steer_sign: 1            # +counts = +θ(CCW) ⚠ 가정
+    # TODO(debt-004): 실측 2건은 -1(CW) 시사, 확정 전까지 crab/스핀 twist 금지 — registry.md debt-004 참조
+    module_drive_nodes: [1, 2]
+    module_steer_nodes: [3, 4]
+    module_x: [-0.5961, 0.6039]  # ⚠ node1=Rear 가정
+    # ⚠ 1차 source 는 node1=Front 라 전/후 반전 의심(미판정), 스핀/크랩 twist 금지 — registry.md 「미등록 사항」 참조
+    module_y: [-0.0014, -0.0014]
+    steer_home_counts: [7871815, 7840086]  # ⚠ 호밍 후 정착값과 다름(값 변경은 실차 재측정·승인 사안)
+    # ⚠ 조향 홈 기준계 미판정 — registry.md debt-007 · docs/verified_facts/2026-07-27.md §B-1 참조
+    track_width: 1.2             # diff_drive 전용
+    # ⚠ 실제는 휠베이스인데 코드는 좌우 이격으로 사용 — registry.md 「미등록 사항」 참조
+    odom_frame: "odom"
+    base_frame: "base_link"
+    publish_tf: true
+    odom_rate: 25.0
+    diag_rate: 1.0
