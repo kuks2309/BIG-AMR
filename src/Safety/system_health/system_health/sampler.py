@@ -294,9 +294,18 @@ def run(args: argparse.Namespace) -> int:
     signal.signal(signal.SIGTERM, _on_stop_signal)
     signal.signal(signal.SIGINT, _on_stop_signal)
 
-    # 첫 스냅샷은 CPU 차분의 기준선이라 기록하지 않는다.
-    prev_cpu = sysfs.read_cpu_times()
+    # CPU 사용률은 두 스냅샷의 차분이므로 **의미 있는 구간**이 필요하다.
+    #
+    # 상주 모드에서는 기준선을 따로 읽지 않는다 — 첫 표본 자신이 기준선이 되고 CPU% 는 둘째
+    # 표본부터 나온다. 기준선을 읽고 곧바로 표본을 뜨면 구간이 사실상 0 이라 CPU% 가 쓰레기
+    # 값이 된다: 그 마이크로초 창에서 우연히 jiffy 가 튄 코어만 100% 로 보이고 집계도 100% 가
+    # 되어 **오탐 ERROR** 를 낸다(2026-07-28 성능시험 실측 — 유휴 상태의 첫 표본이
+    # total=100% / 코어별 [100,0,100,100,0,0,0,0] 를 보고했다. 8코어 중 3개만 바빴는데 100%).
+    #
+    # `--once` 는 표본이 하나뿐이라 그럴 수 없으므로 기준선을 읽고 실제로 기다린다.
+    prev_cpu = None
     if args.once:
+        prev_cpu = sysfs.read_cpu_times()
         time.sleep(ONCE_BASELINE_DELAY_S)
 
     cycle = 0

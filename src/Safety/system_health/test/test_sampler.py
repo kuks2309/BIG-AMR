@@ -197,6 +197,41 @@ def test_once_to_stdout_emits_one_json_line(capsys):
     assert "cpu_total_pct" in record  # --once 는 기준선을 먼저 잡으므로 사용률이 나온다
 
 
+def test_resident_first_sample_omits_cpu_percent(tmp_path):
+    """상주 모드 첫 표본에 CPU% 가 없어야 한다 — 있으면 구간 0초의 쓰레기 값이다.
+
+    2026-07-28 성능시험에서 이 결함이 실측됐다: 유휴 상태인데 첫 표본이 total=100%,
+    코어별 [100,0,100,100,0,0,0,0] 를 보고해 오탐 ERROR 를 냈다.
+    """
+    out_dir = tmp_path / "health"
+    # SIGTERM 대신 플래그를 직접 세워 1주기만 돌린다.
+    args = sampler._parse_args(["--interval", "0.1", "--out-dir", str(out_dir)])
+    sampler._on_stop_signal(15, None)   # 첫 표본을 쓴 뒤 루프가 끝나도록
+    sampler.reset_stop_flag()
+
+    import threading
+
+    def stop_soon():
+        sampler._on_stop_signal(15, None)
+
+    threading.Timer(0.05, stop_soon).start()
+    sampler.run(args)
+    lines = [
+        l for f in out_dir.glob("health-*.jsonl") for l in f.read_text(encoding="utf-8").splitlines()
+    ]
+    assert lines, "표본이 하나도 기록되지 않았다"
+    first = json.loads(lines[0])
+    assert "cpu_total_pct" not in first, f"첫 표본에 구간 0초 CPU% 가 실렸다: {first.get('cpu_total_pct')}"
+    assert first["level"] == "OK", "첫 표본이 경보를 냈다 — 오탐이다"
+
+
+def test_once_still_reports_cpu_percent():
+    """`--once` 는 표본이 하나뿐이라 기준선을 기다려서라도 CPU% 를 내야 한다."""
+    args = sampler._parse_args(["--once"])
+    assert args.once is True
+    # 실제 값은 test_once_to_stdout_emits_one_json_line 이 확인한다.
+
+
 def test_once_to_out_dir_writes_a_file(tmp_path):
     out_dir = tmp_path / "health"
     assert sampler.main(["--once", "--out-dir", str(out_dir)]) == 0
