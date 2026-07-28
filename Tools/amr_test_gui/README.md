@@ -2,7 +2,20 @@
 
 PC(Personal Computer)가 CAN relay(판다) 경유로 Tongyi 4축 AMR(Autonomous Mobile Robot)의
 조향·구동·crab 을 저속 시험 지령하고, 모터 값·Seer 알람을 실시간 표시하는
-**독립 PyQt5 앱**(비-ROS). 구현은 단일 파일 [`gui.py`](gui.py) 하나다.
+**독립 PyQt5 앱**(비-ROS).
+
+## 파일 구성 — 증상이 보이면 어느 파일을 볼지 여기서 갈린다
+
+| 파일 | 책임 | Qt |
+| --- | --- | --- |
+| [`tongyi_can.py`](tongyi_can.py) | SDO 인코딩·조향/구동 지령·호밍·폴링·제어권 | 무의존 |
+| [`seer_status.py`](seer_status.py) | Seer 1040/1050 폴링·알람·4300 Fatal 리셋 | 무의존 |
+| [`callbacks.py`](callbacks.py) | 콜백 경계 규약(`emit`) | 무의존 |
+| [`gui.py`](gui.py) | 위젯 배치·시그널 배선·종료 사슬 | 전담 |
+
+하위 계층은 Qt 를 알지 못하고 **콜백**만 부른다. `gui.py` 가 그 자리에 시그널 emit 을
+꽂아 스레드 경계를 넘기므로 위젯은 언제나 GUI 스레드에서만 만져진다.
+분할 경위는 [ADR 2026-07-28-gui-three-layer-split](../../docs/adr/2026-07-28-gui-three-layer-split.md).
 
 > ## ⚠ 실기 전용 — 누르면 실제 로봇이 움직인다
 >
@@ -11,8 +24,9 @@ PC(Personal Computer)가 CAN relay(판다) 경유로 Tongyi 4축 AMR(Autonomous 
 >
 > 화면에 소프트 E-STOP 버튼을 두지 않는다 — **하드웨어 E-STOP 이 권위**다(사용자 결정).
 
-> **다음 작업**: 리팩터링 계획이 [HANDOFF-2026-07-28-refactor.md](HANDOFF-2026-07-28-refactor.md)
-> 에 이관돼 있다 — 목표 구조·이관 순서·**바꾸면 안 되는 값 목록**·함정.
+> 리팩터 이관 문서 [HANDOFF-2026-07-28-refactor.md](HANDOFF-2026-07-28-refactor.md) 는
+> **완료**됐다(2026-07-28, sess 8bfbdf1d). §4 의 "바꾸면 안 되는 값" 12항목과 §7 의 함정은
+> 여전히 유효하니 그대로 읽을 것.
 
 ADR: [2026-07-28-old-gui-removal.md](../../docs/adr/2026-07-28-old-gui-removal.md)
 (구 패키지 폐기·대체표) · 원 ADR [2026-07-27-amr-test-gui.md](../../docs/adr/2026-07-27-amr-test-gui.md)
@@ -46,10 +60,12 @@ DISPLAY=:0 python3 gui.py   # 직접 실행
 
 ## 동작 규칙
 
-- **crab 순서** — 조그는 `구동 0 → 조향 지령 → 정착 확인 → 구동` 순이다(`_jog_run`).
+- **crab 순서** — 조그는 `구동 0 → 조향 지령 → 정착 확인 → 구동` 순이다
+  (`tongyi_can.py` `TongyiCan._jog_run`).
   정착은 **두 축(N3·N4) 모두** 허용치 안에 들어와야 통과하며, 실패하면 구동을 취소한다.
-- **가동범위 클램프 ±90°** — 실측 검증 범위 밖은 보내지 않는다(`steer_counts`).
-  기구 한계는 ±140° 이나 그 값은 Roll_A084 config 이고 본 기체 실측이 아니다.
+- **가동범위 클램프 ±90°** — 실측 검증 범위 밖은 보내지 않는다
+  (`tongyi_can.py` `steer_counts`). 기구 한계는 ±140° 이나 그 값은 Roll_A084 config 이고
+  본 기체 실측이 아니다.
   범위 밖 지령으로 node4 가 물리적으로 갇힌 사고가 있었다
   ([claude-mistake 2026-07-27-002](../../docs/claude-mistake/2026-07-27-002_node4-unverified-command-damage.md)).
 - **단계 램프는 쓰지 않는다** — 시스템의 방식이 아니다. 실기 캡처에서 Seer 는 최종 절대 목표를
@@ -104,13 +120,16 @@ QT_QPA_PLATFORM=offscreen python3 -m pytest test/ -q
 
 | 파일 | 건수 | 무엇을 고정하나 |
 | --- | --- | --- |
-| [`test_gui_math.py`](test/test_gui_math.py) | 37 | 조향 counts 환산 · ±90° 클램프 · 구동 속도 환산과 상한 · 조그 방향표 정합 |
+| [`test_gui_math.py`](test/test_gui_math.py) | 37 | 조향 counts 환산 · ±90° 클램프 · 구동 속도 환산과 상한 · 조그 방향표 정합 (`tongyi_can` 직접 시험) |
 | [`test_gui_tables.py`](test/test_gui_tables.py) | 10 | 모터·Seer 두 표의 공용 헬퍼(형태·행 순서·포맷·`None` 처리·두 표 독립성) |
 | [`test_homing.py`](test/test_homing.py) | 13 | 호밍 SDO 프레임(서브인덱스 4 · `0x6098` 미기록 · 조향축 한정 · 순서) · 완료 판정 · 인터록 |
 | [`test_safe_release.py`](test/test_safe_release.py) | 16 | 종료 4경로의 제어권 반환 배선 |
 | [`test_slider.py`](test/test_slider.py) | 12 | 실측 되먹임 금지 · 지령 송신 조건 · 라벨 · **슬라이더 크기**(폭 ≥240 px, 1 px ≤1°) |
 
 전 **88건**이 하드웨어 없이 돈다. 창을 여는 테스트도 판다·CAN 을 열지 않는다.
+3계층 분할(2026-07-28) 후에도 **88건 그대로**이며, 단언은 바꾸지 않고 대상 경로만
+옮겼다(`win._sdo_write` → `win.can.sdo_write` 등). `test_safe_release.py` 16건은
+한 글자도 바뀌지 않았다 — 종료 사슬의 모양을 유지했다는 증거다.
 
 ⚠ **실기 상호작용(실제 CAN 왕복·Seer 응답)은 여전히 자동 검증이 없다**(debt-011 잔여).
 
@@ -122,3 +141,4 @@ QT_QPA_PLATFORM=offscreen python3 -m pytest test/ -q
 | debt-010 | 조향 추종 실패 시 **FAULT 래치 없음** — 그 회차 구동만 취소되고 재시도가 막히지 않는다 |
 | debt-011 | 테스트 부분 상환(순수 환산 37건) — 송신 프레임·UI 경로 미검증 |
 | debt-012 | Node Guarding RTR 을 PC 가 보내지 못한다(판다 제약). Seer guard 가 대신 만족시킨다는 가정 미확인 |
+| debt-014 | `_on_take` 가 `btn_take.setText()` 를 CAN 조작 앞·try 밖에서 부른다 — 위젯이 이미 파괴된 종료 경로에서 **제어권 반환이 건너뛰어질 수 있다** |

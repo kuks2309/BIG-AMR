@@ -32,7 +32,7 @@ def win(app):
     w = gui.MainWindow()
     yield w
     w._seer_run = False          # 폴링 스레드 정지 요청
-    w._run = False
+    w.can.running = False
 
 
 @pytest.mark.parametrize("attr,rpm_header", [("tbl_motor", "회전(rpm)"),

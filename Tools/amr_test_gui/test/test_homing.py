@@ -24,6 +24,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 QtWidgets = pytest.importorskip("PyQt5.QtWidgets")
 import gui  # noqa: E402
+import tongyi_can  # noqa: E402
 
 BIT15 = 1 << 15
 
@@ -36,19 +37,19 @@ def app():
 @pytest.fixture
 def win(app):
     w = gui.MainWindow()
-    w.HOMING_START_S = 1.0          # 테스트를 초 단위로 유지
-    w.HOMING_TIMEOUT_S = 3.0
+    w.can.HOMING_START_S = 1.0      # 테스트를 초 단위로 유지
+    w.can.HOMING_TIMEOUT_S = 3.0
     yield w
     w._seer_run = False
-    w._run = False
-    w._homing = False
+    w.can.running = False
+    w.can.homing = False
 
 
 @pytest.fixture
 def sent(win, monkeypatch):
-    """`_sdo_write` 를 가로채 (node, idx, val, size, sub) 로 기록한다."""
+    """`sdo_write` 를 가로채 (node, idx, val, size, sub) 로 기록한다."""
     log = []
-    monkeypatch.setattr(win, "_sdo_write",
+    monkeypatch.setattr(win.can, "sdo_write",
                         lambda node, idx, val, size, sub=0: log.append((node, idx, val, size, sub)))
     return log
 
@@ -62,11 +63,11 @@ def test_subindex_lands_in_byte3(win, monkeypatch):
         def can_send(self, addr, data, bus):
             frames.append((addr, bytes(data), bus))
 
-    win.panda = FakePanda()
-    win._sdo_write(3, 0x60FB, 1, 1, sub=4)
+    win.can.panda = FakePanda()
+    win.can.sdo_write(3, 0x60FB, 1, 1, sub=4)
     addr, data, bus = frames[0]
     assert addr == 0x603                      # 0x600 + node
-    assert bus == gui.MOTOR_BUS
+    assert bus == tongyi_can.MOTOR_BUS
     assert data[0] == 0x2F                    # 1 바이트 expedited 쓰기
     assert (data[1], data[2]) == (0xFB, 0x60)  # 인덱스 리틀엔디안
     assert data[3] == 4                        # ← 서브인덱스
@@ -75,25 +76,25 @@ def test_subindex_lands_in_byte3(win, monkeypatch):
 
 def test_default_subindex_is_zero(win, monkeypatch):
     frames = []
-    win.panda = type("P", (), {"can_send": lambda _s, a, d, b: frames.append(bytes(d))})()
-    win._sdo_write(3, 0x6099, 2500, 4)
+    win.can.panda = type("P", (), {"can_send": lambda _s, a, d, b: frames.append(bytes(d))})()
+    win.can.sdo_write(3, 0x6099, 2500, 4)
     assert frames[0][3] == 0
 
 
 # ── 호밍 시퀀스 ────────────────────────────────────────────────────────────
 def _run_homing(win, sent, status_script):
     """호밍을 돌리되 상태워드는 스크립트대로 흘려준다."""
-    win._run = True
+    win.can.running = True
 
     def feed():
         for delay, states in status_script:
             time.sleep(delay)
-            win._status.update(states)
+            win.can._status.update(states)
 
     t = threading.Thread(target=feed, daemon=True)
-    win._homing = True
+    win.can.homing = True
     t.start()
-    win._homing_run()
+    win.can._homing_run()
     t.join(timeout=2)
 
 
@@ -130,48 +131,48 @@ def test_speed_is_sent_before_the_trigger(win, sent):
         spd = next(i for i, f in enumerate(sent) if f[0] == n and f[1] == 0x6099)
         trg = next(i for i, f in enumerate(sent) if f[0] == n and f[1] == 0x60FB)
         assert spd < trg
-        assert sent[spd][2] == win.HOMING_SPEED
+        assert sent[spd][2] == win.can.HOMING_SPEED
 
 
 # ── 완료 판정 ──────────────────────────────────────────────────────────────
 def test_already_homed_axis_is_not_reported_complete(win):
     """시작 전부터 bit15=1 인 축을 즉시 '완료'로 읽으면 안 된다 — 대표 오판."""
-    win._status = {3: BIT15, 4: BIT15}
-    ok, why = win._wait_homed()
+    win.can._status = {3: BIT15, 4: BIT15}
+    ok, why = win.can.wait_homed()
     assert ok is False
     assert "개시" in why
 
 
 def test_completion_needs_both_axes(win):
     """한 축만 끝나도 완료가 아니다."""
-    win._status = {3: 0, 4: 0}
+    win.can._status = {3: 0, 4: 0}
 
     def feed():
         time.sleep(0.1)
-        win._status[3] = BIT15          # node4 는 끝내 0 인 채로 둔다
+        win.can._status[3] = BIT15      # node4 는 끝내 0 인 채로 둔다
     threading.Thread(target=feed, daemon=True).start()
-    ok, _why = win._wait_homed()
+    ok, _why = win.can.wait_homed()
     assert ok is False
 
 
 def test_zero_then_one_is_success(win):
-    win._status = {3: 0, 4: 0}
+    win.can._status = {3: 0, 4: 0}
 
     def feed():
         time.sleep(0.1)
-        win._status.update({3: BIT15, 4: BIT15})
+        win.can._status.update({3: BIT15, 4: BIT15})
     threading.Thread(target=feed, daemon=True).start()
-    ok, why = win._wait_homed()
+    ok, why = win.can.wait_homed()
     assert ok is True
     assert "소요" in why
 
 
 # ── 인터록 ────────────────────────────────────────────────────────────────
 def test_jog_is_blocked_while_homing_but_stop_is_not(win, monkeypatch):
-    win._run = True
-    win._homing = True
+    win.can.running = True
+    win.can.homing = True
     calls = []
-    monkeypatch.setattr(win, "_drive", lambda u: calls.append(u))
+    monkeypatch.setattr(win.can, "drive", lambda u: calls.append(u))
     win._jog("전진")
     assert calls == [], "호밍 중 조그가 나가면 안 된다"
     win._jog("정지")
@@ -179,17 +180,17 @@ def test_jog_is_blocked_while_homing_but_stop_is_not(win, monkeypatch):
 
 
 def test_homing_refused_without_authority(win):
-    win._run = False
-    win._homing_clicked()               # 대화상자까지 가지 않고 거부돼야 한다
-    assert win._homing is False
+    win.can.running = False
+    win._homing_clicked()           # 대화상자까지 가지 않고 거부돼야 한다
+    assert win.can.homing is False
 
 
 def test_position_is_not_trusted_while_homing(win):
     """호밍 중 0x6064 는 0 을 돌려준다 — 그대로 쓰면 바퀴 그림이 0° 로 튄다."""
-    win._homing = True
-    win._meas_deg = {3: None, 4: None}
+    win.can.homing = True
+    win.can._meas_deg = {3: None, 4: None}
     win._on_motor_data({3: {0x6064: 0}, 4: {0x6064: 0}})
-    assert win._meas_deg == {3: None, 4: None}
-    win._homing = False
-    win._on_motor_data({3: {0x6064: gui.STEER_HOME[3]}})
-    assert win._meas_deg[3] == pytest.approx(0.0)
+    assert win.can._meas_deg == {3: None, 4: None}
+    win.can.homing = False
+    win._on_motor_data({3: {0x6064: tongyi_can.STEER_HOME[3]}})
+    assert win.can._meas_deg[3] == pytest.approx(0.0)

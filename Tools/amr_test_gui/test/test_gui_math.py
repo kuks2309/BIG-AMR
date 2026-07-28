@@ -1,4 +1,4 @@
-"""`gui.py` 순수 환산 회귀 — 하드웨어·Qt 창 없이 돈다.
+"""`tongyi_can.py` 순수 환산 회귀 — 하드웨어·Qt 창 없이 돈다.
 
 구 GUI 폐기(docs/adr/2026-07-28-old-gui-removal.md)로 테스트 84건이 함께 사라졌다.
 본 파일은 debt-011 의 1차 상환으로, **실기에서 틀리면 로봇이 움직이는** 값들을 고정한다.
@@ -7,10 +7,10 @@
   · 조향 57,344 counts/° · 홈↔90° Δ = 5,160,960 counts (정확히 90.00°)
       docs/ros2_driver/2026-07-09-design-inputs.md §3 스케일 표
   · 구동 ±2445 = 0.10 m/s · VEL_MAX 4889
-      Tools/docking_field_kit 실측 관례 (gui.py:33-34 주석)
+      Tools/docking_field_kit 실측 관례 (tongyi_can.py `VEL_PER_MMPS` 주석)
   · 조향 가동범위 ±90° = 실측 검증 범위 (기구 한계 ±140° 는 Roll_A084 config 값)
       docs/claude-mistake/2026-07-27-002 — 범위 밖 지령으로 node4 물리 갇힘
-  · 조그 방향표의 1차 근거는 직접 실측 2건뿐 (gui.py:56-60)
+  · 조그 방향표의 1차 근거는 직접 실측 2건뿐 (tongyi_can.py `JOG` 주석)
 """
 from __future__ import annotations
 
@@ -22,8 +22,9 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")   # import 만으로 창을 열지 않도록
 
-from gui import (COUNTS_PER_DEG, JOG, STEER_HOME, STEER_LIMIT_DEG,   # noqa: E402
-                 VEL_MAX_UNITS, drive_units, steer_counts)
+from tongyi_can import (COUNTS_PER_DEG, JOG, STEER_HOME,   # noqa: E402
+                        STEER_LIMIT_DEG, VEL_MAX_UNITS,
+                        drive_units, steer_counts)
 
 NODES = (3, 4)
 DELTA_90 = 5_160_960          # 실측: 홈 ↔ 90° = 정확히 90.00°

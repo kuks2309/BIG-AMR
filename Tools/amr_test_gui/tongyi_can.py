@@ -1,0 +1,407 @@
+#!/usr/bin/env python3
+"""Tongyi 4축 AMR CAN 계층 — SDO 인코딩·조향/구동 지령·호밍·폴링.
+
+**Qt 를 알지 못한다.** 결과는 생성자가 받은 콜백으로만 나간다(`log`·`on_frames`·
+`on_homing_done`). 화면이 무엇을 하든 이 파일은 관여하지 않으며, 반대로 이 파일이
+드라이브에 보내는 바이트는 화면 사정으로 바뀌지 않는다.
+
+값·순서의 근거는 코드가 아니라 README.md 가 든다. 여기엔 의미만 적는다.
+"""
+from __future__ import annotations
+
+import os
+import sys
+import threading
+import time
+
+from callbacks import emit
+
+# ── 상수 ───────────────────────────────────────────────────────────────────
+SEER_BUS, MOTOR_BUS = 0, 2          # 판다 버스 번호
+SEER_GATE, CAN_KBPS = 30, 250       # safety_mode, 버스 속도
+COUNTS_PER_DEG = 57344              # 조향 counts/도
+STEER_HOME = {3: 7871815, 4: 7840086}   # 조향 0° 기준 counts (debt-007 미판정)
+VEL_PER_MMPS, VEL_MAX_UNITS = 24.447, 4889   # 구동 raw 환산, 상한(≈0.2 m/s)
+STEER_LIMIT_DEG = 90.0              # 조향 지령 허용 범위 ±90°
+
+STEER_NODES = (3, 4)                # 조향축 — 기계적 원점이 있어 호밍 대상
+DRIVE_NODES = (1, 2)                # 구동축 — 원점이 없어 호밍하지 않는다
+
+# SDO abort 코드 — 드라이브가 쓰기를 거부한 사유. 진단 전용이며 동작에 관여하지 않는다.
+_ABORT = {
+    0x05040001: "명령 지정자 불량",
+    0x06010002: "읽기 전용 객체에 쓰기",
+    0x06020000: "객체 없음",
+    0x06090011: "서브인덱스 없음",
+    0x06090030: "값 범위 초과",
+    0x06070010: "데이터 길이 불일치",
+    0x08000020: "저장 불가",
+    0x08000022: "현재 장치 상태에서 전송 불가",
+}
+
+
+# ── 순수 환산 (하드웨어 무의존 — 회귀 테스트가 여기를 고정한다) ─────────────
+def steer_counts(node: int, deg: float):
+    """가동범위 클램프 후 조향 절대위치 counts 를 낸다. 반환 `(적용된 각도, counts)`.
+
+    범위 밖 각도는 보내지 않고 ±90° 로 자른다.
+    """
+    deg = max(-STEER_LIMIT_DEG, min(STEER_LIMIT_DEG, deg))
+    return deg, int(round(STEER_HOME[node] + deg * COUNTS_PER_DEG))
+
+
+def drive_units(mmps: float, raw_sign: int) -> int:
+    """구동 속도 지령 raw(0x60FF) 환산 + 상한 클램프."""
+    return max(-VEL_MAX_UNITS, min(VEL_MAX_UNITS,
+                                   int(round(raw_sign * mmps * VEL_PER_MMPS))))
+
+
+# 조그 방향표 — (조향각°, 구동 raw 부호, 직접실측 여부)
+#   직접 실측 2건만이 1차 근거다:
+#     ① 조향 홈(0°) + raw 음수 → 전진(+x)
+#     ② 조향 +90° + raw 양수 → 왼쪽(+y)  (IMU ay 실증)
+#   나머지는 ①② 를 만족하는 모델 -sign(raw)x(cos0, -sin0) 에서 **도출**한 값이다.
+JOG = {
+    "전진":     (0.0,  -1, True),    # ①
+    "후진":     (0.0,  +1, True),    # ① 의 raw 부호 반전
+    "좌 크랩":  (90.0, +1, True),    # ②
+    "우 크랩":  (90.0, -1, True),    # ② 의 raw 부호 반전
+    "좌전 45°": (-45.0, -1, False),  # 도출
+    "우전 45°": (45.0,  -1, False),  # 도출
+    "좌후 45°": (45.0,  +1, False),  # 도출
+    "우후 45°": (-45.0, +1, False),  # 도출
+}
+
+_KIT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    "docking_field_kit")
+
+
+def panda_class():
+    """comma.ai panda 라이브러리 로드 (필드킷 동봉본)."""
+    if _KIT not in sys.path:
+        sys.path.insert(0, _KIT)
+    from panda import Panda
+    return Panda
+
+
+class TongyiCan:
+    """판다(CAN relay) 경유 드라이브 제어. 화면·Qt 와 무관하다.
+
+    소유하는 것: USB 핸들(`panda`), 제어권 상태(`running`), 폴링·조그·호밍 스레드,
+    실측 조향각(`_meas_deg`), 상태워드(`_status`).
+
+    콜백은 **어느 스레드에서든** 불릴 수 있다. 호출부가 스레드 경계를 책임진다
+    (GUI 라면 Qt 시그널 emit 을 넘긴다). 창이 이미 파괴돼 콜백이 `RuntimeError` 를
+    던지면 조용히 삼킨다 — 종료 중에 CAN 해제가 로그 때문에 깨지면 안 된다.
+    """
+
+    HOMING_SPEED = 2500        # 0x6099:00, 0.1 r/min 단위 → 250 r/min
+    HOMING_TIMEOUT_S = 90.0    # 실측 소요 약 31 s
+    HOMING_START_S = 10.0      # 개시(bit15=0) 를 기다리는 창
+    SETTLE_TIMEOUT_S = 6.0     # 조향 정착 대기 상한
+
+    def __init__(self, log=None, on_frames=None, on_homing_done=None):
+        self.panda = None
+        self.running = False          # 제어권 보유 + 폴링 중
+        self.homing = False
+        self._th = None
+        self._can_lock = threading.Lock()   # 폴링·조그가 버스를 공유한다
+        self._jog_th = None
+        self._jog_stop = False
+        self._meas_deg = {3: None, 4: None}
+        self._status = {}             # node -> 0x6041 상태워드 (호밍 완료 판정용)
+        self._aborts = set()          # 이미 보고한 SDO 거부(같은 것 반복 방지)
+        self._log_cb = log
+        self._frames_cb = on_frames
+        self._homing_done_cb = on_homing_done
+
+    # ── 콜백 경계 (규약은 `callbacks.emit`) ──────────────────────────────
+    def _log(self, msg: str) -> None:
+        """로그 한 줄. 이름을 `MainWindow.log`(위젯에 쓴다)와 구분해 둔다."""
+        emit(self._log_cb, msg)
+
+    # ── 장치 ────────────────────────────────────────────────────────────
+    @staticmethod
+    def list_pandas():
+        """연결 가능한 판다 시리얼 열거 — USB 를 열지 않는다(목록만)."""
+        return panda_class().list()
+
+    def open_usb(self) -> dict:
+        """USB 를 연다. 상태만 읽으므로 모터에 영향이 없다. 반환은 health dict."""
+        self.panda = panda_class()()
+        return self.panda.health()
+
+    def close_usb(self) -> None:
+        if self.panda is not None:
+            try:
+                self.panda.close()
+            except Exception:
+                pass
+            self.panda = None
+
+    def take(self, on: bool) -> None:
+        """제어권 획득/반환. 획득하면 Seer 로부터 릴레이를 가져오고 폴링을 시작한다."""
+        if self.panda is None:
+            return
+        P = panda_class()
+        if on:
+            self._log("⚠ 제어권 획득 — 릴레이 intercept, Seer 에서 가져옴")
+            self.panda.set_safety_mode(SEER_GATE, 0)
+            for b in (SEER_BUS, MOTOR_BUS):
+                self.panda.set_can_speed_kbps(b, CAN_KBPS)
+                self.panda.set_can_enable(b, True)
+            self.panda._handle.controlWrite(P.REQUEST_OUT, 0xe9, 1, 0, b"")   # auth=PC
+            self.panda._handle.controlWrite(P.REQUEST_OUT, 0xe8, 1, 0, b"")   # intercept
+            self.running = True
+            self._th = threading.Thread(target=self._loop, daemon=True, name="poll")
+            self._th.start()
+            self._log("제어권 획득 완료 — 모터 값 폴링 시작")
+        else:
+            self._jog_stop = True
+            try:
+                self.drive(0)          # 반환 전 반드시 정지
+            except Exception:
+                pass
+            self.running = False
+            if self._th is not None:
+                self._th.join(timeout=1.0)
+                self._th = None
+            self.panda._handle.controlWrite(P.REQUEST_OUT, 0xe9, 0, 0, b"")   # auth=Seer
+            self.panda._handle.controlWrite(P.REQUEST_OUT, 0xe8, 0, 0, b"")   # passthrough
+            self.panda.set_safety_mode(0, 0)
+            self._log("제어권 반환 — passthrough (USB 유지)")
+
+    # ── 지령 ────────────────────────────────────────────────────────────
+    def sdo_write(self, node: int, idx: int, val: int, size: int, sub: int = 0):
+        """SDO expedited 쓰기. 폴링 스레드와 버스를 공유하므로 락으로 직렬화한다.
+
+        `sub` 는 서브인덱스 — 호밍 트리거 `0x60FB:04` 처럼 0 이 아닌 것이 있다.
+        """
+        cmd = {1: 0x2F, 2: 0x2B, 4: 0x23}[size]
+        payload = (val & 0xFFFFFFFF).to_bytes(4, "little")[:size]
+        data = bytes([cmd, idx & 0xFF, idx >> 8, sub]) + payload + b"\x00" * (4 - size)
+        with self._can_lock:
+            self.panda.can_send(0x600 + node, data[:8], MOTOR_BUS)
+
+    def drive(self, units: int):
+        """구동 노드에 속도 지령(0x60FF). units=0 이면 정지."""
+        for n in DRIVE_NODES:
+            self.sdo_write(n, 0x60FF, units, 4)
+
+    def steer_axis(self, node: int, deg: float) -> float:
+        """한 축에만 절대위치 지령(0x607A) + 즉시 적용(0x6040=0x3F). 환산은 `steer_counts`."""
+        deg, counts = steer_counts(node, deg)
+        self.sdo_write(node, 0x607A, counts, 4)
+        self.sdo_write(node, 0x6040, 0x3F, 2)
+        return deg
+
+    def steer_to(self, deg: float) -> float:
+        """조향 두 축에 절대위치 지령(0x607A) + 즉시 적용(0x6040=0x3F).
+
+        범위 밖 각도는 보내지 않고 ±90° 로 자른다(`steer_counts`).
+        **단계로 쪼개지 않는다** — 최종 절대 목표를 그대로 보내고 이동 프로파일은
+        드라이브가 수행한다. 근거는 README.md §동작 규칙.
+        """
+        for n in STEER_NODES:
+            deg = self.steer_axis(n, deg)
+        return deg
+
+    def meas_angle(self, node: int):
+        """그 축의 실측 조향각(판다 직독). 없으면 None."""
+        return self._meas_deg.get(node)
+
+    # ── 조그 실행 (crab: 조향 → 정착 확인 → 구동) ──────────────────────
+    def jog_busy(self) -> bool:
+        return self._jog_th is not None and self._jog_th.is_alive()
+
+    def stop_drive(self) -> None:
+        """정지 — 구동 0. 조향은 현 위치를 유지한다.
+
+        이름에 `drive` 를 박아 둔다. `SeerStatus.stop()` 은 폴링 스레드를 멈출 뿐인데,
+        이쪽은 **바퀴를 세운다** — 두 `stop` 을 헷갈리면 사고가 난다.
+        """
+        self._jog_stop = True
+        self.drive(0)
+
+    def start_jog(self, label: str, steer_deg: float, raw_sign: int,
+                  mmps: float, tol: float) -> None:
+        """조그 실행을 별도 스레드로 띄운다. 속도·허용치는 호출부(화면)가 정한다."""
+        self._jog_stop = False
+        self._jog_th = threading.Thread(target=self._jog_run, name="jog", daemon=True,
+                                        args=(label, steer_deg, raw_sign, mmps, tol))
+        self._jog_th.start()
+
+    def _jog_run(self, label: str, steer_deg: float, raw_sign: int,
+                 mmps: float, tol: float):
+        """crab 순서: 구동 0 → 조향 지령 → 정착 확인 → 구동."""
+        try:
+            self.drive(0)                                   # 조향 전 반드시 구동 0
+            tgt = self.steer_to(steer_deg)
+            self._log(f"조그 '{label}' — 조향 {tgt:+.0f}° 지령, 정착 대기")
+            if not self.wait_settle(tgt, tol):
+                self._log(f"조향 정착 실패(실측 N3 {self._meas_deg.get(3)} / "
+                         f"N4 {self._meas_deg.get(4)}) — 구동 취소")
+                self.drive(0)
+                return
+            if self._jog_stop:
+                self.drive(0)
+                return
+            units = drive_units(mmps, raw_sign)
+            self.drive(units)
+            self._log(f"조향 정착 — 구동 raw={units:+d} ({mmps:.0f} mm/s)")
+        except Exception as exc:
+            self._log(f"조그 중단: {type(exc).__name__}: {exc}")
+            try:
+                self.drive(0)
+            except Exception:
+                pass
+
+    def wait_settle(self, target: float, tol: float, timeout: float = None) -> bool:
+        """조향 정착 대기 — **두 축(N3·N4) 모두** 허용치 안에 들어와야 한다.
+
+        crab 은 앞뒤가 같은 각이어야 성립하므로 한 축만 확인하면 뒷바퀴가 어긋난 채
+        구동에 들어간다. 시간 초과면 False(= 추종 실패, 호출부가 구동을 취소한다).
+        """
+        if timeout is None:
+            timeout = self.SETTLE_TIMEOUT_S
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            if self._jog_stop:
+                return False
+            cur = [self._meas_deg.get(n) for n in STEER_NODES]
+            if all(c is not None and abs(target - c) <= tol for c in cur):
+                return True
+            time.sleep(0.05)
+        return False
+
+    # ── 조향 원점 복귀(호밍) ────────────────────────────────────────────
+    def start_homing(self) -> None:
+        """호밍 실행을 별도 스레드로 띄운다. 확인 절차는 호출부(화면)가 맡는다."""
+        self.homing = True
+        threading.Thread(target=self._homing_run, name="homing", daemon=True).start()
+
+    def _homing_run(self):
+        """조향 노드 3·4 호밍.
+
+        구동 노드(1·2)는 기계적 원점이 없어 호밍하지 않는다 — 조향축에만 지령한다.
+        `0x6098`(homing method)은 **쓰지 않는다**. 드라이브 저장값을 그대로 쓰며,
+        덮어쓰면 리셋 모드가 꺼져 호밍 자체가 동작하지 않는다.
+        """
+        try:
+            self.drive(0)                        # 호밍 전 구동은 반드시 0
+            self._status.clear()                 # 직전 상태워드를 완료로 오독하지 않도록
+            for n in STEER_NODES:
+                self.sdo_write(n, 0x6040, 0x86, 2)                 # 축 준비
+                self.sdo_write(n, 0x6099, self.HOMING_SPEED, 4)    # 호밍 속도
+                self.sdo_write(n, 0x60FB, 1, 1, sub=4)             # 여기서 움직이기 시작한다
+            self._log("호밍 개시 — 조향 2축. 완료까지 30초 이상 걸립니다.")
+            ok, why = self.wait_homed()
+            self._log(f"호밍 완료 — {why}" if ok else f"호밍 미확인 — {why}")
+        except Exception as exc:
+            self._log(f"호밍 중단: {type(exc).__name__}: {exc}")
+        finally:
+            self.homing = False
+            emit(self._homing_done_cb)
+
+    def wait_homed(self):
+        """상태워드(0x6041) bit15 로 완료를 판정한다. 반환 `(성공, 사유)`.
+
+        **bit15 가 1 인 것만 보면 안 된다** — 이전에 호밍을 마친 축은 시작 전부터 1 이라
+        곧바로 "완료"로 읽힌다. 그래서 먼저 두 축이 0(진행 중)이 되는 것을 확인하고,
+        그 다음에 1 로 돌아오는 것을 기다린다. 0 을 한 번도 못 보면 성공이라고 하지 않는다.
+        """
+        BIT15 = 1 << 15
+        t0 = time.time()
+        started = set()
+        while time.time() - t0 < self.HOMING_START_S:
+            for n in STEER_NODES:
+                st = self._status.get(n)
+                if st is not None and not (st & BIT15):
+                    started.add(n)
+            if started >= set(STEER_NODES):
+                break
+            time.sleep(0.1)
+        if started < set(STEER_NODES):
+            missing = sorted(set(STEER_NODES) - started)
+            return False, (f"개시 신호(bit15=0)를 못 봤습니다 — 노드 {missing}. "
+                           f"움직이지 않았는지 육안으로 확인하세요.")
+        while time.time() - t0 < self.HOMING_TIMEOUT_S:
+            if all((self._status.get(n) or 0) & BIT15 for n in STEER_NODES):
+                return True, f"{time.time() - t0:.0f}초 소요. 조향 0° 복귀까지 확인하세요."
+            time.sleep(0.1)
+        return False, f"{self.HOMING_TIMEOUT_S:.0f}초 안에 완료 신호가 오지 않았습니다."
+
+    # ── 폴링 (모터 값 읽기 전용 — 지령은 보내지 않는다) ────────────────
+    def _loop(self):
+        """0x6064(위치)·0x606C(속도)·0x6078(전류)·0x6041(상태워드)를 읽어 콜백으로 낸다.
+
+        0x6041 은 화면에 띄우지 않고 호밍 완료 판정(bit15)에만 쓴다.
+
+        ⚠ 읽기만 한다. 0x60FF(속도지령)·0x607A(위치지령)는 보내지 않는다.
+        """
+        P = panda_class()
+        while self.running:
+            try:
+                # heartbeat(0xf3) 를 매 루프(≈0.2 s) 보낸다.
+                # 끊기면 펌웨어가 fail-safe 로 intercept 를 푼다(임계는 초 단위).
+                self.panda._handle.controlWrite(P.REQUEST_OUT, 0xf3, 0, 0, b"")
+                with self._can_lock:
+                    for n in (1, 2, 3, 4):
+                        for idx in (0x6064, 0x606C, 0x6078, 0x6041):
+                            self.panda.can_send(0x600 + n,
+                                                bytes([0x40, idx & 0xFF, idx >> 8, 0, 0, 0, 0, 0]),
+                                                MOTOR_BUS)
+                time.sleep(0.08)
+                out = {}
+                for addr, _t, dat, bus in self.panda.can_recv():
+                    if bus != MOTOR_BUS or not (0x581 <= addr <= 0x584) or len(dat) < 8:
+                        continue
+                    node = addr - 0x580
+                    idx = dat[1] | (dat[2] << 8)
+                    if dat[0] == 0x43:                       # 4 바이트 읽기 응답
+                        val = int.from_bytes(dat[4:8], "little", signed=True)
+                    elif dat[0] == 0x4B:                     # 2 바이트 읽기 응답
+                        val = int.from_bytes(dat[4:6], "little", signed=True)
+                    elif dat[0] == 0x80:                     # SDO abort — 드라이브가 거부했다
+                        code = int.from_bytes(dat[4:8], "little")
+                        key = (node, idx, dat[3], code)
+                        if key not in self._aborts:          # 같은 거부는 1회만 (버스가 반복한다)
+                            self._aborts.add(key)
+                            self._log(
+                                f"SDO 거부 N{node} 0x{idx:04X}:{dat[3]:02X} "
+                                f"→ abort 0x{code:08X} ({_ABORT.get(code, '사유 미상')})")
+                        continue
+                    else:
+                        continue
+                    out.setdefault(node, {})[idx] = val
+                if out:
+                    emit(self._frames_cb, out)
+            except Exception as exc:
+                self.running = False
+                self._log(f"폴링 중단: {type(exc).__name__}: {exc}")
+                return
+            time.sleep(0.12)
+
+    def decode_frames(self, data: dict):
+        """폴링 프레임 → 상태 반영 + 표시값 산출. 반환 `({node: (deg, rpm, amp)}, 각도갱신여부)`.
+
+        counts→도, 0.1 r/min, 0.01 A 환산이 여기 있다. 화면은 결과만 받아 그린다.
+
+        호밍 중 `0x6064` 는 실위치가 아니라 0 을 돌려준다 — 그대로 쓰면 바퀴 그림이
+        0° 로 튀어 실제 자세를 오해하게 만든다. 그 구간은 각도를 갱신하지 않는다.
+        """
+        rows, angles = {}, {}
+        for node, vals in data.items():
+            deg = rpm = amp = None
+            if 0x6041 in vals:
+                self._status[node] = vals[0x6041]
+            if 0x6064 in vals and node in STEER_HOME and not self.homing:
+                deg = (vals[0x6064] - STEER_HOME[node]) / COUNTS_PER_DEG
+                angles[node] = deg
+                self._meas_deg[node] = deg
+            if 0x606C in vals:
+                rpm = vals[0x606C] / 10.0                    # 0.1 r/min
+            if 0x6078 in vals:
+                amp = vals[0x6078] / 100.0                   # 0.01 A
+            rows[node] = (deg, rpm, amp)
+        return rows, bool(angles)
