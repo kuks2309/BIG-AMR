@@ -56,6 +56,7 @@
 
 | id | type | category | 제목 | owner | 등록일 |
 |----|------|----------|------|-------|--------|
+| 2026-07-29-001 | rule-violation | verify-skip | 세션 실수 전수(부정형 과단정·근거없는 단정·추측코드 누적·자기도구 무검증·과잉 자기정정) | claude | 2026-07-29 |
 | 2026-07-28-014 | rule-violation | verify-skip | 화면 한 번 안 보고 UI 결함을 네 번 오진 | claude | 2026-07-28 |
 | 2026-07-28-009 | rule-violation | verify-skip | 공유 워킹트리에서 `checkout -b` 로 20개 세션 HEAD 이동 | claude | 2026-07-28 |
 | 2026-07-28-008 | rule-violation | verify-skip | 이미 종료된 GUI 를 「점유 중」으로 stale 보고 | claude | 2026-07-28 |

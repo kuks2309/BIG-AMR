@@ -1,0 +1,35 @@
+<mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+    <mxCell id="A" value="main 1Hz tick" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="80" y="40" width="160" height="40" as="geometry"/></mxCell>
+    <mxCell id="B" value="heartbeat_counter &gt;= thr? (main.c:213)" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="60" y="120" width="200" height="60" as="geometry"/></mxCell>
+    <mxCell id="C" value="SEER_GATE &amp;&amp; pc_authority? (main.c:227)" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="60" y="220" width="200" height="70" as="geometry"/></mxCell>
+    <mxCell id="D" value="seer_stop_drives() 0x60FF=0 x3 node1,2 (gate.h:482)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="320" y="225" width="200" height="60" as="geometry"/></mxCell>
+    <mxCell id="E" value="set_safety_mode(SILENT) (main.c:232)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="80" y="330" width="200" height="40" as="geometry"/></mxCell>
+    <mxCell id="F" value="set_intercept_relay(false) (main.c:235)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="80" y="400" width="200" height="40" as="geometry"/></mxCell>
+    <mxCell id="G" value="pc_authority=false; relay_off_latched=true (main.c:236-237)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="80" y="470" width="200" height="50" as="geometry"/></mxCell>
+    <mxCell id="H" value="USB 0xe8 (engage/off)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="560" y="40" width="200" height="40" as="geometry"/></mxCell>
+    <mxCell id="I" value="wValue!=0 &amp;&amp; relay_off_latched? (usb_comms.h:399)" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="560" y="120" width="200" height="70" as="geometry"/></mxCell>
+    <mxCell id="J" value="ignore (engage blocked)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="560" y="230" width="200" height="40" as="geometry"/></mxCell>
+    <mxCell id="K" value="set_intercept_relay(wValue!=0) + cover arm" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="560" y="300" width="200" height="50" as="geometry"/></mxCell>
+    <mxCell id="L" value="USB 0xe9 (auth)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="560" y="400" width="200" height="40" as="geometry"/></mxCell>
+    <mxCell id="M" value="wValue!=0?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="560" y="470" width="200" height="60" as="geometry"/></mxCell>
+    <mxCell id="N" value="pc_authority=true; relay_off_latched=false (usb_comms.h:407-408)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="560" y="560" width="200" height="50" as="geometry"/></mxCell>
+    <mxCell id="O" value="pc_authority=false" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="320" y="565" width="180" height="40" as="geometry"/></mxCell>
+    <mxCell id="eAB" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A" target="B"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eBA" value="no" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="B" target="A"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eBC" value="yes" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="B" target="C"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eCD" value="yes" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="C" target="D"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eCE" value="no" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="C" target="E"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eDE" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="D" target="E"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eEF" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="E" target="F"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eFG" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="F" target="G"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eHI" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="H" target="I"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eIJ" value="yes" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="I" target="J"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eIK" value="no" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="I" target="K"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eLM" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="L" target="M"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eMN" value="yes" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="M" target="N"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eMO" value="no" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="M" target="O"><mxGeometry relative="1" as="geometry"/></mxCell>
+  </root>
+</mxGraphModel>
