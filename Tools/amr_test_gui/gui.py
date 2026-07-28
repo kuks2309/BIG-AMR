@@ -294,7 +294,7 @@ class MainWindow(QWidget):
         return g
 
     def _build_jog(self) -> QGroupBox:
-        """로봇 조그 — 3×3 방향 패드.
+        """로봇 조그 — 3×3 방향 패드 + 호밍 버튼.
 
         방향 구성(사용자 지시): 4방위 = 직진·후진·좌크랩·우크랩, 대각선 = 45° 크랩.
         ⚠ 표시는 **직접 실측이 아니라 도출된 방향**이라는 뜻이다(저속 1회 육안 확인 후 사용).
@@ -324,8 +324,9 @@ class MainWindow(QWidget):
             grid.addWidget(b, r, c)
         v.addLayout(grid)
 
-        # 조향 원점 복귀. 방향 패드와 성격이 달라(준비 동작·큰 이동) 줄을 나눈다.
-        self.btn_home = QPushButton("⌂  조향 원점 복귀 (호밍)")
+        # 호밍 + 조향 0°. 방향 패드와 성격이 달라(준비 동작·큰 이동) 줄을 나눈다.
+        # 이름에 두 동작을 다 적는다 — 호밍만 하고 끝나는 것으로 읽히면 안 된다.
+        self.btn_home = QPushButton("⌂  호밍 후 조향 0°")
         self.btn_home.setMinimumHeight(38)
         self.btn_home.setStyleSheet(
             "QPushButton { background:#5b6b7c; color:white; font-weight:bold;"
@@ -701,17 +702,20 @@ class MainWindow(QWidget):
             self.log("조그 진행 중 — 먼저 정지하세요")
             return
         if QMessageBox.question(
-                self, "조향 원점 복귀",
-                "조향 2축을 원점(리밋)으로 보낸 뒤 0° 로 복귀시킵니다.\n\n"
-                "· 바퀴가 크게 돕니다 — 복귀 스윙이 100° 를 넘습니다.\n"
-                "· 30 초 이상 걸리며, 시작한 뒤에는 이 프로그램이 중간에 멈출 수 없습니다.\n"
-                "  (드라이브 내부 루틴이라 중단은 하드웨어 E-STOP 뿐입니다)\n\n"
+                self, "호밍 후 조향 0°",
+                "조향 2축을 리밋까지 보내 원점을 확립한 뒤(호밍),\n"
+                "이어서 조향 0° 를 지령합니다.\n\n"
+                "· 바퀴가 두 번 크게 돕니다 — 리밋까지, 그리고 0° 로.\n"
+                "  각각 100° 를 넘습니다.\n"
+                "· 35 초 이상 걸립니다(호밍 약 31~34 s + 조향 0° 약 3 s).\n"
+                "· 호밍은 시작한 뒤 이 프로그램이 멈출 수 없습니다\n"
+                "  (드라이브 내부 루틴이라 중단은 하드웨어 E-STOP 뿐입니다).\n\n"
                 "이동구역이 비어 있습니까?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             self.log("호밍 취소")
             return
         self.btn_home.setEnabled(False)
-        self.can.start_homing()
+        self.can.start_homing(float(self.spn_tol.value()))
 
     def _on_motor_data(self, data: dict):
         """폴링 결과 → 표 + 바퀴 그림 (GUI 스레드). 환산은 `TongyiCan.decode_frames`."""

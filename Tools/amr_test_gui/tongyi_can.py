@@ -98,6 +98,7 @@ class TongyiCan:
     HOMING_SPEED = 2500        # 0x6099:00, 0.1 r/min 단위 → 250 r/min
     HOMING_TIMEOUT_S = 90.0    # 실측 소요 약 31 s
     HOMING_START_S = 10.0      # 개시(bit15=0) 를 기다리는 창
+    HOMING_RETURN_S = 30.0     # 원점→0° 복귀 대기 상한 (실측 약 3 s — 정본 캡처·실기 일치)
     SETTLE_TIMEOUT_S = 6.0     # 조향 정착 대기 상한
 
     def __init__(self, log=None, on_frames=None, on_homing_done=None):
@@ -109,6 +110,7 @@ class TongyiCan:
         self._jog_th = None
         self._jog_stop = False
         self._meas_deg = {3: None, 4: None}
+        self._pos_frozen = False      # 리밋 탐색 중에는 0x6064 가 0 을 돌려준다
         self._status = {}             # node -> 0x6041 상태워드 (호밍 완료 판정용)
         self._aborts = set()          # 이미 보고한 SDO 거부(같은 것 반복 방지)
         self._log_cb = log
@@ -275,31 +277,54 @@ class TongyiCan:
         return False
 
     # ── 조향 원점 복귀(호밍) ────────────────────────────────────────────
-    def start_homing(self) -> None:
+    def start_homing(self, tol: float) -> None:
         """호밍 실행을 별도 스레드로 띄운다. 확인 절차는 호출부(화면)가 맡는다."""
         self.homing = True
-        threading.Thread(target=self._homing_run, name="homing", daemon=True).start()
+        threading.Thread(target=self._homing_run, name="homing", daemon=True,
+                         args=(tol,)).start()
 
-    def _homing_run(self):
-        """조향 노드 3·4 호밍.
+    def _homing_run(self, tol: float):
+        """조향 노드 3·4 호밍 — 리밋 원점 확립 **뒤 조향 0° 복귀까지**.
 
         구동 노드(1·2)는 기계적 원점이 없어 호밍하지 않는다 — 조향축에만 지령한다.
         `0x6098`(homing method)은 **쓰지 않는다**. 드라이브 저장값을 그대로 쓰며,
         덮어쓰면 리셋 모드가 꺼져 호밍 자체가 동작하지 않는다.
+
+        **복귀를 우리가 직접 지령해야 하는 이유** — 호밍이 끝나는 지점(`0x6041` bit15
+        0→1)에서 바퀴는 **원점(리밋)에 있다**(실기 캡처: 완료 직후 `0x6064`=596 counts
+        ≈ +0.01°, 이후 3.0 s 만에 +137.45° 직진 도달). Seer 는 `0x607A` 를 ~50 Hz 로
+        끊김 없이 스트리밍하므로 위치 루프가
+        알아서 직진으로 되돌리지만, **우리는 유휴 시 상태 읽기만 하고 위치 목표를 물고
+        있지 않다**(`_loop` 는 읽기 전용). 그래서 복귀를 1회 명시적으로 보낸다.
+        보내지 않으면 바퀴가 리밋에 얹힌 채 남고, 그 방향 지령이 막힌다.
         """
         try:
+            self._jog_stop = False
             self.drive(0)                        # 호밍 전 구동은 반드시 0
             self._status.clear()                 # 직전 상태워드를 완료로 오독하지 않도록
+            self._pos_frozen = True              # 탐색 중 0x6064 는 실위치가 아니다
             for n in STEER_NODES:
                 self.sdo_write(n, 0x6040, 0x86, 2)                 # 축 준비
                 self.sdo_write(n, 0x6099, self.HOMING_SPEED, 4)    # 호밍 속도
                 self.sdo_write(n, 0x60FB, 1, 1, sub=4)             # 여기서 움직이기 시작한다
             self._log("호밍 개시 — 조향 2축. 완료까지 30초 이상 걸립니다.")
             ok, why = self.wait_homed()
-            self._log(f"호밍 완료 — {why}" if ok else f"호밍 미확인 — {why}")
+            if not ok:
+                self._log(f"호밍 미확인 — {why}")
+                return
+            self._pos_frozen = False             # 원점 확립됨 — 실위치 판독 재개
+            self._log(f"원점 도달 — {why} 이어서 조향 0° 로 복귀합니다(100° 이상 회전).")
+            for n in STEER_NODES:
+                self.steer_axis(n, 0.0)
+            if self.wait_settle(0.0, tol, timeout=self.HOMING_RETURN_S):
+                self._log("호밍 완료 — 조향 0° 복귀 확인")
+            else:
+                self._log(f"⚠ 원점은 확립됐으나 0° 복귀 미확인(실측 N3 {self._meas_deg.get(3)} / "
+                          f"N4 {self._meas_deg.get(4)}) — 바퀴 자세를 육안으로 확인하세요.")
         except Exception as exc:
             self._log(f"호밍 중단: {type(exc).__name__}: {exc}")
         finally:
+            self._pos_frozen = False
             self.homing = False
             emit(self._homing_done_cb)
 
@@ -327,7 +352,7 @@ class TongyiCan:
                            f"움직이지 않았는지 육안으로 확인하세요.")
         while time.time() - t0 < self.HOMING_TIMEOUT_S:
             if all((self._status.get(n) or 0) & BIT15 for n in STEER_NODES):
-                return True, f"{time.time() - t0:.0f}초 소요. 조향 0° 복귀까지 확인하세요."
+                return True, f"{time.time() - t0:.0f}초 소요."
             time.sleep(0.1)
         return False, f"{self.HOMING_TIMEOUT_S:.0f}초 안에 완료 신호가 오지 않았습니다."
 
@@ -387,15 +412,16 @@ class TongyiCan:
 
         counts→도, 0.1 r/min, 0.01 A 환산이 여기 있다. 화면은 결과만 받아 그린다.
 
-        호밍 중 `0x6064` 는 실위치가 아니라 0 을 돌려준다 — 그대로 쓰면 바퀴 그림이
-        0° 로 튀어 실제 자세를 오해하게 만든다. 그 구간은 각도를 갱신하지 않는다.
+        호밍의 **리밋 탐색 구간**에서 `0x6064` 는 실위치가 아니라 0 을 돌려준다 — 그대로
+        쓰면 바퀴 그림이 0° 로 튀어 실제 자세를 오해하게 만든다(`_pos_frozen`). 원점이
+        확립된 뒤(bit15 0→1)에는 판독이 되살아나므로 0° 복귀 이동은 정상적으로 그려진다.
         """
         rows, angles = {}, {}
         for node, vals in data.items():
             deg = rpm = amp = None
             if 0x6041 in vals:
                 self._status[node] = vals[0x6041]
-            if 0x6064 in vals and node in STEER_HOME and not self.homing:
+            if 0x6064 in vals and node in STEER_HOME and not self._pos_frozen:
                 deg = (vals[0x6064] - STEER_HOME[node]) / COUNTS_PER_DEG
                 angles[node] = deg
                 self._meas_deg[node] = deg

@@ -9,6 +9,9 @@ CAN 도 판다도 열리지 않는다.
   · `0x6098`(homing method)은 절대 쓰지 않는다 — 덮어쓰면 리셋 모드가 꺼진다.
   · 트리거는 서브인덱스 4 다(`0x60FB:04`). 서브인덱스가 0 으로 나가면 다른 객체가 된다.
   · 완료 판정은 bit15 의 **0→1 전이**다. 1 만 보면 이미 호밍된 축을 즉시 완료로 오독한다.
+  · **완료 시점에 바퀴는 원점(리밋)에 있다** — 이어서 조향 0° 복귀를 우리가 지령한다.
+    Seer 는 `0x607A` 를 끊김 없이 스트리밍해 위치 루프가 알아서 되돌리지만, 우리 GUI 는
+    유휴 시 상태 읽기만 하므로(`_loop` 읽기 전용) 복귀를 보내지 않으면 리밋에 얹힌 채 남는다.
 """
 from __future__ import annotations
 
@@ -39,6 +42,7 @@ def win(app):
     w = gui.MainWindow()
     w.can.HOMING_START_S = 1.0      # 테스트를 초 단위로 유지
     w.can.HOMING_TIMEOUT_S = 3.0
+    w.can.HOMING_RETURN_S = 1.0
     yield w
     w._seer_run = False
     w.can.running = False
@@ -82,19 +86,25 @@ def test_default_subindex_is_zero(win, monkeypatch):
 
 
 # ── 호밍 시퀀스 ────────────────────────────────────────────────────────────
-def _run_homing(win, sent, status_script):
-    """호밍을 돌리되 상태워드는 스크립트대로 흘려준다."""
+def _run_homing(win, sent, status_script, settle=True):
+    """호밍을 돌리되 상태워드는 스크립트대로 흘려준다.
+
+    `settle=True` 면 완료 후 실측이 0° 에 도달한 것처럼 흘려 복귀 정착까지 성립시킨다.
+    """
     win.can.running = True
 
     def feed():
         for delay, states in status_script:
             time.sleep(delay)
             win.can._status.update(states)
+        if settle:
+            time.sleep(0.05)
+            win.can._meas_deg.update({3: 0.0, 4: 0.0})
 
     t = threading.Thread(target=feed, daemon=True)
     win.can.homing = True
     t.start()
-    win.can._homing_run()
+    win.can._homing_run(3.0)
     t.join(timeout=2)
 
 
@@ -185,12 +195,57 @@ def test_homing_refused_without_authority(win):
     assert win.can.homing is False
 
 
-def test_position_is_not_trusted_while_homing(win):
-    """호밍 중 0x6064 는 0 을 돌려준다 — 그대로 쓰면 바퀴 그림이 0° 로 튄다."""
-    win.can.homing = True
+def test_position_is_not_trusted_during_limit_search(win):
+    """리밋 탐색 중 0x6064 는 0 을 돌려준다 — 그대로 쓰면 바퀴 그림이 0° 로 튄다."""
+    win.can._pos_frozen = True
     win.can._meas_deg = {3: None, 4: None}
     win._on_motor_data({3: {0x6064: 0}, 4: {0x6064: 0}})
     assert win.can._meas_deg == {3: None, 4: None}
-    win.can.homing = False
+    win.can._pos_frozen = False
     win._on_motor_data({3: {0x6064: tongyi_can.STEER_HOME[3]}})
     assert win.can._meas_deg[3] == pytest.approx(0.0)
+
+
+# ── 원점 도달 후 조향 0° 복귀 ──────────────────────────────────────────────
+# 호밍이 끝나는 지점에서 바퀴는 **리밋에 있다**(실기 캡처: 완료 직후 0x6064=596 ≈ +0.01°).
+# 이 복귀 단계가 빠진 채로 배포된 적이 있다 — claude-mistake 2026-07-29-001.
+# 그때 13건은 개시 시퀀스만 고정하고 **종료 상태를 보지 않아** 결함을 통과시켰다.
+# bit15=0 을 폴링 주기(0.1 s)보다 길게 유지해야 개시 관측이 결정적이 된다.
+DONE = [(0.05, {3: 0, 4: 0}), (0.35, {3: BIT15, 4: BIT15})]
+
+
+def test_zero_return_is_commanded_after_origin(win, sent):
+    """완료 후 조향 2축에 0° 절대위치(0x607A) + 즉시적용(0x6040=0x3F)이 나가야 한다."""
+    _run_homing(win, sent, DONE)
+    for n in (3, 4):
+        _deg, counts = tongyi_can.steer_counts(n, 0.0)
+        assert (n, 0x607A, counts, 4, 0) in sent, f"node{n} 0° 복귀 지령이 없다"
+        idx607a = sent.index((n, 0x607A, counts, 4, 0))
+        assert sent[idx607a + 1] == (n, 0x6040, 0x3F, 2, 0), "즉시 적용이 뒤따라야 한다"
+
+
+def test_zero_return_comes_after_the_trigger(win, sent):
+    """복귀는 호밍 트리거보다 **뒤**여야 한다 — 먼저 보내면 탐색이 덮인다."""
+    _run_homing(win, sent, DONE)
+    last_trigger = max(i for i, f in enumerate(sent) if f[1] == 0x60FB)
+    first_return = min(i for i, f in enumerate(sent) if f[1] == 0x607A)
+    assert last_trigger < first_return
+
+
+def test_no_return_when_origin_was_not_confirmed(win, sent):
+    """개시 신호를 못 보면 원점이 확립되지 않았으므로 복귀를 보내면 안 된다."""
+    win.can._status = {3: BIT15, 4: BIT15}      # 시작 전부터 1 → 개시 미관측
+    _run_homing(win, sent, [], settle=False)
+    assert not [f for f in sent if f[1] == 0x607A], "원점 미확립인데 복귀가 나갔다"
+
+
+def test_position_readout_resumes_after_origin(win, sent):
+    """복귀 이동을 그리려면 원점 확립 직후 판독이 되살아나야 한다."""
+    _run_homing(win, sent, DONE)
+    assert win.can._pos_frozen is False
+
+
+def test_homing_method_is_still_never_written_with_return(win, sent):
+    """복귀 단계를 넣어도 0x6098 은 여전히 나가면 안 된다."""
+    _run_homing(win, sent, DONE)
+    assert not [f for f in sent if f[1] == 0x6098]
