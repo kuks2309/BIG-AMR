@@ -385,13 +385,25 @@ class TongyiCan:
                 # heartbeat(0xf3) 를 매 루프(≈0.2 s) 보낸다.
                 # 끊기면 펌웨어가 fail-safe 로 intercept 를 푼다(임계는 초 단위).
                 self.panda._handle.controlWrite(P.REQUEST_OUT, 0xf3, 0, 0, b"")
-                with self._can_lock:
-                    for n in (1, 2, 3, 4):
-                        for idx in (0x6064, 0x606C, 0x6078, 0x6041):
-                            self.panda.can_send(0x600 + n,
-                                                bytes([0x40, idx & 0xFF, idx >> 8, 0, 0, 0, 0, 0]),
-                                                MOTOR_BUS)
-                time.sleep(0.08)
+                # 호밍 중에는 조향 위치만 집중해서 읽는다. 탐색 구간의 `0x6064` 응답은
+                # 대부분 0(실위치 아님)이고 실값은 드물게 섞이므로, 폴링이 느리면 그
+                # 드문 표본을 통째로 놓쳐 바퀴 그림이 멈춘 것처럼 보인다(2026-07-29 실측:
+                # 스윙 초반 2 s 에 비영 132/463, 이후 탐색 구간은 비영 0).
+                if self.homing:
+                    with self._can_lock:
+                        for n in STEER_NODES:
+                            self.panda.can_send(
+                                0x600 + n, bytes([0x40, 0x64, 0x60, 0, 0, 0, 0, 0]), MOTOR_BUS)
+                    time.sleep(0.012)
+                else:
+                    with self._can_lock:
+                        for n in (1, 2, 3, 4):
+                            for idx in (0x6064, 0x606C, 0x6078, 0x6041):
+                                self.panda.can_send(
+                                    0x600 + n,
+                                    bytes([0x40, idx & 0xFF, idx >> 8, 0, 0, 0, 0, 0]),
+                                    MOTOR_BUS)
+                    time.sleep(0.08)
                 out = {}
                 for addr, _t, dat, bus in self.panda.can_recv():
                     if bus != MOTOR_BUS or not (0x581 <= addr <= 0x584) or len(dat) < 8:
@@ -420,7 +432,7 @@ class TongyiCan:
                 self.running = False
                 self._log(f"폴링 중단: {type(exc).__name__}: {exc}")
                 return
-            time.sleep(0.12)
+            time.sleep(0.008 if self.homing else 0.12)
 
     def decode_frames(self, data: dict):
         """폴링 프레임 → 상태 반영 + 표시값 산출. 반환 `({node: (deg, rpm, amp)}, 각도갱신여부)`.
