@@ -2,6 +2,36 @@
 
 ---
 
+## 2026-07-28
+
+### [Fix] 호밍 기록의 잘못된 서술 정정 + 정오표 수립 (2회 적대적 검증)
+
+- **문제**: 2026-07-27 호밍 조사에서 생성된 기록 다수가 (a) `0x6041` bit15 **전이 시각**을 폴 상한값으로
+  확정형 서술 (b) `Tool/`(단수) 경로 인용 (c) `0x6040` 반복률 「~50 Hz」 (d) 호밍 중 write 정지 범위를
+  조향축으로 과소 서술 — 로 부정확했다. 더해 **정정하려고 만든 정오표(v1) 자체가 신규 오류 7건을 심었다**
+  (정확한 Handbook 인용을 「오진」으로 규정 등).
+- **원인**: ① 폴링 관측값을 이벤트 시각으로 취급(직전 폴 간격 미확인) — `Log/homing_capture_220350.jsonl`
+  node3 `0x6041` 최대 폴 간격 12.818 s ② 한 노드 결과를 전 노드로 일반화 ③ v1 작성 시 원문 재대조 없이
+  기억·요약에 의존해 **정확한 인용을 틀렸다고 판정**(자기 표와 모순).
+- **해결**: 원문(`pdftotext -f N -l N`) 재대조로 쪽 사실을 확정하고 v2 정오표로 전면 개정.
+  저장소 잔여 서술 11건 정정(전이 시각 → 「0 최초 관측」 + 확정 구간 병기, `Tool/`→`Tools/`),
+  `docs/debt/registry.md:146` 의 `0x6040=0x86` 「enable」 오라벨을 「fault reset(+enable voltage)」로 정정
+  (Bit7 rising edge = Fault Reset, `Enable Operation`(0x0F) 아님).
+  미해결 항목은 **debt-008**(Handbook 1차 source 내부 DI 번호 충돌)·**debt-009**(캡처 출처·12.62 s
+  무응답 구간 미확정)로 등록.
+- **검증**: 40 에이전트 적대적 재검증(wf_83c55976-efe) → v1 작성 → **10 에이전트가 v1 을 공격**
+  (wf_ea102b6e-a7c, 비-CONFIRMED 51건·신규오류 7건 검출) → v2. 각 레인이 캡처를 직접 재파싱하고
+  PDF 를 각자 재추출. 이전 실패 레인(`cap-digital-in`) 재수행 완료.
+- **파일**: `docs/verified_facts/2026-07-28-errata.md`(신규 v2), `docs/debt/registry.md`,
+  `docs/verified_facts/2026-07-27.md`, `docs/ros2_driver/2026-07-09-design-inputs.md`,
+  `References/Tongyi-Motor-Controller/docs/tongyi-motor-protocol-tables.md`,
+  `References/Tongyi-Motor-Controller/docs/tongyi-canopen-protocol-reference.md`,
+  `Tools/docking_field_kit/amap2_monitor.py`, `Tools/docking_field_kit/HANDOFF-amap2.md`
+- **상태**: 완료 (미해결분은 debt-008·debt-009 로 이관)
+
+---
+
+
 ## 2026-07-26
 
 ### [Diag] emulate 내구 중 Seer 52954(zeroing/재호밍 timeout) 1회 — zeroDI 하드웨어 아님, 기동 전환 트랜지언트로 추정
