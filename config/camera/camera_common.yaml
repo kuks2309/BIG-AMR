@@ -1,0 +1,42 @@
+# 공용 카메라 설정 — Python(캘리브레이션 UI)·C++(usb_cam_publisher) 공유 SSOT.
+#
+# 캡처 파라미터와 카메라 시리얼 로스터를 한 파일로 관리해 Python 도구와 C++
+# 퍼블리셔가 동일 값을 쓰도록 한다. 개별 코드 하드코딩 금지(이 파일이 단일 근원).
+#
+# 카메라 식별은 안정적인 V4L2 by-id 심링크(시리얼 기반):
+#   /dev/v4l/by-id/usb-<by_id_prefix>_<serial>-video-index0
+# 시리얼 목록: ls /dev/v4l/by-id/
+
+by_id_prefix: "Sonix_Technology_Co.__Ltd._Orbbec_Gemini_E_RGB_Camera"
+
+# 캡처 기본값(카메라 공통). Python·C++ 양쪽이 이 값을 적용한다.
+capture:
+  image_width: 1280
+  image_height: 720
+  framerate: 30.0
+  pixel_format: "MJPG"        # USB 2.0 대역 절감(무압축 YUYV 회피)
+  buffersize: 2               # V4L2 버퍼 >= 2 라야 풀 FPS (벤치 확인)
+  power_line_frequency: 2     # 안티밴딩: 0=off, 1=50Hz, 2=60Hz (한국 전원 60Hz)
+
+# 카메라 시리얼 로스터. name=논리 이름, serial=by-id 시리얼 토큰.
+# HARDWARE LIMIT: 단일 USB 2.0 컨트롤러라 RGB 최대 4대(문서: USB_CCTV usb_topology_limit).
+# tegra-ubuntu(Big-AMR) 이식 로스터 — 이 호스트에 실제 연결된 Gemini E 4대
+# (list_devices_node·/dev/v4l/by-id 실측, 2026-07-26). 원본 tr-orin-22 로스터는
+# 2대(J3·BT)였으나 대상 하드웨어가 달라 조정.
+cameras:
+  - name: "cam0"
+    serial: "AY4EC5400HL"   # /dev/video2, usb 7-1.1
+  - name: "cam1"
+    serial: "AY4EC5400H0"   # /dev/video0, usb 9-1.1
+  - name: "cam2"
+    serial: "AY4EC5400NR"   # /dev/video4, usb 5-1.1
+  - name: "cam3"
+    serial: "AY4EC5401F4"   # /dev/video6, usb 3-1.1
+  - name: "cam4"
+    serial: "AY4EC5400J3"   # /dev/video0, usb 1-3.x (Bus 001) — 2026-07-26 추가 5번째
+  - name: "cam5"
+    serial: "AY4EC5401BT"   # /dev/video2, usb 1-3.3 (Bus 001) — 2026-07-27 추가 6번째
+    # 주의: tr-orin-22 "RGB 최대 4대"는 단일 USB2.0 컨트롤러 한계. tegra는
+    # 대부분 카메라가 독립 버스(003/005/007/009)라 대역 분리 → 5대 실측 검증.
+    # cam4·cam5 는 둘 다 Bus 001(usb1) 공유이므로 6대 동시 구동 시 이 두 대의
+    # FPS/grab 실패를 우선 관찰할 것.
