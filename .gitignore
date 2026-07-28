@@ -1,5 +1,27 @@
+
+# coding 번들: OMC 런타임 상태 비추적
+.omc/
+docs/user_instructions/sessions/
+
+# ROS2 빌드 산출물 (비추적)
 build/
 install/
 log/
+
+# 벤더 참조 자료 (독점·대용량, 공개 저장소 제외)
+References/
+
+# Claude Code 로컬 설정
+.claude/
+
+# Python 캐시
 __pycache__/
 *.pyc
+
+# 판다 펌웨어 빌드 산출물 (소스만 추적 — ADR 2026-07-27-panda-boot-bitrate-and-failsafe)
+# 2026-07-28: 경로를 `Tool/`(단수) → `Tools/`(복수) 로 정정. 이전 4줄은 매칭 0건인 죽은 규칙이었다
+# (실제 무시는 상류 저장소 자체 파일 Tools/Can_Relay/panda-firmware/.gitignore:4,14 가 수행 중이었음).
+Tools/Can_Relay/panda-firmware/board/obj/
+Tools/Can_Relay/panda-firmware/board/*.o
+Tools/Can_Relay/panda-firmware/board/**/*.o
+Tools/Can_Relay/panda-firmware/**/*.elf
