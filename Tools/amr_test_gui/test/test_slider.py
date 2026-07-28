@@ -29,6 +29,7 @@ def app():
 def win(app):
     w = gui.MainWindow()
     w.can.running = True                # 제어권 보유 상태로 둔다
+    w._sync_steer_enabled()             # 그 상태의 잠금까지 실제와 맞춘다
     yield w
     w._seer_run = False
     w.can.running = False
@@ -157,3 +158,48 @@ def test_groove_click_steps_are_coarse_enough(app):
         assert w.sld_rear.pageStep() == 5
     finally:
         w._seer_run = False
+
+
+# ── 제어권 잠금 ───────────────────────────────────────────────────────────
+# 전에는 제어권이 없어도 슬라이더가 움직이고 지령 단계에서 로그로만 거부했다. 눈금은
+# 옮겨졌는데 바퀴는 가만히 있으니 화면이 실제와 어긋났다(2026-07-29 사용자 지적).
+def test_sliders_are_locked_without_authority(app):
+    """제어권을 쥐기 전에는 슬라이더가 아예 움직이지 않아야 한다."""
+    w = gui.MainWindow()
+    try:
+        assert w.can.running is False
+        assert not w.sld_front.isEnabled(), "제어권 없이 앞바퀴 슬라이더가 열려 있다"
+        assert not w.sld_rear.isEnabled(), "제어권 없이 뒷바퀴 슬라이더가 열려 있다"
+    finally:
+        w._seer_run = False
+
+
+def test_sliders_unlock_when_authority_is_held(win):
+    assert win.sld_front.isEnabled() and win.sld_rear.isEnabled()
+
+
+def test_sliders_lock_again_when_authority_is_released(win):
+    win.can.running = False
+    win._sync_steer_enabled()
+    assert not win.sld_front.isEnabled()
+    assert not win.sld_rear.isEnabled()
+
+
+def test_lock_follows_actual_authority_not_the_button(win):
+    """버튼을 눌러도 **실제로 잡히지 않았으면** 잠금이 유지돼야 한다.
+
+    `_on_take` 는 `can.running` 을 보고 잠금을 맞춘다. 판다가 없으면 `take()` 가 즉시
+    돌아와 제어권이 서지 않으므로, 버튼만 믿으면 열린 슬라이더로 헛지령을 보내게 된다.
+    """
+    win.can.running = False
+    win.can.panda = None
+    win._on_take(True)
+    assert win.can.running is False
+    assert not win.sld_front.isEnabled()
+    assert not win.sld_rear.isEnabled()
+
+
+def test_locked_slider_gives_a_reason(win):
+    win.can.running = False
+    win._sync_steer_enabled()
+    assert "제어권" in win.sld_front.toolTip()

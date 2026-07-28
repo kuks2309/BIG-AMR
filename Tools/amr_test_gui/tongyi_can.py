@@ -99,6 +99,7 @@ class TongyiCan:
     HOMING_TIMEOUT_S = 90.0    # 실측 소요 약 31 s
     HOMING_START_S = 10.0      # 개시(bit15=0) 를 기다리는 창
     HOMING_RETURN_S = 30.0     # 원점→0° 복귀 대기 상한 (실측 약 3 s — 정본 캡처·실기 일치)
+    STEER_RESEND_HZ = 10.0     # 정착 전 setpoint 재송신 주기
     SETTLE_TIMEOUT_S = 6.0     # 조향 정착 대기 상한
 
     def __init__(self, log=None, on_frames=None, on_homing_done=None):
@@ -258,21 +259,35 @@ class TongyiCan:
             except Exception:
                 pass
 
-    def wait_settle(self, target: float, tol: float, timeout: float = None) -> bool:
+    def wait_settle(self, target: float, tol: float, timeout: float = None,
+                    resend: bool = True) -> bool:
         """조향 정착 대기 — **두 축(N3·N4) 모두** 허용치 안에 들어와야 한다.
 
         crab 은 앞뒤가 같은 각이어야 성립하므로 한 축만 확인하면 뒷바퀴가 어긋난 채
         구동에 들어간다. 시간 초과면 False(= 추종 실패, 호출부가 구동을 취소한다).
+
+        **정착 전까지 setpoint 를 재송신한다**(`resend`). 한 축이 첫 지령을 놓치면
+        그 축은 영영 따라오지 않는다 — 2026-07-29 실기에서 45° 크랩 중 node4 가 그렇게
+        멈춰 있었고, 구동은 이 정착 판정이 막았다. 구 GUI 는 setpoint 를 50 Hz 로 계속
+        보내 이런 결손이 20 ms 만에 스스로 메워졌다. 그 성질을 **지령이 살아있는 동안**
+        으로 좁혀 되살린 것이다(유휴 시에는 여전히 상태 읽기만 한다).
+
+        A/B 실측(2026-07-29): 한 축에만 −10° 를 넣어 결손을 만든 뒤
+        재송신 없음 → 6 s 내내 미복구 · 재송신 → 0.5 s 만에 양축 정착.
         """
         if timeout is None:
             timeout = self.SETTLE_TIMEOUT_S
         t0 = time.time()
+        next_send = 0.0
         while time.time() - t0 < timeout:
             if self._jog_stop:
                 return False
             cur = [self._meas_deg.get(n) for n in STEER_NODES]
             if all(c is not None and abs(target - c) <= tol for c in cur):
                 return True
+            if resend and time.time() - t0 >= next_send:
+                self.steer_to(target)
+                next_send += 1.0 / self.STEER_RESEND_HZ
             time.sleep(0.05)
         return False
 

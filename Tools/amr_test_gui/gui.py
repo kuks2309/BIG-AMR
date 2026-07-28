@@ -368,11 +368,24 @@ class MainWindow(QWidget):
             sld.setTickPosition(QSlider.TicksBelow)
             sld.setMinimumHeight(30)          # 잡기 쉬운 높이
             sld.setPageStep(5)                # 홈을 클릭하면 5°씩
+            sld.setEnabled(False)             # 제어권을 쥐기 전에는 잠근다
             sld.valueChanged.connect(lambda _val, n=node: self._on_wheel_changed(n))
             sld.sliderReleased.connect(lambda n=node: self._send_steer(n))
             v.addWidget(sld)
             v.addSpacing(4)
+        self._sync_steer_enabled()
         return g
+
+    def _sync_steer_enabled(self):
+        """조향 슬라이더는 **제어권을 쥐고 있을 때만** 움직인다.
+
+        전에는 항상 움직이고 지령 단계에서 로그로만 거부했다 — 눈금은 옮겨졌는데 바퀴는
+        가만히 있으니 화면이 실제와 어긋났다. 잡히지 않으면 애초에 옮길 수 없게 한다.
+        """
+        on = self.can.running
+        for sld in (self.sld_front, self.sld_rear):
+            sld.setEnabled(on)
+            sld.setToolTip("" if on else "제어권을 획득해야 조향할 수 있습니다.")
 
     def _on_wheel_changed(self, node: int):
         """슬라이더 값이 바뀌었다.
@@ -667,6 +680,8 @@ class MainWindow(QWidget):
             self.can.take(on)
         except Exception as exc:
             self.log(f"제어권 처리 실패: {type(exc).__name__}: {exc}")
+        # 실제로 잡혔는지(`running`)를 보고 잠금을 맞춘다 — 버튼이 눌린 것과 별개다.
+        self._sync_steer_enabled()
 
     # ── 조그 (crab: 조향 → 정착 확인 → 구동 — 순서는 `TongyiCan` 이 지킨다) ──
     def _jog(self, label: str):

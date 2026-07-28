@@ -65,6 +65,7 @@ steer_counts
 steer_to
 stop
 stop_drive
+_sync_steer_enabled
 take
 _toggle
 _update_wheel_labels
