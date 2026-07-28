@@ -32,6 +32,54 @@
 ---
 
 
+## 2026-07-27
+
+### [Fix] vision_guard 6대 표시가 16fps로 저하 — 프레임 변환의 BGR→RGB 복사(9.2ms/대)가 렌더 병목
+
+- **문제**: 퍼블리셔 캡처는 29.7fps인데 뷰어 표시는 16~20fps. 6대 동시 표시 시에만 발현.
+- **원인**: [실측] 구간 분리 측정 결과 병목 2개. **(주)** `main_window.bgr_to_qimage` 가 `np.ascontiguousarray(frame[:, :, ::-1])`(비연속 스트라이드 복사) + `QImage.copy()` 로 2.76MB 프레임을 **두 번 복사** → 오프스크린 실측 **9.2ms/대**(변환 12.0ms/대 중 76%). 6대×30Hz면 한 틱 72ms 로 30Hz 예산(33ms) 초과 → **렌더 상한 13.9fps**. 실측 CPU도 일치: 프로세스 145%, GUI 메인 스레드 단독 83%. **(부)** raw bgr8 전송 자체 손실 — 아무 것도 안 하는 카운트 전용 구독자(CPU 55%)도 24Hz만 수신(6대 합계 166MB/s, best-effort/depth=1).
+- **해결**: Qt 가 BGR 을 직접 읽는 `QImage.Format_BGR888` 로 채널 스왑 복사를 제거하고, numpy 버퍼 수명이 살아있는 함수 내부에서 `QPixmap.fromImage` 로 소유권을 옮기도록 `bgr_to_qimage` → `bgr_to_pixmap` 교체(호출부 `_pump`·`CameraCell.update_frame` 포함 3곳). 대안 비교 실측: 현재 14.3ms → **BGR888 무복사 1.1ms**(12.6배) / cv2 선축소 0.9~2.2ms.
+- **파일**: `src/Sensors/Camera/USB/ui/vision_guard/vision_guard/main_window.py`, `.../test/test_frame_convert.py`(신규 — 채널 순서·크기·원본 해제 후 생존·비연속 입력 7 케이스)
+- **상태**: 완료. 테스트 **14 passed**(기존 7 + 신규 7), 빌드 클린. 실측: 표시 **20.7~24.1 fps**(6/6), 뷰어 CPU **145% → 85%**. 남은 상한은 (부)의 전송 손실(~24Hz)이며 compressed transport 도입은 미적용(별건).
+
+### [Diag] 뷰어를 kill -9 로 강제 종료하면 퍼블리셔 쓰기가 막혀 일부 카메라가 영구 "No Signal"
+
+- **문제**: 진단 중 뷰어를 `kill -9` 로 수차례 종료한 뒤, 재기동한 뷰어에서 cam0·cam1·cam2·cam5 가 **콜백 0회**("No Signal", 에러 로그 없음). 동시에 해당 4대의 퍼블리셔 캡처 FPS 가 29.7 → 18(순간 0.8까지) 로 동반 저하. cam3·cam4 만 정상.
+- **원인**: [증거] 독립 구독자(`rate_probe.py`)는 같은 시각 6토픽 모두 정상 수신 → 발행 자체는 살아있음. 즉 SIGKILL 로 정리 없이 사라진 리더의 FastDDS 공유메모리(`/dev/shm/fastrtps_*`, 40→50개로 증가) 상태가 남아 해당 라이터의 전달·쓰기가 지연된 것. 퍼블리셔는 캡처 스레드에서 `grab → convert → publish` 를 직렬 수행(`usb_cam_publisher_node.cpp:168,192`)하므로 **쓰기 지연이 곧 캡처 FPS 저하**로 나타남.
+- **해결**: 퍼블리셔 재기동으로 즉시 정상화(6/6 표시, 캡처 전 카메라 29.7 복귀). 운용 규칙: 뷰어는 **Ctrl+C / SIGTERM 으로 종료**(SIGKILL 금지), 부득이 SIGKILL 한 경우 퍼블리셔도 함께 재기동.
+- **파일**: (코드 변경 없음) 관련: `src/Sensors/Camera/USB/usb_cam_publisher/src/usb_cam_publisher_node.cpp`
+- **상태**: 원인·회복 절차 확인 완료. ⚠ 미해결: 퍼블리셔의 publish 블로킹이 캡처 루프를 멈추는 구조(캡처·발행 스레드 미분리)는 그대로 — 재발 시 같은 증상 가능.
+
+> ⚠ **[2026-07-27 감사 부기 — 기전은 미검증 가설]** (원문 무변경)
+> 위 "원인" 절의 "SIGKILL 로 사라진 리더의 FastDDS 공유메모리 상태가 남아 해당 라이터의 전달·쓰기가 지연된 것" 은 **"…지연됐을 가능성이 크다(미검증 가설)"** 로 읽어야 한다. 제시된 근거는 (a) 독립 구독자 정상 수신 (b) `/dev/shm/fastrtps_*` 40→50 개 증가 두 정황뿐이고, 인과를 확인한 재현 시험이 없다. 실제 해결도 원인 제거가 아닌 **퍼블리셔 재기동**이었고(위 "해결" 절), 같은 entry 의 "상태" 절도 구조적 원인이 남아 있음을 스스로 적고 있다.
+> 따라서 "해결" 절의 **SIGKILL 금지 운용 규칙은 "기전 미확정 — 예방적 규칙"** 으로 병기한다(규칙 자체는 유지: 비용이 낮고 회복 절차가 확인돼 있음).
+> **판정에 필요한 측정**: ① SIGTERM 종료 N회 vs SIGKILL 종료 N회 후 뷰어 콜백 수신 여부 대조 ② SIGKILL 후 잔존 `/dev/shm/fastrtps_*` **정리만으로** 회복하는지(퍼블리셔 재기동 없이) 확인.
+
+### [Fix] vision_guard 기동 즉시 abort — opencv-python 이 Qt 플랫폼 플러그인 경로를 오염
+
+- **문제**: `ros2 launch vision_guard vision_guard.launch.py` 실행 시 `qt.qpa.plugin: Could not load the Qt platform plugin "xcb" in ".../cv2/qt/plugins" even though it was found` 후 프로세스 abort(exit -6). 6대 카메라 퍼블리셔는 정상(29.7fps)인데 뷰어만 뜨지 않음.
+- **원인**: pip 설치본 `opencv-python 4.10.0`(`~/.local/lib/python3.10/site-packages/cv2`)이 **import 시점에 `QT_QPA_PLATFORM_PLUGIN_PATH` 를 자기 번들 경로로 덮어씀**(실측: import 전 `None` → import 후 `.../cv2/qt/plugins`). 그 번들 `libqxcb.so` 는 cv2 자체 Qt 에 링크돼 시스템 PyQt5(`/usr/lib/aarch64-linux-gnu/qt5/plugins/platforms`)와 호환되지 않아 플랫폼 플러그인 초기화 실패. 발현 경로: `app.py:17` 의 `from .ros_worker import ...` → `ros_worker.py:21` `import cv2` 가 `app.py:23` `QApplication()` 보다 먼저 실행. **외부 환경변수 지정으로는 못 고침** — cv2 가 import 시 다시 덮어쓰는 것을 실측 확인.
+- **해결**: `app.py` import 직후·`QApplication` 생성 전에 `os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH", None)` 추가(주석 5줄 + `import os` + pop 1줄). 재현 스크립트로 `platform = xcb` 정상 기동 선검증 후 적용.
+- **파일**: `src/Sensors/Camera/USB/ui/vision_guard/vision_guard/app.py`
+- **상태**: 완료 (colcon build 성공, 6대 뷰어 `6/6 cameras shown` 실측 확인)
+
+### [Change] USB CCTV 카메라 로스터 6대로 확장 (cam5 = AY4EC5401BT)
+
+- **문제**: 6대 장착 상태인데 roster 에 5대만 등록돼 뷰어에 5분할만 표시.
+- **원인**: `config/camera/camera_common.yaml` 로스터 미갱신 — 6번째 시리얼 `AY4EC5401BT`(/dev/video2, usb 1-3.3) 누락.
+- **해결**: cam5 항목 추가 + 버스 공유 주석(cam4·cam5 는 둘 다 Bus 001). 6대 동시 구동 실측: 전 카메라 **29.7fps, grab_failures=0** — 기존 문서의 "RGB 최대 4대" 제약(tr-orin-22 단일 USB2.0 컨트롤러 기준)은 이 Tegra 호스트에 미적용임을 재확인.
+- **파일**: `config/camera/camera_common.yaml`
+- **상태**: 완료
+
+> ⚠ **[2026-07-27 감사 부기 — 6대 무손실 주장은 조건부]** (원문 무변경 · 로스터 값 무변경)
+> 위 "해결" 절의 "6대 동시 구동 실측 29.7fps · grab_failures=0 ⇒ 'RGB 최대 4대' 제약 미적용 재확인" 은 다음 두 이유로 **조건부**로 읽어야 한다.
+> - 이 entry 가 수정한 바로 그 파일이 상반된 문구를 **미정정 상태로 유지**한다: `config/camera/camera_common.yaml:22` "HARDWARE LIMIT: 단일 USB 2.0 컨트롤러라 RGB 최대 4대", `:23` "이 호스트에 실제 연결된 Gemini E **4대**" — 실제 로스터는 `:26-38` 의 cam0~cam5 **6대**. (어느 쪽이 옳은지는 여기서 판정하지 않는다. 값·주석은 해당 파일 담당 범위.)
+> - 같은 파일 `:39-40` 은 "**5대** 실측 검증", `:41-42` 는 "cam4·cam5 는 둘 다 Bus 001 공유이므로 **6대 동시 구동 시 이 두 대의 FPS/grab 실패를 우선 관찰할 것**" 이라 적어 6대 조건을 **열린 관찰 대상**으로 남겨둔다.
+> - 또 본 entry 의 6대 측정에는 **조건이 기재돼 있지 않다**(해상도·픽셀포맷·측정 지속시간·동시 뷰어 유무).
+> **판정에 필요한 측정**: 6대 동시 구동을 해상도·픽셀포맷(`camera_common.yaml:14-17` 기준)·지속시간을 명기해 재측정하고, cam4/cam5(Bus 001 공유)의 FPS·`grab_failures` 를 별도로 기록.
+
+---
+
 ## 2026-07-26
 
 ### [Diag] emulate 내구 중 Seer 52954(zeroing/재호밍 timeout) 1회 — zeroDI 하드웨어 아님, 기동 전환 트랜지언트로 추정
