@@ -1,0 +1,48 @@
+# AMR 자원 감시 샘플러 — 관측 전용(어떤 하드웨어도 제어하지 않는다).
+#
+# 설치는 install_service.sh 가 명시적으로 실행될 때만 한다. 저장소에 파일이 있다고 해서
+# 자동으로 활성화되지 않는다.
+#
+# 왜 install/ 이 아니라 소스 트리에서 실행하는가 (ADR 2026-07-28 §Decision 7):
+#   `colcon build` 가 install/ 을 비우는 순간 감시기가 죽으면 안 된다. PYTHONPATH 로 소스
+#   경로를 직접 가리키면 빌드 상태와 무관하게 뜬다.
+#
+# 경로는 로봇 1대(본 장비) 전제로 절대경로다. 다른 장비에 배포하려면 아래 두 경로를 고칠 것.
+
+[Unit]
+Description=AMR system health sampler (observe-only)
+Documentation=file:///home/nvidia/Project/Ford-CATL-AMR/Big-AMR/docs/adr/2026-07-28-system-health-monitor.md
+After=local-fs.target
+Wants=local-fs.target
+
+[Service]
+Type=simple
+User=nvidia
+Group=nvidia
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/home/nvidia/Project/Ford-CATL-AMR/Big-AMR/src/Safety/system_health
+# 임계값은 사용자가 정해 파일로 고정한다(ADR §Decision 4). install_service.sh --apply 가
+# 파일이 없으면 기본값으로 만들어 두므로, 사용자는 그 파일만 고치고 서비스를 재시작하면 된다.
+ExecStart=/usr/bin/python3 -m system_health.sampler \
+    --interval 5 \
+    --disk / \
+    --thresholds /home/nvidia/Project/Ford-CATL-AMR/Big-AMR/config/system_health/thresholds.json \
+    --out-dir /home/nvidia/Project/Ford-CATL-AMR/Big-AMR/Log/health
+
+Restart=always
+RestartSec=5
+
+# 관측이 대상을 바꾸지 않도록 우선순위를 낮춘다 — 감시기가 CPU·I/O 를 다투면
+# 측정값 자체가 오염된다.
+Nice=10
+IOSchedulingClass=idle
+
+# 관측 전용이므로 쓰기 권한을 로그 디렉토리로 제한한다.
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/nvidia/Project/Ford-CATL-AMR/Big-AMR/Log
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

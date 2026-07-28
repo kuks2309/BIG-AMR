@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>system_health</name>
+  <version>0.1.0</version>
+  <description>AMR 본체 PC(Jetson Orin NX) 자원 감시. Phase 1 은 sysfs/procfs 직독 상주 샘플러로 ROS 에 의존하지 않는다 — ROS 가 죽은 순간에도 온도·메모리·디스크 기록이 남아야 하기 때문이다. 관측 전용이며 어떤 하드웨어도 제어하지 않는다.</description>
+  <maintainer email="kukwonko@gmail.com">kuks</maintainer>
+  <license>Apache-2.0</license>
+
+  <!-- Phase 1 은 표준 라이브러리만 쓴다(ADR 2026-07-28 §Decision 9). rclpy 는 Phase 2
+       (/diagnostics 브리지) 착수 시에 추가한다 — 쓰지 않는 의존성을 미리 선언하지 않는다. -->
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
