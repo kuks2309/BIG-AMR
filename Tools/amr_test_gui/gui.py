@@ -6,42 +6,40 @@
 """
 from __future__ import annotations
 
+import atexit
 import math
 import os
+import signal
 import sys
 import threading
 import time
 
-from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
+from PyQt5.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPolygonF
-from PyQt5.QtWidgets import (QApplication, QComboBox, QGridLayout, QGroupBox,
+from PyQt5.QtWidgets import (QApplication, QGridLayout, QGroupBox,
                              QHBoxLayout, QHeaderView, QLabel, QPlainTextEdit,
                              QMessageBox, QPushButton, QDoubleSpinBox,
                              QSlider, QSpinBox,
                              QTableWidget, QTableWidgetItem,
                              QVBoxLayout, QWidget)
 
-# 판다 배선·제어권 (docking_field_kit 실측 관례)
-SEER_BUS, MOTOR_BUS = 0, 2
-SEER_GATE, CAN_KBPS, HEARTBEAT_S = 30, 250, 0.4
-# 조향 스케일·홈 (config/tongyi_amr.yaml — debt-007 미판정 주의)
-COUNTS_PER_DEG = 57344
-STEER_HOME = {3: 7871815, 4: 7840086}
-# Seer (무선망, 읽기 전용 status 폴링)
+# ── 상수 ───────────────────────────────────────────────────────────────────
+# 값의 근거는 코드가 아니라 README.md §주요 상수 가 든다. 여기엔 의미만 적는다.
+SEER_BUS, MOTOR_BUS = 0, 2          # 판다 버스 번호
+SEER_GATE, CAN_KBPS = 30, 250       # safety_mode, 버스 속도
+COUNTS_PER_DEG = 57344              # 조향 counts/도
+STEER_HOME = {3: 7871815, 4: 7840086}   # 조향 0° 기준 counts (debt-007 미판정)
 SEER_IP = "192.168.44.82"
 SEER_GUI = "/home/nvidia/T-Robot_seer_gui"
-# 구동 스케일 (docking_field_kit 실측: ±2445 = 0.1 m/s, VEL_MAX 4889 ≈ 0.2 m/s)
-VEL_PER_MMPS, VEL_MAX_UNITS = 24.447, 4889
-# 조향 가동범위 — 실측 검증 범위(기구 한계는 ±140°). 밖은 지령하지 않는다.
-STEER_LIMIT_DEG = 90.0
+VEL_PER_MMPS, VEL_MAX_UNITS = 24.447, 4889   # 구동 raw 환산, 상한(≈0.2 m/s)
+STEER_LIMIT_DEG = 90.0              # 조향 지령 허용 범위 ±90°
 
 
 # ── 순수 환산 (Qt·하드웨어 무의존 — 회귀 테스트가 여기를 고정한다) ──────────
 def steer_counts(node: int, deg: float):
     """가동범위 클램프 후 조향 절대위치 counts 를 낸다. 반환 `(적용된 각도, counts)`.
 
-    **가동범위 밖은 보내지 않는다** — 실측 검증 범위 ±90° 로 자른다.
-    (node4 가 범위 밖으로 밀려 물리적으로 갇힌 사고: claude-mistake 2026-07-27-002)
+    범위 밖 각도는 보내지 않고 ±90° 로 자른다.
     """
     deg = max(-STEER_LIMIT_DEG, min(STEER_LIMIT_DEG, deg))
     return deg, int(round(STEER_HOME[node] + deg * COUNTS_PER_DEG))
@@ -84,7 +82,7 @@ def _panda_class():
 class WheelView(QWidget):
     """차량 바퀴 상태 top-view. 조향각을 그대로 그림에 반영한다.
 
-    기하(실측 정본, References/Tongyi-Motor-Controller/docs/tongyi-canopen-protocol-reference.md §1):
+    기하(EasyDRIVE config 값 — 본 기체 직접 실측은 아니다. 시각화 전용):
       Front(node3) x=+0.604 m · Rear(node4) x=−0.596 m · 휠베이스 1.200 m · 휠반경 0.125 m
     좌표: +x 전방(화면 위) · +y 좌(화면 왼쪽)
     각도 규약: 조향 +각 = counts 증가 방향. 바퀴 지향 = (cos θ, −sin θ).
@@ -178,6 +176,7 @@ class MainWindow(QWidget):
     clear_done = pyqtSignal()
     alarm_counts = pyqtSignal(int, int)
     log_line = pyqtSignal(str)
+    homing_done = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -185,12 +184,17 @@ class MainWindow(QWidget):
         self._th = None
         self._run = False
         self._seer_run = True
+        # 해제 사슬을 이미 돌렸는지. 종료 경로가 4개(창 닫기·정지 신호·이벤트루프 종료·
+        # 인터프리터 종료)라 같은 사슬이 여러 번 불린다 — `safe_release()` 멱등화 래치.
+        self._released = False
         self._alarm_tick = 0
         self._alarm_seen = set()
         self._can_lock = threading.Lock()   # 폴링·조그가 버스를 공유한다
         self._jog_th = None
         self._jog_stop = False
         self._meas_deg = {3: None, 4: None}
+        self._status = {}               # node -> 0x6041 상태워드 (호밍 완료 판정용)
+        self._homing = False
         self._seer_deg: dict = {}       # Seer 1040 이 보는 조향각(제어권 없을 때 그림 출처)
         self.setWindowTitle("Tongyi 4축 AMR 구동 테스트 GUI")
         self.resize(1200, 800)
@@ -210,7 +214,7 @@ class MainWindow(QWidget):
         mid.addWidget(self._build_jog(), 0)
         mid.addWidget(self._build_motors(), 0)   # 중간 — 판다에서 읽은 모터 값
         mid.addWidget(self._build_seer(), 0)     # 아래-위 — Seer 에서 읽은 값(비교용)
-        mid.addWidget(self._build_settings(), 0) # 맨 아래 — 속도·각도·허용치 설정
+        mid.addWidget(self._build_settings(), 0) # 맨 아래 — 속도·허용치 설정
         mid.addStretch(1)
 
         right = QVBoxLayout(self.box3)
@@ -227,20 +231,51 @@ class MainWindow(QWidget):
         self.clear_done.connect(lambda: self.btn_clear_fatal.setEnabled(True))
         self.alarm_counts.connect(self._set_alarm_color)
         self.log_line.connect(self.log)
+        self.homing_done.connect(lambda: self.btn_home.setEnabled(True))
         threading.Thread(target=self._seer_loop, daemon=True, name='seer').start()
         self.log("GUI 기동 — 실기 전용")
         self.scan()
 
-    def closeEvent(self, ev):
-        """종료 시 제어권을 반드시 반환한다."""
+    def safe_release(self, reason: str = "") -> None:
+        """제어권을 반환하고 USB 를 해제한다. **모든 종료 경로가 이 함수를 공유한다.**
+
+        창을 닫는 정상 종료만 안전하면 부족하다 — Ctrl+C·`kill`·처리되지 않은 예외로 죽으면
+        릴레이가 intercept 로, USB 가 열린 채로 남아 Seer 가 로봇을 되찾지 못한다. `main()` 이
+        4경로(창 닫기·정지 신호·이벤트루프 종료·인터프리터 종료)를 여기로 모은다.
+
+        **`btn_take.setChecked(False)` 에 의존하지 않는다.** 그것은 Qt 시그널 전달을 거쳐
+        `_on_take(False)` 를 부르는 경로인데, `atexit` 시점에는 이벤트 루프가 이미 끝나고 C++
+        객체가 파괴돼 있을 수 있어 **해제가 조용히 누락된다.** 그래서 `_on_take(False)` 를
+        직접 호출한다. 종료 중이므로 버튼의 시각 상태는 의미가 없다.
+
+        **멱등이다** — 여러 경로가 연달아 불러도 두 번째부터는 즉시 반환한다.
+
+        Args:
+            reason: 어느 경로로 들어왔는지(로그용). 사후 분석에서 원인을 가른다.
+        """
+        if self._released:
+            return
+        self._released = True
+        print(f"[gui] 해제 시작 — {reason}", flush=True)
         self._seer_run = False
-        if self.btn_take.isChecked():
-            self.btn_take.setChecked(False)
+        self._jog_stop = True
         if self.panda is not None:
             try:
+                # 제어권 보유 여부와 무관하게 반환을 시도한다 — 보유하지 않은 상태에서의
+                # 중복 반환은 무해하지만, 보유 중인데 건너뛰면 릴레이가 intercept 로 남는다.
+                self._on_take(False)
+            except Exception as exc:
+                print(f"[gui] ⚠ 종료 중 제어권 반환 예외: {exc}", flush=True)
+            try:
                 self.panda.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[gui] ⚠ 종료 중 USB close 예외: {exc}", flush=True)
+            self.panda = None
+        print("[gui] 해제 완료 — 제어권 반환 · USB 연결 해제", flush=True)
+
+    def closeEvent(self, ev):
+        """창 닫기 경로. 해제는 `safe_release()` 가 소유한다."""
+        self.safe_release("창 닫기")
         ev.accept()
 
     # ── 화면 ────────────────────────────────────────────────────────────
@@ -250,11 +285,14 @@ class MainWindow(QWidget):
 
         v.addWidget(QLabel("연결 가능한 판다"))
         pick = QHBoxLayout()
-        self.cmb_panda = QComboBox()
+        # 1 PC = 판다 1대가 이 시스템의 원칙이라 고를 것이 없다 — 표시만 한다.
+        self.lab_panda = QLabel("검색 전")
+        self.lab_panda.setStyleSheet(
+            "padding:5px 8px; border:1px solid #cfd8e0; border-radius:3px; color:#5d6d7e;")
         self.btn_scan = QPushButton("검색")
         self.btn_scan.setMinimumHeight(28)
         self.btn_scan.clicked.connect(self.scan)
-        pick.addWidget(self.cmb_panda, 1)
+        pick.addWidget(self.lab_panda, 1)
         pick.addWidget(self.btn_scan, 0)
         v.addLayout(pick)
 
@@ -290,7 +328,6 @@ class MainWindow(QWidget):
             (2, 0): ("↙", "좌후 45°", False), (2, 1): ("↓", "후진", True),
             (2, 2): ("↘", "우후 45°", False),
         }
-        self.jog_buttons = {}
         for (r, c), (arrow, label, verified) in pad.items():
             b = QPushButton(f"{arrow}\n{label}" + ("" if verified else "  ⚠"))
             b.setMinimumHeight(52)
@@ -301,16 +338,25 @@ class MainWindow(QWidget):
                    ("color:#b9770e;" if not verified else "")))
             b.clicked.connect(lambda _=False, t=label: self._jog(t))
             grid.addWidget(b, r, c)
-            self.jog_buttons[label] = b
         v.addLayout(grid)
+
+        # 조향 원점 복귀. 방향 패드와 성격이 달라(준비 동작·큰 이동) 줄을 나눈다.
+        self.btn_home = QPushButton("⌂  조향 원점 복귀 (호밍)")
+        self.btn_home.setMinimumHeight(38)
+        self.btn_home.setStyleSheet(
+            "QPushButton { background:#5b6b7c; color:white; font-weight:bold;"
+            " border:1px solid #44515e; border-radius:4px; margin-top:6px; }"
+            "QPushButton:disabled { background:#e8edf2; color:#8894a2; }")
+        self.btn_home.clicked.connect(self._homing_clicked)
+        v.addWidget(self.btn_home)
         return g
 
     def _build_wheel_adj(self) -> QGroupBox:
         """앞뒤 바퀴 조향각 조정.
 
-        폴링 중(제어권 보유)에는 그림이 **실측**을 따르므로 여기 값은 목표로만 남는다.
-        폴링 전에는 그림이 이 값을 그대로 반영한다(각도 확인용).
-        범위 ±90° — 기구 한계 ±140° 이나 실측 검증 범위가 ±90° 라 여기서 자른다.
+        여기 값은 **목표**다. 그림은 실측(판다 또는 Seer)이 있으면 그쪽을 그리고,
+        실측이 하나도 없을 때만 이 값을 미리보기로 그린다 — `_redraw_wheel` 참조.
+        슬라이더 range 자체가 ±90° 라 범위 밖은 만들 수 없다.
         """
         g = QGroupBox("앞뒤 바퀴 조정")
         grid = QGridLayout(g)
@@ -365,12 +411,9 @@ class MainWindow(QWidget):
         return deg
 
     def _build_settings(self) -> QGroupBox:
-        """조그 설정 — 바퀴 속도 · 회전 각도 · 허용치.
+        """조그 설정 — 바퀴 속도, 정착 허용치. 위젯은 이 둘뿐이다.
 
-        기본·상한 근거:
-          속도 상한 200 mm/s = vmax 0.2 m/s (config/tongyi_amr.yaml). 기본 50 mm/s(저속).
-          조향 ±90° — 기구 한계는 ±140° 이나 **실측 검증 범위가 ±90°** 라 여기서 자른다.
-          정착 허용 3.0° = steer_settle_tol_deg (config).
+        속도 상한 200 mm/s(= 0.2 m/s), 기본 50 mm/s. 정착 허용 기본 3.0°.
         """
         g = QGroupBox("설정")
         grid = QGridLayout(g)
@@ -399,40 +442,55 @@ class MainWindow(QWidget):
         grid.setColumnStretch(1, 1)
         return g
 
-    def _build_motors(self) -> QGroupBox:
-        """각 모터 값 — 각도·회전·전류만(사용자 지시).
+    ROWS = ("1  F.W", "2  R.W", "3  F.S", "4  R.S")   # 표 행 = 노드 1~4
+    CELL_FMT = ((1, "{:+.1f}"), (2, "{:+.1f}"), (3, "{:+.2f}"))   # 각도·회전·전류
 
-        노드(실측 정본 §1): 1=FrontWalk 2=RearWalk 구동 · 3=FrontSteer 4=RearSteer 조향.
-        각도는 조향축, 회전은 구동축에서 의미가 있어 해당 없는 칸은 '—' 로 둔다.
-        """
-        g = QGroupBox("모터 값")
-        v = QVBoxLayout(g)
-        self.tbl_motor = QTableWidget(4, 4)
-        self.tbl_motor.setHorizontalHeaderLabels(["모터", "각도(°)", "회전(rpm)", "전류(A)"])
-        self.tbl_motor.verticalHeader().setVisible(False)
-        self.tbl_motor.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.tbl_motor.setSelectionMode(QTableWidget.NoSelection)
-        self.tbl_motor.verticalHeader().setDefaultSectionSize(26)
-        self.tbl_motor.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        for r, name in enumerate(("1  F.W", "2  R.W", "3  F.S", "4  R.S")):
-            self.tbl_motor.setItem(r, 0, QTableWidgetItem(name))
+    @staticmethod
+    def _motor_table(rpm_header: str) -> QTableWidget:
+        """4행 4열 모터 표를 만든다. '모터 값'과 'Seer 값' 두 표가 이걸 공유한다."""
+        t = QTableWidget(4, 4)
+        t.setHorizontalHeaderLabels(["모터", "각도(°)", rpm_header, "전류(A)"])
+        t.verticalHeader().setVisible(False)
+        t.setEditTriggers(QTableWidget.NoEditTriggers)
+        t.setSelectionMode(QTableWidget.NoSelection)
+        t.verticalHeader().setDefaultSectionSize(26)
+        t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        t.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        for r, name in enumerate(MainWindow.ROWS):
+            t.setItem(r, 0, QTableWidgetItem(name))
             for c in (1, 2, 3):
                 it = QTableWidgetItem("—")
                 it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.tbl_motor.setItem(r, c, it)
-        self.tbl_motor.setFixedHeight(26 * 4 + self.tbl_motor.horizontalHeader().height() + 8)
-        self.tbl_motor.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                t.setItem(r, c, it)
+        t.setFixedHeight(26 * 4 + t.horizontalHeader().height() + 8)
+        return t
+
+    @classmethod
+    def _fill_row(cls, table: QTableWidget, node: int, values):
+        """노드 행에 (각도, 회전, 전류) 를 써 넣는다. None 인 칸은 '—' 로 남는다."""
+        r = {1: 0, 2: 1, 3: 2, 4: 3}.get(node)
+        if r is None:
+            return
+        for (c, fmt), val in zip(cls.CELL_FMT, values):
+            if val is not None:
+                table.item(r, c).setText(fmt.format(val))
+
+    def _build_motors(self) -> QGroupBox:
+        """각 모터 값 — 각도·회전·전류만(사용자 지시).
+
+        노드: 1=FrontWalk 2=RearWalk 구동 · 3=FrontSteer 4=RearSteer 조향.
+        각도는 조향축에서만 의미가 있어 구동축 각도 칸은 '—' 로 남는다.
+        회전(rpm)·전류는 네 축 모두 채운다.
+        """
+        g = QGroupBox("모터 값")
+        v = QVBoxLayout(g)
+        self.tbl_motor = self._motor_table("회전(rpm)")
         v.addWidget(self.tbl_motor)
         return g
 
     def set_motor_values(self, node: int, deg=None, rpm=None, amp=None):
         """노드(1~4) 행의 각도·회전·전류를 갱신한다. None 은 '—' 유지."""
-        r = {1: 0, 2: 1, 3: 2, 4: 3}.get(node)
-        if r is None:
-            return
-        for c, val, fmt in ((1, deg, "{:+.1f}"), (2, rpm, "{:+.1f}"), (3, amp, "{:+.2f}")):
-            if val is not None:
-                self.tbl_motor.item(r, c).setText(fmt.format(val))
+        self._fill_row(self.tbl_motor, node, (deg, rpm, amp))
 
     def _build_status(self) -> QLabel:
         """맨 아래 상태 바 — Seer 접속 정보."""
@@ -460,21 +518,7 @@ class MainWindow(QWidget):
         """
         g = QGroupBox("Seer 값 (비교)")
         v = QVBoxLayout(g)
-        self.tbl_seer = QTableWidget(4, 4)
-        self.tbl_seer.setHorizontalHeaderLabels(["모터", "각도(°)", "회전", "전류(A)"])
-        self.tbl_seer.verticalHeader().setVisible(False)
-        self.tbl_seer.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.tbl_seer.setSelectionMode(QTableWidget.NoSelection)
-        self.tbl_seer.verticalHeader().setDefaultSectionSize(26)
-        self.tbl_seer.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_seer.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        for r, name in enumerate(("1  F.W", "2  R.W", "3  F.S", "4  R.S")):
-            self.tbl_seer.setItem(r, 0, QTableWidgetItem(name))
-            for c in (1, 2, 3):
-                it = QTableWidgetItem("—")
-                it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.tbl_seer.setItem(r, c, it)
-        self.tbl_seer.setFixedHeight(26 * 4 + self.tbl_seer.horizontalHeader().height() + 8)
+        self.tbl_seer = self._motor_table("회전")
         v.addWidget(self.tbl_seer)
         return g
 
@@ -503,12 +547,23 @@ class MainWindow(QWidget):
             try:
                 d = cli.call("status", 1040)
                 ms = d.get("motor_info") or d.get("motors") or []
+                if not self._seer_run:      # 대기 중 종료됐으면 위젯을 건드리지 않는다
+                    return
                 self.seer_data.emit({int(m["can_id"]): m for m in ms if m.get("can_id")})
                 self.seer_status.emit(
                     f"Seer {SEER_IP} · 연결됨 · 모터 {len(ms)}축 · 갱신 {time.strftime('%H:%M:%S')}",
                     True)
+            except RuntimeError:
+                # 창이 이미 파괴됐다(종료 경로). 더 emit 하면 역추적만 남으므로 조용히 끝낸다.
+                return
             except Exception as exc:       # 일시 실패는 상태 바에만 (제어 경로 아님)
-                self.seer_status.emit(f"Seer {SEER_IP} · 폴링 실패 ({type(exc).__name__})", False)
+                if not self._seer_run:
+                    return
+                try:
+                    self.seer_status.emit(f"Seer {SEER_IP} · 폴링 실패 ({type(exc).__name__})",
+                                          False)
+                except RuntimeError:
+                    return
 
             # 알람(1050)은 4 주기(=약 2 s)에 한 번. **신규만** 로그에 남긴다 —
             # Seer 는 해제되지 않은 오래된 항목도 계속 목록에 들고 있어서
@@ -526,28 +581,23 @@ class MainWindow(QWidget):
                             if key not in self._alarm_seen:
                                 self._alarm_seen.add(key)
                                 self.seer_log_line.emit(f"[{lvl}] {line}")
+                except RuntimeError:
+                    return
                 except Exception:
                     pass
             time.sleep(0.5)
 
     def _on_seer_data(self, data: dict):
         for node, m in data.items():
-            r = {1: 0, 2: 1, 3: 2, 4: 3}.get(node)
-            if r is None:
-                continue
             pos = m.get("position")
             deg = None if pos is None else pos * 180.0 / math.pi
-            for c, val, fmt in ((1, deg, "{:+.1f}"),
-                                (2, m.get("speed"), "{:+.1f}"),
-                                (3, m.get("current"), "{:+.2f}")):
-                if val is not None:
-                    self.tbl_seer.item(r, c).setText(fmt.format(val))
+            self._fill_row(self.tbl_seer, node, (deg, m.get("speed"), m.get("current")))
             if node in (3, 4) and deg is not None:
                 self._seer_deg[node] = deg
         self._redraw_wheel()
 
     def _redraw_wheel(self):
-        """바퀴 그림의 출처를 우선순위로 고른다 — 항상 **실측이 슬라이더를 이긴다**.
+        """바퀴 그림의 출처를 우선순위로 고른다 — 실측이 있으면 슬라이더를 이긴다.
 
         ① 제어권 보유 → 판다 직접 read(`_meas_deg`).
         ② 제어권 없음 + Seer 폴링 생존 → Seer 1040 position(`_seer_deg`).
@@ -675,23 +725,37 @@ class MainWindow(QWidget):
         self.txt_log.appendPlainText(f"{time.strftime('%H:%M:%S')}  {msg}")
 
     def scan(self):
-        """연결 가능한 판다 열거 — USB 를 열지 않는다(목록만)."""
-        self.cmb_panda.clear()
+        """연결 가능한 판다 열거 — USB 를 열지 않는다(목록만).
+
+        **1 PC = 판다 1대**가 원칙이므로 고르는 UI 를 두지 않는다. 2대 이상 검출되면
+        원칙 위반이라 경고만 하고, 실제로 열리는 것은 라이브러리가 먼저 찾은 1대다.
+        """
         try:
             serials = _panda_class().list()
         except Exception as exc:
+            self.lab_panda.setText("검색 실패")
             self.log(f"판다 검색 실패: {type(exc).__name__}: {exc}")
             self.btn_usb.setEnabled(False)
             return
-        if serials:
-            self.cmb_panda.addItems(serials)
-            self.log(f"판다 {len(serials)}대 검출: {', '.join(serials)}")
-        else:
+        if not serials:
+            self.lab_panda.setText("판다 없음")
             self.log("판다 없음 — USB 연결·udev 규칙 확인")
+        elif len(serials) == 1:
+            self.lab_panda.setText(serials[0])
+            self.log(f"판다 검출: {serials[0]}")
+        else:
+            self.lab_panda.setText(f"⚠ {len(serials)}대 검출")
+            self.log(f"⚠ 판다 {len(serials)}대 검출({', '.join(serials)}) — 1 PC 1대 원칙 위반. "
+                     f"여는 것은 그중 1대뿐이다.")
         self.btn_usb.setEnabled(bool(serials))
 
     def _on_usb(self, on: bool):
-        """USB 열기/닫기. safety mode·릴레이를 건드리지 않으므로 모터에 영향 없다."""
+        """USB 열기/닫기.
+
+        **연결(on)** 은 장치를 열어 상태만 읽으므로 모터에 영향이 없다.
+        **해제(off)** 는 제어권이 잡혀 있으면 먼저 반환시킨다 — 그 경로에서 auth·intercept 를
+        내리고 safety mode 를 0 으로 되돌리므로 릴레이 상태가 바뀐다.
+        """
         self.btn_usb.setText("판다 USB 해제" if on else "판다 USB 연결")
         if on:
             try:
@@ -752,11 +816,14 @@ class MainWindow(QWidget):
             self.log(f"제어권 처리 실패: {type(exc).__name__}: {exc}")
 
     # ── 조그 실행 (crab: 조향 → 정착 확인 → 구동) ──────────────────────
-    def _sdo_write(self, node: int, idx: int, val: int, size: int):
-        """SDO expedited 쓰기. 폴링 스레드와 버스를 공유하므로 락으로 직렬화한다."""
+    def _sdo_write(self, node: int, idx: int, val: int, size: int, sub: int = 0):
+        """SDO expedited 쓰기. 폴링 스레드와 버스를 공유하므로 락으로 직렬화한다.
+
+        `sub` 는 서브인덱스 — 호밍 트리거 `0x60FB:04` 처럼 0 이 아닌 것이 있다.
+        """
         cmd = {1: 0x2F, 2: 0x2B, 4: 0x23}[size]
         payload = (val & 0xFFFFFFFF).to_bytes(4, "little")[:size]
-        data = bytes([cmd, idx & 0xFF, idx >> 8, 0]) + payload + b"\x00" * (4 - size)
+        data = bytes([cmd, idx & 0xFF, idx >> 8, sub]) + payload + b"\x00" * (4 - size)
         with self._can_lock:
             self.panda.can_send(0x600 + node, data[:8], MOTOR_BUS)
 
@@ -768,12 +835,9 @@ class MainWindow(QWidget):
     def _steer_to(self, deg: float) -> float:
         """조향 두 축에 절대위치 지령(0x607A) + 즉시 적용(0x6040=0x3F).
 
-        **가동범위 밖은 보내지 않는다** — 실측 검증 범위 ±90° 로 자른다.
-        (node4 가 범위 밖으로 밀려 물리적으로 갇힌 사고가 있었다: claude-mistake 2026-07-27-002)
-
-        단계로 쪼개지 않는다. 실기 캡처상 Seer 도 최종 절대 목표를 그대로 반복 송신하고
-        이동 프로파일은 드라이브가 수행한다(Log/homing_capture_220350.jsonl:
-        node3 0x607A 6,464 회 송신 · 서로 다른 값은 4 개뿐).
+        범위 밖 각도는 보내지 않고 ±90° 로 자른다(`steer_counts`).
+        **단계로 쪼개지 않는다** — 최종 절대 목표를 그대로 보내고 이동 프로파일은
+        드라이브가 수행한다. 근거는 README.md §동작 규칙.
         """
         for n in (3, 4):
             deg = self._steer_axis(n, deg)
@@ -783,6 +847,9 @@ class MainWindow(QWidget):
         """조그 버튼. crab 이므로 **바퀴를 먼저 돌리고 정착을 확인한 뒤** 주행한다."""
         if not self._run:
             self.log("조그 불가 — 제어권을 먼저 획득하세요")
+            return
+        if self._homing and label != "정지":
+            self.log("호밍 진행 중 — 완료까지 기다리세요")
             return
         if label == "정지":
             self._jog_stop = True
@@ -824,6 +891,87 @@ class MainWindow(QWidget):
             except Exception:
                 pass
 
+    # ── 조향 원점 복귀(호밍) ────────────────────────────────────────────
+    HOMING_SPEED = 2500        # 0x6099:00, 0.1 r/min 단위 → 250 r/min
+    HOMING_TIMEOUT_S = 90.0    # 실측 소요 약 31 s
+    HOMING_START_S = 10.0      # 개시(bit15=0) 를 기다리는 창
+
+    def _homing_clicked(self):
+        """호밍 버튼. 실제로 로봇이 크게 움직이므로 한 번 확인을 받는다."""
+        if not self._run:
+            self.log("호밍 불가 — 제어권을 먼저 획득하세요")
+            return
+        if self._homing:
+            self.log("호밍 이미 진행 중")
+            return
+        if self._jog_th is not None and self._jog_th.is_alive():
+            self.log("조그 진행 중 — 먼저 정지하세요")
+            return
+        if QMessageBox.question(
+                self, "조향 원점 복귀",
+                "조향 2축을 원점(리밋)으로 보낸 뒤 0° 로 복귀시킵니다.\n\n"
+                "· 바퀴가 크게 돕니다 — 복귀 스윙이 100° 를 넘습니다.\n"
+                "· 30 초 이상 걸리며, 시작한 뒤에는 이 프로그램이 중간에 멈출 수 없습니다.\n"
+                "  (드라이브 내부 루틴이라 중단은 하드웨어 E-STOP 뿐입니다)\n\n"
+                "이동구역이 비어 있습니까?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            self.log("호밍 취소")
+            return
+        self._homing = True
+        self.btn_home.setEnabled(False)
+        threading.Thread(target=self._homing_run, name="homing", daemon=True).start()
+
+    def _homing_run(self):
+        """조향 노드 3·4 호밍.
+
+        구동 노드(1·2)는 기계적 원점이 없어 호밍하지 않는다 — 조향축에만 지령한다.
+        `0x6098`(homing method)은 **쓰지 않는다**. 드라이브 저장값을 그대로 쓰며,
+        덮어쓰면 리셋 모드가 꺼져 호밍 자체가 동작하지 않는다.
+        """
+        try:
+            self._drive(0)                       # 호밍 전 구동은 반드시 0
+            self._status.clear()                 # 직전 상태워드를 완료로 오독하지 않도록
+            for n in (3, 4):
+                self._sdo_write(n, 0x6040, 0x86, 2)                 # 축 준비
+                self._sdo_write(n, 0x6099, self.HOMING_SPEED, 4)    # 호밍 속도
+                self._sdo_write(n, 0x60FB, 1, 1, sub=4)             # 여기서 움직이기 시작한다
+            self.log_line.emit("호밍 개시 — 조향 2축. 완료까지 30초 이상 걸립니다.")
+            ok, why = self._wait_homed()
+            self.log_line.emit(f"호밍 완료 — {why}" if ok else f"호밍 미확인 — {why}")
+        except Exception as exc:
+            self.log_line.emit(f"호밍 중단: {type(exc).__name__}: {exc}")
+        finally:
+            self._homing = False
+            self.homing_done.emit()
+
+    def _wait_homed(self):
+        """상태워드(0x6041) bit15 로 완료를 판정한다. 반환 `(성공, 사유)`.
+
+        **bit15 가 1 인 것만 보면 안 된다** — 이전에 호밍을 마친 축은 시작 전부터 1 이라
+        곧바로 "완료"로 읽힌다. 그래서 먼저 두 축이 0(진행 중)이 되는 것을 확인하고,
+        그 다음에 1 로 돌아오는 것을 기다린다. 0 을 한 번도 못 보면 성공이라고 하지 않는다.
+        """
+        BIT15 = 1 << 15
+        t0 = time.time()
+        started = set()
+        while time.time() - t0 < self.HOMING_START_S:
+            for n in (3, 4):
+                st = self._status.get(n)
+                if st is not None and not (st & BIT15):
+                    started.add(n)
+            if started >= {3, 4}:
+                break
+            time.sleep(0.1)
+        if started < {3, 4}:
+            missing = sorted({3, 4} - started)
+            return False, (f"개시 신호(bit15=0)를 못 봤습니다 — 노드 {missing}. "
+                           f"움직이지 않았는지 육안으로 확인하세요.")
+        while time.time() - t0 < self.HOMING_TIMEOUT_S:
+            if all((self._status.get(n) or 0) & BIT15 for n in (3, 4)):
+                return True, f"{time.time() - t0:.0f}초 소요. 조향 0° 복귀까지 확인하세요."
+            time.sleep(0.1)
+        return False, f"{self.HOMING_TIMEOUT_S:.0f}초 안에 완료 신호가 오지 않았습니다."
+
     def _wait_settle(self, target: float, tol: float, timeout: float = 6.0) -> bool:
         """조향 정착 대기 — **두 축(N3·N4) 모두** 허용치 안에 들어와야 한다.
 
@@ -842,18 +990,21 @@ class MainWindow(QWidget):
 
     # ── 폴링 (모터 값 읽기 전용 — 지령은 보내지 않는다) ────────────────
     def _loop(self):
-        """0x6064(위치)·0x606C(속도)·0x6078(전류)를 SDO 로 읽어 화면에 올린다.
+        """0x6064(위치)·0x606C(속도)·0x6078(전류)·0x6041(상태워드)를 읽어 화면에 올린다.
+
+        0x6041 은 화면에 띄우지 않고 호밍 완료 판정(bit15)에만 쓴다.
 
         ⚠ 읽기만 한다. 0x60FF(속도지령)·0x607A(위치지령)는 보내지 않는다.
         """
         P = _panda_class()
         while self._run:
             try:
-                # heartbeat 0.4 s — 끊기면 펌웨어가 fail-safe 로 intercept 를 푼다.
+                # heartbeat(0xf3) 를 매 루프(≈0.2 s) 보낸다.
+                # 끊기면 펌웨어가 fail-safe 로 intercept 를 푼다(임계는 초 단위).
                 self.panda._handle.controlWrite(P.REQUEST_OUT, 0xf3, 0, 0, b"")
                 with self._can_lock:
                     for n in (1, 2, 3, 4):
-                        for idx in (0x6064, 0x606C, 0x6078):
+                        for idx in (0x6064, 0x606C, 0x6078, 0x6041):
                             self.panda.can_send(0x600 + n,
                                                 bytes([0x40, idx & 0xFF, idx >> 8, 0, 0, 0, 0, 0]),
                                                 MOTOR_BUS)
@@ -884,7 +1035,11 @@ class MainWindow(QWidget):
         angles = {}
         for node, vals in data.items():
             deg = rpm = amp = None
-            if 0x6064 in vals and node in STEER_HOME:
+            if 0x6041 in vals:
+                self._status[node] = vals[0x6041]
+            # 호밍 중 0x6064 는 실위치가 아니라 0 을 돌려준다 — 그대로 쓰면 바퀴 그림이
+            # 0° 로 튀어 실제 자세를 오해하게 만든다. 그 구간은 각도를 갱신하지 않는다.
+            if 0x6064 in vals and node in STEER_HOME and not self._homing:
                 deg = (vals[0x6064] - STEER_HOME[node]) / COUNTS_PER_DEG
                 angles[node] = deg
                 self._meas_deg[node] = deg
@@ -897,11 +1052,74 @@ class MainWindow(QWidget):
             self._redraw_wheel()
 
 
+#: 정지 신호를 파이썬으로 되돌려받기 위한 keep-alive 주기(ms). §main 의 주석 참조.
+SIGNAL_PUMP_MS = 50
+
+
 def main() -> int:
+    """GUI 를 띄우고, **어떤 경로로 죽어도 제어권·USB 가 풀리도록** 배선한 뒤 이벤트 루프를 돈다.
+
+    해제 배선 4경로 — 전부 `MainWindow.safe_release()`(멱등)로 수렴한다:
+
+    | 경로 | 배선 |
+    | --- | --- |
+    | 창 닫기·Alt+F4 | `closeEvent` |
+    | Ctrl+C(SIGINT)·`kill`(SIGTERM) | `signal.signal` → `app.quit()` |
+    | 이벤트 루프 정상 종료 | `app.exec_()` 반환 직후 |
+    | 인터프리터 종료·미처리 예외 | `atexit` + `sys.excepthook` |
+
+    **정지 신호 핸들러에서 USB 제어전송을 하지 않는다.** 핸들러는 임의 시점에 끼어들어 실행되므로
+    그 안에서 `libusb` 호출·`sleep` 을 하면 재진입 위험이 있다. 핸들러는 `app.quit()` 로 루프만
+    끝내고, 실제 해제는 루프를 빠져나온 정상 스택에서 수행한다.
+
+    ⚠ **`pump` 타이머가 없으면 정지 신호가 아예 전달되지 않는다.** Qt 의 C++ 이벤트 루프가 도는
+    동안에는 파이썬 바이트코드가 실행되지 않아 파이썬 신호 핸들러가 대기 상태로 남는다. 본 GUI 의
+    모터 폴링은 **별도 스레드**라 메인 스레드에 파이썬 실행 기회를 주지 않으므로, 주기적으로
+    인터프리터에 제어를 돌려주는 타이머가 반드시 필요하다.
+
+    2026-07-28 실측(PyQt5, offscreen, 하드웨어 무관):
+
+    | 조건 | SIGTERM 결과 |
+    | --- | --- |
+    | 파이썬 타이머 있음 | 0.036 s 내 핸들러 실행 → 해제 → exit 0 |
+    | 타이머 없음 | **핸들러 미실행 · 프로세스 매달림 → SIGKILL(exit 137)** |
+
+    Returns:
+        프로세스 종료 코드(Qt 이벤트 루프 반환값).
+    """
     app = QApplication(sys.argv)
     win = MainWindow()
+
+    def _on_stop_signal(signum, _frame):
+        # 핸들러 최소 작업: 로그 1줄 + 루프 종료 요청. 해제는 루프 밖에서.
+        print(f"[gui] 정지 신호({signal.Signals(signum).name}) 수신 — 해제 후 종료합니다.",
+              flush=True)
+        app.quit()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, _on_stop_signal)
+
+    # 신호 전달용 pump — 참조를 유지해야 GC 되지 않는다.
+    pump = QTimer()
+    pump.timeout.connect(lambda: None)
+    pump.start(SIGNAL_PUMP_MS)
+
+    _default_excepthook = sys.excepthook
+
+    def _excepthook(exc_type, exc, tb):
+        try:
+            win.safe_release("처리되지 않은 예외")
+        finally:
+            _default_excepthook(exc_type, exc, tb)
+
+    sys.excepthook = _excepthook
+    # 최후 그물 — 위 경로가 모두 빗나가도 인터프리터 종료 시 반드시 한 번은 돈다.
+    atexit.register(win.safe_release, "인터프리터 종료")
+
     win.show()
-    return app.exec_()
+    rc = app.exec_()
+    win.safe_release("이벤트 루프 종료")
+    return rc
 
 
 if __name__ == "__main__":
