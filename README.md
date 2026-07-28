@@ -88,6 +88,21 @@ Motion is exposed as **9 action servers** — spin, turn, translate forward/reve
 crab_linear, yaw_control (±), mpc (±) — all publishing `trnav_2ws_msgs/WheelSetArray`
 on `/motion/wheel_cmd/<action>`.
 
+Placement rule: a directory with a `package.xml` is a ROS 2 package and lives under
+`src/<domain>/` (colcon only discovers packages there). Everything else — standalone
+non-ROS tools, firmware backups, field kits, benches — lives under **`Tools/`** at the
+repository root. A UI belongs under the package group it displays (`…/ui/`), not in a
+separate top-level directory.
+
+**The root tool directory is named `Tools` — capital T, plural, one of them.** Never
+create `Tool/` (singular) or `tools/` (lowercase) at the root; a new tool goes in
+`Tools/<name>/` without exception. This applies to vendored upstream sources too: on
+2026-07-28 `orbbec_camera/tools/` was renamed to `Tools/` (6 accompanying lines in
+`CMakeLists.txt`, build verified). The repository has no submodules and no upstream
+remote, so nothing merges the old name back — when a newer upstream drop is imported,
+re-apply the rename then. The rule covers **this repository's paths only**; paths on
+other machines or in other repositories are left alone.
+
 ### Current status
 
 **Working**
@@ -278,6 +293,41 @@ docs/                      ADR, 이슈 기록, 부채 registry, SW 구조 분석
 모션은 **9종 액션 서버**(spin, turn, translate forward/reverse, crab_linear,
 yaw_control ±, mpc ±)로 노출되며, 모두 `/motion/wheel_cmd/<action>` 에
 `trnav_2ws_msgs/WheelSetArray` 를 발행한다.
+
+#### 디렉토리 배치 규약
+
+배치 기준은 **colcon 빌드 대상 여부**다. `package.xml` 을 가진 ROS2 패키지는
+`src/<도메인>/` 아래(colcon 이 `src/` 아래에서만 발견), 그 외 **비-ROS2 독립
+도구**(colcon 불요, `python3` 즉시 실행)·펌웨어 백업·현장 킷·벤치는 저장소 루트
+**`Tools/`** 아래에 둔다. UI 는 독립 디렉토리를 만들지 않고 표시 대상 패키지 아래
+`…/ui/` 에 종속시킨다(예: `src/Sensors/Camera/USB/ui/vision_guard`).
+
+**루트 도구 폴더명은 `Tools`(대문자 T·복수) 하나뿐이다.**
+
+| 항목 | 내용 |
+| --- | --- |
+| 정본 | `Tools/<도구명>/` — 새 도구는 예외 없이 이 아래 |
+| 금지 | 루트에 `Tool/`(단수)·`tools/`(소문자) 신설 |
+| 적용 범위 | **이 저장소 경로만.** 타 PC(Personal Computer)·타 저장소 경로는 손대지 않는다 |
+| 벤더 소스 | 예외 아님 — 상류에서 들여왔어도 이 저장소 안이면 `Tools/` 로 맞춘다 |
+| 신규 도구 절차 | ① `find . -maxdepth 1 -type d -iname 'tool*'` 가 `Tools/` 하나만 반환하는지 확인 → ② `Tools/<도구명>/` 생성 |
+
+**병합 이력** — 2026-07-27 `tools/` + `Tools/` → `Tool/`(단수) 1차 병합 시 저장소
+전수 조사를 건너뛰어 대상 2건을 놓쳤고([2026-07-27-004](docs/claude-mistake/2026-07-27-004_repo-wide-dir-survey-skipped.md)),
+같은 세션에 정본을 `Tools/`(복수)로 재확정했다. 2026-07-28 잔존 `Tool/` 껍데기
+삭제와 `orbbec_camera/tools/` → `Tools/` 개명(`CMakeLists.txt` 6줄 동반 수정,
+`colcon build` 검증)으로 **병합을 종결**했다. 이 저장소는 서브모듈·상류 원격이
+없어 구 이름이 merge 로 되돌아오지 않는다 — 상류 신버전을 들여올 때 재적용한다.
+상세: [docs/adr/2026-07-28-tools-dir-unification.md](docs/adr/2026-07-28-tools-dir-unification.md).
+
+과거 문서의 `Tool/` 표기 중 **특정 커밋 시점 경로 인용**(예: "커밋 `fdc1c51` 의
+`Tool/amr_test_gui/`")은 역사적 사실이므로 고치지 않는다. 현재 저장소를 가리키는
+인용만 정정 대상이다.
+
+디렉토리를 **이동·병합·개명**할 때는 지목된 경로만 보지 말고
+`find . -type d -iname '<이름>*'` 로 저장소를 전수 조사한 뒤 대상 목록을 먼저 합의한다.
+
+git 협업 모드: solo
 
 ### 현재 상태
 
