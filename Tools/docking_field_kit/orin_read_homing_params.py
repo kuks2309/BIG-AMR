@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""조향 호밍 파라미터 판독 — 드라이브에 저장된 0x6098(Homing method) 등을 읽는다.
+"""조향 호밍 파라미터 + 정지 수단 설정 판독 — 드라이브 상주 설정을 읽는다.
+
+⚠ 확정 (2026-07-28): 정지 수단 관련 판독을 수행했고 결과는 아래와 같다.
+  전문 기록은 docs/can_relay/drive-stop-config-2026-07-28.md.
+    · 4노드 전부 0x100C = 500 ms, 0x100D = 1 → **node guarding 무장, 타임아웃 500 ms**
+      → 마스터가 0x700+node RTR 폴을 500 ms 멈추면 드라이브가 토크를 유지한 채 자동 HALT
+        [Handbook V7.0 §6.4.3, page 142 — "without powering off the motor"]
+      → 이 하드웨어에서 **원문으로 보증된 유일한 토크 유지 정지 수단**이다.
+    · 4노드 전부 0x605A = 0, 0x605D = 0, 0x6085 = 0
+      → Handbook 이 이 값들의 의미를 기재하지 않으므로 **0x6040 = 0x010F(Halt) 의 거동은 미정의**.
+        능동 정지 프레임을 fail-safe 수단으로 채택할 근거가 현재 없다.
 
 목적: 우리 추론("드라이브 저장 method = 1, 음의 리밋 트리거")을 실기 값으로 확인한다.
   ⚠ 정정/확정 (2026-07-27): 이 확인은 **이미 수행됐고 결과는 전 노드 0x6098 = 1** 이다
@@ -59,6 +69,20 @@ OBJECTS = [
     (0x6060, 0, "Modes of operation", "modes"),
     (0x6041, 0, "Statusword", "status"),
     (0x6000, 1, "Digital Input (sub1=실입력)", "din"),   # sub0 은 항목수(=2), 실값은 sub1
+    # --- 2026-07-28 추가: fail-safe 재설계용 (전부 읽기 전용, 모션 지령 아님) ---
+    #   0x100C/0x100D  Node Protection — 마스터가 0x700+node RTR 폴을 멈추면
+    #                  monitoring_time × life_time_factor 후 드라이브가 HALT,
+    #                  "without powering off the motor"
+    #                  [Handbook V7.0 §6.4.3, page 142]
+    #                  둘 중 하나라도 0 이면 이 보호는 동작하지 않는다(같은 절).
+    (0x100C, 0, "Guard Time (ms)", "int"),
+    (0x100D, 0, "Life Time Factor", "int"),
+    #   0x605A/0x605D  정지 옵션코드 — Handbook 전문에 **이름만** 있고 값 의미·기본값 미기재
+    #                  (0x605A: page 143 표 / 0x605D: 명칭이 Halt_option_code ↔
+    #                   Stop_option_Code 로 문서 내 불일치). 그래서 실기 판독이 필요하다.
+    (0x605A, 0, "Quick stop option code", "int"),
+    (0x605D, 0, "Halt option code", "int"),
+    (0x6085, 0, "Quick stop deceleration", "int"),
 ]
 RD_RESP = {0x43: 4, 0x47: 3, 0x4B: 2, 0x4F: 1}
 
@@ -123,6 +147,15 @@ def main():
 
     p = Panda()
     print(f"판다 연결: fw={p.get_version()}", flush=True)
+
+    # heartbeat 임계 판정 — check_started() 가 참이면 5 s, 거짓이면 2 s 가 적용된다
+    # (board/main.c 의 HEARTBEAT_IGNITION_CNT_ON/OFF). check_started() 는
+    # current_board->check_ignition() || ignition_can 이므로 아래 두 값으로 확정된다.
+    h = p.health()
+    print(f"health: ignition_line={h.get('ignition_line')} ignition_can={h.get('ignition_can')} "
+          f"safety_mode={h.get('safety_mode')} heartbeat_lost={h.get('heartbeat_lost')}",
+          flush=True)
+
     p.set_safety_mode(0, 0)
     for b in (SEER_BUS, MOTOR_BUS):
         p.set_can_speed_kbps(b, CAN_KBPS)
