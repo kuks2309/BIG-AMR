@@ -4,6 +4,9 @@
 
 [English](#english) · [한국어](#한국어)
 
+📐 **[ARCHITECTURE.md](ARCHITECTURE.md)** — full system architecture with diagrams,
+from job planning down to the wheels. Start there if you are new to the project.
+
 > Proprietary and confidential. © 2026 T-Robotics. Internal, unreleased.
 
 ---
