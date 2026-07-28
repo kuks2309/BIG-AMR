@@ -1,0 +1,133 @@
+<?xml version="1.0"?>
+<!--
+  warehouse.world — Foil_A082 주행 확인용 최소 환경.
+
+  넓은 바닥 + 벽 몇 개 + 파렛트 박스 몇 개. 라이다가 볼 대상이 있어야
+  scan_front / scan_rear 가 의미 있는 데이터를 낸다.
+  로봇 자체는 launch 에서 spawn_entity 로 넣는다(월드에 하드코딩하지 않음).
+-->
+<sdf version="1.6">
+  <world name="warehouse">
+
+    <include><uri>model://sun</uri></include>
+    <include><uri>model://ground_plane</uri></include>
+
+    <physics type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+      <ode>
+        <solver>
+          <type>quick</type>
+          <iters>100</iters>
+          <sor>1.3</sor>
+        </solver>
+        <constraints>
+          <cfm>0.0</cfm>
+          <erp>0.2</erp>
+          <contact_max_correcting_vel>100.0</contact_max_correcting_vel>
+          <contact_surface_layer>0.001</contact_surface_layer>
+        </constraints>
+      </ode>
+    </physics>
+
+    <scene>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.75 0.80 0.86 1</background>
+      <shadows>true</shadows>
+    </scene>
+
+    <!-- ===== 벽 (12 m × 12 m 홀) ===== -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>0 6 1 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>12 0.2 2</size></box></geometry></collision>
+        <visual name="v">
+          <geometry><box><size>12 0.2 2</size></box></geometry>
+          <material><ambient>0.7 0.7 0.72 1</ambient><diffuse>0.8 0.8 0.82 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_south">
+      <static>true</static>
+      <pose>0 -6 1 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>12 0.2 2</size></box></geometry></collision>
+        <visual name="v">
+          <geometry><box><size>12 0.2 2</size></box></geometry>
+          <material><ambient>0.7 0.7 0.72 1</ambient><diffuse>0.8 0.8 0.82 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_east">
+      <static>true</static>
+      <pose>6 0 1 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.2 12 2</size></box></geometry></collision>
+        <visual name="v">
+          <geometry><box><size>0.2 12 2</size></box></geometry>
+          <material><ambient>0.7 0.7 0.72 1</ambient><diffuse>0.8 0.8 0.82 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_west">
+      <static>true</static>
+      <pose>-6 0 1 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.2 12 2</size></box></geometry></collision>
+        <visual name="v">
+          <geometry><box><size>0.2 12 2</size></box></geometry>
+          <material><ambient>0.7 0.7 0.72 1</ambient><diffuse>0.8 0.8 0.82 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ===== 파렛트 (라이다 표적 / 회피 대상) ===== -->
+    <model name="pallet_a">
+      <static>true</static>
+      <pose>3.5 2.5 0.4 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.2 0.8 0.8</size></box></geometry></collision>
+        <visual name="v">
+          <geometry><box><size>1.2 0.8 0.8</size></box></geometry>
+          <material><ambient>0.55 0.35 0.15 1</ambient><diffuse>0.65 0.42 0.18 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="pallet_b">
+      <static>true</static>
+      <pose>-3.0 -3.0 0.4 0 0 0.6</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.2 0.8 0.8</size></box></geometry></collision>
+        <visual name="v">
+          <geometry><box><size>1.2 0.8 0.8</size></box></geometry>
+          <material><ambient>0.55 0.35 0.15 1</ambient><diffuse>0.65 0.42 0.18 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="pillar">
+      <static>true</static>
+      <pose>0 4.0 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><cylinder><radius>0.25</radius><length>2.5</length></cylinder></geometry></collision>
+        <visual name="v">
+          <geometry><cylinder><radius>0.25</radius><length>2.5</length></cylinder></geometry>
+          <material><ambient>0.4 0.42 0.45 1</ambient><diffuse>0.5 0.52 0.55 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <gui>
+      <camera name="user_camera">
+        <pose>-6.5 -6.5 5.5 0 0.45 0.78</pose>
+      </camera>
+    </gui>
+
+  </world>
+</sdf>

@@ -1,0 +1,387 @@
+<?xml version="1.0"?>
+<!--
+  Foil_A082 - 2WS inline dual-steer AMR, Gazebo Classic 11 simulation model.
+
+  Geometry SSOT: src/Control/Motion_Control/2WS/trnav_2ws_core/config/robot_geometry_2ws.yaml
+      W1 Front = (+0.6039, -0.0014)   steer + drive
+      W2 Rear  = (-0.5961, -0.0014)   steer + drive
+      wheel_radius = 0.125            wheelbase = 1.200
+      steer limit  = +/-90 deg        (spin_params.yaml steer_limit_deg)
+
+  PLACEHOLDER values (not measured yet - waiting on real numbers):
+      BODY_L / BODY_W / BODY_H / MASS   chassis envelope and mass
+      caster positions, lidar and IMU mount coordinates
+    Note: body_length 1.1974 in the action-server params yaml is a leftover
+    Carrier AGV value. It is SHORTER than the 1.2 m wheelbase, so it cannot be
+    the real chassis - deliberately not used here.
+
+  The two drive wheels are inline on the centerline, so the robot is laterally
+  unstable like a bicycle. Four passive casters at the corners give it a stable
+  4-point stance in simulation.
+-->
+<robot name="foil_a082" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ===================== parameters ===================== -->
+  <!-- Measured (robot_geometry_2ws.yaml) -->
+  <xacro:property name="W1_X" value="0.6039"/>
+  <xacro:property name="W1_Y" value="-0.0014"/>
+  <xacro:property name="W2_X" value="-0.5961"/>
+  <xacro:property name="W2_Y" value="-0.0014"/>
+  <xacro:property name="WHEEL_R" value="0.125"/>
+  <xacro:property name="WHEEL_W" value="0.080"/>
+  <xacro:property name="STEER_LIMIT" value="1.5707963267948966"/>  <!-- +/-90 deg -->
+
+  <!-- PLACEHOLDER - change here and the whole model follows -->
+  <xacro:property name="BODY_L" value="1.600"/>
+  <xacro:property name="BODY_W" value="0.900"/>
+  <xacro:property name="BODY_H" value="0.500"/>
+  <xacro:property name="BODY_Z" value="0.260"/>   <!-- chassis centre height above base_link -->
+  <xacro:property name="MASS"   value="250.0"/>
+
+  <xacro:property name="CASTER_R" value="0.050"/>
+  <xacro:property name="CASTER_X" value="0.680"/>
+  <xacro:property name="CASTER_Y" value="0.370"/>
+
+  <xacro:property name="PI" value="3.14159265358979"/>
+  <xacro:property name="PI2" value="1.5707963267948966"/>
+
+  <material name="body_grey"><color rgba="0.80 0.82 0.86 1.0"/></material>
+  <material name="body_dark"><color rgba="0.25 0.27 0.32 1.0"/></material>
+  <material name="wheel_black"><color rgba="0.10 0.10 0.10 1.0"/></material>
+  <material name="steer_blue"><color rgba="0.20 0.45 0.85 1.0"/></material>
+  <material name="lidar_yellow"><color rgba="0.95 0.80 0.10 1.0"/></material>
+  <material name="imu_green"><color rgba="0.20 0.75 0.35 1.0"/></material>
+
+  <!-- ===================== macros ===================== -->
+
+  <!-- One steer + drive module. Maps to two CANopen nodes on the real robot. -->
+  <xacro:macro name="steer_drive_module" params="name x y">
+    <!-- Steering link: rotates about z relative to base_link -->
+    <link name="${name}_steer_link">
+      <visual>
+        <origin xyz="0 0 0.055"/>
+        <geometry><cylinder radius="0.075" length="0.110"/></geometry>
+        <material name="steer_blue"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0.055"/>
+        <geometry><cylinder radius="0.075" length="0.110"/></geometry>
+      </collision>
+      <inertial>
+        <origin xyz="0 0 0.055"/>
+        <mass value="8.0"/>
+        <inertia ixx="0.03" ixy="0" ixz="0" iyy="0.03" iyz="0" izz="0.02"/>
+      </inertial>
+    </link>
+
+    <joint name="${name}_steer_joint" type="revolute">
+      <parent link="base_link"/>
+      <child  link="${name}_steer_link"/>
+      <origin xyz="${x} ${y} 0" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <!-- +/-90 deg: same range the IK normalizes steering angles into -->
+      <limit lower="${-STEER_LIMIT}" upper="${STEER_LIMIT}" effort="500.0" velocity="3.0"/>
+      <dynamics damping="0.5" friction="0.1"/>
+    </joint>
+
+    <!-- Drive link: rotates about y relative to the steering link -->
+    <link name="${name}_wheel_link">
+      <visual>
+        <origin rpy="${PI2} 0 0"/>
+        <geometry><cylinder radius="${WHEEL_R}" length="${WHEEL_W}"/></geometry>
+        <material name="wheel_black"/>
+      </visual>
+      <collision>
+        <origin rpy="${PI2} 0 0"/>
+        <geometry><cylinder radius="${WHEEL_R}" length="${WHEEL_W}"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="6.0"/>
+        <inertia ixx="0.03" ixy="0" ixz="0" iyy="0.05" iyz="0" izz="0.03"/>
+      </inertial>
+    </link>
+
+    <joint name="${name}_wheel_joint" type="continuous">
+      <parent link="${name}_steer_link"/>
+      <child  link="${name}_wheel_link"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit effort="500.0" velocity="50.0"/>
+      <dynamics damping="0.05" friction="0.05"/>
+    </joint>
+
+    <gazebo reference="${name}_wheel_link">
+      <mu1>1.2</mu1>
+      <mu2>1.2</mu2>
+      <kp>1e6</kp>
+      <kd>100.0</kd>
+      <minDepth>0.001</minDepth>
+      <material>Gazebo/Black</material>
+    </gazebo>
+    <gazebo reference="${name}_steer_link">
+      <material>Gazebo/Blue</material>
+    </gazebo>
+  </xacro:macro>
+
+  <!-- Passive spherical caster: keeps the inline 2-wheel robot from tipping sideways -->
+  <xacro:macro name="caster" params="name x y">
+    <link name="${name}_caster_link">
+      <visual>
+        <geometry><sphere radius="${CASTER_R}"/></geometry>
+        <material name="body_dark"/>
+      </visual>
+      <collision>
+        <geometry><sphere radius="${CASTER_R}"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="1.0"/>
+        <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+      </inertial>
+    </link>
+    <joint name="${name}_caster_joint" type="fixed">
+      <parent link="base_link"/>
+      <child  link="${name}_caster_link"/>
+      <origin xyz="${x} ${y} ${CASTER_R - WHEEL_R}"/>
+    </joint>
+    <gazebo reference="${name}_caster_link">
+      <!-- Near-frictionless so casters do not fight the driven wheels -->
+      <mu1>0.0</mu1>
+      <mu2>0.0</mu2>
+      <kp>1e6</kp>
+      <kd>100.0</kd>
+      <minDepth>0.001</minDepth>
+      <material>Gazebo/DarkGrey</material>
+    </gazebo>
+  </xacro:macro>
+
+  <!-- ===================== chassis ===================== -->
+
+  <link name="base_footprint"/>
+
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child  link="base_link"/>
+    <origin xyz="0 0 ${WHEEL_R}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 ${BODY_Z}"/>
+      <geometry><box size="${BODY_L} ${BODY_W} ${BODY_H}"/></geometry>
+      <material name="body_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${BODY_Z}"/>
+      <geometry><box size="${BODY_L} ${BODY_W} ${BODY_H}"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 ${BODY_Z}"/>
+      <mass value="${MASS}"/>
+      <inertia
+        ixx="${MASS*(BODY_W*BODY_W + BODY_H*BODY_H)/12.0}" ixy="0" ixz="0"
+        iyy="${MASS*(BODY_L*BODY_L + BODY_H*BODY_H)/12.0}" iyz="0"
+        izz="${MASS*(BODY_L*BODY_L + BODY_W*BODY_W)/12.0}"/>
+    </inertial>
+  </link>
+  <gazebo reference="base_link"><material>Gazebo/Grey</material></gazebo>
+
+  <!-- Yellow bar marking the front, so heading is obvious in the GUI -->
+  <link name="front_marker_link">
+    <visual>
+      <geometry><box size="0.05 ${BODY_W*0.8} 0.06"/></geometry>
+      <material name="lidar_yellow"/>
+    </visual>
+  </link>
+  <joint name="front_marker_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="front_marker_link"/>
+    <origin xyz="${BODY_L/2.0} 0 ${BODY_Z + BODY_H/2.0}"/>
+  </joint>
+  <gazebo reference="front_marker_link"><material>Gazebo/Yellow</material></gazebo>
+
+  <!-- ===================== drive modules (W1 front / W2 rear) ===================== -->
+  <xacro:steer_drive_module name="w1" x="${W1_X}" y="${W1_Y}"/>
+  <xacro:steer_drive_module name="w2" x="${W2_X}" y="${W2_Y}"/>
+
+  <!-- ===================== four casters ===================== -->
+  <xacro:caster name="fl" x="${CASTER_X}"  y="${CASTER_Y}"/>
+  <xacro:caster name="fr" x="${CASTER_X}"  y="${-CASTER_Y}"/>
+  <xacro:caster name="rl" x="${-CASTER_X}" y="${CASTER_Y}"/>
+  <xacro:caster name="rr" x="${-CASTER_X}" y="${-CASTER_Y}"/>
+
+  <!-- ===================== sensors ===================== -->
+  <!-- Two SICK 2D safety scanners (front / rear). Mount coordinates are
+       PLACEHOLDER. On the real robot seer_lidar_tf fetches the TF from the
+       Seer controller over TCP API 1009. -->
+  <link name="scan_front_link">
+    <visual>
+      <geometry><cylinder radius="0.055" length="0.080"/></geometry>
+      <material name="lidar_yellow"/>
+    </visual>
+    <collision><geometry><cylinder radius="0.055" length="0.080"/></geometry></collision>
+    <inertial><mass value="0.5"/><inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/></inertial>
+  </link>
+  <joint name="scan_front_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="scan_front_link"/>
+    <origin xyz="${BODY_L/2.0 - 0.06} 0 ${BODY_Z - 0.10}" rpy="0 0 0"/>
+  </joint>
+  <gazebo reference="scan_front_link"><material>Gazebo/Yellow</material></gazebo>
+
+  <link name="scan_rear_link">
+    <visual>
+      <geometry><cylinder radius="0.055" length="0.080"/></geometry>
+      <material name="lidar_yellow"/>
+    </visual>
+    <collision><geometry><cylinder radius="0.055" length="0.080"/></geometry></collision>
+    <inertial><mass value="0.5"/><inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/></inertial>
+  </link>
+  <joint name="scan_rear_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="scan_rear_link"/>
+    <origin xyz="${-BODY_L/2.0 + 0.06} 0 ${BODY_Z - 0.10}" rpy="0 0 ${PI}"/>
+  </joint>
+  <gazebo reference="scan_rear_link"><material>Gazebo/Yellow</material></gazebo>
+
+  <!-- iAHRS IMU. (-0.37, 0, 0.29) is the TR-AMR value carried over in debt-002;
+       Big-AMR's real mount point has not been measured yet. -->
+  <link name="imu_link">
+    <visual>
+      <geometry><box size="0.05 0.05 0.02"/></geometry>
+      <material name="imu_green"/>
+    </visual>
+    <inertial><mass value="0.05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+  </link>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="imu_link"/>
+    <origin xyz="-0.37 0 0.29" rpy="0 0 0"/>
+  </joint>
+  <gazebo reference="imu_link"><material>Gazebo/Green</material></gazebo>
+
+  <!-- ===================== Gazebo sensor plugins ===================== -->
+  <gazebo reference="scan_front_link">
+    <sensor type="ray" name="scan_front_sensor">
+      <pose>0 0 0 0 0 0</pose>
+      <visualize>true</visualize>
+      <update_rate>25.0</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <!-- SICK safety scanner class: 275 deg field of view -->
+            <samples>550</samples>
+            <resolution>1</resolution>
+            <min_angle>-2.4</min_angle>
+            <max_angle>2.4</max_angle>
+          </horizontal>
+        </scan>
+        <range><min>0.05</min><max>25.0</max><resolution>0.01</resolution></range>
+        <noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
+      </ray>
+      <plugin name="scan_front_plugin" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <namespace>/</namespace>
+          <remapping>~/out:=scan_front</remapping>
+        </ros>
+        <output_type>sensor_msgs/LaserScan</output_type>
+        <frame_name>scan_front_link</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="scan_rear_link">
+    <sensor type="ray" name="scan_rear_sensor">
+      <pose>0 0 0 0 0 0</pose>
+      <visualize>true</visualize>
+      <update_rate>25.0</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>550</samples>
+            <resolution>1</resolution>
+            <min_angle>-2.4</min_angle>
+            <max_angle>2.4</max_angle>
+          </horizontal>
+        </scan>
+        <range><min>0.05</min><max>25.0</max><resolution>0.01</resolution></range>
+        <noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
+      </ray>
+      <plugin name="scan_rear_plugin" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <namespace>/</namespace>
+          <remapping>~/out:=scan_rear</remapping>
+        </ros>
+        <output_type>sensor_msgs/LaserScan</output_type>
+        <frame_name>scan_rear_link</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="imu_link">
+    <sensor name="imu_sensor" type="imu">
+      <always_on>true</always_on>
+      <!-- Same topic the real iahrs_driver publishes on -->
+      <update_rate>100</update_rate>
+      <plugin name="imu_plugin" filename="libgazebo_ros_imu_sensor.so">
+        <ros>
+          <namespace>/</namespace>
+          <remapping>~/out:=imu/data</remapping>
+        </ros>
+        <frame_name>imu_link</frame_name>
+        <initial_orientation_as_reference>false</initial_orientation_as_reference>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- ===================== ros2_control ===================== -->
+  <!-- Stands in for the real CANopen SDO layer:
+       steering = position control, drive = velocity control -->
+  <ros2_control name="GazeboSystem" type="system">
+    <hardware>
+      <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+    </hardware>
+
+    <joint name="w1_steer_joint">
+      <command_interface name="position">
+        <param name="min">${-STEER_LIMIT}</param>
+        <param name="max">${STEER_LIMIT}</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="w2_steer_joint">
+      <command_interface name="position">
+        <param name="min">${-STEER_LIMIT}</param>
+        <param name="max">${STEER_LIMIT}</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="w1_wheel_joint">
+      <command_interface name="velocity">
+        <param name="min">-50.0</param>
+        <param name="max">50.0</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="w2_wheel_joint">
+      <command_interface name="velocity">
+        <param name="min">-50.0</param>
+        <param name="max">50.0</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+
+  <gazebo>
+    <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so">
+      <parameters>$(find trnav_2ws_gazebo)/config/controllers.yaml</parameters>
+    </plugin>
+  </gazebo>
+
+</robot>
