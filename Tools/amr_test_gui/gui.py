@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import (QApplication, QGridLayout, QGroupBox,
                              QVBoxLayout, QWidget)
 
 from seer_status import SEER_IP, SeerStatus
-from tongyi_can import JOG, TongyiCan
+from tongyi_can import JOG, STEER_HOME, TongyiCan
 
 # 상수·환산은 `tongyi_can`(CAN)·`seer_status`(네트워크)가 소유한다 — 이 파일은 화면에
 # 필요한 것만 가져다 쓴다. 값의 근거는 코드가 아니라 README.md §주요 상수 가 든다.
@@ -552,8 +552,13 @@ class MainWindow(QWidget):
         for node, sld, lab in ((3, self.sld_front, self.lab_front),
                                (4, self.sld_rear, self.lab_rear)):
             meas = self._meas_angle(node)
-            lab.setText(f"{sld.value():+d}°" +
-                        ("" if meas is None else f"  (실측 {meas:+.1f}°)"))
+            if self.can.homing and not self.can.meas_fresh(node):
+                tail = "  (실측 탐색 중)"      # 드라이브가 위치를 안 주는 구간
+            elif meas is None:
+                tail = ""
+            else:
+                tail = f"  (실측 {meas:+.1f}°)"
+            lab.setText(f"{sld.value():+d}°" + tail)
 
     def _build_wheel(self) -> QGroupBox:
         g = QGroupBox("차량 바퀴 상태")
@@ -737,8 +742,18 @@ class MainWindow(QWidget):
         rows, angles_changed = self.can.decode_frames(data)
         for node, (deg, rpm, amp) in rows.items():
             self.set_motor_values(node, deg, rpm, amp)
+            if deg is None and node in STEER_HOME and not self.can.meas_fresh(node):
+                # 실측이 끊긴 구간은 직전 각도를 남겨 두지 않는다 — 멈춘 값을 현재값으로
+                # 오해하게 만든다. 회전(rpm) 칸은 계속 살아 있어 움직임은 그쪽으로 보인다.
+                self._set_angle_text(node, "탐색 중" if self.can.homing else "—")
         if angles_changed:
             self._redraw_wheel()
+
+    def _set_angle_text(self, node: int, text: str):
+        """모터 값 표의 각도 칸에 상태 문구를 직접 쓴다(숫자가 없는 구간용)."""
+        row = {1: 0, 2: 1, 3: 2, 4: 3}.get(node)
+        if row is not None:
+            self.tbl_motor.item(row, 1).setText(text)
 
 
 #: 정지 신호를 파이썬으로 되돌려받기 위한 keep-alive 주기(ms). §main 의 주석 참조.

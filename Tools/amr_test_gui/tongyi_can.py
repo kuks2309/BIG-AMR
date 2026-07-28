@@ -213,6 +213,16 @@ class TongyiCan:
         """그 축의 실측 조향각(판다 직독). 없으면 None."""
         return self._meas_deg.get(node)
 
+    def meas_fresh(self, node: int, max_age: float = 1.0) -> bool:
+        """그 축의 실측이 `max_age` 초 안에 갱신됐는가.
+
+        호밍 탐색 구간에서는 드라이브가 `0x6064` 에 0 만 돌려주므로(2026-07-29 실측:
+        t=4~34 s 비영 표본 0건, 그 동안 `0x606C` 는 −250 rpm 으로 살아 있다) 실측이
+        통째로 끊긴다. 그때 직전 값을 계속 보여주면 **멈춘 각도를 현재값으로 오해**하므로
+        화면이 이 판정으로 "탐색 중" 을 띄운다.
+        """
+        return (time.time() - self._meas_at.get(node, 0.0)) <= max_age
+
     # ── 조그 실행 (crab: 조향 → 정착 확인 → 구동) ──────────────────────
     def jog_busy(self) -> bool:
         return self._jog_th is not None and self._jog_th.is_alive()
