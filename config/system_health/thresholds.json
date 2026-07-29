@@ -13,9 +13,11 @@
   "cpu_error_pct": 95.0,
   "mem_available_warn_mb": 2000.0,
   "mem_available_error_mb": 1000.0,
-  "swap_used_warn_mb": 256.0,
-  "swap_used_error_mb": 2048.0,
+  "swap_rate_warn_pages_s": 64.0,
+  "swap_rate_error_pages_s": 512.0,
   "disk_free_warn_gb": 10.0,
   "disk_free_error_gb": 6.0,
+  "gpu_warn_pct": null,
+  "gpu_error_pct": null,
   "fan_daemon_name": "nvfancontrol"
 }

@@ -20,7 +20,7 @@ import json
 import signal
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -70,32 +70,46 @@ def reset_stop_flag() -> None:
     _stop_requested = False
 
 
+@dataclass(frozen=True)
+class SampleState:
+    """차분이 필요한 항목의 직전 값 묶음.
+
+    CPU 사용률과 스왑 활동량은 둘 다 **누적 카운터의 차분**이라 이전 표본이 있어야 한다.
+    둘을 따로 들고 다니면 경과 시간 기준이 어긋날 수 있으므로 한 묶음으로 만든다.
+    """
+
+    stamp: float
+    cpu: sysfs.CpuSnapshot | None
+    swap: sysfs.SwapCounters | None
+
+
 def collect(
-    prev_cpu: sysfs.CpuSnapshot | None,
+    prev: SampleState | None,
     *,
     disk_paths: Sequence[str],
     proc_scan: bool,
     top_rss: int,
     fan_daemon_name: str,
     now: float | None = None,
-) -> tuple[dict[str, Any], sysfs.CpuSnapshot | None]:
+) -> tuple[dict[str, Any], SampleState]:
     """한 시점의 자원 상태를 모아 record 로 만든다.
 
-    CPU 사용률은 누적값의 **차분**이라 첫 호출에서는 낼 수 없다. `prev_cpu` 가 None 이면
-    `cpu_total_pct` 를 넣지 않는다(0 으로 채우면 "한가함"으로 오독된다).
+    CPU 사용률·스왑 활동량은 누적값의 **차분**이라 첫 호출에서는 낼 수 없다. `prev` 가
+    None 이면 그 항목들을 넣지 않는다(0 으로 채우면 "한가함"으로 오독된다).
 
     Args:
-        prev_cpu: 직전 CPU 스냅샷. 없으면 사용률 항목 생략.
+        prev: 직전 표본 상태. 없으면 차분 항목 생략.
         disk_paths: 감시할 파일시스템 경로들. 읽기 실패한 경로는 `error` 를 담아 남긴다.
         proc_scan: 이번 주기에 `/proc` 전체 순회를 할지.
         top_rss: 순회 시 남길 RSS 상위 개수.
         fan_daemon_name: 생존을 확인할 팬 제어 데몬 이름.
         now: epoch 초. None 이면 현재 시각(테스트 주입용).
     Returns:
-        (record, 이번 CPU 스냅샷). 스냅샷을 못 읽었으면 두 번째 원소는 None.
+        (record, 이번 표본 상태). 상태는 다음 호출에 그대로 넘긴다.
     """
     stamp = time.time() if now is None else now
     cpu_now = sysfs.read_cpu_times()
+    swap_now = sysfs.read_swap_counters()
 
     record: dict[str, Any] = {
         "iso_time": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stamp)),
@@ -106,14 +120,36 @@ def collect(
         "cpu_freqs_khz": list(sysfs.read_cpu_freqs_khz()),
     }
 
-    if prev_cpu is not None and cpu_now is not None:
-        usage = sysfs.cpu_usage_pct(prev_cpu, cpu_now)
+    if prev is not None and prev.cpu is not None and cpu_now is not None:
+        usage = sysfs.cpu_usage_pct(prev.cpu, cpu_now)
         record["cpu_total_pct"] = round(usage.total_pct, 1)
         record["cpu_core_pct"] = [round(p, 1) for p in usage.per_core_pct]
+
+    # GPU — Jetson 을 쓰는 이유가 GPU 이므로 필수 항목이다. 사용률은 순간값이라 차분이 불필요.
+    gpu = sysfs.read_gpu()
+    record["gpu"] = {
+        "load_pct": None if gpu.load_pct is None else round(gpu.load_pct, 1),
+        "freq_hz": gpu.freq_hz,
+        "max_freq_hz": gpu.max_freq_hz,
+    }
+
+    # 전원 레일 — 전류는 소비 전력의 직접 지표다. 부하가 아닌데 전류가 오르면 하드웨어
+    # 이상이고, 입력 전류 급변은 전원계(배터리·컨버터) 문제를 시사한다.
+    rails = sysfs.read_power_rails()
+    if rails:
+        record["power"] = {
+            r.name: {"mv": r.voltage_mv, "ma": r.current_ma, "mw": round(r.power_mw, 1)}
+            for r in rails
+        }
 
     memory = sysfs.read_memory()
     if memory is not None:
         record["memory"] = {k: round(v, 1) for k, v in asdict(memory).items()}
+
+    # 스왑 **활동량** — 사용량이 아니라 이것이 실시간성 위험 신호다(sysfs.SwapCounters 참조).
+    if prev is not None and prev.swap is not None and swap_now is not None:
+        rate_in, rate_out = sysfs.swap_rate_pages_s(prev.swap, swap_now, stamp - prev.stamp)
+        record["swap_rate_pages_s"] = {"in": round(rate_in, 1), "out": round(rate_out, 1)}
 
     disks: list[dict[str, Any]] = []
     for path in disk_paths:
@@ -149,7 +185,7 @@ def collect(
         ]
         record["fan_daemon_alive"] = fan_daemon_name in scan.names
 
-    return record, cpu_now
+    return record, SampleState(stamp=stamp, cpu=cpu_now, swap=swap_now)
 
 
 def _format_findings(findings: tuple[Finding, ...]) -> str:
@@ -303,9 +339,10 @@ def run(args: argparse.Namespace) -> int:
     # total=100% / 코어별 [100,0,100,100,0,0,0,0] 를 보고했다. 8코어 중 3개만 바빴는데 100%).
     #
     # `--once` 는 표본이 하나뿐이라 그럴 수 없으므로 기준선을 읽고 실제로 기다린다.
-    prev_cpu = None
+    prev: SampleState | None = None
     if args.once:
-        prev_cpu = sysfs.read_cpu_times()
+        prev = SampleState(stamp=time.time(), cpu=sysfs.read_cpu_times(),
+                           swap=sysfs.read_swap_counters())
         time.sleep(ONCE_BASELINE_DELAY_S)
 
     cycle = 0
@@ -315,15 +352,13 @@ def run(args: argparse.Namespace) -> int:
 
     while not _stop_requested:
         proc_scan = args.proc_scan_every > 0 and cycle % args.proc_scan_every == 0
-        record, prev_cpu_now = collect(
-            prev_cpu,
+        record, prev = collect(
+            prev,
             disk_paths=disk_paths,
             proc_scan=proc_scan,
             top_rss=args.top_rss,
             fan_daemon_name=thresholds.fan_daemon_name,
         )
-        if prev_cpu_now is not None:
-            prev_cpu = prev_cpu_now
 
         # 직전 주기의 기록 실패를 이번 판정에 반영한다 — 기록 실패 자체가 최고 심각도 사건이다.
         record["log_write_failed"] = log_write_failed

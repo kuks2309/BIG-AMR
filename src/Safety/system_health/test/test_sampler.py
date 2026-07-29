@@ -222,7 +222,11 @@ def test_resident_first_sample_omits_cpu_percent(tmp_path):
     assert lines, "표본이 하나도 기록되지 않았다"
     first = json.loads(lines[0])
     assert "cpu_total_pct" not in first, f"첫 표본에 구간 0초 CPU% 가 실렸다: {first.get('cpu_total_pct')}"
-    assert first["level"] == "OK", "첫 표본이 경보를 냈다 — 오탐이다"
+    # 판정 전체(level)를 OK 로 못박으면 **호스트의 실제 상태**에 의존한다 — 시험 장비가 정말로
+    # 메모리·스왑 압박을 받고 있으면 정상 경보가 뜨고 테스트가 깨진다(2026-07-28 실제로 깨졌다).
+    # 이 테스트가 고정할 대상은 "구간 0초 CPU% 로 인한 cpu 경보가 없다" 뿐이다.
+    cpu_findings = [f for f in first.get("findings", []) if f["key"] == "cpu"]
+    assert not cpu_findings, f"첫 표본이 CPU 경보를 냈다 — 오탐이다: {cpu_findings}"
 
 
 def test_once_still_reports_cpu_percent():
@@ -271,6 +275,37 @@ def test_parse_args_defaults():
     assert args.once is False
 
 
-def test_sysfs_snapshot_type_is_returned():
-    _, snapshot = _collect(None)
-    assert isinstance(snapshot, sysfs.CpuSnapshot)
+def test_sample_state_is_returned_for_next_call():
+    _, state = _collect(None)
+    assert isinstance(state, sampler.SampleState)
+    assert isinstance(state.cpu, sysfs.CpuSnapshot)
+    assert state.stamp > 0
+
+
+# ── GPU · 스왑 활동량 ────────────────────────────────────────────────────────
+
+
+def test_gpu_field_is_always_present():
+    """Jetson 을 쓰는 이유가 GPU 다 — 노드가 없는 하드웨어에서도 스키마에서 사라지면 안 된다."""
+    record, _ = _collect(None)
+    assert set(record["gpu"]) == {"load_pct", "freq_hz", "max_freq_hz"}
+
+
+def test_gpu_load_is_percent_not_per_mille():
+    record, _ = _collect(None)
+    load = record["gpu"]["load_pct"]
+    if load is not None:
+        assert 0.0 <= load <= 100.0, f"천분율이 그대로 실렸다: {load}"
+
+
+def test_swap_rate_absent_on_first_sample():
+    record, _ = _collect(None)
+    assert "swap_rate_pages_s" not in record
+
+
+def test_swap_rate_present_on_second_sample():
+    _, first = _collect(None)
+    record, _ = _collect(first)
+    assert set(record["swap_rate_pages_s"]) == {"in", "out"}
+    assert record["swap_rate_pages_s"]["in"] >= 0
+    assert record["swap_rate_pages_s"]["out"] >= 0

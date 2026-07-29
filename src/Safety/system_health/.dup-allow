@@ -1,0 +1,8 @@
+# dup-signature 예외 — 정당한 중복만.
+#
+# 본 패키지는 독립 CLI 진입점을 셋 갖는다: sampler(수집)·report(요약)·webview(대시보드).
+# 셋을 한 모듈로 합치면 sampler 의 ROS·의존 최소화 원칙이 깨진다 — report/webview 는
+# 수집기가 죽어도 따로 돌아야 하고, 수집기는 그 둘이 없어도 돌아야 한다(ADR §Decision 2·9).
+# 그래서 모듈마다 자기 argparse 진입점을 갖는 것이 설계 의도다.
+_parse_args
+main

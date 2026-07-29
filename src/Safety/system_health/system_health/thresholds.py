@@ -62,10 +62,25 @@ class Thresholds:
     cpu_error_pct: float = 95.0  # ⚠ 잠정 — 순간값 기준(지속시간 미반영)
     mem_available_warn_mb: float = 2000.0
     mem_available_error_mb: float = 1000.0
-    swap_used_warn_mb: float = 256.0
-    swap_used_error_mb: float = 2048.0
+    # 스왑은 **활동량**(페이지/초)으로 판정한다. 사용량 기준은 폐기했다 — 2026-07-28 시험
+    # 운전에서 표본 97 % 가 WARN 이 됐다: 리눅스는 압박이 끝나도 스왑에 나간 페이지를 되돌리지
+    # 않아 사용량이 몇 시간씩 높게 남는다. 지금 스왑을 읽고 쓰고 있는지가 실시간성 위험이다.
+    # in+out 합산 기준. 4 KiB 페이지에서 64 pages/s ≈ 0.25 MB/s.
+    swap_rate_warn_pages_s: float = 64.0
+    swap_rate_error_pages_s: float = 512.0
     disk_free_warn_gb: float = 10.0
     disk_free_error_gb: float = 6.0
+    # GPU 사용률은 **기본적으로 판정하지 않는다**(None). 높은 GPU 사용률은 이 장비를 쓰는
+    # 목적이지 결함이 아니다 — 임계를 켜면 정상 추론 부하가 곧 경보가 되어 경보 피로만 만든다.
+    # 필요하면 설정 파일에서 값을 넣어 활성화한다.
+    gpu_warn_pct: float | None = None
+    gpu_error_pct: float | None = None
+    # 입력 전류도 **기본 비활성**이다. 부하가 오르면 전류도 오르는 게 정상이므로, 기준선을
+    # 모르는 상태에서 임계를 지어내면 GPU 와 같은 경보 피로가 된다. 시험 운전으로 이 장비의
+    # 정상 대역을 확인한 뒤 값을 넣어 켠다(2026-07-29 관측 시작: VDD_IN 약 1.6 A / 18 W).
+    input_rail_name: str = "VDD_IN"
+    input_current_warn_ma: float | None = None
+    input_current_error_ma: float | None = None
     # 팬을 실제로 돌리는 userspace 데몬. 이것이 죽으면 팬이 마지막 PWM 값에 얼어붙고,
     # 커널은 99 °C 까지 개입하지 않으므로 그 구간이 통째로 무방비가 된다.
     fan_daemon_name: str = "nvfancontrol"
@@ -90,8 +105,17 @@ class Thresholds:
         }
         known = {f.name for f in fields(cls)}
         unknown = set(applied) - known
+        retired = sorted(unknown & set(RETIRED_KEYS))
+        if retired:
+            # 의미가 바뀐 항목은 자동 변환하지 않는다 — 사용량(MB)과 활동량(pages/s)은 단위도
+            # 뜻도 달라서 옮겨 담으면 사용자가 의도하지 않은 임계가 된다. 대신 무엇으로
+            # 바뀌었는지 알려서 사람이 고치게 한다.
+            detail = "; ".join(f"{k} → {RETIRED_KEYS[k]}" for k in retired)
+            raise KeyError(f"폐기된 임계값 항목: {retired} — 설정 파일을 고치십시오. {detail}")
         if unknown:
-            raise KeyError(f"알 수 없는 임계값 항목: {sorted(unknown)}")
+            raise KeyError(
+                f"알 수 없는 임계값 항목: {sorted(unknown)} "
+                f"(사용 가능: {sorted(known)})")
         return cls(**applied)
 
     def to_mapping(self) -> dict[str, Any]:
@@ -107,6 +131,14 @@ class Thresholds:
 PROVISIONAL_KEYS: frozenset[str] = frozenset(
     {"temp_warn_c", "temp_error_c", "cpu_warn_pct", "cpu_error_pct"}
 )
+
+#: 폐기된 설정 키 → 대체 항목 안내. **자동 변환하지 않는다** — 의미·단위가 바뀐 항목을 옮겨
+#: 담으면 사용자가 의도하지 않은 임계가 된다. 기동을 거부하고 무엇으로 바뀌었는지 알린다.
+#: (이 안내가 없으면 상주 서비스가 업그레이드 후 이유 없이 죽어 보인다 — 2026-07-28 실제 발생.)
+RETIRED_KEYS: dict[str, str] = {
+    "swap_used_warn_mb": "swap_rate_warn_pages_s (사용량 MB → 활동량 pages/s)",
+    "swap_used_error_mb": "swap_rate_error_pages_s (사용량 MB → 활동량 pages/s)",
+}
 
 
 def _grade(
@@ -209,23 +241,41 @@ def evaluate(record: Mapping[str, Any], th: Thresholds) -> tuple[Finding, ...]:
                 )
             )
 
-    swap_used_mb = memory.get("swap_used_mb")
-    if swap_used_mb is not None:
+    rate = record.get("swap_rate_pages_s")
+    if rate is not None:
+        total_rate = (rate.get("in") or 0.0) + (rate.get("out") or 0.0)
         level = _grade(
-            swap_used_mb,
-            th.swap_used_warn_mb,
-            th.swap_used_error_mb,
+            total_rate,
+            th.swap_rate_warn_pages_s,
+            th.swap_rate_error_pages_s,
             higher_is_worse=True,
         )
         if level is not Level.OK:
+            used = memory.get("swap_used_mb")
+            used_note = f", 누적 사용 {used:.0f}MB" if used is not None else ""
             findings.append(
                 Finding(
-                    key="swap_used",
+                    key="swap_rate",
                     level=level,
-                    value=swap_used_mb,
-                    message=f"스왑 사용 {swap_used_mb:.0f}MB — 스왑 진입은 실시간성 저하의 "
-                    f"조기 신호 (임계 WARN {th.swap_used_warn_mb}"
-                    f"/ERROR {th.swap_used_error_mb}MB)",
+                    value=total_rate,
+                    message=f"스왑 활동 {total_rate:.0f} pages/s "
+                    f"(in {rate.get('in', 0):.0f} / out {rate.get('out', 0):.0f}{used_note}) — "
+                    f"지금 스왑을 쓰고 있다 = 실시간성 저하 (임계 WARN "
+                    f"{th.swap_rate_warn_pages_s}/ERROR {th.swap_rate_error_pages_s} pages/s)",
+                )
+            )
+
+    gpu_pct = (record.get("gpu") or {}).get("load_pct")
+    if gpu_pct is not None and th.gpu_warn_pct is not None and th.gpu_error_pct is not None:
+        level = _grade(gpu_pct, th.gpu_warn_pct, th.gpu_error_pct, higher_is_worse=True)
+        if level is not Level.OK:
+            findings.append(
+                Finding(
+                    key="gpu",
+                    level=level,
+                    value=gpu_pct,
+                    message=f"GPU 사용률 {gpu_pct:.1f}% — 임계 WARN {th.gpu_warn_pct}"
+                    f"/ERROR {th.gpu_error_pct}%",
                 )
             )
 
@@ -249,6 +299,25 @@ def evaluate(record: Mapping[str, Any], th: Thresholds) -> tuple[Finding, ...]:
                     f"WARN {th.disk_free_warn_gb}/ERROR {th.disk_free_error_gb}GB",
                 )
             )
+
+    rail = (record.get("power") or {}).get(th.input_rail_name)
+    if (rail is not None and th.input_current_warn_ma is not None
+            and th.input_current_error_ma is not None):
+        current = rail.get("ma")
+        if current is not None:
+            level = _grade(current, th.input_current_warn_ma, th.input_current_error_ma,
+                           higher_is_worse=True)
+            if level is not Level.OK:
+                findings.append(
+                    Finding(
+                        key="input_current",
+                        level=level,
+                        value=float(current),
+                        message=f"{th.input_rail_name} 전류 {current} mA "
+                        f"({rail.get('mw', 0)/1000:.1f} W) — 임계 WARN "
+                        f"{th.input_current_warn_ma}/ERROR {th.input_current_error_ma} mA",
+                    )
+                )
 
     fan_daemon_alive = record.get("fan_daemon_alive")
     if fan_daemon_alive is False:

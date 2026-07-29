@@ -55,11 +55,55 @@ def test_disk_entry_with_read_error_is_skipped_not_crash():
     assert evaluate({"disks": [{"path": "/x", "error": "boom"}]}, Thresholds()) == ()
 
 
-def test_swap_usage_is_flagged():
-    record = {"memory": {"available_mb": 8000.0, "swap_used_mb": 512.0}}
-    findings = evaluate(record, Thresholds())
-    assert [f.key for f in findings] == ["swap_used"]
+def test_swap_activity_is_flagged_not_usage():
+    """스왑 판정은 **활동량** 기준이다.
+
+    2026-07-28 시험 운전에서 사용량 기준이 표본 97 % 를 WARN 으로 만들었다 — 리눅스는 압박이
+    끝나도 스왑 페이지를 되돌리지 않으므로 사용량은 몇 시간씩 높게 남는다. 지금 스왑을 쓰고
+    있는지가 위험 신호다.
+    """
+    idle = {"memory": {"available_mb": 8000.0, "swap_used_mb": 4096.0},
+            "swap_rate_pages_s": {"in": 0.0, "out": 0.0}}
+    assert evaluate(idle, Thresholds()) == (), "누적 사용량만으로 경보를 냈다 — 경보 피로의 원인"
+
+    active = {"memory": {"available_mb": 8000.0, "swap_used_mb": 10.0},
+              "swap_rate_pages_s": {"in": 40.0, "out": 40.0}}
+    findings = evaluate(active, Thresholds())
+    assert [f.key for f in findings] == ["swap_rate"]
     assert findings[0].level is Level.WARN
+    assert findings[0].value == pytest.approx(80.0)   # in + out 합산
+
+
+def test_swap_rate_error_level():
+    rec = {"swap_rate_pages_s": {"in": 300.0, "out": 300.0}}
+    assert evaluate(rec, Thresholds())[0].level is Level.ERROR
+
+
+def test_missing_swap_rate_is_not_judged():
+    # 첫 표본에는 차분이 없다 — 판정하지 않아야 한다.
+    assert evaluate({"memory": {"available_mb": 8000.0, "swap_used_mb": 4096.0}},
+                    Thresholds()) == ()
+
+
+# ── GPU ──────────────────────────────────────────────────────────────────────
+
+
+def test_gpu_is_not_judged_by_default():
+    """높은 GPU 사용률은 이 장비의 목적이지 결함이 아니다 — 기본 임계는 비활성이다."""
+    assert Thresholds().gpu_warn_pct is None
+    assert evaluate({"gpu": {"load_pct": 100.0}}, Thresholds()) == ()
+
+
+def test_gpu_is_judged_when_thresholds_given():
+    th = Thresholds.from_mapping({"gpu_warn_pct": 80.0, "gpu_error_pct": 95.0})
+    findings = evaluate({"gpu": {"load_pct": 97.0}}, th)
+    assert [f.key for f in findings] == ["gpu"]
+    assert findings[0].level is Level.ERROR
+
+
+def test_gpu_missing_node_is_not_judged():
+    th = Thresholds.from_mapping({"gpu_warn_pct": 80.0, "gpu_error_pct": 95.0})
+    assert evaluate({"gpu": {"load_pct": None}}, th) == ()
 
 
 def test_dead_fan_daemon_is_error():
@@ -128,3 +172,66 @@ def test_provisional_keys_are_real_fields():
     defaults = Thresholds()
     for key in PROVISIONAL_KEYS:
         assert hasattr(defaults, key), key
+
+
+def test_retired_key_error_names_the_replacement():
+    """상주 서비스가 업그레이드 후 이유 없이 죽어 보이면 안 된다 — 무엇으로 바뀌었는지 알린다."""
+    with pytest.raises(KeyError) as e:
+        Thresholds.from_mapping({"swap_used_warn_mb": 256.0})
+    msg = str(e.value)
+    assert "폐기된" in msg
+    assert "swap_rate_warn_pages_s" in msg
+
+
+def test_retired_keys_are_not_silently_migrated():
+    # 사용량(MB)과 활동량(pages/s)은 단위도 뜻도 다르다 — 옮겨 담으면 잘못된 임계가 된다.
+    with pytest.raises(KeyError):
+        Thresholds.from_mapping({"swap_used_error_mb": 2048.0})
+
+
+def test_unknown_key_error_lists_valid_names():
+    with pytest.raises(KeyError) as e:
+        Thresholds.from_mapping({"temp_warm_c": 60.0})
+    assert "사용 가능" in str(e.value)
+
+
+def test_retired_keys_are_not_current_fields():
+    from dataclasses import fields as _fields
+    from system_health.thresholds import RETIRED_KEYS
+    current = {f.name for f in _fields(Thresholds)}
+    assert not (set(RETIRED_KEYS) & current), "폐기 목록에 현행 필드가 섞여 있다"
+
+
+# ── 입력 전류 ────────────────────────────────────────────────────────────────
+
+
+def test_input_current_not_judged_by_default():
+    """부하가 오르면 전류도 오르는 게 정상 — 기준선 없이 임계를 지어내지 않는다."""
+    assert Thresholds().input_current_warn_ma is None
+    rec = {"power": {"VDD_IN": {"mv": 11600, "ma": 9999, "mw": 115000}}}
+    assert evaluate(rec, Thresholds()) == ()
+
+
+def test_input_current_judged_when_enabled():
+    th = Thresholds.from_mapping({"input_current_warn_ma": 2000.0,
+                                  "input_current_error_ma": 3000.0})
+    rec = {"power": {"VDD_IN": {"mv": 11600, "ma": 3200, "mw": 37120}}}
+    findings = evaluate(rec, th)
+    assert [f.key for f in findings] == ["input_current"]
+    assert findings[0].level is Level.ERROR
+
+
+def test_input_current_uses_configured_rail():
+    th = Thresholds.from_mapping({"input_rail_name": "VDD_SOC",
+                                  "input_current_warn_ma": 100.0,
+                                  "input_current_error_ma": 200.0})
+    rec = {"power": {"VDD_IN": {"ma": 5000}, "VDD_SOC": {"mv": 11600, "ma": 150, "mw": 1740}}}
+    findings = evaluate(rec, th)
+    assert findings[0].value == pytest.approx(150.0)
+    assert findings[0].level is Level.WARN
+
+
+def test_missing_rail_is_not_judged():
+    th = Thresholds.from_mapping({"input_current_warn_ma": 100.0,
+                                  "input_current_error_ma": 200.0})
+    assert evaluate({"power": {}}, th) == ()
