@@ -1,0 +1,33 @@
+# ros2_control configuration - stands in for the real robot's CANopen SDO layer.
+#
+#   Real robot: motor_control -> SDO 0x607A (target position, steering)
+#                             -> SDO 0x60FF (target velocity, drive)
+#   Simulation: steer_position_controller / drive_velocity_controller
+#
+# Joint order is fixed as W1 (Front) then W2 (Rear), matching WheelSetArray.wheels[]
+# (wheels[0] = W1 Front, wheels[1] = W2 Rear - see robot_geometry_2ws.yaml).
+
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    steer_position_controller:
+      type: position_controllers/JointGroupPositionController
+
+    drive_velocity_controller:
+      type: velocity_controllers/JointGroupVelocityController
+
+steer_position_controller:
+  ros__parameters:
+    joints:
+      - w1_steer_joint
+      - w2_steer_joint
+
+drive_velocity_controller:
+  ros__parameters:
+    joints:
+      - w1_wheel_joint
+      - w2_wheel_joint
