@@ -7,7 +7,7 @@ reflected_assets:
   - Tools/amr_test_gui/tongyi_can.py `decode_frames` (통째 동결 → 정확한 0 만 필터)
   - Tools/amr_test_gui/test/test_homing.py (신규 3건 — 호밍 중 실시간 반영·글리치 무시)
   - Tools/amr_test_gui/README.md#호밍-후-조향-0
-  - docs/debt/registry.md (debt-017 — 간헐 0 발생원·대각도 추종 미확증)
+  - docs/debt/registry.md (debt-017 — 탐색 구간 위치 취득 **경로 없음 확정**, 표시 대안 채택)
 ---
 
 # 2026-07-29 08:00 (KST) — 다른 마스터의 관측을 우리 폴링 경로로 전이해 각도 표시를 동결

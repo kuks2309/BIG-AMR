@@ -60,8 +60,9 @@ DISPLAY=:0 python3 gui.py   # 직접 실행
 
 ## 동작 규칙
 
-- **crab 순서** — 조그는 `구동 0 → 조향 지령 → 정착 확인 → 구동` 순이다
-  (`tongyi_can.py` `TongyiCan._jog_run`).
+- **crab 순서** — 조그는 `구동 0 → 조향 지령 → 정착 확인 → **운전가능 확인** → 구동` 순이다
+  (`tongyi_can.py` `TongyiCan._jog_run`). 구동축이 운전 가능 상태가 아니면 **구동을 취소하고
+  사유를 로그에 남긴다** — 아래 §구동축 운전 상태 참조.
 - **정착 판정은 대기 시작 이후에 들어온 실측만 인정한다**(`wait_settle` 신선도 게이트).
   낡은 값을 보면 지령 전 자세가 우연히 목표 근처일 때 즉시 통과한다 — 실기에서 호밍 뒤
   "조향 0° 복귀 확인" 이 거짓으로 났고 바퀴는 리밋(−137°)에 있었다.
@@ -89,6 +90,30 @@ DISPLAY=:0 python3 gui.py   # 직접 실행
   지령은 조그·슬라이더·호밍 경로에서만 나간다.
 - **판다는 1 PC 1대 원칙** — 고르는 UI 를 두지 않고 검출된 것을 표시만 한다.
   2대 이상 검출되면 원칙 위반이라 경고한다(실제로 열리는 것은 1대).
+
+## 구동축 운전 상태 (CiA402)
+
+**구동은 지령(`0x60FF`)만으로 돌지 않는다.** 드라이브가 `operation enabled`(상태워드 bit2)
+여야 하고, 조향(`steer_axis`)과 달리 `drive()` 는 `0x6040` 을 동반하지 않는다. 그동안은
+Seer 가 켜 둔 상태를 물려받아 동작했을 뿐이고, 한 번 떨어지면 GUI 로 되살릴 수 없었다.
+
+2026-07-29 실기에서 실제로 그렇게 됐다 — `0x60FF=-1222` 를 3 초 넣었는데 **엔코더가 1 count 도
+안 변했다**(node1 −516,397 고정 / node2 222,376 고정). 양축 `operation enabled=0`, node1 은
+`0x603F=0x0080` **Motor overload alarm**(Handbook §6.6.4). 경위는
+[issues_and_fixes](../../docs/issues_and_fixes/issues_and_fixes.md) 2026-07-29 항목.
+
+| | |
+| --- | --- |
+| 판정 | `drives_ready()` — 상태워드 bit2 · `drive_faults()` — bit3 |
+| 복구 | **`⚡ 구동축 활성화 (FAULT 해제)`** 버튼 (조그 패드 아래) |
+| 시퀀스 | Fault Reset(`0x6040` bit7 **상승엣지**) → **fault 가 걷힐 때까지 대기** → Shutdown `0x06` → Switch On `0x07` → Enable Operation `0x0F` (Handbook §6.6.1 명령표) |
+| 조그 연동 | 구동 직전 운전가능을 확인하고, 아니면 구동을 취소하고 사유를 남긴다 |
+
+⚠ **대기 단계가 없으면 안 켜진다.** 리셋 직후 50 ms 간격으로 전이를 몰아 보냈더니 node1 이
+fault 만 걷히고 `Switch On Disabled`(`0x8050`)에 멈췄다(실측).
+
+⚠ **이 버튼은 상태만 되돌린다.** FAULT 의 원인(과부하·기구 물림 등)이 남아 있으면 재발한다 —
+Handbook §6.6.4 는 "부하가 정격을 넘는지 확인" 을 먼저 요구한다. 버튼은 누르기 전에 확인을 묻는다.
 
 ## 호밍 후 조향 0°
 
@@ -168,18 +193,23 @@ Seer 는 `0x607A` 를 노드당 6,464회(≈50 Hz)로 호밍 전·중·후 내�
 QT_QPA_PLATFORM=offscreen python3 -m pytest test/ -q
 ```
 
-| 파일 | 건수 | 무엇을 고정하나 |
-| --- | --- | --- |
-| [`test_gui_math.py`](test/test_gui_math.py) | 37 | 조향 counts 환산 · ±90° 클램프 · 구동 속도 환산과 상한 · 조그 방향표 정합 (`tongyi_can` 직접 시험) |
-| [`test_gui_tables.py`](test/test_gui_tables.py) | 10 | 모터·Seer 두 표의 공용 헬퍼(형태·행 순서·포맷·`None` 처리·두 표 독립성) |
-| [`test_homing.py`](test/test_homing.py) | 13 | 호밍 SDO 프레임(서브인덱스 4 · `0x6098` 미기록 · 조향축 한정 · 순서) · 완료 판정 · 인터록 |
-| [`test_safe_release.py`](test/test_safe_release.py) | 16 | 종료 4경로의 제어권 반환 배선 |
-| [`test_slider.py`](test/test_slider.py) | 12 | 실측 되먹임 금지 · 지령 송신 조건 · 라벨 · **슬라이더 크기**(폭 ≥240 px, 1 px ≤1°) |
+| 파일 | 건수 | 무엇을 고정하나 | Qt |
+| --- | --- | --- | --- |
+| [`test_gui_math.py`](test/test_gui_math.py) | 37 | 조향 counts 환산 · ±90° 클램프 · 구동 속도 환산과 상한 · 조그 방향표 정합 (`tongyi_can` 직접 시험) | 무 |
+| [`test_homing.py`](test/test_homing.py) | 19 | 호밍 SDO 프레임(서브인덱스 4 · `0x6098` 미기록 · 조향축 한정 · 순서) · 완료 판정 · 인터록 · **0° 복귀 지령** · **탐색 중 실측 반영·0 글리치 폐기** | 창 |
+| [`test_slider.py`](test/test_slider.py) | 17 | 실측 되먹임 금지 · 지령 송신 조건 · 라벨 · 슬라이더 크기(폭 ≥240 px, 1 px ≤1°) · **제어권 없을 때 잠금** | 창 |
+| [`test_safe_release.py`](test/test_safe_release.py) | 16 | 종료 4경로의 제어권 반환 배선 | 무 |
+| [`test_steer_resend.py`](test/test_steer_resend.py) | 11 | **정착 전 setpoint 재송신** · 결손 축 복구 · **신선도 게이트**(낡은 실측 미정착) | 무 |
+| [`test_drive_enable.py`](test/test_drive_enable.py) | 10 | **구동축 CiA402 운전 상태** — `operation enabled` 판정 · Fault Reset 상승엣지 · fault 해제 대기 · 조그의 운전가능 가드 | 무 |
+| [`test_gui_tables.py`](test/test_gui_tables.py) | 10 | 모터·Seer 두 표의 공용 헬퍼(형태·행 순서·포맷·`None` 처리·두 표 독립성) | 창 |
 
-전 **88건**이 하드웨어 없이 돈다. 창을 여는 테스트도 판다·CAN 을 열지 않는다.
-3계층 분할(2026-07-28) 후에도 **88건 그대로**이며, 단언은 바꾸지 않고 대상 경로만
-옮겼다(`win._sdo_write` → `win.can.sdo_write` 등). `test_safe_release.py` 16건은
-한 글자도 바뀌지 않았다 — 종료 사슬의 모양을 유지했다는 증거다.
+전 **120건**이 하드웨어 없이 돈다. 창을 여는 테스트도 판다·CAN 을 열지 않는다.
+3계층 분할로 `TongyiCan` 이 Qt 무의존이 된 덕에 **신설분(재송신·구동 enable)은 창을 열지 않는다.**
+
+경과: 88(분할 시점, 단언 불변·대상 경로만 이동) → 93(호밍 0° 복귀) → 98(슬라이더 잠금)
+→ 106(setpoint 재송신) → 107(호밍 중 실측 반영) → 110(신선도 게이트) → **120**(구동 enable).
+`test_safe_release.py` 16건은 분할 내내 **한 글자도 바뀌지 않았다** — 종료 사슬의 모양을
+유지했다는 증거다.
 
 ⚠ **실기 상호작용(실제 CAN 왕복·Seer 응답)은 여전히 자동 검증이 없다**(debt-011 잔여).
 
