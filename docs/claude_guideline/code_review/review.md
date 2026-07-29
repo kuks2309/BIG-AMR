@@ -319,7 +319,11 @@ grep -E "감지된 도메인: " $TARGET
 grep "^## " $TARGET | head -1
 [ -f docs/user_instructions/user_instructions.md ] && grep "^## " docs/user_instructions/user_instructions.md | head -1 || echo "(user_instructions.md 없음 — 매핑 생략)"
 
-# 8. 플로우차트 drawio 정확성 (생성 시) — 박스·화살표 source/target 검증
+# 8-1. 주장 품질 게이트 (S1~S6). 소스 주석·docstring 도 대상(그때는 S6 만 적용)
+python3 docs/claude_guideline/code_review/checks/review-claim-lint.py "$TARGET"
+python3 docs/claude_guideline/code_review/checks/review-claim-lint.py --selftest   # 게이트 자체 회귀 10건
+
+# 8-2. 플로우차트 drawio 정확성 (생성 시) — 박스·화살표 source/target 검증
 for d in "$(dirname "$TARGET")"/*flow*.drawio; do
   [ -f "$d" ] && python3 docs/claude_guideline/code_review/checks/drawio_validate.py "$d"
 done
@@ -344,4 +348,6 @@ done
 
 ---
 
-**VERSION**: 1.3.0 (이중 기록 유지 + 플로우차트 drawio 동반·검증 추가 — checks/drawio_validate.py, 박스·화살표 dangling 0)
+**VERSION**: 1.4.0 (S6 추가 — `checks/review-claim-lint.py` 가 **검증 명령 없는 절대형 부정 단정**을 FAIL 로 검출하고, 검사 대상을 `docs/code_review/*.md` 에서 **소스 주석·docstring 까지 확대**. 근거 사건: 2026-07-28-005 · 2026-07-29-003. 근거로 인정하는 범위는 본 문서 룰 8("grep, LSP, 실측 인용")과 동일하게 ①도구 호출·결과 ②`파일:줄` 인용 둘 다다 — ①만 인정하면 기존 통과 산출물에 오탐 3건이 발생함을 실측 확인했다)
+
+**VERSION 이력**: 1.3.0 (이중 기록 유지 + 플로우차트 drawio 동반·검증 추가 — checks/drawio_validate.py, 박스·화살표 dangling 0)
