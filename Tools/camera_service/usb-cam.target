@@ -1,0 +1,9 @@
+[Unit]
+# 6대를 한 번에 켜고 끄기 위한 묶음. 개별 제어는 usb-cam@cam0 처럼 인스턴스로 한다.
+#   systemctl start usb-cam.target      # 전체 기동
+#   systemctl restart usb-cam@cam3      # 3번만 재시작
+Description=All USB CCTV camera publishers
+Wants=usb-cam@cam0.service usb-cam@cam1.service usb-cam@cam2.service usb-cam@cam3.service usb-cam@cam4.service usb-cam@cam5.service
+
+[Install]
+WantedBy=multi-user.target

@@ -14,7 +14,7 @@ import sys
 import rclpy
 from PyQt5.QtWidgets import QApplication
 
-from .main_window import LatestFrameStore, MainWindow
+from .main_window import LatestDetectionStore, LatestFrameStore, MainWindow
 from .ros_worker import RosImageWorker, RosSpinThread
 
 # pip 설치본 opencv-python 은 import 시 QT_QPA_PLATFORM_PLUGIN_PATH 를 자기 번들
@@ -33,12 +33,16 @@ def main(args=None):
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     frame_store = LatestFrameStore()
-    worker = RosImageWorker(frame_store)
+    detection_store = LatestDetectionStore()
+    worker = RosImageWorker(frame_store, detection_store)
 
     initial_layout = worker.layout or ""
     # 노드 로거를 넘겨 표시 FPS 를 주기적으로 남긴다(장시간 내구 시 정지 구간 식별).
     window = MainWindow(
-        worker.camera_topics, initial_layout, frame_store, logger=worker.get_logger()
+        worker.camera_topics, initial_layout, frame_store, logger=worker.get_logger(),
+        detection_store=detection_store, overlay_on=worker.ai_overlay,
+        publisher_count_fn=worker.detection_publisher_count,
+        render_hz=worker.render_hz,
     )
     window.show()
 

@@ -1,0 +1,22 @@
+[Unit]
+# 학습데이터 수집기. 카메라 서비스가 먼저 떠야 구독할 토픽이 있다.
+# 기본으로 enable 하지 않는다 — 상시 수집은 디스크를 계속 소모한다
+# (기본 설정 기준 약 1.7 GB/시간). 노드 자체에 여유 하한 가드가 있어 바닥나면 멈춘다.
+Description=Object-detection dataset collector (subscribes /camN/image_raw)
+After=network.target usb-cam.target
+Wants=usb-cam.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=nvidia
+Group=nvidia
+Environment=REPO_ROOT=/home/nvidia/Project/Ford-CATL-AMR/Big-AMR
+ExecStart=/bin/bash -lc 'source /opt/ros/humble/setup.bash && source ${REPO_ROOT}/install/setup.bash && exec ros2 launch dataset_collector collect.launch.py'
+Restart=always
+RestartSec=10
+KillSignal=SIGINT
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

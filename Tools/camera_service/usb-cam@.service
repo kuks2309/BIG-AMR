@@ -1,0 +1,29 @@
+[Unit]
+# 카메라 1대당 인스턴스 하나 — %i 는 로스터의 논리 이름(cam0..cam5).
+# 카메라마다 독립 서비스라 한 대가 죽어도 나머지 다섯은 영향을 받지 않는다.
+# (종전 구조는 `ros2 launch` 한 프로세스가 6대를 모두 들고 있어 동반 사망했다.)
+Description=USB CCTV camera publisher (%i)
+After=network.target
+# `systemctl stop usb-cam.target` 이 인스턴스까지 내리게 한다.
+# target 의 `Wants=` 는 **기동만** 전파하고 정지는 전파하지 않는다 — 이 줄이 없으면
+# stop 명령이 target 만 끄고 카메라 6대는 계속 돈다.
+PartOf=usb-cam.target
+# 재시도 횟수 제한을 끈다 — 카메라를 오래 뽑아두어도 포기하지 않고 계속 기다린다.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=nvidia
+Group=nvidia
+# video 그룹 권한으로 /dev/video* 접근
+SupplementaryGroups=video
+Environment=REPO_ROOT=/home/nvidia/Project/Ford-CATL-AMR/Big-AMR
+ExecStart=/home/nvidia/Project/Ford-CATL-AMR/Big-AMR/Tools/camera_service/run_camera.sh %i
+# 장치 부재(exit 3)든 노드 크래시든 항상 재시도한다.
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
