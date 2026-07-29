@@ -19,6 +19,8 @@ setup(
     license='Proprietary',
     tests_require=['pytest'],
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            'demo = mini_mes.demo:main',
+        ],
     },
 )

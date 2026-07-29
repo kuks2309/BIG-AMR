@@ -1,0 +1,199 @@
+"""Tests for the job state machine and the main cycle.
+
+Everything runs on ManualClock, so a 600-second timeout is verified instantly
+and identically on every run. No sleeps, no flakiness.
+"""
+
+import sys
+import pathlib
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+from mini_mes.adapters.base import StationStatus, TransportResult   # noqa: E402
+from mini_mes.adapters.mock import ManualClock, MockAcs, MockEquipment  # noqa: E402
+from mini_mes.main_cycle import MainCycle                            # noqa: E402
+
+
+def build(travel=8.0, timeout=600.0, accept=True):
+    clock = ManualClock()
+    equipment = MockEquipment(["station_3", "station_9"], clock)
+    acs = MockAcs(clock, travel_seconds=travel, accept=accept)
+    cycle = MainCycle(equipment, acs, clock=clock, logger=lambda m: None,
+                      job_timeout_s=timeout)
+    return clock, equipment, acs, cycle
+
+
+# ---------------------------------------------------------------- happy path
+
+def test_job_reaches_done():
+    clock, equipment, acs, cycle = build(travel=8.0)
+
+    equipment.force_status("station_3", StationStatus.FINISHED)
+    cycle.tick()                       # read_inputs creates the job
+
+    assert len(cycle.active) == 1
+    job = cycle.active[0][0]
+    assert job.state_name == "ASSIGNED"     # t1 fired on the same tick
+
+    cycle.tick()                       # t2: ACS accepted -> RUNNING
+    assert job.state_name == "RUNNING"
+
+    clock.advance(9.0)                 # robot arrives
+    cycle.tick()                       # t3 -> DONE
+
+    assert job.state_name == "DONE"
+    assert job in cycle.finished
+    assert cycle.active == []
+
+
+def test_done_notifies_destination_station():
+    clock, equipment, acs, cycle = build(travel=1.0)
+    # Route to a station the mock actually knows about. The default destination
+    # ("station_out") is a placeholder that exists in no factory.
+    cycle.on_station_finished = lambda sid: cycle.create_job(sid, "station_9")
+
+    equipment.force_status("station_3", StationStatus.FINISHED)
+    cycle.tick(); cycle.tick()
+    clock.advance(2.0)
+    cycle.tick()
+
+    assert any(cmd == "collected" for _, _, cmd in equipment.commands)
+
+
+def test_unknown_destination_is_warned_not_silent():
+    """A notification the destination refuses must not look like clean success."""
+    clock, equipment, acs, cycle = build(travel=1.0)
+    logged = []
+    cycle.logger = logged.append
+    # Default destination "station_out" is unknown to the mock.
+    equipment.force_status("station_3", StationStatus.FINISHED)
+    cycle.tick(); cycle.tick()
+    clock.advance(2.0)
+    cycle.tick()
+
+    job = cycle.finished[0]
+    assert job.state_name == "DONE"          # transport did succeed
+    assert any("did not accept" in m for m in logged)
+
+
+# ------------------------------------------------------------- failure paths
+
+def test_timeout_moves_running_to_failed():
+    """t5 — the transition that stops a blind takeover hanging forever."""
+    clock, equipment, acs, cycle = build(travel=8.0, timeout=600.0)
+
+    equipment.force_status("station_3", StationStatus.FINISHED)
+    cycle.tick(); cycle.tick()
+    job = cycle.finished[0] if cycle.finished else cycle.active[0][0]
+    assert job.state_name == "RUNNING"
+
+    acs.never_arrives(job.job_id)      # the robot never reports arrival
+    clock.advance(601.0)
+    cycle.tick()
+
+    assert job.state_name == "FAILED"
+    assert "timeout" in job.failure_reason
+
+
+def test_acs_failure_moves_to_failed():
+    clock, equipment, acs, cycle = build()
+    acs.fail_next = True
+
+    equipment.force_status("station_3", StationStatus.FINISHED)
+    cycle.tick(); cycle.tick(); cycle.tick()
+
+    job = cycle.finished[0]
+    assert job.state_name == "FAILED"
+    assert "ACS" in job.failure_reason
+
+
+def test_rejected_job_fails_without_running():
+    clock, equipment, acs, cycle = build(accept=False)
+
+    equipment.force_status("station_3", StationStatus.FINISHED)
+    cycle.tick(); cycle.tick()
+
+    job = cycle.finished[0]
+    assert job.state_name == "FAILED"
+    assert "RUNNING" not in [h[2] for h in job.history]
+
+
+def test_failed_job_cancels_at_acs():
+    """A timed-out job must not leave a robot still driving to it."""
+    clock, equipment, acs, cycle = build(timeout=10.0)
+    equipment.force_status("station_3", StationStatus.FINISHED)
+    cycle.tick(); cycle.tick()
+    job = cycle.active[0][0]
+
+    acs.never_arrives(job.job_id)
+    clock.advance(11.0)
+    cycle.tick()
+
+    assert acs.get_job_result(job.job_id) is TransportResult.FAILED
+
+
+# ------------------------------------------------------- structural guarantees
+
+def test_idle_cannot_reach_done_directly():
+    """There is no IDLE -> DONE transition, so that jump cannot occur."""
+    from mini_mes.job_fsm import build_job_fsm
+
+    fsm = build_job_fsm()
+    illegal = [t for t in fsm.transitions
+               if t.source.name == "IDLE" and t.target.name == "DONE"]
+    assert illegal == []
+
+
+def test_running_has_all_three_exits():
+    """Success, failure and timeout. A waiting state with only a success arrow
+    is a place the system can hang."""
+    from mini_mes.job_fsm import build_job_fsm
+
+    fsm = build_job_fsm()
+    targets = {t.target.name for t in fsm.transitions if t.source.name == "RUNNING"}
+    assert targets == {"DONE", "FAILED"}
+
+    running_out = [t for t in fsm.transitions if t.source.name == "RUNNING"]
+    assert len(running_out) == 3        # t3 success, t4 failure, t5 timeout
+
+
+def test_only_one_transition_fires_per_tick():
+    from mini_mes.fsm import State, StateMachine, Transition
+
+    a, b, c = State(), State(), State()
+    a.name, b.name, c.name = "A", "B", "C"
+    fsm = StateMachine(a, [Transition("t1", a, b, lambda _: True),
+                           Transition("t2", b, c, lambda _: True)])
+
+    fsm.step(None)
+    assert fsm.current is b      # not c — one transition per tick
+
+    fsm.step(None)
+    assert fsm.current is c
+
+
+def test_guard_error_does_not_stall_the_cycle():
+    """A broken guard must not take the main cycle down with it."""
+    clock, equipment, acs, cycle = build()
+    equipment.force_status("station_3", StationStatus.FINISHED)
+    cycle.tick()
+
+    _, ctx, fsm = cycle.active[0]
+    fsm.transitions.insert(0, type(fsm.transitions[0])(
+        "t_boom", fsm.current, fsm.current,
+        lambda _: (_ for _ in ()).throw(RuntimeError("boom"))))
+
+    cycle.tick()                       # must not raise
+    assert ctx.guard_errors
+    assert ctx.guard_errors[0][0] == "t_boom"
+
+
+def test_station_produces_only_one_job_per_batch():
+    """FINISHED sitting for many ticks must not spawn a job every tick."""
+    clock, equipment, acs, cycle = build()
+    equipment.force_status("station_3", StationStatus.FINISHED)
+
+    for _ in range(5):
+        cycle.tick()
+
+    assert len(cycle.active) + len(cycle.finished) == 1
