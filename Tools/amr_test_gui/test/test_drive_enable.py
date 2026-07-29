@@ -135,3 +135,31 @@ def test_jog_drives_when_axes_are_enabled():
     can._meas_at = {3: time.time() + 5, 4: time.time() + 5}
     can._jog_run("전진", 0.0, -1, 50.0, 3.0)
     assert [v for n, idx, v in sent if idx == 0x60FF and v != 0] == [-1222, -1222]
+
+
+# ── 제어권 획득 시 자동 복구 ───────────────────────────────────────────────
+# Seer 에게 넘겼다 되찾으면 구동축이 Switch On Disabled 로 떨어져 있다
+# (2026-07-29 실기: 13:24:35 반환 → 13:33:54 재획득 시 node1 enabled=False).
+def test_ensure_enables_when_axis_is_down_without_fault():
+    can, sent = _can({1: 0, 2: ENABLED})
+    can.ensure_drives_enabled(delay=0.02)
+    time.sleep(0.4)
+    assert _cw(sent, 1) == list(DRIVE_ENABLE_SEQ), "떨어진 축을 자동으로 살리지 않았다"
+
+
+def test_ensure_does_nothing_when_both_axes_are_up():
+    can, sent = _can({1: ENABLED, 2: ENABLED})
+    can.ensure_drives_enabled(delay=0.02)
+    time.sleep(0.3)
+    assert sent == [], "이미 운전 가능한데 프레임이 나갔다"
+
+
+def test_ensure_refuses_to_auto_enable_a_faulted_axis():
+    """fault 가 있으면 **자동으로 켜지 않는다** — 원인 모른 채 재기동 금지."""
+    can, sent = _can({1: FAULTED, 2: ENABLED})
+    logs = []
+    can._log_cb = logs.append
+    can.ensure_drives_enabled(delay=0.02)
+    time.sleep(0.3)
+    assert sent == [], "fault 축을 자동으로 켰다"
+    assert any("자동 활성화하지 않습니다" in m for m in logs), f"사유를 안 알렸다: {logs}"

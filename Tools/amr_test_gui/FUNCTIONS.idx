@@ -21,6 +21,7 @@ emit
 enable_drives
 _enable_drives_clicked
 _enable_drives_run
+ensure_drives_enabled
 _excepthook
 _fill_row
 fmt_alarm
@@ -32,12 +33,12 @@ jog_busy
 _jog_run
 _jog_stop
 list_pandas
-log
 _log
+log
 _loop
 main
-meas_angle
 _meas_angle
+meas_angle
 meas_fresh
 _motor_table
 _on_clear_fatal

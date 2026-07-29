@@ -167,6 +167,7 @@ class TongyiCan:
             self._th = threading.Thread(target=self._loop, daemon=True, name="poll")
             self._th.start()
             self._log("제어권 획득 완료 — 모터 값 폴링 시작")
+            self.ensure_drives_enabled()
         else:
             self._jog_stop = True
             try:
@@ -216,6 +217,31 @@ class TongyiCan:
         return {n: (None if self._status.get(n) is None
                     else bool(self._status[n] & SW_FAULT))
                 for n in DRIVE_NODES}
+
+    def ensure_drives_enabled(self, delay: float = 0.8) -> None:
+        """제어권 획득 직후 구동축 운전 상태를 확인하고, **fault 가 없으면** 되살린다.
+
+        Seer 에게 제어권을 넘겼다 되찾으면 구동축이 `Switch On Disabled` 로 떨어져 있다 —
+        2026-07-29 실기: 13:24:35 반환 → 13:33:54 재획득 시 node1 `enabled=False`
+        (node2 는 True 유지). 그 상태로 조그하면 조향만 되고 구동이 취소된다.
+
+        **fault 가 서 있으면 자동으로 켜지 않는다.** 원인을 모른 채 재기동하면 과부하 등이
+        재발하거나 모터를 상하게 한다 — 그때는 운전자가 `구동축 활성화` 버튼으로 확인을
+        거쳐 켠다. 상태워드가 한 번 들어올 틈을 주려고 별도 스레드에서 `delay` 뒤에 돈다.
+        """
+        def work():
+            time.sleep(delay)
+            ready, faults = self.drives_ready(), self.drive_faults()
+            if all(v for v in ready.values()):
+                return
+            if any(faults.values()):
+                self._log(f"⚠ 구동축 fault {faults} — 자동 활성화하지 않습니다. "
+                          f"원인 확인 후 '구동축 활성화' 를 누르세요.")
+                return
+            self._log(f"구동축이 운전 가능 상태가 아닙니다 {ready} — 자동 활성화합니다.")
+            self.enable_drives()
+
+        threading.Thread(target=work, daemon=True, name="ensure-enable").start()
 
     def enable_drives(self, timeout: float = 3.0) -> bool:
         """구동축을 운전 가능 상태로 만든다 — Handbook §6.6.1 상태기계.
