@@ -18,6 +18,7 @@ import atexit
 import math
 import signal
 import sys
+import threading
 import time
 
 from PyQt5.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
@@ -134,6 +135,7 @@ class MainWindow(QWidget):
     alarm_counts = pyqtSignal(int, int)
     log_line = pyqtSignal(str)
     homing_done = pyqtSignal()
+    enable_done = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -187,6 +189,7 @@ class MainWindow(QWidget):
         self.alarm_counts.connect(self._set_alarm_color)
         self.log_line.connect(self.log)
         self.homing_done.connect(lambda: self.btn_home.setEnabled(True))
+        self.enable_done.connect(lambda: self.btn_enable.setEnabled(True))
         self.seer.start()
         self.log("GUI 기동 — 실기 전용")
         self.scan()
@@ -334,7 +337,50 @@ class MainWindow(QWidget):
             "QPushButton:disabled { background:#e8edf2; color:#8894a2; }")
         self.btn_home.clicked.connect(self._homing_clicked)
         v.addWidget(self.btn_home)
+
+        # 구동축 운전 가능 복구. 조향과 달리 구동은 지령(0x60FF)만으로 켜지지 않아,
+        # fault 나 disable 로 떨어지면 이 버튼 말고는 되살릴 방법이 없다.
+        self.btn_enable = QPushButton("⚡  구동축 활성화 (FAULT 해제)")
+        self.btn_enable.setMinimumHeight(32)
+        self.btn_enable.setStyleSheet(
+            "QPushButton { background:#7d6608; color:white; font-weight:bold;"
+            " border:1px solid #5e4d06; border-radius:4px; margin-top:4px; }"
+            "QPushButton:disabled { background:#e8edf2; color:#8894a2; }")
+        self.btn_enable.clicked.connect(self._enable_drives_clicked)
+        v.addWidget(self.btn_enable)
         return g
+
+    def _enable_drives_clicked(self):
+        """구동축을 운전 가능 상태로 되돌린다 (CiA402 — Handbook §6.6.1).
+
+        fault 원인을 지우는 것이 아니라 **상태만** 되돌린다. 과부하로 떨어진 것이면
+        원인을 두고 다시 켤 때 재발하거나 모터를 상하게 할 수 있어 확인을 받는다.
+        """
+        if not self.can.running:
+            self.log("구동축 활성화 불가 — 제어권을 먼저 획득하세요")
+            return
+        faults = self.can.drive_faults()
+        ready = self.can.drives_ready()
+        if QMessageBox.question(
+                self, "구동축 활성화",
+                f"구동축을 운전 가능 상태로 되돌립니다.\n\n"
+                f"· 현재 operation enabled: {ready}\n"
+                f"· 현재 fault: {faults}\n\n"
+                "⚠ 이 조작은 **상태만** 되돌립니다. FAULT 의 원인(과부하·물림 등)이\n"
+                "  남아 있으면 곧 재발하거나 모터를 상하게 할 수 있습니다.\n"
+                "  부하·기구 상태를 먼저 확인하셨습니까?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            self.log("구동축 활성화 취소")
+            return
+        self.btn_enable.setEnabled(False)
+        threading.Thread(target=self._enable_drives_run, name="enable",
+                         daemon=True).start()
+
+    def _enable_drives_run(self):
+        try:
+            self.can.enable_drives()
+        finally:
+            self.enable_done.emit()
 
     def _build_wheel_adj(self) -> QGroupBox:
         """앞뒤 바퀴 조향각 조정.

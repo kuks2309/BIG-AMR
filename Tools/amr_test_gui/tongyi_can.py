@@ -27,6 +27,13 @@ STEER_LIMIT_DEG = 90.0              # 조향 지령 허용 범위 ±90°
 STEER_NODES = (3, 4)                # 조향축 — 기계적 원점이 있어 호밍 대상
 DRIVE_NODES = (1, 2)                # 구동축 — 원점이 없어 호밍하지 않는다
 
+# CiA402 상태기계 — Handbook §6.6.1 Controlword(0x6040) 명령표
+#   Bit0 Switch on · Bit1 Enable voltage · Bit2 Quick stop · Bit3 Enable Operation · Bit7 Fault Reset
+CW_FAULT_RESET = 0x80               # bit7 **상승엣지**로 fault 를 지운다
+DRIVE_ENABLE_SEQ = (0x06, 0x07, 0x0F)   # Shutdown → Switch On → Enable Operation
+SW_OPERATION_ENABLED = 1 << 2       # 상태워드 bit2 — 이게 0 이면 0x60FF 를 받아도 안 움직인다
+SW_FAULT = 1 << 3                   # 상태워드 bit3
+
 # SDO abort 코드 — 드라이브가 쓰기를 거부한 사유. 진단 전용이며 동작에 관여하지 않는다.
 _ABORT = {
     0x05040001: "명령 지정자 불량",
@@ -100,6 +107,7 @@ class TongyiCan:
     HOMING_START_S = 10.0      # 개시(bit15=0) 를 기다리는 창
     HOMING_RETURN_S = 30.0     # 원점→0° 복귀 대기 상한 (실측 약 3 s — 정본 캡처·실기 일치)
     STEER_RESEND_HZ = 10.0     # 정착 전 setpoint 재송신 주기
+    FAULT_CLEAR_S = 2.0        # fault 가 걷히기를 기다리는 창
     SETTLE_TIMEOUT_S = 6.0     # 조향 정착 대기 상한
 
     def __init__(self, log=None, on_frames=None, on_homing_done=None):
@@ -191,6 +199,71 @@ class TongyiCan:
         for n in DRIVE_NODES:
             self.sdo_write(n, 0x60FF, units, 4)
 
+    # ── 구동축 운전 상태 (CiA402) ────────────────────────────────────────
+    def drives_ready(self) -> dict:
+        """구동축이 **운전 가능**(상태워드 bit2)인가. 반환 `{node: True/False/None}`.
+
+        `None` 은 상태워드를 아직 못 받은 것이다(폴링 전). bit2 가 0 이면 `0x60FF` 를
+        아무리 보내도 바퀴가 돌지 않는다 — 2026-07-29 실기에서 그 상태로 3 초를 지령해
+        엔코더가 1 count 도 안 움직였다.
+        """
+        return {n: (None if self._status.get(n) is None
+                    else bool(self._status[n] & SW_OPERATION_ENABLED))
+                for n in DRIVE_NODES}
+
+    def drive_faults(self) -> dict:
+        """구동축 fault(상태워드 bit3) 여부. 반환 `{node: True/False/None}`."""
+        return {n: (None if self._status.get(n) is None
+                    else bool(self._status[n] & SW_FAULT))
+                for n in DRIVE_NODES}
+
+    def enable_drives(self, timeout: float = 3.0) -> bool:
+        """구동축을 운전 가능 상태로 만든다 — Handbook §6.6.1 상태기계.
+
+        fault 가 서 있으면 먼저 **Fault Reset**(bit7 0→1 상승엣지)을 보내고, 이어서
+        Shutdown(0x06) → Switch On(0x07) → Enable Operation(0x0F) 을 순서대로 보낸다.
+        상태워드 bit2 가 양축 모두 서면 True.
+
+        ⚠ **fault 의 원인을 제거하지 않으면 곧 재발한다.** 2026-07-29 사례는
+        node1 `0x603F=0x0080` Motor overload alarm 이었고, Handbook §6.6.4 는
+        "부하가 정격을 넘는지 확인" 을 먼저 요구한다. 이 함수는 상태만 되돌린다.
+        """
+        faulted = [n for n in DRIVE_NODES
+                   if self._status.get(n) is not None and (self._status[n] & SW_FAULT)]
+        for n in faulted:
+            self.sdo_write(n, 0x6040, 0x00, 2)              # bit7 를 내려 엣지를 만든다
+            self.sdo_write(n, 0x6040, CW_FAULT_RESET, 2)    # Fault Reset
+            self.sdo_write(n, 0x6040, 0x00, 2)
+            self._log(f"구동축 N{n} fault 해제 시도")
+        if faulted:
+            # **fault 가 걷히는 것을 확인한 뒤** 상태 전이를 시작한다. 리셋 직후
+            # 곧바로 Shutdown 을 보내면 드라이브가 아직 Fault 에 있어 무시하고,
+            # Switch On Disabled 에서 멈춘다(2026-07-29 실기: node1 이 그렇게 걸렸다).
+            t_f = time.time()
+            while time.time() - t_f < self.FAULT_CLEAR_S:
+                if not any(self._status.get(n, 0) & SW_FAULT for n in faulted):
+                    break
+                time.sleep(0.05)
+            still = [n for n in faulted if self._status.get(n, 0) & SW_FAULT]
+            if still:
+                self._log(f"⚠ 구동축 {still} fault 가 걷히지 않습니다 — 원인 제거가 먼저입니다.")
+                return False
+        for cw in DRIVE_ENABLE_SEQ:
+            for n in DRIVE_NODES:
+                self.sdo_write(n, 0x6040, cw, 2)
+            time.sleep(0.05)
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            r = self.drives_ready()
+            if all(v for v in r.values()):
+                self._log("구동축 운전 가능 — 양축 operation enabled")
+                return True
+            time.sleep(0.05)
+        bad = [n for n, v in self.drives_ready().items() if not v]
+        self._log(f"⚠ 구동축 활성화 실패 — 노드 {bad} 가 운전 가능 상태가 아닙니다. "
+                  f"fault {self.drive_faults()}")
+        return False
+
     def steer_axis(self, node: int, deg: float) -> float:
         """한 축에만 절대위치 지령(0x607A) + 즉시 적용(0x6040=0x3F). 환산은 `steer_counts`."""
         deg, counts = steer_counts(node, deg)
@@ -257,6 +330,14 @@ class TongyiCan:
                 self.drive(0)
                 return
             if self._jog_stop:
+                self.drive(0)
+                return
+            ready = self.drives_ready()
+            if not all(v for v in ready.values()):
+                # 이 확인이 없으면 지령만 나가고 바퀴는 가만히 있어 원인을 알 수 없다.
+                self._log(f"⚠ 구동 취소 — 구동축이 운전 가능 상태가 아닙니다 "
+                          f"(operation enabled {ready}, fault {self.drive_faults()}). "
+                          f"'구동축 활성화' 를 먼저 누르세요.")
                 self.drive(0)
                 return
             units = drive_units(mmps, raw_sign)

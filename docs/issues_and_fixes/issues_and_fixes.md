@@ -2,6 +2,43 @@
 
 ---
 
+## 2026-07-29
+
+### [Fix] 구동 지령을 넣어도 바퀴가 안 돎 — 구동축이 운전 가능 상태가 아니었다
+
+- **문제**: 조그를 눌러도 구동륜이 돌지 않았다. GUI 로그는 정상으로 보였다
+  (`조향 정착 — 구동 raw=-1222`). 사용자는 "뒷바퀴 구동이 안 된다"·"구 GUI 는 문제
+  없었다" 고 보고했고, 펌웨어인지 UI 인지 판정이 필요했다.
+- **원인**: 지령이 아니라 **드라이브 상태**였다.
+  - `0x60FF=-1222` 를 3 초 넣었으나 **엔코더가 1 count 도 안 변함**
+    (node1 `-516,397` 고정 / node2 `222,376` 고정). GUI 를 거치지 않은 맨 스크립트도 동일 →
+    **UI 배제**. `_drive(u)` 프레임은 리팩터 전후 전건 동일 → **리팩터 배제**.
+    드라이브가 **자기 상태워드로** 보고 → **판다 펌웨어 배제**.
+  - 양 구동축 **`operation enabled`(상태워드 bit2) = 0**, node1 은
+    **`0x603F = 0x0080` Motor overload alarm**(Handbook §6.6.4 p.7614).
+    Seer 알람 `Motor Error:FrontWalk-0x80` 이 독립 경로로 동일 확인(12:53:18).
+  - **GUI 에 복구 수단이 없었다** — `Tools/amr_test_gui/tongyi_can.py` `TongyiCan.drive()`
+    는 `0x60FF` 만 보내고 조향(`steer_axis`)처럼 `0x6040` 을 동반하지 않는다.
+    그동안은 Seer 가 켜 둔 상태를 물려받아 동작했을 뿐이다.
+- **해결**: `TongyiCan` 에 CiA402 상태 복구 경로를 신설(Handbook §6.6.1 명령표 근거).
+  - `drives_ready()` · `drive_faults()` — 상태워드 bit2/bit3 판정
+  - `enable_drives()` — Fault Reset(bit7 **상승엣지**) → **fault 가 걷힐 때까지 대기**
+    → Shutdown `0x06` → Switch On `0x07` → Enable Operation `0x0F`
+  - `_jog_run` 이 구동 직전 운전 가능 여부를 확인하고, 아니면 **사유를 남기고 취소**한다
+    (전에는 지령만 나가고 조용히 실패해 원인을 가렸다)
+  - GUI 에 `구동축 활성화 (FAULT 해제)` 버튼 + 과부하 재발 경고 확인 대화상자
+  - ⚠ **대기 단계는 실기가 가르쳐 준 것** — 첫 시도에서 리셋 직후 50 ms 간격으로
+    전이를 몰아 보냈더니 node1 이 fault 만 걷히고 `Switch On Disabled(0x8050)` 에 멈췄다.
+- **파일**: `Tools/amr_test_gui/tongyi_can.py` · `Tools/amr_test_gui/gui.py` ·
+  `Tools/amr_test_gui/test/test_drive_enable.py`(신규 10건, 110 → 120 passed)
+- **상태**: 완료 — 실기 복구 확인
+  (n1 `0x8018`→`0x8037` / n2 `0x8050`→`0x8037`, 양축 operation enabled=1 · fault=0)
+- **미해결**: 과부하(`0x0080`)의 **물리적 원인은 규명되지 않았다.** Handbook §6.6.4 는
+  "부하가 정격을 넘는지 확인" 을 요구한다. 상태만 되돌렸으므로 원인이 남아 있으면 재발한다.
+  정지 중 node2 가 −16.07 A 를 먹던 관측도 미해명이다.
+
+---
+
 ## 2026-07-28
 
 ### [Fix] 조향 슬라이더가 먹통 — 실측 되먹임 + 78×20 px 크기
