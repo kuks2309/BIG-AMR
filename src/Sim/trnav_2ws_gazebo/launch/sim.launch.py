@@ -169,12 +169,20 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}],
     )
 
-    # 스폰 → jsb → (steer, drive) → bridge/odom 순서 보장
+    # spawn -> jsb -> steer -> drive -> bridge/odom, strictly one at a time.
+    #
+    # The controller spawners must NOT run concurrently. Starting steer and
+    # drive together races on controller_manager's load service and one of them
+    # dies with "Failed loading controller"; which one loses varies run to run,
+    # so the symptom is an intermittently unsteerable robot. Chaining each
+    # spawner off the previous one's exit removes the race.
     ordering = [
         RegisterEventHandler(OnProcessExit(
             target_action=spawn, on_exit=[jsb_spawner])),
         RegisterEventHandler(OnProcessExit(
-            target_action=jsb_spawner, on_exit=[steer_spawner, drive_spawner])),
+            target_action=jsb_spawner, on_exit=[steer_spawner])),
+        RegisterEventHandler(OnProcessExit(
+            target_action=steer_spawner, on_exit=[drive_spawner])),
         RegisterEventHandler(OnProcessExit(
             target_action=drive_spawner, on_exit=[bridge, odometry, rviz_node])),
     ]
