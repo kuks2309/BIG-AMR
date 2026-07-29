@@ -9,6 +9,16 @@ set -u
 
 echo "[stop_sim] 종료 중..."
 
+# 0) Close the terminal windows start_sim.sh opened. Each window wrote its own
+#    shell PID here, so only those windows are closed — never the user's own.
+PIDFILE="/tmp/trnav_2ws_sim_windows.pids"
+if [ -f "$PIDFILE" ]; then
+    while read -r pid; do
+        [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null
+    done < "$PIDFILE"
+    rm -f "$PIDFILE"
+fi
+
 # 1) launch 및 Gazebo
 pkill -9 -f 'ros2 launch trnav_2ws_gazebo'  2>/dev/null
 pkill -9 -f 'gzserver'                      2>/dev/null

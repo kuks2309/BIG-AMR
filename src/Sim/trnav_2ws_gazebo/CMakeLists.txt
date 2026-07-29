@@ -15,6 +15,7 @@ install(
     scripts/teleop_gui.py
     scripts/stop_sim.sh
     scripts/run_gui.sh
+    scripts/start_sim.sh
   DESTINATION lib/${PROJECT_NAME}
 )
 
