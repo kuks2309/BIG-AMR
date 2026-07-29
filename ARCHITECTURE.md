@@ -79,6 +79,10 @@ One Mini MES commands many robots through the ACS, and talks to the station mach
 directly. That second link is what makes it a real MES: it coordinates both the
 **machines** that process material and the **transport** that moves material between them.
 
+**Equipment** here means **production machines / process stations** — confirmed
+2026-07-28. It does not mean doors, lifts or conveyors. The protocol on that link is
+still unknown and is blocked on CATL; see [section 10](#10-open-questions).
+
 ### 2.2 Inside any one AMR — two brains, one gate
 
 ```mermaid
@@ -434,7 +438,7 @@ with" is worthless; an arrow that names its data is an architecture.
 | From → To | Carries | Data | Reply |
 |---|---|---|---|
 | **Mini MES → ACS** | a transport job | `{job_id, from, to, priority}` | accepted / rejected / done / failed |
-| **Mini MES → Equipment** | station status request | `{station_id}` | idle / busy / finished / fault |
+| **Mini MES → Equipment** | station status, and probably commands | `{station_id}` — **protocol TBD, blocked on CATL** | idle / busy / finished / fault |
 | **Mini MES → Panda gate** | authority switch | `engage` / `release` | gate state confirmed |
 | **ACS → Seer** | a path to follow | path legs (JSON) | arrived / blocked / error |
 | **Seer → Motors** | motor commands | CANopen SDO — `0x607A` position, `0x60FF` speed | position `0x6064`, status `0x6041` |
@@ -507,6 +511,31 @@ Full audit: [`docs/audit/2026-07-28-project-gap-audit.md`](docs/audit/2026-07-28
 ## 10. Open questions
 
 Things this document assumes but has not confirmed. **Resolve these before building.**
+
+### Answered — 2026-07-28, Dr. Youngbo Shim
+
+| Question | Answer |
+|---|---|
+| What is Equipment? | **Production machines / process stations.** Not doors, lifts or conveyors. |
+| Does Mini MES only read status, or also command? | **Likely command as well** — but *not yet formally defined*. Treat as provisional. |
+| Which protocol? | **Unknown.** T-Robotics has asked **CATL** to share the equipment communication protocols; no answer yet. |
+
+**⚠️ Open risk — the Mini MES ↔ Equipment interface is blocked on an external party.**
+Nothing about this link can be finalised until CATL supplies the protocol
+specification. Two consequences:
+
+1. **Do not let this block the build.** Put the equipment link behind a narrow
+   adapter interface — something like `get_station_status(id)` and
+   `send_station_command(id, cmd)` — with a mock implementation behind it. The
+   Mini MES main cycle and job FSM can then be written, run and tested today
+   against the mock, and only the adapter changes when CATL answers. If instead
+   the protocol is allowed to leak into the FSM, the whole Mini MES waits on CATL.
+2. **The scope is larger than status monitoring.** If the answer to question 2
+   stays "command", the Mini MES can start and stop production machines. That
+   carries a different safety and validation burden than read-only monitoring,
+   and should be confirmed in writing before implementation.
+
+### Still open
 
 1. **Who commands the Panda gate?** This document draws `Mini MES → Panda gate`. The
    original whiteboard sketch did not show this link. It may belong lower down — with
