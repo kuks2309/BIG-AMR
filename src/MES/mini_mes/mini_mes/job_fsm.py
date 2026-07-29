@@ -1,0 +1,162 @@
+"""The job lifecycle state machine - the FSM from the 2026-07-28 whiteboard.
+
+    IDLE --t1--> ASSIGNED --t2--> RUNNING --t3--> DONE
+                                     |
+                                     +--t4--> FAILED   (something broke)
+                                     +--t5--> FAILED   (timeout)
+    FAILED --t6--> IDLE                                (operator retry)
+
+Two properties are worth stating explicitly, because they are the reason for
+using a state machine rather than a pile of flags.
+
+**RUNNING has three exits.** Success (t3), failure (t4) and timeout (t5). A state
+that waits on something outside itself and has only a success arrow is a place
+the system can hang forever. That is not hypothetical here: while the Panda gate
+is engaged, the layers above are blind by design — if the Jetson dies mid-move,
+Seer keeps reporting "parked, all normal" and nothing upstream notices. t5 is the
+only thing that ends such a job. Compare Seer alarm 52954, which is precisely a
+re-homing state that timed out after 20 minutes.
+
+**There is no IDLE -> DONE arrow.** So that jump cannot occur. Not "we check for
+it" — the machine has no way to express it.
+
+Transition order matters: failure and timeout are listed before success, so a job
+that both completed and timed out on the same tick is recorded as the failure it
+actually was.
+"""
+
+from .adapters.base import TransportResult
+from .fsm.machine import StateMachine
+from .fsm.state import State
+from .fsm.transition import Transition
+
+
+class Idle(State):
+    name = "IDLE"
+
+    def on_enter(self, ctx):
+        ctx.log("waiting to be dispatched")
+
+
+class Assigned(State):
+    name = "ASSIGNED"
+
+    def on_enter(self, ctx):
+        """Hand the job to the ACS exactly once, on arrival.
+
+        Submission belongs in on_enter rather than execute: execute runs every
+        tick, and submitting a job twenty times a second would be a very
+        expensive bug.
+        """
+        result = ctx.acs.submit_job(ctx.job)
+        ctx.last_acs_result = result
+        ctx.log(f"submitted to ACS -> {result.value}")
+        if result is TransportResult.REJECTED:
+            ctx.fail("ACS rejected the job")
+
+
+class Running(State):
+    name = "RUNNING"
+
+    def on_enter(self, ctx):
+        ctx.log("robot is moving")
+
+    def execute(self, ctx):
+        """Poll the ACS once per tick and cache the answer.
+
+        Cached deliberately: t3, t4 and t5 all need to know the outcome, and
+        three guards each calling the adapter would triple the traffic and could
+        see three different answers within one tick.
+        """
+        ctx.last_acs_result = ctx.acs.get_job_result(ctx.job.job_id)
+
+
+class Done(State):
+    name = "DONE"
+
+    def on_enter(self, ctx):
+        """Tell the destination station its material has arrived.
+
+        This is the command direction of the equipment link. Whether the Mini MES
+        is permitted to command equipment is not yet formally settled — see
+        adapters/base.py. It is one call, behind the adapter, easy to remove.
+
+        The transport itself succeeded, so a rejected notification does not undo
+        the job — but it is logged rather than swallowed. Silently ignoring the
+        return value would let an unknown or unreachable destination look exactly
+        like a clean completion.
+        """
+        accepted = ctx.equipment.send_station_command(ctx.job.to_station,
+                                                      "collected")
+        if not accepted:
+            ctx.log(f"WARNING: station {ctx.job.to_station} did not accept "
+                    f"the 'collected' notification")
+        ctx.log("job complete")
+
+
+class Failed(State):
+    name = "FAILED"
+
+    def on_enter(self, ctx):
+        """Cancel at the ACS on the way in.
+
+        Without this, a timed-out job leaves a robot still driving toward a
+        destination nobody is waiting for.
+        """
+        reason = ctx.job.failure_reason or "unknown"
+        ctx.acs.cancel_job(ctx.job.job_id)
+        ctx.log(f"FAILED: {reason}")
+
+
+def build_job_fsm(on_change=None):
+    """Construct one state machine for one job.
+
+    Each job gets its own instance — states are shared and stateless, all
+    per-job data lives in the context.
+    """
+    idle = Idle()
+    assigned = Assigned()
+    running = Running()
+    done = Done()
+    failed = Failed()
+
+    transitions = [
+        # ASSIGNED can fail immediately if the ACS refuses the job.
+        Transition("t_reject", assigned, failed,
+                   lambda c: c.last_acs_result is TransportResult.REJECTED),
+
+        Transition("t1", idle, assigned,
+                   lambda c: c.job.job_id is not None),
+
+        Transition("t2", assigned, running,
+                   lambda c: c.last_acs_result is TransportResult.ACCEPTED),
+
+        # Failure and timeout are checked BEFORE success — see module docstring.
+        Transition("t4", running, failed,
+                   lambda c: _acs_failed(c)),
+
+        Transition("t5", running, failed,
+                   lambda c: _timed_out(c)),
+
+        Transition("t3", running, done,
+                   lambda c: c.last_acs_result is TransportResult.ARRIVED),
+
+        Transition("t6", failed, idle,
+                   lambda c: getattr(c, "operator_retry", False)),
+    ]
+
+    return StateMachine(start=idle, transitions=transitions, on_change=on_change)
+
+
+def _acs_failed(ctx):
+    if ctx.last_acs_result is TransportResult.FAILED:
+        ctx.fail("ACS reported failure")
+        return True
+    return False
+
+
+def _timed_out(ctx):
+    if ctx.timed_out():
+        ctx.fail(f"timeout after {ctx.time_in_state():.0f}s in RUNNING")
+        return True
+    return False
