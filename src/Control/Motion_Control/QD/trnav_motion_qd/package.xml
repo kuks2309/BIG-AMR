@@ -17,7 +17,7 @@
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <!-- System dep: NLopt (SLSQP solver) used by qd_mpc_controller. rosdep key 'nlopt' → libnlopt-cxx-dev/libnlopt-dev. Big-AMR 이식 시 명시(원본 미선언 보완). -->
-  <depend>nlopt</depend>
+  <depend>libnlopt-dev</depend>
 
   <export>
     <build_type>ament_cmake</build_type>
