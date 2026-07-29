@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* Minimal reset — supplied by the artifact host, needed here explicitly. */
+  *, *::before, *::after { box-sizing: border-box; }
+  * { margin: 0; }
+  body { min-height: 100vh; -webkit-font-smoothing: antialiased; }
+  img, svg, canvas { display: block; max-width: 100%; }
+  button { font: inherit; }
+
+  /* The page styles below assume a dark default when the OS expresses no
+     preference; the media query and [data-theme] rules still take over. */
+  html { color-scheme: dark light; }
+</style>
+</head>
+<body>
+<title>Big-AMR — Live Operations</title>
+
+<style>
+  :root {
+    --ground:   #0D1117;
+    --panel:    #161C24;
+    --panel-2:  #1D242E;
+    --rule:     #2A3441;
+    --ink:      #E8EDF4;
+    --ink-mid:  #9AA7B8;
+    --ink-dim:  #66748A;
+
+    --steel:    #5B9BD5;
+    --amber:    #E8A33D;
+    --green:    #4FC08D;
+    --red:      #E5695E;
+    --wait:     #7A8798;
+
+    --mono: "SF Mono", "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace;
+    --sans: "Inter", "Helvetica Neue", "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --ground:  #EEF1F5;
+      --panel:   #FFFFFF;
+      --panel-2: #F5F7FA;
+      --rule:    #D5DCE5;
+      --ink:     #131820;
+      --ink-mid: #4E5A6B;
+      --ink-dim: #8492A4;
+      --steel:   #2E5C8A;
+      --amber:   #B4790C;
+      --green:   #1F7A4D;
+      --red:     #C03A2B;
+      --wait:    #8B97A6;
+    }
+  }
+  :root[data-theme="light"] {
+    --ground:#EEF1F5; --panel:#FFFFFF; --panel-2:#F5F7FA; --rule:#D5DCE5;
+    --ink:#131820; --ink-mid:#4E5A6B; --ink-dim:#8492A4;
+    --steel:#2E5C8A; --amber:#B4790C; --green:#1F7A4D; --red:#C03A2B; --wait:#8B97A6;
+  }
+  :root[data-theme="dark"] {
+    --ground:#0D1117; --panel:#161C24; --panel-2:#1D242E; --rule:#2A3441;
+    --ink:#E8EDF4; --ink-mid:#9AA7B8; --ink-dim:#66748A;
+    --steel:#5B9BD5; --amber:#E8A33D; --green:#4FC08D; --red:#E5695E; --wait:#7A8798;
+  }
+
+  body { background: var(--ground); color: var(--ink); font-family: var(--sans); }
+
+  .console { max-width: 1400px; margin: 0 auto; padding: 20px 18px 32px; }
+
+  /* ---------- header ---------- */
+  .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 20px; margin-bottom: 16px; }
+  .title { font-size: 19px; font-weight: 750; letter-spacing: -0.01em; }
+  .sub { font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+         text-transform: uppercase; color: var(--ink-dim); }
+  .kpis { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .kpi { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px;
+         padding: 5px 11px; display: flex; align-items: baseline; gap: 7px; }
+  .kpi b { font-family: var(--mono); font-size: 15px; font-variant-numeric: tabular-nums; }
+  .kpi span { font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em;
+              text-transform: uppercase; color: var(--ink-dim); }
+  .k-done b { color: var(--green); }
+  .k-run  b { color: var(--amber); }
+  .k-wait b { color: var(--wait); }
+
+  /* ---------- pipeline ---------- */
+  .pipe { position: relative; background: var(--panel); border: 1px solid var(--rule);
+          border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; overflow: hidden; }
+  .pipe-row { display: flex; align-items: stretch; gap: 0; }
+  .stage { flex: 1; min-width: 0; padding: 0 14px; }
+  .stage-name { font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
+                text-transform: uppercase; margin-bottom: 5px; }
+  .stage-desc { font-size: 12.5px; color: var(--ink-mid); line-height: 1.35; }
+  .s-mes .stage-name { color: var(--amber); }
+  .s-acs .stage-name, .s-fleet .stage-name { color: var(--steel); }
+  .link { width: 74px; flex: none; position: relative; align-self: center; height: 2px;
+          background: var(--rule); }
+  .link::after { content: ""; position: absolute; right: -1px; top: -4px;
+                 border-left: 7px solid var(--rule);
+                 border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+  .link-label { position: absolute; top: -19px; left: 50%; transform: translateX(-50%);
+                font-family: var(--mono); font-size: 9px; letter-spacing: .1em;
+                text-transform: uppercase; color: var(--ink-dim); white-space: nowrap; }
+  .pulse { position: absolute; width: 9px; height: 9px; border-radius: 50%;
+           top: -3.5px; left: 0; pointer-events: none; }
+
+  /* ---------- main grid ---------- */
+  .grid { display: grid; grid-template-columns: minmax(0,1fr) 330px; gap: 14px; }
+  @media (max-width: 940px) { .grid { grid-template-columns: minmax(0,1fr); } }
+
+  .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px;
+          overflow: hidden; }
+  .card-head { display: flex; align-items: center; gap: 9px; padding: 9px 13px;
+               border-bottom: 1px solid var(--rule); background: var(--panel-2); }
+  .card-head h2 { font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
+                  text-transform: uppercase; color: var(--ink-mid); font-weight: 600; }
+  .card-head .note { margin-left: auto; font-family: var(--mono); font-size: 10px;
+                     color: var(--ink-dim); }
+
+  #floor { display: block; width: 100%; height: auto; }
+
+  .rail { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+  /* ---------- job board ---------- */
+  .jobs { max-height: 268px; overflow-y: auto; }
+  .job { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px;
+         padding: 7px 12px; border-bottom: 1px solid var(--rule); }
+  .job:last-child { border-bottom: none; }
+  .job-id { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+  .job-path { font-family: var(--mono); font-size: 10px; color: var(--ink-dim);
+              grid-column: 1; }
+  .chip { grid-row: 1 / span 2; align-self: center; font-family: var(--mono);
+          font-size: 9px; letter-spacing: .1em; padding: 3px 7px; border-radius: 4px;
+          border: 1px solid; white-space: nowrap; }
+  .c-WAITING  { color: var(--wait);  border-color: var(--wait); }
+  .c-ASSIGNED { color: var(--steel); border-color: var(--steel); }
+  .c-RUNNING  { color: var(--amber); border-color: var(--amber);
+                background: color-mix(in srgb, var(--amber) 12%, transparent); }
+  .c-DONE     { color: var(--green); border-color: var(--green); }
+  .empty { padding: 16px 12px; font-size: 12.5px; color: var(--ink-dim); }
+
+  /* ---------- fleet ---------- */
+  .robot { display: grid; grid-template-columns: 12px 1fr auto; align-items: center;
+           gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--rule); }
+  .robot:last-child { border-bottom: none; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .robot-name { font-family: var(--mono); font-size: 11.5px; }
+  .robot-task { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); }
+  .robot-state { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; }
+
+  /* ---------- ticker ---------- */
+  .ticker { margin-top: 14px; }
+  .log { height: 116px; overflow-y: auto; padding: 8px 13px;
+         font-family: var(--mono); font-size: 11.5px; line-height: 1.65; }
+  .log div { display: flex; gap: 10px; }
+  .log .t { color: var(--ink-dim); flex: none; font-variant-numeric: tabular-nums; }
+  .lg-mes  { color: var(--amber); }
+  .lg-acs  { color: var(--steel); }
+  .lg-done { color: var(--green); }
+  .lg-wait { color: var(--wait); }
+
+  /* ---------- controls ---------- */
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+              margin-top: 14px; }
+  button { font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
+           text-transform: uppercase; background: var(--panel); color: var(--ink);
+           border: 1px solid var(--rule); border-radius: 6px; padding: 7px 13px;
+           cursor: pointer; }
+  button:hover { border-color: var(--amber); color: var(--amber); }
+  button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  button[aria-pressed="true"] { border-color: var(--amber); color: var(--amber); }
+  .hint { font-size: 12px; color: var(--ink-dim); margin-left: auto; }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; padding: 9px 13px;
+            border-top: 1px solid var(--rule); font-size: 11.5px; color: var(--ink-mid); }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+              margin-right: 6px; vertical-align: middle; }
+
+  @media (prefers-reduced-motion: reduce) { .pulse { display: none; } }
+</style>
+
+<div class="console">
+
+  <div class="head">
+    <div>
+      <div class="title">Big-AMR — Live Operations</div>
+      <div class="sub">Foil_A082 fleet · Mini MES → ACS → robots</div>
+    </div>
+    <div class="kpis">
+      <div class="kpi k-done"><b id="kDone">0</b><span>completed</span></div>
+      <div class="kpi k-run"><b id="kRun">0</b><span>in transit</span></div>
+      <div class="kpi k-wait"><b id="kWait">0</b><span>waiting</span></div>
+      <div class="kpi"><b id="kClock">00:00</b><span>elapsed</span></div>
+    </div>
+  </div>
+
+  <!-- pipeline -->
+  <div class="pipe">
+    <div class="pipe-row">
+      <div class="stage s-mes">
+        <div class="stage-name">Mini MES</div>
+        <div class="stage-desc">Watches the machines. Decides what needs moving, and tracks every job to completion.</div>
+      </div>
+      <div class="link" id="link1"><span class="link-label">job</span></div>
+      <div class="stage s-acs">
+        <div class="stage-name">ACS</div>
+        <div class="stage-desc">Picks a free robot and gives it a destination. Holds the job if every robot is busy.</div>
+      </div>
+      <div class="link" id="link2"><span class="link-label">drive to</span></div>
+      <div class="stage s-fleet">
+        <div class="stage-name">Robots</div>
+        <div class="stage-desc">Carry the load. Report arrival, then wait for the next assignment.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-head">
+        <h2>Factory floor</h2>
+        <span class="note" id="floorNote">12 m × 12 m</span>
+      </div>
+      <canvas id="floor" width="1200" height="820"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--amber)"></i>robot</span>
+        <span><i style="background:var(--steel)"></i>machine station</span>
+        <span><i style="background:var(--green)"></i>ready for collection</span>
+        <span><i style="background:var(--ink-dim)"></i>obstacle</span>
+      </div>
+    </div>
+
+    <div class="rail">
+      <div class="card">
+        <div class="card-head">
+          <h2>Job board</h2><span class="note">Mini MES</span>
+        </div>
+        <div class="jobs" id="jobs"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Fleet</h2><span class="note">ACS</span>
+        </div>
+        <div id="fleet"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card ticker">
+    <div class="card-head"><h2>Event log</h2><span class="note">newest first</span></div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <div class="controls">
+    <button id="btnPause" aria-pressed="false">Pause</button>
+    <button id="btnSpeed">Speed ×1</button>
+    <button id="btnRush">Add rush order</button>
+    <span class="hint">Stations produce faster than three robots can carry — so a queue forms. That waiting is the point.</span>
+  </div>
+
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------------------------------------------------------------- world
+  // 12 x 12 m hall, matching warehouse.world in the simulation.
+  const W = 12, H = 12;
+
+  const STATIONS = [
+    { id: "station_3", x:  3.0, y: -3.0, kind: "source" },
+    { id: "station_5", x: -3.5, y:  1.5, kind: "source" },
+    { id: "station_9", x:  2.0, y:  3.5, kind: "source" },
+    { id: "outbound",  x: -3.0, y:  3.5, kind: "sink"   }
+  ];
+
+  const OBSTACLES = [
+    { x:  3.5, y:  2.5, w: 1.2, h: 0.8, label: "pallet" },
+    { x: -3.0, y: -3.0, w: 1.2, h: 0.8, label: "pallet" },
+    { x:  0.0, y:  4.0, w: 0.5, h: 0.5, label: "pillar", round: true }
+  ];
+
+  // Robot body: 1.6 x 0.9 m, wheels inline at +/-0.6 on the centreline.
+  const BODY_L = 1.6, BODY_W = 0.9, WHEEL_X = 0.6;
+
+  // ---------------------------------------------------------------- state
+  const sim = {
+    t: 0, running: true, speed: 1,
+    jobs: [], robots: [], log: [],
+    seq: 0, done: 0
+  };
+
+  for (let i = 1; i <= 3; i++) {
+    sim.robots.push({
+      id: "AMR-" + i,
+      x: -4.5 + (i - 1) * 2.2, y: -1.2,
+      steer: 0, job: null, goal: null, speed: 1.05
+    });
+  }
+
+  // Each station finishes a batch on its own rhythm. Deliberately faster in
+  // total than three robots can clear, so the queue builds and the waiting
+  // state is visible rather than theoretical.
+  STATIONS.filter(s => s.kind === "source").forEach((s, i) => {
+    s.ready = false;
+    s.timer = 3 + i * 3.5;
+    s.period = 11 + i * 2;
+  });
+
+  // ---------------------------------------------------------------- log
+  function say(kind, text) {
+    sim.log.unshift({ t: sim.t, kind, text });
+    if (sim.log.length > 60) sim.log.pop();
+  }
+  const clock = s => String(Math.floor(s / 60)).padStart(2, "0") + ":" +
+                     String(Math.floor(s % 60)).padStart(2, "0");
+
+  // ---------------------------------------------------------------- pulses
+  // A dot travelling a pipeline link is the visible form of one message.
+  function pulse(linkId, colorVar) {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const link = document.getElementById(linkId);
+    const dot = document.createElement("span");
+    dot.className = "pulse";
+    dot.style.background = `var(${colorVar})`;
+    dot.style.boxShadow = `0 0 9px var(${colorVar})`;
+    link.appendChild(dot);
+    const w = link.clientWidth;
+    dot.animate(
+      [{ transform: "translateX(0)", opacity: 0 },
+       { transform: `translateX(${w * 0.45}px)`, opacity: 1, offset: 0.5 },
+       { transform: `translateX(${w}px)`, opacity: 0 }],
+      { duration: 900, easing: "ease-in-out" }
+    ).onfinish = () => dot.remove();
+  }
+
+  // ---------------------------------------------------------------- MES
+  function createJob(from) {
+    sim.seq++;
+    const job = {
+      id: "JOB-" + String(sim.seq).padStart(3, "0"),
+      from: from.id, to: "outbound",
+      state: "WAITING", robot: null, born: sim.t
+    };
+    sim.jobs.push(job);
+    say("mes", `${job.id} created — ${from.id} → outbound`);
+    return job;
+  }
+
+  function readStations(dt) {
+    STATIONS.forEach(s => {
+      if (s.kind !== "source") return;
+      s.timer -= dt;
+      if (s.timer <= 0 && !s.ready) {
+        s.ready = true;
+        s.timer = s.period;
+        say("mes", `${s.id} finished a batch`);
+        createJob(s);
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------- ACS
+  function dispatch() {
+    // Jobs are taken oldest-first, so nothing starves while newer work jumps in.
+    const waiting = sim.jobs.filter(j => j.state === "WAITING");
+    if (!waiting.length) return;
+
+    for (const job of waiting) {
+      const free = sim.robots.filter(r => !r.job);
+      if (!free.length) {
+        // Every robot is carrying something. The job stays exactly where it is.
+        if (!job.notedWait) {
+          job.notedWait = true;
+          say("wait", `${job.id} queued — all ${sim.robots.length} robots busy`);
+        }
+        continue;
+      }
+      const src = STATIONS.find(s => s.id === job.from);
+      // Nearest free robot, which is the one decision an ACS really owns.
+      free.sort((a, b) => Math.hypot(a.x - src.x, a.y - src.y) -
+                          Math.hypot(b.x - src.x, b.y - src.y));
+      const r = free[0];
+
+      job.state = "ASSIGNED"; job.robot = r.id;
+      r.job = job; r.goal = { x: src.x, y: src.y }; r.leg = "collect";
+
+      pulse("link1", "--amber");
+      say("acs", `${job.id} → ${r.id}, collecting from ${job.from}`);
+      setTimeout(() => pulse("link2", "--steel"), 260);
+    }
+  }
+
+  // ---------------------------------------------------------------- robots
+  function driveRobots(dt) {
+    sim.robots.forEach(r => {
+      if (!r.job || !r.goal) return;
+
+      const ex = r.goal.x - r.x, ey = r.goal.y - r.y;
+      const dist = Math.hypot(ex, ey);
+
+      if (dist < 0.28) {
+        if (r.leg === "collect") {
+          // Picked up. The source station is freed, so it can produce again —
+          // forgetting this is what silently stalls a production line.
+          const src = STATIONS.find(s => s.id === r.job.from);
+          if (src) src.ready = false;
+          r.job.state = "RUNNING";
+          r.leg = "deliver";
+          const dst = STATIONS.find(s => s.id === r.job.to);
+          r.goal = { x: dst.x, y: dst.y };
+          say("acs", `${r.id} loaded at ${r.job.from} — delivering`);
+        } else {
+          r.job.state = "DONE";
+          sim.done++;
+          say("done", `${r.job.id} complete — delivered by ${r.id}`);
+          r.job = null; r.goal = null; r.leg = null;
+        }
+        return;
+      }
+
+      // The platform crabs: both wheels swivel to the same angle and the body
+      // translates without turning, so heading never changes. The steering
+      // angle shown on the wheels is the travel direction folded into +/-90,
+      // exactly as the real inverse kinematics normalises it.
+      let a = Math.atan2(ey, ex);
+      if (a >  Math.PI / 2) a -= Math.PI;
+      if (a < -Math.PI / 2) a += Math.PI;
+      r.steer += (a - r.steer) * Math.min(1, dt * 4);   // steering servos are not instant
+
+      const v = Math.min(r.speed, dist * 1.6);
+      r.x += (ex / dist) * v * dt;
+      r.y += (ey / dist) * v * dt;
+    });
+  }
+
+  // ---------------------------------------------------------------- render
+  const cv = document.getElementById("floor");
+  const ctx = cv.getContext("2d");
+
+  const css = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+
+  function fit() {
+    const rect = cv.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.max(320, rect.width) * dpr;
+    cv.height = cv.width * 0.68;
+    cv.style.height = (cv.height / dpr) + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function draw() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = cv.width / dpr, h = cv.height / dpr;
+    const pad = 26;
+    const sc = Math.min((w - pad * 2) / W, (h - pad * 2) / H);
+    const cx = w / 2, cy = h / 2;
+    // Screen y grows downward; the world's +y is up, hence the negation.
+    const px = (x, y) => [cx + x * sc, cy - y * sc];
+
+    ctx.clearRect(0, 0, w, h);
+
+    // hall
+    const [hx, hy] = px(-W / 2, H / 2);
+    ctx.fillStyle = css("--panel-2");
+    ctx.fillRect(hx, hy, W * sc, H * sc);
+    ctx.strokeStyle = css("--rule"); ctx.lineWidth = 2;
+    ctx.strokeRect(hx, hy, W * sc, H * sc);
+
+    // 1 m grid, quiet
+    ctx.strokeStyle = css("--rule"); ctx.globalAlpha = 0.4; ctx.lineWidth = 1;
+    for (let i = -W / 2 + 1; i < W / 2; i++) {
+      const [ax, ay] = px(i, H / 2), [bx, by] = px(i, -H / 2);
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      const [c1, d1] = px(-W / 2, i), [c2, d2] = px(W / 2, i);
+      ctx.beginPath(); ctx.moveTo(c1, d1); ctx.lineTo(c2, d2); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // obstacles
+    OBSTACLES.forEach(o => {
+      ctx.fillStyle = css("--ink-dim"); ctx.globalAlpha = 0.5;
+      if (o.round) {
+        const [ox, oy] = px(o.x, o.y);
+        ctx.beginPath(); ctx.arc(ox, oy, o.w / 2 * sc, 0, Math.PI * 2); ctx.fill();
+      } else {
+        const [ox, oy] = px(o.x - o.w / 2, o.y + o.h / 2);
+        ctx.fillRect(ox, oy, o.w * sc, o.h * sc);
+      }
+      ctx.globalAlpha = 1;
+    });
+
+    // stations
+    STATIONS.forEach(s => {
+      const [sx, sy] = px(s.x, s.y);
+      const size = 0.62 * sc;
+      const isSink = s.kind === "sink";
+      const col = isSink ? css("--ink-mid") : (s.ready ? css("--green") : css("--steel"));
+      ctx.fillStyle = col; ctx.globalAlpha = s.ready ? 0.3 : 0.16;
+      ctx.fillRect(sx - size / 2, sy - size / 2, size, size);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = col; ctx.lineWidth = 2;
+      ctx.strokeRect(sx - size / 2, sy - size / 2, size, size);
+
+      ctx.fillStyle = css("--ink-mid");
+      ctx.font = "600 11px " + css("--mono");
+      ctx.textAlign = "center";
+      ctx.fillText(s.id, sx, sy + size / 2 + 15);
+      if (s.ready) {
+        ctx.fillStyle = css("--green");
+        ctx.fillText("READY", sx, sy + size / 2 + 28);
+      }
+    });
+
+    // robots
+    sim.robots.forEach(r => {
+      const [rx, ry] = px(r.x, r.y);
+
+      // route line to whatever it is heading for
+      if (r.goal) {
+        const [gx, gy] = px(r.goal.x, r.goal.y);
+        ctx.strokeStyle = css("--amber"); ctx.globalAlpha = 0.35;
+        ctx.setLineDash([5, 5]); ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(gx, gy); ctx.stroke();
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+      }
+
+      const bl = BODY_L * sc, bw = BODY_W * sc;
+      const busy = !!r.job;
+
+      ctx.fillStyle = busy ? css("--amber") : css("--ink-dim");
+      ctx.globalAlpha = busy ? 0.26 : 0.16;
+      ctx.fillRect(rx - bl / 2, ry - bw / 2, bl, bw);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = busy ? css("--amber") : css("--ink-dim");
+      ctx.lineWidth = 2;
+      ctx.strokeRect(rx - bl / 2, ry - bw / 2, bl, bw);
+
+      // front marker — heading never changes, the robot crabs
+      ctx.fillStyle = busy ? css("--amber") : css("--ink-dim");
+      ctx.fillRect(rx + bl / 2 - 3, ry - bw / 2, 3, bw);
+
+      // the two steering modules, drawn at their actual angle
+      [WHEEL_X, -WHEEL_X].forEach(wx => {
+        const [wxp, wyp] = px(r.x + wx, r.y);
+        ctx.save();
+        ctx.translate(wxp, wyp);
+        ctx.rotate(-r.steer);
+        ctx.fillStyle = css("--steel");
+        ctx.fillRect(-0.05 * sc, -0.16 * sc, 0.1 * sc, 0.32 * sc);
+        ctx.restore();
+      });
+
+      ctx.fillStyle = css("--ink");
+      ctx.font = "600 11px " + css("--mono");
+      ctx.textAlign = "center";
+      ctx.fillText(r.id, rx, ry - bw / 2 - 8);
+      if (r.job) {
+        ctx.fillStyle = css("--amber");
+        ctx.font = "10px " + css("--mono");
+        ctx.fillText(r.job.id + " · " + r.leg, rx, ry + bw / 2 + 14);
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------- panels
+  const $jobs = document.getElementById("jobs");
+  const $fleet = document.getElementById("fleet");
+  const $log = document.getElementById("log");
+
+  function panels() {
+    const live = sim.jobs.filter(j => j.state !== "DONE");
+    const recent = sim.jobs.filter(j => j.state === "DONE").slice(-3);
+    const show = [...live, ...recent];
+
+    $jobs.innerHTML = show.length ? show.map(j => `
+      <div class="job">
+        <span class="job-id">${j.id}</span>
+        <span class="chip c-${j.state}">${j.state}</span>
+        <span class="job-path">${j.from} → ${j.to}${j.robot ? " · " + j.robot : ""}</span>
+      </div>`).join("") : `<div class="empty">No jobs yet — waiting for a machine to finish a batch.</div>`;
+
+    $fleet.innerHTML = sim.robots.map(r => {
+      const busy = !!r.job;
+      const col = busy ? "var(--amber)" : "var(--green)";
+      return `<div class="robot">
+        <span class="dot" style="background:${col}"></span>
+        <span>
+          <span class="robot-name">${r.id}</span><br>
+          <span class="robot-task">${busy ? r.job.id + " · " + r.leg : "available"}</span>
+        </span>
+        <span class="robot-state" style="color:${col}">${busy ? "BUSY" : "IDLE"}</span>
+      </div>`;
+    }).join("");
+
+    $log.innerHTML = sim.log.slice(0, 24).map(e =>
+      `<div><span class="t">${clock(e.t)}</span><span class="lg-${e.kind}">${e.text}</span></div>`
+    ).join("");
+
+    document.getElementById("kDone").textContent = sim.done;
+    document.getElementById("kRun").textContent =
+      sim.jobs.filter(j => j.state === "RUNNING" || j.state === "ASSIGNED").length;
+    document.getElementById("kWait").textContent =
+      sim.jobs.filter(j => j.state === "WAITING").length;
+    document.getElementById("kClock").textContent = clock(sim.t);
+  }
+
+  // ---------------------------------------------------------------- loop
+  let last = null, acc = 0;
+  function frame(ts) {
+    if (last === null) last = ts;
+    let dt = Math.min((ts - last) / 1000, 0.05);
+    last = ts;
+
+    if (sim.running) {
+      dt *= sim.speed;
+      sim.t += dt;
+      readStations(dt);
+      dispatch();
+      driveRobots(dt);
+      // Retire completed jobs after a beat so they are visible on the board.
+      sim.jobs = sim.jobs.filter(j => j.state !== "DONE" || sim.t - j.born < 900);
+    }
+
+    draw();
+    acc += dt;
+    if (acc > 0.12) { panels(); acc = 0; }
+    requestAnimationFrame(frame);
+  }
+
+  // ---------------------------------------------------------------- controls
+  const btnPause = document.getElementById("btnPause");
+  btnPause.onclick = () => {
+    sim.running = !sim.running;
+    btnPause.textContent = sim.running ? "Pause" : "Resume";
+    btnPause.setAttribute("aria-pressed", String(!sim.running));
+  };
+
+  const speeds = [1, 2, 4];
+  let si = 0;
+  document.getElementById("btnSpeed").onclick = (e) => {
+    si = (si + 1) % speeds.length;
+    sim.speed = speeds[si];
+    e.target.textContent = "Speed ×" + sim.speed;
+  };
+
+  document.getElementById("btnRush").onclick = () => {
+    const src = STATIONS.filter(s => s.kind === "source")[
+      Math.floor(sim.t * 7) % 3];
+    src.ready = true;
+    say("mes", `rush order raised at ${src.id}`);
+    createJob(src);
+  };
+
+  addEventListener("resize", () => { fit(); draw(); });
+  fit();
+  panels();
+  requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
