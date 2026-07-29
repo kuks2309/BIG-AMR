@@ -1,5 +1,5 @@
 ---
-id: 2026-07-28-011
+id: 2026-07-28-016
 type: rule-violation
 category: scope-creep
 status: open
@@ -70,7 +70,7 @@ reflected_assets:
    대해 편집이 발생하면 차단. 구현 단서: 작업 시작 시 대상/제외 목록을 선언하게 하고,
    제외 목록에 속한 파일이 `git diff --name-only` 에 나타나면 실패.
 2. 부착 지점 부재 — 루트 `checks/`·pre-commit·CI 가 전부 미설치라
-   ([2026-07-28-010](2026-07-28-010_upstream-merge-blocker-unverified.md) 과 동일 병목)
+   ([2026-07-28-015](2026-07-28-015_upstream-merge-blocker-unverified.md) 과 동일 병목)
    먼저 검사 부착 지점을 만들어야 한다. 두 건은 같은 인프라 하나로 함께 닫히는 것이 자연스럽다.
 
 > **owner**: claude

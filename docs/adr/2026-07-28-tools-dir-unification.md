@@ -100,6 +100,6 @@ Status: Accepted (사용자 지시 sess:9826be4b 2026-07-28: "Tool  Tools폴더 
 
 ## 관련 기록
 
-- 실수: [2026-07-28-010](../claude-mistake/2026-07-28-010_upstream-merge-blocker-unverified.md) — 검증 없는 "upstream merge 가 깨진다" 부정형 단정
-- 실수: [2026-07-28-011](../claude-mistake/2026-07-28-011_out-of-scope-annotation-creep.md) — 범위 외 경로에 불필요한 주석 추가
+- 실수: [2026-07-28-015](../claude-mistake/2026-07-28-015_upstream-merge-blocker-unverified.md) — 검증 없는 "upstream merge 가 깨진다" 부정형 단정
+- 실수: [2026-07-28-016](../claude-mistake/2026-07-28-016_out-of-scope-annotation-creep.md) — 범위 외 경로에 불필요한 주석 추가
 - 선행 실수: [2026-07-27-004](../claude-mistake/2026-07-27-004_repo-wide-dir-survey-skipped.md) — 전수 조사 누락
