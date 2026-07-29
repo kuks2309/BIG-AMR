@@ -21,6 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'demo = mini_mes.demo:main',
+            'sim_node = mini_mes.sim_node:main',
         ],
     },
 )
