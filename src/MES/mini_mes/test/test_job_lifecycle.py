@@ -107,6 +107,88 @@ def test_acs_failure_moves_to_failed():
     assert "ACS" in job.failure_reason
 
 
+def test_busy_fleet_queues_the_job_instead_of_failing_it():
+    """A busy ACS means wait, not give up.
+
+    The regression: SimAcs returned REJECTED when it already had a job in
+    flight, and REJECTED fails a job outright. With a single-robot fleet every
+    job created while another was travelling was destroyed on the spot — the
+    line produced work and the MES threw it away.
+    """
+    from mini_mes.adapters.base import TransportResult
+
+    clock, equipment, acs, cycle = build()
+
+    class BusyThenFree:
+        """Busy for the first two submissions, then accepts."""
+        def __init__(self):
+            self.calls = 0
+
+        def submit_job(self, job):
+            self.calls += 1
+            return (TransportResult.BUSY if self.calls <= 2
+                    else TransportResult.ACCEPTED)
+
+        def get_job_result(self, job_id):
+            return TransportResult.ARRIVED
+
+        def cancel_job(self, job_id):
+            return True
+
+    cycle.acs = BusyThenFree()
+    equipment.force_status("station_3", StationStatus.FINISHED)
+
+    # One transition per tick, so this takes two: t1 into ASSIGNED (which
+    # submits and is told BUSY), then t_busy back out to IDLE.
+    cycle.tick()
+    assert cycle.active[0][0].state_name == "ASSIGNED"
+    cycle.tick()
+    assert cycle.active[0][0].state_name == "IDLE"
+    assert not cycle.finished         # crucially, NOT failed
+
+    clock.advance(4.0)                # past the retry backoff
+    cycle.tick(); cycle.tick()        # attempt 2 -> BUSY again
+    assert cycle.active[0][0].state_name == "IDLE"
+
+    clock.advance(4.0)
+    cycle.tick()                      # attempt 3 -> ACCEPTED
+    assert cycle.active[0][0].state_name in ("ASSIGNED", "RUNNING")
+
+    cycle.tick(); cycle.tick()
+    assert cycle.finished[0].state_name == "DONE"
+
+
+def test_busy_retry_is_rate_limited():
+    """Retries must be spaced, not attempted on every tick."""
+    from mini_mes.adapters.base import TransportResult
+
+    clock, equipment, acs, cycle = build()
+
+    class AlwaysBusy:
+        def __init__(self):
+            self.calls = 0
+
+        def submit_job(self, job):
+            self.calls += 1
+            return TransportResult.BUSY
+
+        def get_job_result(self, job_id):
+            return TransportResult.UNKNOWN
+
+        def cancel_job(self, job_id):
+            return True
+
+    busy = AlwaysBusy()
+    cycle.acs = busy
+    equipment.force_status("station_3", StationStatus.FINISHED)
+
+    for _ in range(20):               # 20 ticks, no time passing
+        cycle.tick()
+
+    # One immediate attempt; the rest are held off by the backoff.
+    assert busy.calls == 1
+
+
 def test_rejected_job_fails_without_running():
     clock, equipment, acs, cycle = build(accept=False)
 
@@ -197,3 +279,34 @@ def test_station_produces_only_one_job_per_batch():
         cycle.tick()
 
     assert len(cycle.active) + len(cycle.finished) == 1
+
+
+def test_station_can_produce_again_after_its_job_completes():
+    """The regression that stalled the line after two or three jobs.
+
+    Completing a job must free the SOURCE station. If only the destination is
+    notified, the source stays FINISHED, the read_inputs latch keeps it
+    suppressed, and that station never produces work again — batches keep
+    completing and nothing happens.
+    """
+    clock, equipment, acs, cycle = build(travel=1.0)
+    cycle.on_station_finished = lambda sid: cycle.create_job(sid, "station_9")
+
+    # first batch
+    equipment.force_status("station_3", StationStatus.FINISHED)
+    cycle.tick(); cycle.tick()
+    clock.advance(2.0)
+    cycle.tick()
+    assert len(cycle.finished) == 1
+    assert cycle.finished[0].state_name == "DONE"
+
+    # the source must be free again, not stuck in FINISHED
+    assert equipment.get_station_status("station_3") is StationStatus.IDLE
+
+    # second batch from the same station must produce a second job
+    equipment.force_status("station_3", StationStatus.FINISHED)
+    cycle.tick(); cycle.tick()
+    clock.advance(2.0)
+    cycle.tick()
+
+    assert len(cycle.finished) == 2

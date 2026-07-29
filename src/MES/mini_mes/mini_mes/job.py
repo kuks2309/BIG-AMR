@@ -45,13 +45,19 @@ class JobContext:
     """
 
     def __init__(self, job, equipment, acs, clock, logger=None,
-                 job_timeout_s=600.0):
+                 job_timeout_s=600.0, retry_backoff_s=3.0):
         self.job = job
         self.equipment = equipment
         self.acs = acs
         self.clock = clock
         self.logger = logger
         self.job_timeout_s = job_timeout_s
+
+        #: How long a job waits in IDLE before asking a busy ACS again.
+        self.retry_backoff_s = retry_backoff_s
+        #: Submissions attempted so far. The first is immediate; later ones are
+        #: spaced by retry_backoff_s so a queued job does not hammer the ACS.
+        self.submit_attempts = 0
 
         #: Last result the ACS reported, refreshed by the RUNNING state so the
         #: guards do not each poll the adapter separately.

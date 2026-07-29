@@ -70,7 +70,8 @@ class TransportResult(Enum):
     """Outcome of a transport job, as reported by the ACS."""
 
     ACCEPTED = "accepted"
-    REJECTED = "rejected"
+    REJECTED = "rejected"      # invalid job — will never succeed, fail it
+    BUSY = "busy"              # no robot free right now — retry later
     IN_PROGRESS = "in_progress"
     ARRIVED = "arrived"
     FAILED = "failed"

@@ -60,8 +60,12 @@ class MockEquipment(EquipmentAdapter):
             self._status[station_id] = StationStatus.BUSY
             self._busy_until[station_id] = self._clock() + self._process_seconds
             return True
-        if command == "collected":
+        if command in ("collected", "delivered"):
+            # "collected" frees a source station so it can produce again;
+            # "delivered" acknowledges arrival at a destination. Both leave the
+            # station idle in this mock.
             self._status[station_id] = StationStatus.IDLE
+            self._busy_until.pop(station_id, None)
             return True
         return False
 

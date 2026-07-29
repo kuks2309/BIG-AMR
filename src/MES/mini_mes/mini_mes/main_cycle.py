@@ -43,7 +43,7 @@ class MainCycle:
 
         self.active = []            # [(Job, JobContext, StateMachine)]
         self.finished = []          # jobs that reached DONE or FAILED
-        self._seen_finished = set()  # stations already turned into a job
+        self._station_busy = set()   # stations with a job still in flight
         self._job_seq = 0
         self.running = False
 
@@ -83,22 +83,25 @@ class MainCycle:
     def read_inputs(self):
         """Turn finished stations into transport jobs.
 
-        A station is only converted once — without `_seen_finished`, a station
-        sitting in FINISHED would spawn a new job on every tick, five times a
-        second, until something collected it.
+        A station gets at most one job in flight at a time. Suppression is keyed
+        on "this station has an unfinished job", not on "I have already seen
+        this station finished".
+
+        The difference matters. An observation-based latch only clears on a tick
+        that happens to catch the station in a non-finished state, so a station
+        that produces its next batch before the next read_inputs stays latched
+        for ever. Symptom: the line runs a couple of jobs and then goes quiet
+        while batches keep completing. Keying on the job's lifetime instead
+        makes this independent of sampling timing.
         """
         from .adapters.base import StationStatus
 
         for station_id in self.equipment.list_stations():
-            status = self.equipment.get_station_status(station_id)
-
-            if status is StationStatus.FINISHED:
-                if station_id not in self._seen_finished:
-                    self._seen_finished.add(station_id)
-                    self.on_station_finished(station_id)
-            else:
-                # Re-arm once it leaves FINISHED, so the next batch is noticed.
-                self._seen_finished.discard(station_id)
+            if station_id in self._station_busy:
+                continue
+            if self.equipment.get_station_status(station_id) is StationStatus.FINISHED:
+                self._station_busy.add(station_id)
+                self.on_station_finished(station_id)
 
     def on_station_finished(self, station_id):
         """Override to choose a destination. Default sends everything to
@@ -112,6 +115,9 @@ class MainCycle:
             fsm.step(ctx)
             if fsm.current.name in ("DONE", "FAILED"):
                 self.finished.append(job)
+                # Free the source station whether the job succeeded or failed —
+                # a failed job must not block that station for ever.
+                self._station_busy.discard(job.from_station)
                 self.logger(f"[{job.job_id}] retired in {fsm.current.name}")
             else:
                 still_active.append((job, ctx, fsm))

@@ -47,9 +47,27 @@ class Assigned(State):
         Submission belongs in on_enter rather than execute: execute runs every
         tick, and submitting a job twenty times a second would be a very
         expensive bug.
+
+        Three answers, three different meanings:
+          ACCEPTED - a robot is on it (t2 -> RUNNING)
+          BUSY     - valid job, no free robot (t_busy -> IDLE, retry later)
+          REJECTED - the job itself is wrong and never will work (-> FAILED)
+
+        Collapsing BUSY into REJECTED is a mistake worth naming: with a
+        single-robot fleet, every job created while another was in flight was
+        marked FAILED on the spot. The line produced work and the MES threw it
+        away. A busy fleet means wait, not give up.
         """
+        ctx.submit_attempts += 1
         result = ctx.acs.submit_job(ctx.job)
         ctx.last_acs_result = result
+
+        if result is TransportResult.BUSY:
+            # Logged once per attempt, and attempts are spaced by the backoff,
+            # so a long queue does not flood the log.
+            ctx.log(f"ACS busy — waiting (attempt {ctx.submit_attempts})")
+            return
+
         ctx.log(f"submitted to ACS -> {result.value}")
         if result is TransportResult.REJECTED:
             ctx.fail("ACS rejected the job")
@@ -75,22 +93,36 @@ class Done(State):
     name = "DONE"
 
     def on_enter(self, ctx):
-        """Tell the destination station its material has arrived.
+        """Close the loop at both ends of the transport.
+
+        Both notifications matter, and the source one is easy to forget:
+
+        - the SOURCE is told "collected", which frees it. Without this the
+          station stays FINISHED for ever, the main cycle's latch keeps it
+          suppressed, and that station never produces another job. Observed
+          symptom: the line runs two or three jobs and then goes quiet while
+          batches keep completing.
+        - the DESTINATION is told "delivered", so it knows material arrived.
 
         This is the command direction of the equipment link. Whether the Mini MES
         is permitted to command equipment is not yet formally settled — see
-        adapters/base.py. It is one call, behind the adapter, easy to remove.
+        adapters/base.py. Both calls sit behind the adapter, easy to remove.
 
         The transport itself succeeded, so a rejected notification does not undo
         the job — but it is logged rather than swallowed. Silently ignoring the
-        return value would let an unknown or unreachable destination look exactly
+        return value would let an unknown or unreachable station look exactly
         like a clean completion.
         """
-        accepted = ctx.equipment.send_station_command(ctx.job.to_station,
-                                                      "collected")
-        if not accepted:
-            ctx.log(f"WARNING: station {ctx.job.to_station} did not accept "
-                    f"the 'collected' notification")
+        if not ctx.equipment.send_station_command(ctx.job.from_station,
+                                                  "collected"):
+            ctx.log(f"WARNING: source {ctx.job.from_station} did not accept "
+                    f"the 'collected' notification — it may stay blocked")
+
+        if not ctx.equipment.send_station_command(ctx.job.to_station,
+                                                  "delivered"):
+            ctx.log(f"WARNING: destination {ctx.job.to_station} did not accept "
+                    f"the 'delivered' notification")
+
         ctx.log("job complete")
 
 
@@ -125,8 +157,17 @@ def build_job_fsm(on_change=None):
         Transition("t_reject", assigned, failed,
                    lambda c: c.last_acs_result is TransportResult.REJECTED),
 
+        # First attempt goes immediately; retries are spaced by the backoff so a
+        # queued job does not re-ask a busy ACS on every single tick.
         Transition("t1", idle, assigned,
-                   lambda c: c.job.job_id is not None),
+                   lambda c: c.submit_attempts == 0
+                   or c.time_in_state() >= c.retry_backoff_s),
+
+        # A busy fleet sends the job back to IDLE to wait its turn. This is the
+        # queue: the job keeps its identity and history, it simply has not
+        # started yet. Distinct from REJECTED, which is fatal.
+        Transition("t_busy", assigned, idle,
+                   lambda c: c.last_acs_result is TransportResult.BUSY),
 
         Transition("t2", assigned, running,
                    lambda c: c.last_acs_result is TransportResult.ACCEPTED),
