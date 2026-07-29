@@ -152,3 +152,85 @@ def test_load_average_and_uptime():
     assert load is not None and len(load) == 3
     uptime = sysfs.read_uptime_s()
     assert uptime is not None and uptime > 0
+
+
+# ── GPU (Jetson 필수 항목) ───────────────────────────────────────────────────
+
+
+def test_read_gpu_returns_info():
+    gpu = sysfs.read_gpu()
+    assert isinstance(gpu, sysfs.GpuInfo)
+
+
+def test_gpu_load_is_scaled_to_percent():
+    """sysfs 는 천분율(0~1000)을 낸다 — ÷10 을 빼먹으면 100 을 넘는 값이 실린다.
+
+    2026-07-28 실측 확정: 이 노드가 401~704 인 동안 tegrastats GR3D 는 22~54 % 였다.
+    """
+    gpu = sysfs.read_gpu()
+    if gpu.load_pct is not None:
+        assert 0.0 <= gpu.load_pct <= 100.0
+
+
+def test_gpu_freq_does_not_exceed_max():
+    gpu = sysfs.read_gpu()
+    if gpu.freq_hz is not None and gpu.max_freq_hz is not None:
+        assert gpu.freq_hz <= gpu.max_freq_hz
+
+
+# ── 스왑 활동량 ──────────────────────────────────────────────────────────────
+
+
+def test_read_swap_counters_are_monotonic():
+    a = sysfs.read_swap_counters()
+    assert a is not None
+    b = sysfs.read_swap_counters()
+    assert b.pswpin >= a.pswpin and b.pswpout >= a.pswpout
+
+
+def test_swap_rate_divides_by_elapsed():
+    prev = sysfs.SwapCounters(pswpin=100, pswpout=200)
+    cur = sysfs.SwapCounters(pswpin=150, pswpout=400)
+    rin, rout = sysfs.swap_rate_pages_s(prev, cur, 5.0)
+    assert rin == pytest.approx(10.0)
+    assert rout == pytest.approx(40.0)
+
+
+def test_swap_rate_zero_elapsed_is_zero():
+    c = sysfs.SwapCounters(pswpin=1, pswpout=1)
+    assert sysfs.swap_rate_pages_s(c, c, 0.0) == (0.0, 0.0)
+
+
+def test_swap_rate_never_negative_on_counter_reset():
+    # 재부팅 등으로 카운터가 되감기면 음수 속도를 보고하지 않아야 한다.
+    prev = sysfs.SwapCounters(pswpin=1000, pswpout=1000)
+    cur = sysfs.SwapCounters(pswpin=5, pswpout=5)
+    assert sysfs.swap_rate_pages_s(prev, cur, 5.0) == (0.0, 0.0)
+
+
+# ── 전원 레일 (전류 모니터링) ────────────────────────────────────────────────
+
+
+def test_power_rails_have_labels_only():
+    """라벨 없는 채널은 레일이 아니다.
+
+    이 드라이버는 라벨 없는 `curr4_input`·`in4~in6_input`(shunt 전압)도 노출한다.
+    그것까지 실으면 화면에 존재하지 않는 레일이 뜬다(2026-07-29 실제로 rail4 가 떴다).
+    """
+    for rail in sysfs.read_power_rails():
+        assert rail.name and not rail.name.startswith("rail")
+
+
+def test_power_rails_are_plausible():
+    for rail in sysfs.read_power_rails():
+        assert 0 <= rail.voltage_mv < 60000, f"{rail.name} {rail.voltage_mv}mV"
+        assert 0 <= rail.current_ma < 100000, f"{rail.name} {rail.current_ma}mA"
+
+
+def test_power_mw_is_voltage_times_current():
+    rail = sysfs.PowerRail(name="X", voltage_mv=12000, current_ma=1500)
+    assert rail.power_mw == pytest.approx(18000.0)   # 12 V × 1.5 A = 18 W
+
+
+def test_power_rails_returns_tuple_even_without_sensor():
+    assert isinstance(sysfs.read_power_rails(), tuple)

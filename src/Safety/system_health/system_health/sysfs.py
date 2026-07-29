@@ -25,6 +25,21 @@ _BYTES_PER_GB = 1 << 30
 _THERMAL_ZONE_ROOT = Path("/sys/devices/virtual/thermal")
 _COOLING_DEVICE_ROOT = Path("/sys/class/thermal")
 _CPUFREQ_ROOT = Path("/sys/devices/system/cpu")
+# Tegra GPU(GR3D) 사용률. **천분율(0~1000)이다** — 2026-07-28 실측으로 확정:
+# 이 노드가 401~704 를 내는 동안 `tegrastats` 의 GR3D_FREQ 는 22~54 % 였다. 값이 100 을
+# 넘으므로 퍼센트가 아니고, ÷10 하면 tegrastats 와 같은 크기가 된다.
+_GPU_LOAD_PATHS = (
+    Path("/sys/devices/platform/gpu.0/load"),
+    Path("/sys/devices/platform/17000000.gpu/load"),
+)
+_GPU_LOAD_PER_MILLE = 10.0
+_DEVFREQ_ROOT = Path("/sys/class/devfreq")
+# INA3221 전력 모니터. 본 장비는 3채널(VDD_IN·VDD_CPU_GPU_CV·VDD_SOC)이며 hwmon 이
+# 전압을 mV, 전류를 mA 로 낸다(2026-07-28 실측: 11624 mV · 1576 mA = VDD_IN).
+# 전력 노드(`power*_input`)는 이 커널에 없어 전압×전류로 계산한다.
+_HWMON_ROOT = Path("/sys/class/hwmon")
+_INA3221_NAME = "ina3221"
+_MAX_RAIL_CHANNELS = 8
 # 본 하드웨어(Jetson Orin NX)의 팬 hwmon 경로. 부재 시 팬 항목은 전부 None 이 된다.
 _FAN_HWMON_ROOT = Path("/sys/devices/platform/pwm-fan/hwmon")
 _PROC_ROOT = Path("/proc")
@@ -435,6 +450,155 @@ def scan_processes(top_n: int = 5) -> ProcessScan:
 
 
 # ── 기타 ─────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class GpuInfo:
+    """GPU(GR3D) 상태.
+
+    Jetson 은 GPU 가 **시스템 메모리를 공유**하므로 별도 GPU 메모리 항목이 없다 —
+    `MemoryInfo` 가 곧 GPU 메모리 압박이기도 하다.
+
+    Attributes:
+        load_pct: 사용률(%). 노드 부재 시 None.
+        freq_hz: 현재 devfreq 주파수. 부재 시 None.
+        max_freq_hz: devfreq 최대 주파수. `freq_hz` 가 이보다 낮으면 GPU 주파수 저감
+            (throttle 또는 유휴 스케일다운)이 일어난 것이다. 본 장비는 `jetson-clocks` 가
+            min=max 로 고정해 두었으므로(2026-07-28 실측 918 MHz) 저감이 곧 이상 신호다.
+    """
+
+    load_pct: float | None
+    freq_hz: int | None
+    max_freq_hz: int | None
+
+
+def read_gpu() -> GpuInfo:
+    """GPU 사용률·주파수. Jetson 에서 GPU 는 이 장비를 쓰는 이유이므로 필수 항목이다.
+
+    Returns:
+        `GpuInfo`. 노드가 없으면 필드가 None.
+    """
+    load_pct: float | None = None
+    for path in _GPU_LOAD_PATHS:
+        raw = _read_int(path)
+        if raw is not None:
+            load_pct = max(0.0, min(100.0, raw / _GPU_LOAD_PER_MILLE))
+            break
+    freq = max_freq = None
+    if _DEVFREQ_ROOT.is_dir():
+        for node in sorted(_DEVFREQ_ROOT.glob("*.gpu")):
+            freq = _read_int(node / "cur_freq")
+            max_freq = _read_int(node / "max_freq")
+            if freq is not None:
+                break
+    return GpuInfo(load_pct=load_pct, freq_hz=freq, max_freq_hz=max_freq)
+
+
+@dataclass(frozen=True)
+class PowerRail:
+    """전원 레일 하나의 전압·전류·전력.
+
+    Attributes:
+        name: 레일 이름(`VDD_IN` 등). hwmon 의 `in<N>_label`.
+        voltage_mv: 전압(mV).
+        current_ma: 전류(mA).
+        power_mw: 전력(mW) = 전압×전류. **커널이 전력 노드를 주지 않아 계산값**이다.
+    """
+
+    name: str
+    voltage_mv: int
+    current_ma: int
+
+    @property
+    def power_mw(self) -> float:
+        """전력(mW). mV × mA = µW 이므로 1000 으로 나눈다."""
+        return self.voltage_mv * self.current_ma / 1000.0
+
+
+def read_power_rails() -> tuple[PowerRail, ...]:
+    """INA3221 전원 레일별 전압·전류.
+
+    전류는 소비 전력의 직접 지표다 — 부하가 아닌데 전류가 오르면 하드웨어 이상이고,
+    입력 전류가 급변하면 전원계(배터리·컨버터) 문제를 시사한다.
+
+    Returns:
+        레일 튜플. 센서가 없으면 빈 튜플(다른 reader 와 같이 부재에 관대하다).
+    """
+    if not _HWMON_ROOT.is_dir():
+        return ()
+    rails: list[PowerRail] = []
+    for hwmon in sorted(_HWMON_ROOT.glob("hwmon*")):
+        if _read_text(hwmon / "name") != _INA3221_NAME:
+            continue
+        for ch in range(1, _MAX_RAIL_CHANNELS + 1):
+            # **라벨이 있는 채널만 레일이다.** 이 드라이버는 라벨 없는 `curr4_input`·
+            # `in4~in6_input` 도 노출하는데 그것은 shunt 전압 등 파생값이지 전원 레일이
+            # 아니다(2026-07-29 실측: `in7_label` = "sum of shunt voltages").
+            # 라벨 없는 채널까지 실으면 화면에 존재하지 않는 17.8 W 레일이 뜬다.
+            label = _read_text(hwmon / f"in{ch}_label")
+            if not label:
+                continue
+            current = _read_int(hwmon / f"curr{ch}_input")
+            voltage = _read_int(hwmon / f"in{ch}_input")
+            if current is None or voltage is None:
+                continue
+            rails.append(
+                PowerRail(name=label, voltage_mv=voltage, current_ma=current)
+            )
+    return tuple(rails)
+
+
+@dataclass(frozen=True)
+class SwapCounters:
+    """`/proc/vmstat` 의 누적 스왑 페이지 수. **활동량은 이 값의 차분으로만** 구한다.
+
+    스왑 *사용량*(`MemoryInfo.swap_used_mb`)은 위험 신호로 쓸 수 없다 — 리눅스는 한 번
+    스왑에 나간 페이지를 압박이 끝나도 적극적으로 되돌리지 않으므로 사용량이 몇 시간씩
+    높게 남는다(2026-07-28 시험 운전에서 표본 97 % 가 그 이유로 WARN 이 됐다).
+    지금 **스왑을 읽고 쓰고 있는지**가 실시간성 위험이다.
+    """
+
+    pswpin: int
+    pswpout: int
+
+
+def read_swap_counters() -> SwapCounters | None:
+    """`/proc/vmstat` 에서 누적 스왑 in/out 페이지 수를 읽는다. 없으면 None."""
+    text = _read_text(_PROC_ROOT / "vmstat")
+    if text is None:
+        return None
+    vals: dict[str, int] = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] in ("pswpin", "pswpout"):
+            try:
+                vals[parts[0]] = int(parts[1])
+            except ValueError:
+                continue
+    if "pswpin" not in vals or "pswpout" not in vals:
+        return None
+    return SwapCounters(pswpin=vals["pswpin"], pswpout=vals["pswpout"])
+
+
+def swap_rate_pages_s(
+    prev: SwapCounters, cur: SwapCounters, elapsed_s: float
+) -> tuple[float, float]:
+    """두 표본 사이의 스왑 in/out 속도(페이지/초).
+
+    카운터가 되감기면(재부팅) 0 을 돌려준다 — 음수 속도를 보고하지 않는다.
+
+    Args:
+        prev: 이전 누적값.
+        cur: 현재 누적값.
+        elapsed_s: 경과 시간(초). 0 이하면 (0.0, 0.0).
+    Returns:
+        (in 속도, out 속도) 페이지/초.
+    """
+    if elapsed_s <= 0:
+        return 0.0, 0.0
+    din = max(0, cur.pswpin - prev.pswpin)
+    dout = max(0, cur.pswpout - prev.pswpout)
+    return din / elapsed_s, dout / elapsed_s
 
 
 def read_load_average() -> tuple[float, float, float] | None:
