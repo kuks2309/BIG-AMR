@@ -6,7 +6,7 @@ A complete map of the system, from the software that decides what work exists al
 way down to the wheels. Written so anyone can follow it, with the real names kept
 alongside the plain ones.
 
-> Foil_A082 retrofit · architecture v1 · 2026-07-28
+> Foil_A082 retrofit · architecture v2 · 2026-07-29
 
 ---
 
@@ -16,7 +16,7 @@ alongside the plain ones.
 2. [The full architecture](#2-the-full-architecture)
 3. [Every layer, one at a time](#3-every-layer-one-at-a-time)
 4. [The trick that makes this project work](#4-the-trick-that-makes-this-project-work)
-5. [Inside the Mini MES — main cycle and state machine](#5-inside-the-mini-mes--main-cycle-and-state-machine)
+5. [Inside the Mini MES — runtime architecture and state machines](#5-inside-the-mini-mes--runtime-architecture-and-state-machines)
 6. [One job, from beginning to end](#6-one-job-from-beginning-to-end)
 7. [The arrows — what travels between the boxes](#7-the-arrows--what-travels-between-the-boxes)
 8. [What is real today, and what is not](#8-what-is-real-today-and-what-is-not)
@@ -229,36 +229,99 @@ gate is literally lying to Seer about a state machine's state.
 
 ---
 
-## 5. Inside the Mini MES — main cycle and state machine
+## 5. Inside the Mini MES — runtime architecture and state machines
 
-The Mini MES is not a pile of scattered checks. It is a **loop** that runs forever, and
-inside that loop a **finite state machine** makes every decision.
+The Mini MES is **not one state machine**. It is a small supervisor holding **several
+independent state machines**, each responsible for one part of the system, each woken by
+events rather than polled.
 
-### 5.1 The main cycle
+Source: Dr. Shim's second whiteboard, 2026-07-29.
+
+### 5.1 The runtime shape — a supervisor and independent FSMs
 
 ```mermaid
-flowchart LR
-    A["<b>MAIN CYCLE</b><br/>runs forever"] --> B["read inputs<br/>equipment · robots · new jobs"]
-    B --> C["<b>step the state machine</b><br/>all decisions happen here"]
-    C --> D["send commands<br/>to ACS and Equipment"]
-    D --> E["wait a moment"]
-    E --> A
+flowchart TB
+    CORE["<b>CORE LOOP</b><br/>while (exit_flag == false)<br/>owns lifecycle only — no logic"]
+    F1["<b>FSM 1</b><br/>own thread"]
+    F2["<b>FSM 2</b><br/>own thread"]
+    F3["<b>FSM 3</b><br/>own thread"]
+    F4["<b>FSM 4</b><br/>own thread"]
 
-    classDef hot fill:#FBEFD5,stroke:#B4790C,stroke-width:3px,color:#14181E
-    classDef norm fill:#E4EBF3,stroke:#2E5C8A,stroke-width:2px,color:#14181E
-    class C hot
-    class A,B,D,E norm
+    CORE -->|activate| F1
+    CORE -->|activate| F2
+    CORE -->|activate| F3
+    CORE -->|activate| F4
+
+    classDef sup fill:#FBEFD5,stroke:#B4790C,stroke-width:3px,color:#14181E
+    classDef fsm fill:#E4EBF3,stroke:#2E5C8A,stroke-width:2px,color:#14181E
+    class CORE sup
+    class F1,F2,F3,F4 fsm
 ```
 
-```python
-while running:
-    read_inputs()      # equipment status, AMR status, new jobs
-    fsm.step(ctx)      # ← the only place decisions are made
-    send_commands()
-    sleep(0.1)
+The core loop keeps a **list** of state machines and starts each one. It contains no
+decision-making of its own — only start, watch the exit flag, shut down. Every behaviour
+lives inside an FSM, and the system is extended by adding an entry to that list rather
+than by editing the loop.
+
+### 5.2 What one FSM's thread does
+
+```
+FSM thread:
+    while (exit_flag == false)
+        waitForEvent(&event)     ← blocks here, costs nothing while idle
+        ... do the work ...
+        reset(&event)
 ```
 
-### 5.2 The job state machine
+The FSM **sleeps until something happens**. It does not ask "anything new?" over and
+over.
+
+This is not primarily about saving CPU. It is so that each subsystem can **block on its
+own resource** — a socket to one machine, a reply from the ACS — without freezing the
+others. In a single shared loop, one slow call stalls everything.
+
+**This is the Active Object pattern**, and it is the standard architecture for
+event-driven industrial control software: an object with its own thread, its own state,
+and an event it waits on. The same idea appears as actors in Erlang, goroutines and
+channels in Go, and `asyncio` tasks in Python.
+
+The `waitForEvent` / `reset` pair as drawn is Win32 event-object semantics, which
+matches the motion stack being C++. **In ROS 2 the equivalent already exists** — a node
+with an executor and callbacks *is* an active object, and hand-rolling threads beside it
+usually causes more trouble than it solves. See the open language question in §10.
+
+### 5.3 Which FSMs — not yet decided
+
+The whiteboard shows four. What each one owns has not been settled. The likely division,
+given the layers in §3:
+
+| Candidate FSM | Would own |
+|---|---|
+| Equipment monitor | watching the machines, noticing a finished batch |
+| Dispatcher | choosing which robot takes which job |
+| Robot handler | one per robot: drive it, collect its reports |
+| Job tracker | the job records and their lifecycle |
+
+⚠ **This split determines everything below it and should be confirmed before coding.**
+Note the consequence: if the FSMs are attached to *subsystems*, then **jobs become data
+passed between them** rather than each job carrying its own state machine. The current
+prototype does the opposite — see §5.4.
+
+### 5.4 Where the job lifecycle lives
+
+The job lifecycle in §5.5 is required either way. What changes is **what owns it**:
+
+| Design | An FSM is attached to | Jobs are |
+|---|---|---|
+| Prototype as built | each **job** | state machines |
+| Whiteboard 2026-07-29 | each **subsystem** | plain data passed between FSMs |
+
+Under the whiteboard design the job states do not disappear — they move inside the FSM
+that owns jobs. The three exits from `RUNNING` (success, failure, **timeout**) must
+survive that move; the timeout is the only thing that ends a job when the layers below
+have gone blind (§4).
+
+### 5.5 The job state machine
 
 A **state** is a situation the job can be in. A **transition** (`t1`, `t2`, `t3`…) is
 the only door between two states. You cannot reach a state without passing through its
@@ -285,7 +348,7 @@ stateDiagram-v2
 | `DONE` | finished successfully |
 | `FAILED` | finished badly — needs attention |
 
-### 5.3 The rule to remember
+### 5.6 The rule to remember
 
 > **Every state that waits for something needs three exits: success, failure, and timeout.**
 
@@ -297,7 +360,7 @@ Notice there is **no arrow from `IDLE` to `DONE`**. That jump is therefore impos
 not "we remembered to prevent it", but structurally unable to happen. That is what a
 state machine buys you.
 
-### 5.4 Implementing it with objects
+### 5.7 Implementing it with objects
 
 Each state and each transition is an object.
 
@@ -368,7 +431,7 @@ Three details that matter:
   where you stop motors, close files, release the gate.
 - **`t.source is self.current`** — this single line is what makes `IDLE → DONE` impossible.
 
-### 5.5 The state machines are stacked
+### 5.8 The state machines are stacked
 
 There is not one FSM in this system. There are several, nested inside each other:
 
@@ -437,7 +500,7 @@ with" is worthless; an arrow that names its data is an architecture.
 
 | From → To | Carries | Data | Reply |
 |---|---|---|---|
-| **Mini MES → ACS** | a transport job | `{job_id, from, to, priority}` | accepted / rejected / done / failed |
+| **Mini MES → ACS** | a transport job | `{job_id, from, to, priority}` | accepted / **busy** / rejected / arrived / failed |
 | **Mini MES → Equipment** | station status, and probably commands | `{station_id}` — **protocol TBD, blocked on CATL** | idle / busy / finished / fault |
 | **Mini MES → Panda gate** | authority switch | `engage` / `release` | gate state confirmed |
 | **ACS → Seer** | a path to follow | path legs (JSON) | arrived / blocked / error |
@@ -475,7 +538,8 @@ An architecture that only shows the plan is a sales drawing. This is the honest 
 | **Simulation** | ✅ working | Full robot in Gazebo with a control panel |
 | **Jetson motion software** | 🟠 partly | Maths verified correct, but loaded with the wrong robot's dimensions |
 | **Link: motion → motors** | ❌ missing | The mux that routes commands into the motor driver does not exist |
-| **Mini MES** | ❌ to build | This is the new work — main cycle plus the state machine in section 5 |
+| **Mini MES** | 🟠 prototyped | Job FSM, adapters and 15 tests working; drives the simulation end to end. Built as one FSM **per job** in a single thread — see §5.4, the whiteboard design differs |
+| **Camera** | ✅ exists | `src/Sensors/Camera/USB/` arrived 2026-07-28 |
 
 > ⚠️ **Fix this before anything else.** The nine settings files in
 > `trnav_2ws_action_server/config/` still contain the measurements of a **different
@@ -519,6 +583,7 @@ Things this document assumes but has not confirmed. **Resolve these before build
 | What is Equipment? | **Production machines / process stations.** Not doors, lifts or conveyors. |
 | Does Mini MES only read status, or also command? | **Likely command as well** — but *not yet formally defined*. Treat as provisional. |
 | Which protocol? | **Unknown.** T-Robotics has asked **CATL** to share the equipment communication protocols; no answer yet. |
+| Is a camera needed? | **Moot — one now exists.** `src/Sensors/Camera/USB/` with a `vision_guard` viewer landed 2026-07-28. Whether marker docking is a goal is still unstated. |
 
 **⚠️ Open risk — the Mini MES ↔ Equipment interface is blocked on an external party.**
 Nothing about this link can be finalised until CATL supplies the protocol
@@ -548,8 +613,20 @@ specification. Two consequences:
    actual states (`A`, `B`, `C`, `D` on the whiteboard) were not labelled.
 4. **The unlabelled box** beside "Equip" on the original sketch — a second machine, a
    station, or something else?
-5. **Is a camera needed?** There is no camera anywhere in this project. If precision
-   docking by marker is a goal, that sensor is missing.
+5. **What language should the Mini MES be?** The motion stack is C++ (50 files, 22k
+   lines); the tooling is Python. The prototype is Python. The `waitForEvent` / `reset`
+   structure on the whiteboard is a C++ idiom, so the sketch may assume C++. The Mini MES
+   is not real-time — it thinks in jobs lasting minutes — which argues for Python, but
+   this should be settled **before** more code, since porting later gets expensive.
+
+6. **Which four FSMs, and what does each own?** §5.3. This decides whether jobs carry
+   their own state machine or become data passed between subsystem FSMs — the single
+   most structural open item.
+
+7. **Does the ACS handle the fleet, or does the Mini MES?** The whiteboard shows one ACS
+   serving many robots. The prototype's `SimAcs` drives one robot and answers `BUSY` when
+   asked for a second. Real traffic management and deadlock avoidance are assumed to be
+   the ACS's, not ours — worth confirming.
 
 ---
 
