@@ -75,13 +75,20 @@ flowchart TB
     class BUS net
 ```
 
-One Mini MES commands many robots through the ACS, and talks to the station machines
-directly. That second link is what makes it a real MES: it coordinates both the
-**machines** that process material and the **transport** that moves material between them.
+One Mini MES serves the whole floor. It **creates jobs and hands them to the ACS** — it
+does not command robots, and does not know which robot took which job. Choosing the
+robot and the route is the ACS's job (§3, layer 2).
 
-**Equipment** here means **production machines / process stations** — confirmed
-2026-07-28. It does not mean doors, lifts or conveyors. The protocol on that link is
-still unknown and is blocked on CATL; see [section 10](#10-open-questions).
+The link to the machines is what lets it know work exists at all: a station reports that
+a batch is finished, and only then is there anything to carry.
+
+**Equipment** means **production machines / process stations** — confirmed 2026-07-28 by
+Dr. Shim. Not doors, lifts or conveyors. Two things about that link are **not** settled:
+
+- **Direction.** Reading status is certain. Whether the Mini MES may also *command*
+  equipment — start a machine, load a recipe — was answered "I think so", not confirmed.
+  That distinction decides the safety scope; see [§10](#10-open-questions).
+- **Protocol.** Unknown, and blocked on CATL supplying the specification.
 
 ### 2.2 Inside any one AMR — two brains, one gate
 
@@ -198,7 +205,7 @@ So when the Jetson takes over, the Panda gate does **three things at once**:
 | # | What the gate does | Why |
 |---|---|---|
 | **1** | **Blocks** Seer's commands and **sends fake "OK" replies** | Seer believes its orders were carried out |
-| **2** | **Covers the swap** for 300 ms using remembered answers | The relay takes ~150 ms to switch. Without cover, Seer sees silence and raises `52111 motor timeout` |
+| **2** | **Covers the swap** for 300 ms using remembered answers | Contact bounce disturbs bus2 for **150–220 ms** (field record 2026-07-25 §추가규명). Without cover, Seer sees silence and raises `52111 motor timeout` |
 | **3** | **Freezes** the wheel readings at the moment of takeover | Seer keeps reading "stopped, wheels unmoved", so its following error stays at zero and no `55602` warning fires |
 
 ### The result
@@ -433,7 +440,12 @@ Three details that matter:
 
 ### 5.8 The state machines are stacked
 
-There is not one FSM in this system. There are several, nested inside each other:
+There is not one FSM in this system. There are several, nested inside each other.
+
+⚠ Only the **Mini MES**, **Panda gate** and **Jetson** rows below are taken from code in
+this repository. The **ACS** and **Seer** rows are illustrative — those are vendor
+systems whose internal states we do not have. The nesting and the timescales are the
+point; do not quote those two state names as fact.
 
 | Layer | State machine | Timescale |
 |---|---|---|
@@ -491,6 +503,11 @@ sequenceDiagram
 The two `Note` lines are the interesting part: between **engage** and **release**, Seer
 and the ACS have no idea what happened. They were told nothing, and they saw nothing.
 
+⚠ **Two arrows here are assumptions, not confirmed design.** `Mini MES → gate (engage)`
+and `Jetson → Mini MES (docking complete)` were not on Dr. Shim's whiteboard — the gate
+may instead be commanded by the ACS, or triggered automatically on arrival. See
+[§10 open question 1](#10-open-questions). The rest of the sequence is as designed.
+
 ---
 
 ## 7. The arrows — what travels between the boxes
@@ -505,8 +522,13 @@ with" is worthless; an arrow that names its data is an architecture.
 | **Mini MES → Panda gate** | authority switch | `engage` / `release` | gate state confirmed |
 | **ACS → Seer** | a path to follow | path legs (JSON) | arrived / blocked / error |
 | **Seer → Motors** | motor commands | CANopen SDO — `0x607A` position, `0x60FF` speed | position `0x6064`, status `0x6041` |
-| **Jetson → Motors** | wheel commands | `WheelSetArray` — per wheel: speed + steering angle | joint states, odometry |
+| **Jetson → Motors** ❌ | wheel commands | `WheelSetArray` — per wheel: speed + steering angle | joint states, odometry |
 | **Sensors → Jetson** | where am I | `/scan_front`, `/scan_rear`, `/imu/data` | — |
+
+❌ **This arrow does not exist yet on the real robot.** The nine action servers publish
+`WheelSetArray`, but nothing in the repository subscribes to it except the simulation
+bridge — the mux is missing (§8). On hardware the motion stack currently reaches no
+motors at all.
 
 > If you cannot fill in the **Data** column for an arrow, you do not yet understand that
 > connection — and that is exactly what to find out before writing any code for it.
