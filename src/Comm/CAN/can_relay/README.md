@@ -4,7 +4,7 @@
 > 저장소에서 `can_relay` 는 지금까지 그 펌웨어를 뜻해 왔다(`docs/can_relay/`,
 > `docs/code_review/can_relay_firmware/`, `README.md:1` "CATL-Ford CAN-Relay").
 > 이쪽은 그 릴레이를 **호스트에서 사용하는** rclpy 드라이버다.
-> 문서·주석에서 인용할 때 어느 쪽인지 반드시 병기할 것 — debt-015.
+> 문서·주석에서 인용할 때 어느 쪽인지 반드시 병기할 것 — debt-025.
 
 ## 무엇을 하는가
 
@@ -21,7 +21,7 @@ Seer 마스터가 붙어 있는 상태에서 릴레이 intercept 로 주도권�
 | RTR 송신 | 가능(필수) | **불가** — 판다 패킷 헤더에 RTR 비트가 없다 |
 
 두 안전 모델은 **배타적**이다. 한쪽 전제가 다른 쪽 실패조건이므로 합칠 수 없다.
-**두 패키지를 동시에 띄우지 말 것** — 이를 막는 기계 장치는 아직 없다(debt-018).
+**두 패키지를 동시에 띄우지 말 것** — 이를 막는 기계 장치는 아직 없다(debt-028).
 
 ## 쓰는 법
 
@@ -82,7 +82,7 @@ cd src/Comm/CAN/can_relay && PYTHONPATH=. python3 -m pytest test -q   # 84 passe
 (Seer 마스터 180 s, 253,510 프레임)에 **바이트 동일**로 존재한다(총 12,958건 일치).
 
 **실기 미검증 항목** — 지면 사용 전 반드시 해소:
-- 구동축 브링업 시퀀스(debt-017) — `allow_bringup` 기본 false. 잭업에서만 확인할 것
+- 구동축 브링업 시퀀스(debt-027) — `allow_bringup` 기본 false. 잭업에서만 확인할 것
 - 판다 guard RTR 불가 → Seer forward 의존(debt-012)
 - `kin_steer_sign` 미확정(debt-004) — 확정 전 `cmd_vel` crab/스핀 금지
 - 판다 fail-safe 정지 실효성(debt-013) — 이 패키지 정지의 근간이다

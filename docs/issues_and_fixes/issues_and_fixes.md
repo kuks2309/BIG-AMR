@@ -2,6 +2,109 @@
 
 ---
 
+## 2026-07-29
+
+### [Fix] 패키지 안에 중첩 colcon 워크스페이스 생성 + 테스트가 환경 소싱 없이는 미실행
+
+- **문제**: ① `src/Comm/CAN/can_relay/` 안에 `build/`·`install/`·`log/` 가 생겨 **중첩
+  워크스페이스**가 됐다(412 KB). ② 테스트가 `PYTHONPATH=.` 또는 `source install/setup.bash`
+  없이는 `ModuleNotFoundError: No module named 'can_relay'` 로 수집 단계에서 죽었다.
+- **원인**: ① Bash 작업 디렉터리가 호출 간 유지되는데, 패키지 디렉터리로 `cd` 한 상태에서
+  `colcon build` 를 실행했다(`src/Comm/CAN/can_relay/log/build_2026-07-29_14-02-35/…/command.log`
+  가 그 경로에서 invoke 됐음을 기록). ② `test/` 에 경로 부트스트랩이 없었다 — 저장소 선례
+  `src/Actuators/motor_control/test/test_protocol.py:5-8` 은 각 파일에서 `sys.path.insert` 를
+  한다.
+- **해결**: ① 세 디렉터리 삭제(git 추적 0건, 루트 워크스페이스에 정본 산출물 별도 존재 확인 후).
+  ② `test/conftest.py` 신설(11줄) — 파일마다 3줄을 반복하는 대신 한 곳에 모았다.
+- **파일**: `src/Comm/CAN/can_relay/test/conftest.py`(신설) · 산출물 디렉터리 3개 삭제
+- **상태**: 완료 — 세 실행 방식 전부 확인: 저장소 루트·환경 미소싱 **84 passed** / 패키지
+  디렉터리 **84 passed** / 설치 환경 소싱 **84 passed**. 재빌드 후 중첩 산출물 재발 **0건**.
+
+### [Fix] 「호밍은 소프트웨어가 멈출 수 없다」 과장 서술 3곳 — S6 게이트가 검출
+
+- **문제**: 오늘 신설한 `can_relay` 의 docstring 3곳이 "호밍은 시작하면 소프트웨어가 멈출 수
+  없다(드라이브 내부 루틴)" 고 단정했다. 운전자가 **중단 수단이 원리적으로 없다**고 읽게 되는
+  서술이다.
+- **원인**: 원문 대조 없이 `Tools/amr_test_gui/gui.py:921-922` 의 확인 대화상자 문구
+  ("이 **프로그램이** 중간에 멈출 수 없습니다")를 **범위를 넓혀** 옮겼다. 실제로는
+  `Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h:307-309`
+  `seer_home_cancel_frames()` 가 `0x60FB:04 = 0`(호밍 중단)을 송신하는 경로가 **실재**하며,
+  USB `0xea` wValue=0 으로 기동된다. 즉 "불가능"이 아니라 **본 구현이 그 경로를 안 쓰는 것**이다.
+- **해결**: 3곳을 "불가능" → "본 구현에 취소 경로가 없다(미구현)" 으로 정정하고 펌웨어 경로를
+  `파일:줄` 로 병기(각 3~6줄). 주장 범위를 구현 단위로 좁힌 것이 핵심이다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/backend.py`(모듈 docstring · `home()`) ·
+  `src/Comm/CAN/can_relay/can_relay/driver_node.py`
+- **상태**: 완료 — 검출 경로가 자동이었다는 점이 중요하다. 같은 날 추가한 S6 게이트
+  (`review-claim-lint.py`)가 **도입 직후 전수 검사에서 이 3곳을 잡았다**. 사람이 다시 읽어서
+  찾은 것이 아니다. 재검사 `TOTAL FAIL 0건 — PASS`, 회귀 `84 passed`.
+
+### [Fix] review-claim-lint 에 S6 추가 + 검사 대상을 소스 주석까지 확대
+
+- **문제**: 검증 명령 없는 절대형 부정 단정이 반복 재발하는데 기계 검사가 없었다
+  (`docs/claude-mistake/2026-07-28-005`, `2026-07-29-003`). 기존 lint 는 S1~S5 뿐이고 검사
+  대상도 `docs/code_review/*.md` 로 한정돼 **소스 주석·docstring 이 사각지대**였다.
+- **원인**: `docs/claude_guideline/code_review/checks/review-claim-lint.py` 의 검사 항목 부재.
+- **해결**: S6(절대형 부정 ↔ 근거 병기) 추가, `.md` 는 S1~S6 / 그 외는 S6 만 적용.
+  설계 조정 3건은 **전부 실측으로 확정**했다 — ① 근거 인정 범위를 리뷰 SOP 룰 8 과 동일하게
+  (도구 호출·결과 **또는** `파일:줄` 인용): 전자만 인정했더니 기존 통과 산출물
+  `docs/code_review/can_relay_firmware/2026-07-28.md` 에 신규 FAIL 3건이 생겼고 원문 대조 결과
+  **3건 전부 오탐**이었다. ② 일반형 "할 수 없다"·"알 수 없다" 제외 — 인용된 사실에서 끌어낸
+  결과 서술이라 오탐이 된다(`docs/code_review/trnav-icp-odometry/2026-07-28.md:256` 실측).
+  ③ 따옴표 쌍 매칭 수정 — `"된다" 만 … "안 된다·불가능하다"` 에서 짝이 어긋나 인용 안의
+  부정을 놓쳤다(`docs/claude-mistake/INDEX.md:64` 오탐). 인용 **밖** 부정은 계속 잡는다.
+  게이트 자체 회귀 `--selftest` 10건을 인라인 픽스처로 내장했다(S4 가 금지하는 절대경로 없이
+  저장소에서 재현 가능).
+- **파일**: `docs/claude_guideline/code_review/checks/review-claim-lint.py` ·
+  `docs/claude_guideline/code_review/review.md`(VERSION 1.3.0 → 1.4.0, 자체 점검 8-1 추가)
+- **상태**: 완료 — `--selftest` **10/10 PASS**, 저장소 리뷰 산출물 6종 + 오늘 산출물 + 소스
+  전수 `TOTAL FAIL 0건 — PASS`. 사용자 승인 2026-07-29(SSOT 번들 §변경 절차).
+
+### [Fix] can_relay 신설 중 자체 결함 3건 + 검증 명령 없는 부정형 단정 2곳
+
+> 대상은 **오늘 신설한** `src/Comm/CAN/can_relay` 다. 기존 코드에서 발견한 결함
+> (조향 클램프 부재·NaN·단발 송신·피드백 신선도)은 **이번에 고치지 않았고** 부채로 등록했다
+> (debt-025~019) — 소유 세션이 다르거나 실기 검증이 선행돼야 하기 때문이다.
+
+- **문제**:
+  - ① 신설 테스트 2건 FAIL — `test_write_controlword_exact`,
+    `test_write_fault_reset_enable` 이 `AssertionError: '2b4060003f000000' == '2b40603f00000000'`.
+  - ② `ros2 launch` 시 파라미터 미로드 위험 — config YAML 첫 줄이 `_#` 로 시작해 주석이 아닌
+    스칼라로 파싱된다.
+  - ③ 제어권 반환 후 종료 시 오류 로그 2줄
+    (`LinkError: 제어권 없이 프레임을 보내려 했다`)이 매번 출력. 기능은 정상이나 정지 실패로
+    오독될 수 있는 노이즈.
+  - ④ 부정형 단정에 확인 명령 미병기 — "gui.py 에는 이 시퀀스가 없다"를 근거 명령 없이 서술.
+    이 저장소가 반복해 당한 실패 유형이다(`docs/claude-mistake/2026-07-28-005`).
+- **원인**:
+  - ① 기대 hex 를 원본 대조 없이 작성 — SDO(Service Data Object) 프레임 배치는
+    `[cmd, idx_lo, idx_hi, **sub**, payload…]` 인데 **sub 바이트를 빠뜨린** 기대값을 썼다.
+    코드가 맞고 테스트가 틀린 경우다 — 근거 `Tools/amr_test_gui/gui.py:833`.
+  - ② 파일 작성 시 오타 — `config/can_relay.yaml:1`.
+  - ③ `backend.stop()`·`shutdown()` 이 링크 제어권 상태를 보지 않고 무조건 송신을 시도 —
+    `src/Comm/CAN/can_relay/can_relay/backend.py` `stop()`. 노드 종료 경로가
+    `~/engage false` 와 겹쳐 이미 반환된 링크에 다시 쐈다.
+  - ④ `protocol.py` `drive_init_frames` docstring · `config/can_relay.yaml` 주석.
+- **해결**:
+  - ① 기대값을 실제 배치로 정정(2줄). **코드는 바꾸지 않았다** — 인코더 28종이 실측 캡처
+    `Log/homing_capture_220350.jsonl` 과 바이트 동일함을 별도 대조로 확인했다(12,958건 일치).
+  - ② `_#` → `#` (1줄).
+  - ③ `stop()`·`shutdown()` 에 `if self.link.engaged:` 가드 + `shutdown()` 멱등화(9줄 추가).
+    지령 자체(속도 0)는 제어권과 무관하게 **항상 확정**되도록 유지 — 정지가 거부되면 안 된다.
+    회귀 2건 추가(`test_stop_target_is_zero_even_without_authority`,
+    `test_shutdown_is_idempotent`).
+  - ④ 실행한 grep 과 결과(0건)를 인라인 병기하고 **주장의 범위 한계**까지 명시
+    ("gui.py 가 controlword 를 아예 안 쓰는 것은 아니다 — `gui.py:942` 는 조향축 호밍 전용")(10줄).
+- **파일**: `src/Comm/CAN/can_relay/test/test_protocol.py` ·
+  `src/Comm/CAN/can_relay/config/can_relay.yaml` ·
+  `src/Comm/CAN/can_relay/can_relay/backend.py` ·
+  `src/Comm/CAN/can_relay/can_relay/protocol.py` ·
+  `src/Comm/CAN/can_relay/test/test_backend.py`
+- **상태**: 완료 — `PYTHONPATH=. python3 -m pytest test -q` → **84 passed in 1.64s**,
+  `colcon build --packages-select can_relay` → **1 package finished [3.08s]**,
+  YAML 파싱 확인 → 파라미터 20개 로드. ④ 는 `docs/claude-mistake/2026-07-29-003` 에 별도 기록
+  (강제 메커니즘 S6 적용으로 `status: closed`. 미채택 항목은 debt-030 으로 이관).
+
+
 ## 2026-07-28
 
 ### [Fix] 호밍 기록의 잘못된 서술 정정 + 정오표 수립 (2회 적대적 검증)

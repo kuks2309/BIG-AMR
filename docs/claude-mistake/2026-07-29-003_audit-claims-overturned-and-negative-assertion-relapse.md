@@ -9,7 +9,7 @@ reflected_assets:
   - docs/code_review/can_relay_ros2/2026-07-29.md#적대적-반대심문에서-뒤집힌-1차-감사-결론-기록-의무
   - src/Comm/CAN/can_relay/can_relay/protocol.py:148-158
   - src/Comm/CAN/can_relay/config/can_relay.yaml:26-31
-  - docs/debt/registry.md#debt-020
+  - docs/debt/registry.md#debt-030
 ---
 
 # 2026-07-29 13:58 (KST) — 10인 감사 결론 5건이 심문에서 뒤집힘 + 같은 세션에서 부정형 단정 재발
@@ -113,4 +113,4 @@ reflected_assets:
 3. **(미채택 — 부채 이관)** 다중 에이전트 감사에 **적대적 반대심문 라운드를 표준 절차로 편입**
    하는 안은 사용자가 이번에 채택하지 않았다(2026-07-29 선택: S6 만). 오늘 그 라운드는 사용자
    지시로 돌았고 결론 5건을 뒤집었다 — **지시가 없으면 돌지 않는다**는 구멍은 그대로 남는다.
-   → `docs/debt/registry.md` **debt-020** 으로 등록해 추적한다.
+   → `docs/debt/registry.md` **debt-030** 으로 등록해 추적한다.

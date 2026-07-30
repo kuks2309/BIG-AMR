@@ -28,7 +28,7 @@
     #   `grep -nE '0x6060|0x100C|0x100D|0x6081|0x6083|0x6084' Tools/amr_test_gui/gui.py` → 0건)
     # Seer 가 브링업한 축에 올라타는 방식이다. 단 gui.py 가 controlword 를 아예
     # 안 쓰는 것은 아니다 — `gui.py:942` 의 0x6040=0x86 은 조향축 호밍 전용이다.
-    # 잭업 상태에서 확인하기 전까지 false 로 둔다(debt-017).
+    # 잭업 상태에서 확인하기 전까지 false 로 둔다(debt-027).
     allow_bringup: false
 
     enable_cmd_vel: true          # false 면 직접 지령(~/steer_deg 등)만 연다

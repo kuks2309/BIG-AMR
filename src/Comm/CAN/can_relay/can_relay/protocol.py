@@ -149,7 +149,7 @@ def drive_init_frames(node: int, bus: int = 0) -> list[Frame]:
 
     ⚠ `Tools/amr_test_gui/gui.py` 에는 이 시퀀스가 **없다** — 그 코드는 Seer 가
     이미 브링업해 둔 축에 올라타 0x60FF 만 덮어쓴다. 즉 여기는 실기 검증 이력이
-    없는 구간이므로 잭업 상태에서 먼저 확인할 것(debt-017).
+    없는 구간이므로 잭업 상태에서 먼저 확인할 것(debt-027).
 
     부정형 단정의 근거 명령(2026-07-29 실행, 0건):
         grep -nE '0x6060|0x100C|0x100D|0x6081|0x6083|0x6084' Tools/amr_test_gui/gui.py
