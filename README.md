@@ -7,6 +7,9 @@
 📐 **[ARCHITECTURE.md](ARCHITECTURE.md)** — full system architecture with diagrams,
 from job planning down to the wheels. Start there if you are new to the project.
 
+🔄 **[WORKFLOW.md](WORKFLOW.md)** — one order followed end to end: every hop, every
+network boundary, and where each piece physically sits.
+
 > Proprietary and confidential. © 2026 T-Robotics. Internal, unreleased.
 
 ---
