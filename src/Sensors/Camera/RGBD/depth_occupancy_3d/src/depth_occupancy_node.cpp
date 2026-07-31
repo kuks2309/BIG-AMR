@@ -48,6 +48,9 @@ DepthOccupancyNode::DepthOccupancyNode(const rclcpp::NodeOptions & options)
   // 버퍼는 여기서 한 번만 잡고 매 주기 재사용한다. 유입률과 무관하게 메모리 상한을 고정한다.
   occupancy_.assign(grid_.cellCount(), 0U);
   scan_ranges_.assign(scan_.bin_count, std::numeric_limits<float>::infinity());
+  // 실측 점유는 1,700~1,900 셀이었다. 재할당이 융합 루프 안에서 일어나지 않도록 넉넉히
+  // 잡아 둔다(상한은 어차피 격자 크기라 무한히 자라지 않는다).
+  occupied_cells_.reserve(std::min<std::size_t>(grid_.cellCount(), 65536));
 
   RCLCPP_INFO(
     get_logger(), "보셀 격자 %zux%zux%zu (%zu 셀, %.1f MiB), 해상도 %.3f m", grid_.sizeX(),
@@ -96,9 +99,13 @@ void DepthOccupancyNode::declareParameters()
   obstacle_z_max_m_ = declare_parameter<double>("obstacle_z_max_m", 1.8);
   transform_timeout_s_ = declare_parameter<double>("transform_timeout_s", 0.05);
 
-  // 카메라가 융합보다 느린 것은 정상이므로(실측 10~25 fps 대 융합 10 Hz) 융합 주기의
-  // 몇 배로 잡는다. 막으려는 것은 느린 프레임이 아니라 갱신이 끊긴 프레임이다.
-  max_frame_age_s_ = declare_parameter<double>("max_frame_age_s", 0.5);
+  // 카메라가 융합보다 느린 것은 정상이므로 융합 주기의 몇 배로 잡는다. 막으려는 것은
+  // 느린 프레임이 아니라 갱신이 끊긴 프레임이다.
+  //
+  // 2026-07-31 실기: 융합 노드를 붙인 상태의 카메라 프레임률은 7.8~10.5 fps(주기 95~128 ms)
+  // 이고 최대 0.71 s 의 프레임 공백이 관측됐다. 0.5 s 로 두면 그 정상 범위 지터에도 게이트가
+  // 걸려 섹터가 깜빡인다. 관측된 최대 공백의 약 1.4배로 올린다.
+  max_frame_age_s_ = declare_parameter<double>("max_frame_age_s", 1.0);
 
   grid_.min_x = declare_parameter<double>("grid.min_x", -3.0);
   grid_.max_x = declare_parameter<double>("grid.max_x", 3.0);
@@ -169,7 +176,10 @@ bool DepthOccupancyNode::depthToMeters(
     }
     depth_m = static_cast<double>(raw);
   }
-  return depth_m >= min_range_m_ && depth_m <= max_range_m_;
+  // 여기서는 상한만 본다. 유효거리 판정은 역투영 뒤 **3차원 거리**로 하기 때문이다
+  // (projectCamera 참조). 3차원 거리는 항상 depth 이상이므로 depth > 상한이면 확실히
+  // 범위 밖이라 이 조기 탈출은 안전하다.
+  return depth_m <= max_range_m_;
 }
 
 bool DepthOccupancyNode::projectCamera(
@@ -207,6 +217,9 @@ bool DepthOccupancyNode::projectCamera(
       output_frame_, image->header.frame_id, tf2::TimePointZero,
       tf2::durationFromSec(transform_timeout_s_));
     optical_to_base = tf2::transformToEigen(transform);
+    // 가상 스캔의 range_max 보정에 쓴다 (max_sensor_offset_m_ 주석 참조).
+    const auto & origin = optical_to_base.translation();
+    max_sensor_offset_m_ = std::max(max_sensor_offset_m_, std::hypot(origin.x(), origin.y()));
   } catch (const tf2::TransformException & exception) {
     RCLCPP_WARN_THROTTLE(
       get_logger(), *get_clock(), kLogThrottleMs, "[%s] TF %s ← %s 조회 실패: %s",
@@ -226,6 +239,17 @@ bool DepthOccupancyNode::projectCamera(
 
       const Point3 optical = backProject(
         static_cast<double>(u), static_cast<double>(v), depth_m, intrinsics);
+
+      // 데이터시트의 유효거리(0.2~2.5 m)는 광축 깊이가 아니라 **3차원 거리** 규격이다.
+      // depth 로 거르면 화면 주변부 픽셀이 통과한다 — 640x480·fx≈382 기준 모서리는
+      // 광축에서 46° 벌어져 있어, depth 2.5 m 인 점의 실제 거리가 3.6 m 에 이른다.
+      // 그 영역은 정확도가 규정돼 있지 않으므로 받아들이지 않는다.
+      const double sensor_range_m =
+        std::sqrt(optical.x * optical.x + optical.y * optical.y + optical.z * optical.z);
+      if (sensor_range_m < min_range_m_ || sensor_range_m > max_range_m_) {
+        continue;
+      }
+
       const Eigen::Vector3d in_base =
         optical_to_base * Eigen::Vector3d(optical.x, optical.y, optical.z);
       const Point3 point{in_base.x(), in_base.y(), in_base.z()};
@@ -244,6 +268,7 @@ bool DepthOccupancyNode::projectCamera(
       std::size_t cell = 0;
       if (voxelIndex(grid_, point, cell) && occupancy_[cell] == 0U) {
         occupancy_[cell] = 1U;
+        occupied_cells_.push_back(cell);
         ++stats.voxels_occupied;
       }
 
@@ -260,7 +285,12 @@ bool DepthOccupancyNode::projectCamera(
 void DepthOccupancyNode::onFusionTimer()
 {
   // 매 주기 처음부터 다시 만든다 — 누적하지 않는다(헤더 '시간 축 정책' 참조).
-  std::fill(occupancy_.begin(), occupancy_.end(), 0U);
+  // 격자 전체를 지우지 않고 지난 주기에 점유였던 셀만 되돌린다. 점유는 보통 수천 개라
+  // 57.6만 셀 전체를 훑는 것보다 두 자릿수 싸다.
+  for (const std::size_t cell : occupied_cells_) {
+    occupancy_[cell] = 0U;
+  }
+  occupied_cells_.clear();
   std::fill(scan_ranges_.begin(), scan_ranges_.end(), std::numeric_limits<float>::infinity());
 
   FusionStats stats;
@@ -347,21 +377,16 @@ void DepthOccupancyNode::publishOccupancyCloud(const rclcpp::Time & stamp)
   cloud.header.stamp = stamp;
   cloud.header.frame_id = output_frame_;
 
-  const std::size_t occupied =
-    static_cast<std::size_t>(std::count(occupancy_.begin(), occupancy_.end(), 1U));
-
   sensor_msgs::PointCloud2Modifier modifier(cloud);
   modifier.setPointCloud2FieldsByString(1, "xyz");
-  modifier.resize(occupied);
+  modifier.resize(occupied_cells_.size());
 
   sensor_msgs::PointCloud2Iterator<float> iter_x(cloud, "x");
   sensor_msgs::PointCloud2Iterator<float> iter_y(cloud, "y");
   sensor_msgs::PointCloud2Iterator<float> iter_z(cloud, "z");
 
-  for (std::size_t cell = 0; cell < occupancy_.size(); ++cell) {
-    if (occupancy_[cell] == 0U) {
-      continue;
-    }
+  // 점유 셀만 돈다 — 격자 전체(57.6만)가 아니라 점유 수(보통 수천)에 비례한다.
+  for (const std::size_t cell : occupied_cells_) {
     const auto center = voxelCenter(grid_, cell);
     *iter_x = static_cast<float>(center.x);
     *iter_y = static_cast<float>(center.y);
@@ -385,8 +410,10 @@ void DepthOccupancyNode::publishVirtualScan(const rclcpp::Time & stamp)
   scan.angle_increment = static_cast<float>(scan_.angleIncrement());
   scan.time_increment = 0.0F;  // 6대를 한 번에 굽는 합성 스캔이라 빈별 시간차가 없다
   scan.scan_time = 0.0F;
-  scan.range_min = static_cast<float>(min_range_m_);
-  scan.range_max = static_cast<float>(max_range_m_);
+  // range 는 카메라가 아니라 base_link 원점 기준 거리다. 센서 유효거리를 그대로 쓰면
+  // 원점에서 떨어져 장착된 카메라의 정상 관측이 range_max 밖으로 밀려 소비자가 버린다.
+  scan.range_min = static_cast<float>(std::max(0.0, min_range_m_ - max_sensor_offset_m_));
+  scan.range_max = static_cast<float>(max_range_m_ + max_sensor_offset_m_);
   scan.ranges = scan_ranges_;  // 관측 없는 빈은 inf — LaserScan 규약상 '반환 없음'
 
   scan_publisher_->publish(scan);

@@ -91,8 +91,12 @@ private:
 
   /// depth 픽셀 원값을 m 단위로 바꾼다.
   ///
+  /// 유효거리 판정은 여기서 끝나지 않는다 — 데이터시트 규격이 광축 깊이가 아니라 3차원
+  /// 거리라, 최종 판정은 역투영 뒤 projectCamera 가 한다. 여기서는 상한만 조기 탈출로 쓴다
+  /// (3차원 거리 ≥ depth 이므로 depth 가 상한을 넘으면 확실히 범위 밖).
+  ///
   /// \param[out] depth_m 유효한 값일 때만 기록된다.
-  /// \return 유효 측정이면 true. 0(측정 실패)·NaN·범위 밖은 false.
+  /// \return 0(측정 실패)·NaN·상한 초과가 아니면 true.
   bool depthToMeters(
     const sensor_msgs::msg::Image & image, std::size_t u, std::size_t v, double & depth_m) const;
 
@@ -118,7 +122,7 @@ private:
   ///
   /// 융합 주기보다 낡은 프레임을 재사용하는 것 자체는 정상이다(카메라가 융합보다 느릴 수
   /// 있다). 막으려는 것은 '느린 프레임'이 아니라 '갱신이 끊긴 프레임'이다.
-  double max_frame_age_s_{0.5};
+  double max_frame_age_s_{1.0};
   GridSpec grid_;
   ScanSpec scan_;
   FootprintHalfExtent footprint_;
@@ -131,9 +135,25 @@ private:
   std::mutex stream_mutex_;
 
   /// 점유 보셀 표식. 생성자에서 한 번 할당하고 매 주기 재사용한다(재할당 없음).
+  /// 중복 삽입 판정(이미 점유인가)에만 쓴다 — 발행은 occupied_cells_ 로 한다.
   std::vector<std::uint8_t> occupancy_;
+
+  /// 이번 주기에 점유로 바뀐 셀의 인덱스 목록.
+  ///
+  /// 격자 전체(57.6만 셀)를 발행 때마다 훑으면 실제 점유가 2천 개 남짓인데도 매 주기
+  /// 수십만 번을 돈다. 실측에서 이 비용이 융합을 10 Hz 설정 대비 5.5 Hz 로 끌어내렸다
+  /// (노드 CPU 103%). 점유 셀만 모아 두면 발행 비용이 점유 수에 비례한다.
+  std::vector<std::size_t> occupied_cells_;
   /// 방위각 빈별 최근접 수평거리. 매 주기 무한대로 초기화한다.
   std::vector<float> scan_ranges_;
+
+  /// base_link 원점에서 가장 멀리 떨어진 카메라까지의 수평 거리(m).
+  ///
+  /// 가상 스캔의 range 는 카메라가 아니라 **base_link 기준** 거리라, 센서 유효거리
+  /// (max_range_m_) 를 그대로 LaserScan.range_max 로 쓰면 안 된다. 전·후면 카메라는
+  /// 원점에서 1.01 m 떨어져 있어 실제 range 가 3.5 m 를 넘고, 그 값들은 소비자가
+  /// range_max 밖이라며 버린다. TF 조회 때마다 갱신해 발행 시 반영한다.
+  double max_sensor_offset_m_{0.0};
 
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_publisher_;
   rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr scan_publisher_;
