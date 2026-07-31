@@ -3,6 +3,7 @@
 시각은 전부 주입한다(`clock`). 실제 시계에 의존하면 자정 근처에서만 깨지는 테스트가 된다.
 """
 import json
+import os
 
 import pytest
 
@@ -66,13 +67,32 @@ def test_write_failure_raises_instead_of_silently_passing(tmp_path):
 
 
 def test_enforce_deletes_files_older_than_max_age(tmp_path):
+    """보존기간 초과 파일이 지워지는지.
+
+    ⚠ `enforce_limits` 는 `now`(주입 시계)와 파일의 **실제 `st_mtime`** 을 비교한다. 시계만
+    주입하고 mtime 을 그대로 두면 **테스트 결과가 실제 달력 날짜에 좌우된다** — 이 테스트는
+    2026-07-28 작성 시 통과했다가 07-31 에 깨졌다(실제 mtime 이 커져 계산 나이가 임계 미만이
+    됐다). 그래서 mtime 도 함께 고정한다.
+    """
     now = [_T0]
     log = _make(tmp_path, lambda: now[0], max_age_days=2.0, enforce_every=1)
-    log.write({"day": 0})
+    old_path = log.write({"day": 0})
+    os.utime(old_path, (_T0, _T0))          # 주입 시계와 mtime 을 같은 기준으로 맞춘다
     now[0] = _T0 + 5 * _DAY_S
     log.write({"day": 5})
     remaining = [p.name for p in log.existing_files()]
     assert len(remaining) == 1, remaining
+
+
+def test_enforce_keeps_file_within_max_age(tmp_path):
+    """보존기간 안쪽 파일은 남아야 한다 — 위 테스트의 반대편(경계 오작동 검출)."""
+    now = [_T0]
+    log = _make(tmp_path, lambda: now[0], max_age_days=5.0, enforce_every=1)
+    old_path = log.write({"day": 0})
+    os.utime(old_path, (_T0, _T0))
+    now[0] = _T0 + 2 * _DAY_S               # 2일 경과 < 보존 5일
+    log.write({"day": 2})
+    assert len(log.existing_files()) == 2
 
 
 def test_enforce_keeps_newest_file_even_when_over_cap(tmp_path):
