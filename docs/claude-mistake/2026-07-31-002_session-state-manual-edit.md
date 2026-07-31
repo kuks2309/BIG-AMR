@@ -2,8 +2,12 @@
 id: 2026-07-31-002
 type: rule-violation
 category: tech-debt-shortcut
-status: open
-reflected_assets: []
+status: closed
+reflected_assets:
+  - docs/claude_guideline/session_workflow/hooks/session_workflow-state-guard.py
+  - docs/claude_guideline/session_workflow/hooks/test_state_guard.py
+  - docs/claude_guideline/session_workflow/session_workflow.md:65 (§2-2 신설)
+  - .claude/settings.json (PreToolUse · matcher Bash)
 ---
 
 # 2026-07-31 17:30 (KST) — 훅 소관 세션 상태 저장소를 모델이 직접 편집
@@ -59,20 +63,35 @@ python3 -c "... import session_state as ss; meta['purpose']='AMR 모션 제어 �
 
 ## 재발 방지
 
-강제 메커니즘 후보(미채택 — 사용자 결정 대기):
+### 채택 — PreToolUse(`Bash`) 상태 저장소 쓰기 가드 (2026-07-31 구현·시험 완료)
 
-1. **PreToolUse(`Bash`) 가드 추가** — 명령 문자열에 `session_workflow/active`,
-   `session_state`, `save_session` 이 나타나면 `permissionDecision=ask`.
-   기존 `git_workflow-stage-gate.py` 가 이미 PreToolUse(Bash) 에 등록돼 있어 자리 패턴은 있다.
-   handoff 삭제(유일 예외)는 통과 대상이라 화이트리스트가 필요하다.
-2. **CLAUDE.md 의 session_workflow 항목에 "응답 전 의무 선행 점검" 트리거 부착** —
-   다른 6개 SOP 와 동일 형식으로 맞춘다. 단 §메타 패턴이 이미 기록한 대로
-   **주입만으로는 막히지 않는다**(2026-07-28-005) — 1과 병행해야 의미가 있다.
-3. **gate 훅의 `PURPOSE_RE` 완화** — 「목적은 …」·「목적 …」도 인식.
-   근본 원인은 아니지만 이번 우회의 *유인*을 없앤다. 훅은 번들 SSOT 소관이라
-   다운스트림 임의 수정은 §변경 절차 위반이 될 수 있어 확인이 필요하다.
+`hooks/session_workflow-state-guard.py` 를 신설하고 `.claude/settings.json` 의
+PreToolUse(matcher `Bash`)에 등록했다. 명령이 상태 저장소를 가리키면
+`permissionDecision=ask` 로 사용자 확인을 요구한다.
 
-셋 다 이 세션에서 실행하지 않았다. 상태 파일에 잘못 등록된 목적 문자열도 **되돌리지 않았다**
-— 되돌리는 행위 자체가 같은 규칙의 재위반이기 때문이다.
+- **판정 4단**: ① 경로 조각(`.git/session_workflow`·`.claude/session_workflow`·
+  `session_workflow/{active,handoff}`) 또는 상태 모듈·변이 API(`session_state`·
+  `save_session`·`ensure_session`) 참조 → ② 읽기 전용 allowlist(`cat`·`ls`·`grep`·`find`·`jq` …)
+  면 통과 → ③ handoff 삭제(§0 유일 예외)면 통과 → ④ 그 외 `ask`.
+  allowlist 명령이라도 리다이렉션이 상태 경로로 향하면 `ask`.
+- **override**: `# sw:allow-state-write` 주석 또는 env `SW_ALLOW_STATE_WRITE=1`.
+- **회귀 시험**: `hooks/test_state_guard.py` — 훅을 서브프로세스로 띄워 stdin JSON →
+  stdout 계약을 검증하는 15 케이스. 본 사건의 위반 명령
+  (`python3 -c "import session_state as ss; ss.save_session(...)"`)을 재현 케이스로 포함한다.
+  실행 결과 **15/15 통과**(2026-07-31).
+- **규칙 반영**: `session_workflow.md` 설치 §(훅 6→7개) · **§2-2 신설** ·
+  §5 한계 3항 추가 · 룰 5 갱신.
 
-> **owner**: user — 위 1~3 중 채택 여부 결정 필요. 채택 시 owner 를 claude 로 넘겨 구현·검증한다.
+**시험의 한계(정직)**: 통과한 것은 훅의 **계약 시험**(서브프로세스 stdin/stdout)이다.
+같은 세션에서 실사격을 시도했으나 확인창이 뜨지 않았다 — `.claude/settings.json` 은
+세션 시작 시 로드되므로 **설치 직후 그 세션에서는 발화하지 않는 것으로 보인다**.
+실제 발화 확인은 **다음 세션 첫 트립 시점에 해야 한다**(미확인).
+
+### 미채택 (사용자 결정 — 2026-07-31)
+
+2. CLAUDE.md 에 "응답 전 의무 선행 점검" 트리거 부착 — 주입만으로는 막히지 않는다는 것이
+   이미 두 번 실증됐다(2026-07-28-005 · 2026-07-29-003).
+3. gate 훅 `PURPOSE_RE` 완화(「목적은 …」 인식) — 이번 우회의 *유인*은 남는다.
+
+상태 파일에 잘못 등록된 목적 문자열도 **되돌리지 않았다** — 되돌리는 행위 자체가 같은 규칙의
+재위반이기 때문이다.
