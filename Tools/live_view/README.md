@@ -57,9 +57,13 @@ Faithful to the real system:
 
 Simplified:
 
-- straight-line travel, no obstacle avoidance and no scan data
+- avoidance works off known obstacle positions, not simulated laser scans
 - no failures, so the `FAILED` branch and the timeout never appear
-- three robots; the Gazebo simulation currently has one
+- three robots, because queueing is the thing worth showing; the Gazebo
+  simulation currently has one
+- the gate handover is triggered purely by distance to the goal; on the real
+  robot the Mini MES commands it (and who commands it is still an open
+  question — see ARCHITECTURE.md §10)
 
 ## Changing it
 
