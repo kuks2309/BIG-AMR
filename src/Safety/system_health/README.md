@@ -34,13 +34,37 @@ python3 -m system_health.sampler --once --thresholds th.json
 ## systemd 상주
 
 유닛은 **저장소에 있을 뿐 자동 설치되지 않는다.** 명시적으로 실행할 때만 설치된다.
+유닛은 둘이고 **서로 의존하지 않는다** — 대시보드가 죽어도 기록은 계속되고, 샘플러가 죽어도
+지금까지의 기록은 볼 수 있어야 하기 때문이다.
+
+| 유닛 | 역할 | 노출 |
+| --- | --- | --- |
+| `amr-health-sampler.service` | 수집(5초 주기) | 없음 |
+| `amr-health-webview.service` | 대시보드 | **127.0.0.1 전용** |
 
 ```bash
-./install_service.sh            # dry-run — 무엇을 할지 보여주기만 한다
-./install_service.sh --apply    # 설치·기동
-./install_service.sh --remove   # 되돌리기
+./install_service.sh                    # dry-run — 무엇을 할지 보여주기만 한다
+./install_service.sh --apply            # 둘 다 설치·기동
+./install_service.sh --apply webview    # 하나만 (sampler|webview|both)
+./install_service.sh --status           # 현재 상태
+./install_service.sh --remove [대상]    # 되돌리기(로그·임계값 보존)
 journalctl -u amr-health-sampler -f
 ```
+
+**대시보드는 로컬 전용이다**(2026-07-31 사용자 결정). 인증이 없으므로 루프백에만 바인드하고,
+`IPAddressAllow=localhost` + `IPAddressDeny=any` 로 **커널(cgroup v2 BPF) 수준에서도** 막는다 —
+`--bind` 인자가 실수로 바뀌어도 외부로 열리지 않는다. 다른 PC 에서 볼 때는 SSH 터널을 쓴다:
+
+```bash
+ssh -L 8770:127.0.0.1:8770 nvidia@<이 장비>   # 그 뒤 http://127.0.0.1:8770/
+```
+
+⚠ **수동 실행 인스턴스를 남겨두지 말 것.** 포트가 겹치면 서비스가 `Address already in use` 로
+재시작 루프에 빠지는데, 그 사이에도 수동 인스턴스가 응답하므로 **동작하는 것처럼 보인다**.
+`./install_service.sh --status` 로 `active` 인지 확인하고, `ss -tlnp | grep 8770` 의 PID 가
+`systemctl show amr-health-webview -p MainPID` 와 같은지 대조한다.
+(2026-07-31 실제로 발생 — `--bind 0.0.0.0` 수동 인스턴스가 34 시간 떠 있어 서비스를 막았고,
+그 동안 대시보드가 외부에 노출돼 있었다.)
 
 유닛은 `install/` 이 아니라 **소스 트리**를 `PYTHONPATH` 로 가리킨다 — `colcon build` 가
 `install/` 을 비우는 순간 감시기가 죽으면 안 되기 때문이다. `Nice=10` + `IOSchedulingClass=idle`
