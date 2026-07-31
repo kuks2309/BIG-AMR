@@ -25,3 +25,10 @@ Tools/Can_Relay/panda-firmware/board/obj/
 Tools/Can_Relay/panda-firmware/board/*.o
 Tools/Can_Relay/panda-firmware/board/**/*.o
 Tools/Can_Relay/panda-firmware/**/*.elf
+
+# colcon artifacts accidentally created by running the build inside a
+# package directory. A nested install/ shadows the workspace one and makes
+# ros2 run execute stale code.
+src/**/build/
+src/**/install/
+src/**/log/
