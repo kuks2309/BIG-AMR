@@ -227,6 +227,10 @@
 
 <div class="console">
 
+  <div id="faultBanner" style="display:none; background:var(--red);
+       color:#fff; padding:9px 14px; border-radius:7px; margin-bottom:12px;
+       font-family:var(--mono); font-size:12.5px;"></div>
+
   <div class="head">
     <div>
       <div class="title">Big-AMR — Live Operations</div>
@@ -413,7 +417,7 @@
 
   // ---------------------------------------------------------------- state
   const sim = {
-    t: 0, running: true, speed: 1,
+    t: 0, running: true, speed: 1, faulted: false,
     jobs: [], robots: [], log: [],
     seq: 0, done: 0
   };
@@ -610,24 +614,30 @@
         return;
       }
 
+      // Work out where we are actually going FIRST. Attraction is normalised
+      // to 1; avoidance fades to nothing near the goal so the approach point —
+      // deliberately close to a machine — stays reachable. Without that fade
+      // the two forces cancel and the robot stalls just short: the classic
+      // goal-near-obstacle deadlock.
+      const fade = Math.min(1, dist / DOCK_FADE_M);
+      const rep = repulsion(r);
+      const vx = ex / dist + fade * rep.x;
+      const vy = ey / dist + fade * rep.y;
+      const mag = Math.hypot(vx, vy) || 1;
+
       // The platform crabs: both wheels swivel to the same angle and the body
       // translates without turning, so heading never changes. The steering
-      // angle shown on the wheels is the travel direction folded into +/-90,
-      // exactly as the real inverse kinematics normalises it.
+      // follows the TRAVEL direction, not the straight line to the goal, so the
+      // wheels visibly turn as the robot deflects around something. Folded into
+      // +/-90 exactly as the real inverse kinematics normalises it.
+      //
+      // This must come after vx/vy exist. It previously sat above them, which
+      // threw a ReferenceError on every frame and silently killed the whole
+      // animation — nothing moved and no error was visible on the page.
       let a = Math.atan2(vy, vx);
       if (a >  Math.PI / 2) a -= Math.PI;
       if (a < -Math.PI / 2) a += Math.PI;
-      r.steer += (a - r.steer) * Math.min(1, dt * 4);   // steering servos are not instant
-
-      // Attraction is normalised to 1; avoidance fades to nothing near the
-      // goal so the approach point — deliberately close to a machine — stays
-      // reachable. Without that fade the two forces cancel and the robot
-      // stalls just short: the classic goal-near-obstacle deadlock.
-      const fade = Math.min(1, dist / DOCK_FADE_M);
-      const rep = repulsion(r);
-      let vx = ex / dist + fade * rep.x;
-      let vy = ey / dist + fade * rep.y;
-      const mag = Math.hypot(vx, vy) || 1;
+      r.steer += (a - r.steer) * Math.min(1, dt * 4);   // servos are not instant
 
       const v = Math.min(r.speed, dist * 1.6);
       r.x += (vx / mag) * v * dt;
@@ -861,9 +871,26 @@
     if (sim.running) {
       dt *= sim.speed;
       sim.t += dt;
-      readStations(dt);
-      dispatch();
-      driveRobots(dt);
+      // A throw anywhere in here used to escape frame(), so requestAnimationFrame
+      // was never called again and the page froze with no visible error. Catch
+      // it, show it, and keep the loop alive.
+      try {
+        readStations(dt);
+        dispatch();
+        driveRobots(dt);
+      } catch (err) {
+        if (!sim.faulted) {
+          sim.faulted = true;
+          say("wait", "simulation error: " + err.message);
+          console.error(err);
+          const b = document.getElementById("faultBanner");
+          if (b) {
+            b.textContent = "Simulation error — " + err.message
+                          + " (see the browser console)";
+            b.style.display = "block";
+          }
+        }
+      }
       // Decay the wake flash so an idle machine visibly goes dark again.
       FSMS.forEach(f => { f.lit = Math.max(0, f.lit - dt * 1.6); });
       // Retire completed jobs after a beat so they are visible on the board.
