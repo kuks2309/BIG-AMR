@@ -20,7 +20,8 @@ Or drag the file into a browser. That is the whole procedure — it is one file.
 
 | Region | What it is |
 |---|---|
-| Top strip | The three layers. Each travelling dot is one message: amber = job handed to the ACS, blue = robot given a destination |
+| Top strip | The four layers. Each travelling dot is one message: a finished batch reported, a job handed to the ACS, a robot given a destination |
+| Inside a robot | Which brain holds the wheel. Seer for the transit; the gate engages and the Jetson takes over for the precise approach |
 | Centre canvas | The 12 × 12 m hall, same stations and obstacles as `warehouse.world` |
 | Job board | The Mini MES's view — every job and its FSM state |
 | Fleet panel | The ACS's view — which robot holds which job |
@@ -48,6 +49,10 @@ Faithful to the real system:
 - the source station is freed on collection, so it can produce again
 - crab motion — the body never rotates, and the steering angle is folded into
   ±90° exactly as `qd_inverse_kinematics` normalises it
+- the two-brain handover: Seer drives the transit, the gate engages for the
+  final approach and the Jetson takes over while Seer is shown a frozen snapshot
+- obstacle avoidance bounded below the attraction, so a robot deflects around
+  something without being driven by it
 - station and obstacle positions match `warehouse.world`
 
 Simplified:

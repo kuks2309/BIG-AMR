@@ -109,7 +109,7 @@
                 text-transform: uppercase; margin-bottom: 5px; }
   .stage-desc { font-size: 12.5px; color: var(--ink-mid); line-height: 1.35; }
   .s-mes .stage-name { color: var(--amber); }
-  .s-acs .stage-name, .s-fleet .stage-name { color: var(--steel); }
+  .s-acs .stage-name, .s-fleet .stage-name, .s-eq .stage-name { color: var(--steel); }
   .link { width: 74px; flex: none; position: relative; align-self: center; height: 2px;
           background: var(--rule); }
   .link::after { content: ""; position: absolute; right: -1px; top: -4px;
@@ -155,6 +155,19 @@
                 background: color-mix(in srgb, var(--amber) 12%, transparent); }
   .c-DONE     { color: var(--green); border-color: var(--green); }
   .empty { padding: 16px 12px; font-size: 12.5px; color: var(--ink-dim); }
+
+  /* ---------- authority (who drives) ---------- */
+  .auth { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px;
+          padding: 8px 12px; border-bottom: 1px solid var(--rule); }
+  .auth:last-of-type { border-bottom: none; }
+  .auth-name { font-family: var(--mono); font-size: 11.5px; }
+  .auth-who { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em;
+              padding: 2px 7px; border-radius: 4px; border: 1px solid;
+              grid-row: 1 / span 2; align-self: center; white-space: nowrap; }
+  .auth-seer { color: var(--steel); border-color: var(--steel); }
+  .auth-jet  { color: var(--amber); border-color: var(--amber);
+               background: color-mix(in srgb, var(--amber) 14%, transparent); }
+  .auth-note { font-size: 10px; color: var(--ink-dim); grid-column: 1; }
 
   /* ---------- runtime / FSM panel ---------- */
   .core { padding: 8px 13px; font-family: var(--mono); font-size: 10.5px;
@@ -230,6 +243,11 @@
   <!-- pipeline -->
   <div class="pipe">
     <div class="pipe-row">
+      <div class="stage s-eq">
+        <div class="stage-name">Equipment</div>
+        <div class="stage-desc">The machines. A finished batch is where every job comes from.</div>
+      </div>
+      <div class="link" id="link0"><span class="link-label">batch done</span></div>
       <div class="stage s-mes">
         <div class="stage-name">Mini MES</div>
         <div class="stage-desc">Watches the machines. Decides what needs moving, and tracks every job to completion.</div>
@@ -286,6 +304,16 @@
         </div>
         <div id="fleet"></div>
       </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Inside a robot</h2><span class="note">who drives</span>
+        </div>
+        <div id="authority"></div>
+        <div class="prov">Seer drives the transit. For the last metres the gate
+          engages and our Jetson takes over &mdash; Seer is fed a frozen
+          snapshot and believes the robot is parked.</div>
+      </div>
     </div>
   </div>
 
@@ -330,6 +358,13 @@
   // robot half-length + clearance. Driving to a machine's own coordinates
   // means driving into it.
   const APPROACH_DISTANCE = 1.6;
+
+  // Inside every robot there are TWO brains and a gate deciding which one
+  // reaches the motors. Seer drives the long transit; for the last precise
+  // metres the gate engages and our Jetson takes over — while Seer is fed a
+  // frozen snapshot and believes the robot is parked. This is the point of the
+  // whole project, so the animation has to show it.
+  const HANDOVER_RANGE = 2.4;   // gate engages inside this distance of the goal
 
   // Same numbers the Gazebo ACS uses (sim_acs.py), so the two agree.
   const DWELL_SECONDS   = 3.0;   // loading time at the source
@@ -387,7 +422,8 @@
     sim.robots.push({
       id: "AMR-" + i,
       x: -4.5 + (i - 1) * 2.2, y: -1.2,
-      steer: 0, job: null, goal: null, speed: 1.05, dwellLeft: 0
+      steer: 0, job: null, goal: null, speed: 1.05, dwellLeft: 0,
+      authority: "seer"      // "seer" transit | "jetson" precise approach
     });
   }
 
@@ -449,6 +485,7 @@
         s.ready = true;
         s.timer = s.period;
         wake("equipment", `${s.id} finished`);
+        pulse("link0", "--steel");
         say("mes", `${s.id} finished a batch`);
         createJob(s);
       }
@@ -542,6 +579,17 @@
       const ex = r.goal.x - r.x, ey = r.goal.y - r.y;
       const dist = Math.hypot(ex, ey);
 
+      // The gate switches on approach and back on departure.
+      const want = dist < HANDOVER_RANGE ? "jetson" : "seer";
+      if (want !== r.authority) {
+        r.authority = want;
+        wake("robot", want === "jetson" ? "gate engaged" : "gate released");
+        say(want === "jetson" ? "acs" : "done",
+            want === "jetson"
+              ? `${r.id}: gate ENGAGED — Jetson driving, Seer sees "parked"`
+              : `${r.id}: gate released — Seer driving again`);
+      }
+
       if (dist < 0.28) {
         if (r.leg === "collect") {
           // Picked up. The source station is freed, so it can produce again —
@@ -557,6 +605,7 @@
           sim.done++;
           say("done", `${r.job.id} complete — delivered by ${r.id}`);
           r.job = null; r.goal = null; r.leg = null; r.dwellLeft = 0;
+          r.authority = "seer";
         }
         return;
       }
@@ -725,6 +774,7 @@
   }
 
   // ---------------------------------------------------------------- panels
+  const $auth = document.getElementById("authority");
   const $fsms = document.getElementById("fsms");
   const $jobs = document.getElementById("jobs");
   const $fleet = document.getElementById("fleet");
@@ -773,6 +823,19 @@
           <span class="robot-task">${r.job ? r.job.id : "no job assigned"}</span>
         </span>
         <span class="robot-state" style="color:${col}">${label.toUpperCase()}</span>
+      </div>`;
+    }).join("");
+
+    $auth.innerHTML = sim.robots.map(r => {
+      const jet = r.authority === "jetson" && r.job;
+      return `<div class="auth">
+        <span class="auth-name">${r.id}</span>
+        <span class="auth-who ${jet ? "auth-jet" : "auth-seer"}">${
+          jet ? "JETSON" : "SEER"}</span>
+        <span class="auth-note">${
+          !r.job ? "idle — Seer holds the wheel"
+          : jet ? "gate engaged · precise approach"
+          : "transit · gate passing through"}</span>
       </div>`;
     }).join("");
 
