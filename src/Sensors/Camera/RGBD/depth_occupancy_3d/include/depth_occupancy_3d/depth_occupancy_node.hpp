@@ -101,7 +101,13 @@ private:
     const sensor_msgs::msg::Image & image, std::size_t u, std::size_t v, double & depth_m) const;
 
   void publishOccupancyCloud(const rclcpp::Time & stamp);
+  void publishGroundCloud(const rclcpp::Time & stamp);
   void publishVirtualScan(const rclcpp::Time & stamp);
+
+  /// 보셀 인덱스 목록을 PointCloud2 로 만들어 발행한다.
+  void publishCells(
+    const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr & publisher,
+    const std::vector<std::size_t> & cells, const rclcpp::Time & stamp);
 
   // --- 파라미터 ---
   std::string output_frame_;
@@ -140,10 +146,19 @@ private:
 
   /// 이번 주기에 점유로 바뀐 셀의 인덱스 목록.
   ///
-  /// 격자 전체(57.6만 셀)를 발행 때마다 훑으면 실제 점유가 2천 개 남짓인데도 매 주기
-  /// 수십만 번을 돈다. 실측에서 이 비용이 융합을 10 Hz 설정 대비 5.5 Hz 로 끌어내렸다
-  /// (노드 CPU 103%). 점유 셀만 모아 두면 발행 비용이 점유 수에 비례한다.
+  /// 격자 전체(57.6만 셀)를 발행 때마다 훑는 대신 점유 셀만 모아 두면 발행 비용이 점유
+  /// 수에 비례한다. (융합 처리율의 병목은 이것이 아니라 빌드 최적화 부재였다 — CMakeLists
+  /// 의 CMAKE_BUILD_TYPE 주석 참조.)
   std::vector<std::size_t> occupied_cells_;
+
+  /// 바닥면으로 분류된 셀. 장애물과 **같은 격자**를 쓰되 표식 버퍼를 분리한다.
+  ///
+  /// 바닥을 장애물에서 빼는 것과 아예 버리는 것은 다르다. 빼기만 하고 따로 발행하면
+  /// 시각적으로 바닥을 확인할 수 있고, 음의 장애물(구덩이·단차) 판단이나 W5 의 바닥 평면
+  /// 정합에도 쓸 수 있다. 장애물 판정에는 관여하지 않는다.
+  std::vector<std::uint8_t> ground_occupancy_;
+  std::vector<std::size_t> ground_cells_;
+  bool publish_ground_{true};
   /// 방위각 빈별 최근접 수평거리. 매 주기 무한대로 초기화한다.
   std::vector<float> scan_ranges_;
 
@@ -156,6 +171,7 @@ private:
   double max_sensor_offset_m_{0.0};
 
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_publisher_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr ground_publisher_;
   rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr scan_publisher_;
   rclcpp::TimerBase::SharedPtr fusion_timer_;
 

@@ -51,6 +51,10 @@ DepthOccupancyNode::DepthOccupancyNode(const rclcpp::NodeOptions & options)
   // 실측 점유는 1,700~1,900 셀이었다. 재할당이 융합 루프 안에서 일어나지 않도록 넉넉히
   // 잡아 둔다(상한은 어차피 격자 크기라 무한히 자라지 않는다).
   occupied_cells_.reserve(std::min<std::size_t>(grid_.cellCount(), 65536));
+  if (publish_ground_) {
+    ground_occupancy_.assign(grid_.cellCount(), 0U);
+    ground_cells_.reserve(std::min<std::size_t>(grid_.cellCount(), 65536));
+  }
 
   RCLCPP_INFO(
     get_logger(), "보셀 격자 %zux%zux%zu (%zu 셀, %.1f MiB), 해상도 %.3f m", grid_.sizeX(),
@@ -62,6 +66,10 @@ DepthOccupancyNode::DepthOccupancyNode(const rclcpp::NodeOptions & options)
 
   cloud_publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>(
     "~/occupancy_points", rclcpp::SensorDataQoS());
+  if (publish_ground_) {
+    ground_publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+      "~/ground_points", rclcpp::SensorDataQoS());
+  }
   scan_publisher_ =
     create_publisher<sensor_msgs::msg::LaserScan>("~/virtual_scan", rclcpp::SensorDataQoS());
 
@@ -97,6 +105,10 @@ void DepthOccupancyNode::declareParameters()
   max_range_m_ = declare_parameter<double>("max_range_m", 2.5);   // Gemini E 사양 상한
   obstacle_z_min_m_ = declare_parameter<double>("obstacle_z_min_m", 0.05);  // 바닥 제거
   obstacle_z_max_m_ = declare_parameter<double>("obstacle_z_max_m", 1.8);
+
+  // 바닥으로 분류된 점을 버리지 않고 별도 토픽으로 낸다. 장애물 판정에는 관여하지 않으며
+  // 눈으로 바닥을 확인하거나(주된 용도) 음의 장애물·평면 정합에 쓰기 위한 것이다.
+  publish_ground_ = declare_parameter<bool>("publish_ground", true);
   transform_timeout_s_ = declare_parameter<double>("transform_timeout_s", 0.05);
 
   // 카메라가 융합보다 느린 것은 정상이므로 융합 주기의 몇 배로 잡는다. 막으려는 것은
@@ -111,7 +123,9 @@ void DepthOccupancyNode::declareParameters()
   grid_.max_x = declare_parameter<double>("grid.max_x", 3.0);
   grid_.min_y = declare_parameter<double>("grid.min_y", -3.0);
   grid_.max_y = declare_parameter<double>("grid.max_y", 3.0);
-  grid_.min_z = declare_parameter<double>("grid.min_z", 0.0);
+  // 바닥면을 격자에 담으려면 하한이 0 보다 낮아야 한다. 실측에서 바닥이 z ≈ -0.03 m 로
+  // 읽혔고(마운트 높이 가정의 계통 오차), 하한이 0 이면 그 점들이 격자 밖으로 떨어진다.
+  grid_.min_z = declare_parameter<double>("grid.min_z", -0.2);
   grid_.max_z = declare_parameter<double>("grid.max_z", 2.0);
   grid_.resolution = declare_parameter<double>("grid.resolution", 0.05);
 
@@ -258,8 +272,21 @@ bool DepthOccupancyNode::projectCamera(
       if (isInsideFootprint(point.x, point.y, footprint_)) {
         continue;
       }
-      // 바닥면과 천장은 장애물이 아니다.
-      if (point.z < obstacle_z_min_m_ || point.z > obstacle_z_max_m_) {
+      // 천장·상부 구조물은 장애물이 아니다.
+      if (point.z > obstacle_z_max_m_) {
+        continue;
+      }
+
+      // 바닥면은 장애물이 아니지만 버리지도 않는다 — 별도 격자에 담아 따로 발행한다.
+      // 여기서 continue 하므로 바닥은 점유맵에도, 가상 스캔에도 들어가지 않는다.
+      if (point.z < obstacle_z_min_m_) {
+        if (publish_ground_) {
+          std::size_t ground_cell = 0;
+          if (voxelIndex(grid_, point, ground_cell) && ground_occupancy_[ground_cell] == 0U) {
+            ground_occupancy_[ground_cell] = 1U;
+            ground_cells_.push_back(ground_cell);
+          }
+        }
         continue;
       }
 
@@ -291,6 +318,10 @@ void DepthOccupancyNode::onFusionTimer()
     occupancy_[cell] = 0U;
   }
   occupied_cells_.clear();
+  for (const std::size_t cell : ground_cells_) {
+    ground_occupancy_[cell] = 0U;
+  }
+  ground_cells_.clear();
   std::fill(scan_ranges_.begin(), scan_ranges_.end(), std::numeric_limits<float>::infinity());
 
   FusionStats stats;
@@ -363,6 +394,7 @@ void DepthOccupancyNode::onFusionTimer()
   // 보는 것은 "이 표현이 최신인가"가 아니라 "가장 낡은 부분이 얼마나 낡았나"이기 때문이다.
   const rclcpp::Time stamp = has_stamp ? oldest_stamp : now();
   publishOccupancyCloud(stamp);
+  publishGroundCloud(stamp);
   publishVirtualScan(stamp);
 
   RCLCPP_DEBUG(
@@ -371,22 +403,28 @@ void DepthOccupancyNode::onFusionTimer()
     stats.points_kept, stats.voxels_occupied);
 }
 
-void DepthOccupancyNode::publishOccupancyCloud(const rclcpp::Time & stamp)
+void DepthOccupancyNode::publishCells(
+  const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr & publisher,
+  const std::vector<std::size_t> & cells, const rclcpp::Time & stamp)
 {
+  if (!publisher) {
+    return;
+  }
+
   sensor_msgs::msg::PointCloud2 cloud;
   cloud.header.stamp = stamp;
   cloud.header.frame_id = output_frame_;
 
   sensor_msgs::PointCloud2Modifier modifier(cloud);
   modifier.setPointCloud2FieldsByString(1, "xyz");
-  modifier.resize(occupied_cells_.size());
+  modifier.resize(cells.size());
 
   sensor_msgs::PointCloud2Iterator<float> iter_x(cloud, "x");
   sensor_msgs::PointCloud2Iterator<float> iter_y(cloud, "y");
   sensor_msgs::PointCloud2Iterator<float> iter_z(cloud, "z");
 
-  // 점유 셀만 돈다 — 격자 전체(57.6만)가 아니라 점유 수(보통 수천)에 비례한다.
-  for (const std::size_t cell : occupied_cells_) {
+  // 표시된 셀만 돈다 — 격자 전체(57.6만)가 아니라 셀 수(보통 수천)에 비례한다.
+  for (const std::size_t cell : cells) {
     const auto center = voxelCenter(grid_, cell);
     *iter_x = static_cast<float>(center.x);
     *iter_y = static_cast<float>(center.y);
@@ -397,7 +435,17 @@ void DepthOccupancyNode::publishOccupancyCloud(const rclcpp::Time & stamp)
   }
 
   cloud.is_dense = true;
-  cloud_publisher_->publish(cloud);
+  publisher->publish(cloud);
+}
+
+void DepthOccupancyNode::publishOccupancyCloud(const rclcpp::Time & stamp)
+{
+  publishCells(cloud_publisher_, occupied_cells_, stamp);
+}
+
+void DepthOccupancyNode::publishGroundCloud(const rclcpp::Time & stamp)
+{
+  publishCells(ground_publisher_, ground_cells_, stamp);
 }
 
 void DepthOccupancyNode::publishVirtualScan(const rclcpp::Time & stamp)

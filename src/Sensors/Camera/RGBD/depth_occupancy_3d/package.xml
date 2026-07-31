@@ -23,6 +23,9 @@
   <depend>tf2_eigen</depend>
   <depend>eigen</depend>
 
+  <!-- 시각화 전용(view_occupancy.launch.py). 노드 동작에는 필요 없다. -->
+  <exec_depend>rviz2</exec_depend>
+
   <test_depend>ament_cmake_gtest</test_depend>
 
   <export>

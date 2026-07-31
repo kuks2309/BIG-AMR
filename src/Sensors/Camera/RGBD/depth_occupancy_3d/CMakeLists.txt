@@ -80,7 +80,7 @@ install(TARGETS ${PROJECT_NAME}_component
 install(TARGETS ${PROJECT_NAME}_node
   DESTINATION lib/${PROJECT_NAME}
 )
-install(DIRECTORY launch config
+install(DIRECTORY launch config rviz
   DESTINATION share/${PROJECT_NAME}
 )
 
