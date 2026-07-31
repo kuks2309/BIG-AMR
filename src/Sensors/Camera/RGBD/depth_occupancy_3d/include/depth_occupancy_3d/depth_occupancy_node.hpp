@@ -56,6 +56,7 @@ struct CameraStream
 struct FusionStats
 {
   std::size_t cameras_used{0};       ///< 이번 주기에 실제로 투영된 카메라 수
+  std::size_t cameras_stale{0};      ///< 프레임이 너무 낡아 제외된 카메라 수
   std::size_t points_projected{0};   ///< 역투영된 픽셀 수(데시메이션 후)
   std::size_t points_kept{0};        ///< 필터를 통과해 격자에 들어간 점 수
   std::size_t voxels_occupied{0};    ///< 점유로 표시된 보셀 수
@@ -109,6 +110,15 @@ private:
   double obstacle_z_min_m_{0.05};
   double obstacle_z_max_m_{1.8};
   double transform_timeout_s_{0.05};
+  /// 프레임 나이 상한(초). 이보다 낡은 프레임은 융합에서 제외한다.
+  ///
+  /// 이 게이트가 없으면 카메라가 죽어도 마지막 프레임이 영원히 재사용되어, 그 방향 섹터에
+  /// 몇 분 전 장애물이 계속 살아 있는 것처럼 보인다. 60° 섹터마다 카메라가 한 대뿐이라
+  /// 다른 카메라가 그 거짓을 덮어쓰지도 못한다.
+  ///
+  /// 융합 주기보다 낡은 프레임을 재사용하는 것 자체는 정상이다(카메라가 융합보다 느릴 수
+  /// 있다). 막으려는 것은 '느린 프레임'이 아니라 '갱신이 끊긴 프레임'이다.
+  double max_frame_age_s_{0.5};
   GridSpec grid_;
   ScanSpec scan_;
   FootprintHalfExtent footprint_;

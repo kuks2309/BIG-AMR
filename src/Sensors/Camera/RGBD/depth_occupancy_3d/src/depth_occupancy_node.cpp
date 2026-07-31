@@ -96,6 +96,10 @@ void DepthOccupancyNode::declareParameters()
   obstacle_z_max_m_ = declare_parameter<double>("obstacle_z_max_m", 1.8);
   transform_timeout_s_ = declare_parameter<double>("transform_timeout_s", 0.05);
 
+  // 카메라가 융합보다 느린 것은 정상이므로(실측 10~25 fps 대 융합 10 Hz) 융합 주기의
+  // 몇 배로 잡는다. 막으려는 것은 느린 프레임이 아니라 갱신이 끊긴 프레임이다.
+  max_frame_age_s_ = declare_parameter<double>("max_frame_age_s", 0.5);
+
   grid_.min_x = declare_parameter<double>("grid.min_x", -3.0);
   grid_.max_x = declare_parameter<double>("grid.max_x", 3.0);
   grid_.min_y = declare_parameter<double>("grid.min_y", -3.0);
@@ -276,6 +280,26 @@ void DepthOccupancyNode::onFusionTimer()
     }
   }
 
+  // 갱신이 끊긴 프레임을 걷어낸다. 이 게이트가 없으면 카메라가 죽어도 마지막 프레임이
+  // 계속 융합되어 그 방향 섹터에 유령 장애물이 남는다(섹터마다 카메라가 한 대뿐이라
+  // 다른 카메라가 덮어쓰지 못한다).
+  const rclcpp::Time cycle_time = now();
+  for (std::size_t index = 0; index < streams_.size(); ++index) {
+    if (!images[index]) {
+      continue;
+    }
+    const rclcpp::Time stamp(images[index]->header.stamp, cycle_time.get_clock_type());
+    const double age_s = (cycle_time - stamp).seconds();
+    if (age_s > max_frame_age_s_) {
+      images[index].reset();
+      ++stats.cameras_stale;
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), kLogThrottleMs,
+        "[%s] 프레임이 %.2f s 낡아 융합에서 제외한다 (상한 %.2f s) — 카메라가 멈췄을 수 있다",
+        streams_[index].name.c_str(), age_s, max_frame_age_s_);
+    }
+  }
+
   for (std::size_t index = 0; index < streams_.size(); ++index) {
     if (!projectCamera(streams_[index], images[index], infos[index], stats)) {
       continue;
@@ -291,8 +315,18 @@ void DepthOccupancyNode::onFusionTimer()
   if (stats.cameras_used == 0) {
     RCLCPP_WARN_THROTTLE(
       get_logger(), *get_clock(), kLogThrottleMs,
-      "이번 주기에 투영된 카메라가 하나도 없다 — 프레임·camera_info·TF 중 하나가 없다");
+      "이번 주기에 투영된 카메라가 하나도 없다 (낡아서 제외 %zu 대) — "
+      "프레임·camera_info·TF 중 하나가 없다",
+      stats.cameras_stale);
     return;
+  }
+
+  // 일부만 살아 있으면 그 방향 섹터가 비었다는 뜻이라 조용히 넘기지 않는다.
+  if (stats.cameras_used < streams_.size()) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), kLogThrottleMs,
+      "카메라 %zu/%zu 만 융합됐다 (낡아서 제외 %zu 대) — 빠진 방향의 60° 섹터는 관측이 없다",
+      stats.cameras_used, streams_.size(), stats.cameras_stale);
   }
 
   // 융합 결과의 시각은 **가장 오래된** 기여 프레임의 시각으로 찍는다. 소비자(충돌 회피)가
@@ -302,8 +336,9 @@ void DepthOccupancyNode::onFusionTimer()
   publishVirtualScan(stamp);
 
   RCLCPP_DEBUG(
-    get_logger(), "카메라 %zu/%zu, 투영 %zu, 유효 %zu, 점유보셀 %zu", stats.cameras_used,
-    streams_.size(), stats.points_projected, stats.points_kept, stats.voxels_occupied);
+    get_logger(), "카메라 %zu/%zu(낡음 %zu), 투영 %zu, 유효 %zu, 점유보셀 %zu",
+    stats.cameras_used, streams_.size(), stats.cameras_stale, stats.points_projected,
+    stats.points_kept, stats.voxels_occupied);
 }
 
 void DepthOccupancyNode::publishOccupancyCloud(const rclcpp::Time & stamp)
