@@ -1,0 +1,11 @@
+==== CCTV 5-cam 12h SOAK 최종 요약 ====
+start=2026-07-26 19:50:02  end=2026-07-27 07:50:02
+duration=43200s  samples=717  total_alerts=43
+
+  cam0: min_fps=1.14 max_grab_failures=0 stall_events=0 lowfps_events=8 gf_inc_events=0
+  cam1: min_fps=0.58 max_grab_failures=0 stall_events=0 lowfps_events=9 gf_inc_events=0
+  cam2: min_fps=0.50 max_grab_failures=0 stall_events=0 lowfps_events=10 gf_inc_events=0
+  cam3: min_fps=0.72 max_grab_failures=0 stall_events=0 lowfps_events=9 gf_inc_events=0
+  cam4: min_fps=0.72 max_grab_failures=0 stall_events=0 lowfps_events=7 gf_inc_events=0
+
+판정: 검토필요 — 알림 43건 (soak_alerts.log 확인)
