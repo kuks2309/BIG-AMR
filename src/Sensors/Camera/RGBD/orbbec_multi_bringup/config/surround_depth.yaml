@@ -1,0 +1,44 @@
+# Big-AMR surround depth — 스트림 구동점 (operating point)
+#
+# 설계 근거: docs/adr/2026-07-31-surround-depth-occupancy.md §D5
+#
+# ⚠ 아래 기본값은 아직 6대 동시 구동으로 검증되지 않았다.
+#   저장소의 depth 실측은 4대까지이며(docs/usb_cctv/performance/depth/2026-07-22_depth_640x480.md)
+#   그때는 한 호스트 컨트롤러에 몰린 조건이었다. 확정값은 W1 대역 실측이 정한다.
+
+# 전 카메라 공통 기본값
+depth:
+  width: 640
+  height: 480
+  fps: 30
+  format: Y11               # Gemini E 의 depth 포맷 (벤더 launch 기본값과 동일)
+  qos: SENSOR_DATA          # 센서 스트림 = best-effort (ros2-coding.md §1)
+
+# 드라이버 동작
+driver:
+  enable_color: false       # 배타 운용 — RGB 는 CCTV 모드에서만 쓴다 (ADR §D2)
+  enable_ir: false          # 대역 절감. 실제로 꺼지는지는 미검증 (ADR §미검증)
+  enable_point_cloud: false # 역투영은 W6 단일 노드에서 일괄 — 드라이버에 맡기면 CPU 6배 (ADR §D5)
+  enable_ldp: true          # 레이저 안전 (벤더 기본값 유지)
+  enable_soft_filter: true  # 벤더 기본값 유지
+  connection_delay: 100     # ms, 벤더 기본값
+  log_level: none
+
+# 카메라별 구동점 재정의(override).
+#
+# 왜 필요한가: USB 호스트 컨트롤러가 5개인데 카메라는 6대라 한 곳은 반드시 2대가 공유한다.
+# 현재 공유쌍은 cam_lf(sysfs 1-2.1.x) + cam_r(1-3.1.x) 로 둘 다 SoC 내장 tegra-xusb 이다.
+# 그 버스만 대역이 모자라면 두 대의 해상도·FPS 를 낮추는 비대칭 구동점이 된다.
+#
+# 참고: cam_f(3-1.1.x) 는 무선 NIC·CP2102 UART·panda CAN(3-2.x) 과 같은 컨트롤러를 쓴다.
+#       나머지 cam_rf(5-1.1.x) · cam_rr(7-1.1.x) · cam_lr(9-1.1.x) 는 전용 컨트롤러다.
+#
+# 사용 예 (W1 결과 반영 시):
+#   per_camera:
+#     cam_lf: {width: 480, height: 360, fps: 15}
+#     cam_r:  {width: 480, height: 360, fps: 15}
+per_camera: {}
+
+# 차체 풋프린트는 여기 두지 않는다. 이 패키지는 카메라를 띄우기만 하고 그 값을 쓰지 않으며,
+# 실제 소비자는 융합 노드다. 두 곳에 같은 값을 적으면 어긋난다.
+#   → src/Sensors/Camera/RGBD/depth_occupancy_3d/config/depth_occupancy_3d.yaml 의 footprint
