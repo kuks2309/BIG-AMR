@@ -16,7 +16,18 @@ depth:
 
 # 드라이버 동작
 driver:
-  enable_color: false       # 배타 운용 — RGB 는 CCTV 모드에서만 쓴다 (ADR §D2)
+  # 실사 색 입히기(색 스킨)를 쓰려면 true. depth 총량이 92.4 → 62.1 fps 로 줄지만
+  # 전 카메라가 depth 약 10 fps 를 유지해 융합 10 Hz 를 충족한다(2026-07-31 실측).
+  # false 면 depth 전용이라 depth 총량이 최대가 된다.
+  enable_color: true
+  # 컬러 스트림 구동점. **프레임률을 낮게 유지하는 것이 핵심이다** —
+  # 25 fps 에서는 6대 중 4대의 depth 가 아예 멈췄다(depth 합계 13.5 fps).
+  # 색칠에는 초당 몇 장이면 충분하다.
+  color:
+    width: 640
+    height: 360
+    fps: 5
+    format: MJPG
   enable_ir: false          # 대역 절감. 실제로 꺼지는지는 미검증 (ADR §미검증)
   enable_point_cloud: false # 역투영은 W6 단일 노드에서 일괄 — 드라이버에 맡기면 CPU 6배 (ADR §D5)
   enable_ldp: true          # 레이저 안전 (벤더 기본값 유지)

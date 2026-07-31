@@ -49,6 +49,20 @@
     # 눈으로 바닥을 확인하거나 음의 장애물·평면 정합에 쓰기 위한 것이다.
     publish_ground: true
 
+    # 실사 색 입히기 — 점유 보셀에 컬러 카메라의 실제 색을 입힌다.
+    #
+    # 전제: orbbec_multi_bringup 의 surround_depth.yaml 에서 driver.enable_color 가 true 여야
+    #       한다. 컬러가 안 오면 전부 회색으로 나올 뿐 기능이 죽지는 않는다.
+    #
+    # 정합은 이 노드가 직접 한다 — 드라이버의 하드웨어 정합(depth_registration)은 이 모델에서
+    # depth·color 양쪽 camera_info 를 망가뜨린다(fx=-0.000, 2026-07-31 실측). 대신 정합을 끈
+    # 상태의 유효한 두 내부 파라미터와 드라이버가 발행하는 depth→color 외부 파라미터
+    # (베이스라인 12.5 mm)로 역투영 → 좌표 변환 → 투영을 수행한다.
+    #
+    # 대가: depth 총량이 92.4 → 62.1 fps 로 줄어든다(전 카메라 약 10 fps 유지).
+    #       depth 최대 성능이 필요하면 이 값과 driver.enable_color 를 함께 false 로 둔다.
+    enable_color_skin: true
+
     transform_timeout_s: 0.05
 
     # 프레임 나이 상한. 이보다 낡은 프레임은 융합에서 제외한다.

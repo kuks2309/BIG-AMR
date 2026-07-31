@@ -17,6 +17,8 @@
   <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>
   <depend>sensor_msgs</depend>
+  <!-- depth→color 외부 파라미터(Extrinsics). 색 입히기의 소프트웨어 정합에 쓴다. -->
+  <depend>orbbec_camera_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>

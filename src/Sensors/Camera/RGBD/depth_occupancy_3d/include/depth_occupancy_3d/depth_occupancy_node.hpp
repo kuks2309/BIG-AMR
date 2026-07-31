@@ -19,6 +19,8 @@
 #include <string>
 #include <vector>
 
+#include <Eigen/Geometry>
+#include <orbbec_camera_msgs/msg/extrinsics.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
@@ -46,10 +48,41 @@ struct CameraStream
   sensor_msgs::msg::Image::ConstSharedPtr latest_depth;
   sensor_msgs::msg::CameraInfo::ConstSharedPtr latest_info;
 
+  // --- 실사 색 입히기(색 스킨) ---
+  //
+  // 드라이버의 하드웨어 정합(depth_registration)은 이 모델에서 쓸 수 없다 — 켜면
+  // depth·color 양쪽 camera_info 가 모두 깨진 값(fx=-0.000, cy=-1.7e38)이 된다(2026-07-31 실측).
+  // 대신 정합을 끈 상태의 유효한 두 내부 파라미터와 드라이버가 주는 depth→color 외부
+  // 파라미터로 **소프트웨어 정합**을 한다: 역투영 → 컬러 좌표계 변환 → 컬러 영상에 투영.
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr color_subscription;
+  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr color_info_subscription;
+  rclcpp::Subscription<orbbec_camera_msgs::msg::Extrinsics>::SharedPtr extrinsics_subscription;
+
+  sensor_msgs::msg::Image::ConstSharedPtr latest_color;
+  sensor_msgs::msg::CameraInfo::ConstSharedPtr latest_color_info;
+  /// depth 광학 좌표계 → color 광학 좌표계. 정적 값이라 한 번 받으면 갱신되지 않는다.
+  Eigen::Isometry3d depth_to_color{Eigen::Isometry3d::Identity()};
+  bool has_extrinsics{false};
+
   /// 미지원 인코딩 경고를 카메라당 한 번만 내기 위한 표식.
   bool warned_unsupported_encoding{false};
   /// TF 조회 실패 경고를 억제 없이 매번 내면 로그가 막히므로 throttle 과 함께 쓴다.
   bool warned_missing_transform{false};
+};
+
+/// 색 입히기에 필요한 입력 묶음. stream_mutex_ 를 놓기 전에 한 번에 떠 둔다.
+///
+/// 개별 필드를 잠금 밖에서 읽으면 외부 파라미터 쓰기와 경쟁한다(한 번만 쓰이더라도 경쟁은
+/// 경쟁이다). 묶어서 스냅샷하면 그 문제가 사라지고 인자 수도 줄어든다.
+struct ColorSnapshot
+{
+  sensor_msgs::msg::Image::ConstSharedPtr image;
+  sensor_msgs::msg::CameraInfo::ConstSharedPtr info;
+  Eigen::Isometry3d depth_to_color{Eigen::Isometry3d::Identity()};
+  bool has_extrinsics{false};
+
+  /// 색을 구할 수 있는 상태인가.
+  bool isUsable() const { return image && info && has_extrinsics; }
 };
 
 /// 융합 1주기의 집계 결과. 관측성 로그와 시험에서 쓴다.
@@ -87,7 +120,8 @@ private:
   /// \return 투영에 성공했으면 true (프레임·내부파라미터·TF 가 모두 있는 경우).
   bool projectCamera(
     CameraStream & stream, const sensor_msgs::msg::Image::ConstSharedPtr & image,
-    const sensor_msgs::msg::CameraInfo::ConstSharedPtr & info, FusionStats & stats);
+    const sensor_msgs::msg::CameraInfo::ConstSharedPtr & info, const ColorSnapshot & color,
+    FusionStats & stats);
 
   /// depth 픽셀 원값을 m 단위로 바꾼다.
   ///
@@ -105,15 +139,33 @@ private:
   void publishVirtualScan(const rclcpp::Time & stamp);
 
   /// 보셀 인덱스 목록을 PointCloud2 로 만들어 발행한다.
+  ///
+  /// \param colors cells 와 같은 길이면 rgb 필드를 함께 싣는다. 비어 있으면 xyz 만 싣는다.
   void publishCells(
     const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr & publisher,
-    const std::vector<std::size_t> & cells, const rclcpp::Time & stamp);
+    const std::vector<std::size_t> & cells, const std::vector<std::uint32_t> & colors,
+    const rclcpp::Time & stamp);
+
+  /// depth 광학 좌표계의 점에 대응하는 색을 컬러 영상에서 읽는다.
+  ///
+  /// 소프트웨어 정합: 점을 컬러 좌표계로 옮긴 뒤 컬러 내부 파라미터로 투영해 픽셀을 찾는다.
+  /// 베이스라인이 12.5 mm 라 이 보정을 빼면 근거리(0.3 m)에서 약 15 픽셀이 어긋난다.
+  ///
+  /// 인자는 모두 stream_mutex_ 를 놓은 뒤 넘겨받은 스냅샷이다(projectCamera 와 같은 이유).
+  ///
+  /// \param[out] color 성공 시 0x00RRGGBB 로 기록된다.
+  /// \return 색을 구했으면 true. 컬러 영상·내부/외부 파라미터가 없거나 시야 밖이면 false.
+  bool sampleColor(
+    const ColorSnapshot & color, const Point3 & optical_point, std::uint32_t & rgb) const;
 
   // --- 파라미터 ---
   std::string output_frame_;
   std::vector<std::string> camera_names_;
   std::string depth_image_suffix_;
   std::string depth_info_suffix_;
+  std::string color_image_suffix_;
+  std::string color_info_suffix_;
+  std::string extrinsics_suffix_;
   int decimation_{4};
   double min_range_m_{0.2};
   double max_range_m_{2.5};
@@ -150,6 +202,14 @@ private:
   /// 수에 비례한다. (융합 처리율의 병목은 이것이 아니라 빌드 최적화 부재였다 — CMakeLists
   /// 의 CMAKE_BUILD_TYPE 주석 참조.)
   std::vector<std::size_t> occupied_cells_;
+
+  /// occupied_cells_ 와 같은 순서로 대응하는 색(0x00RRGGBB).
+  ///
+  /// 보셀에 처음 들어온 점의 색을 쓴다(선착순). 평균을 내면 누산기가 필요하고, 한 보셀
+  /// (5 cm)에 들어오는 점들은 대개 같은 표면이라 색 차이가 크지 않다.
+  /// 색을 못 구한 점은 회색으로 둔다 — 클라우드 필드 구성을 프레임마다 바꾸지 않기 위함이다.
+  std::vector<std::uint32_t> occupied_colors_;
+  bool enable_color_skin_{false};
 
   /// 바닥면으로 분류된 셀. 장애물과 **같은 격자**를 쓰되 표식 버퍼를 분리한다.
   ///

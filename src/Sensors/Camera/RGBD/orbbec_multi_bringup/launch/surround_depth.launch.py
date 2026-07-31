@@ -235,6 +235,7 @@ def _depth_params(defaults, driver, override):
     Returns:
         드라이버에 넘길 파라미터 dict.
     """
+    color = driver.get("color") or {}
     return {
         "enable_depth": True,
         "depth_width": int(override.get("width", defaults["width"])),
@@ -244,10 +245,21 @@ def _depth_params(defaults, driver, override):
         "depth_qos": str(override.get("qos", defaults["qos"])),
         "depth_camera_info_qos": str(override.get("qos", defaults["qos"])),
         "enable_color": bool(driver["enable_color"]),
+        # 컬러 스트림 — 실사 색 입히기용. 프레임률을 낮게 유지하는 것이 핵심이다:
+        # 2026-07-31 실측에서 컬러 25 fps 면 6대 중 4대의 depth 가 아예 멈췄고(합계 13.5 fps),
+        # 5 fps 로 낮추자 전 카메라가 depth 약 10 fps 를 유지했다(합계 62.1 fps).
+        "color_width": int(color.get("width", 640)),
+        "color_height": int(color.get("height", 360)),
+        "color_fps": int(color.get("fps", 5)),
+        "color_format": str(color.get("format", "MJPG")),
+        # depth→color 외부 파라미터 발행. 융합 노드가 소프트웨어 정합에 쓴다.
+        # 드라이버의 하드웨어 정합(depth_registration)은 이 모델에서 camera_info 를
+        # 망가뜨려 쓸 수 없다(2026-07-31 실측) — 그래서 정합은 융합 노드가 직접 한다.
+        "enable_publish_extrinsic": bool(driver["enable_color"]),
+        "depth_registration": False,
         "enable_ir": bool(driver["enable_ir"]),
         "enable_point_cloud": bool(driver["enable_point_cloud"]),
         "enable_colored_point_cloud": False,
-        "depth_registration": False,
         "enable_ldp": bool(driver["enable_ldp"]),
         "enable_soft_filter": bool(driver["enable_soft_filter"]),
         "connection_delay": int(driver["connection_delay"]),

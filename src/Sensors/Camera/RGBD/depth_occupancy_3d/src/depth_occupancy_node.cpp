@@ -23,6 +23,8 @@ namespace
 constexpr double kMillimetersToMeters = 0.001;
 /// 로그 폭주를 막는 throttle 주기.
 constexpr int kLogThrottleMs = 5000;
+/// 색을 구하지 못한 보셀의 기본색(중간 회색). depth 시야가 컬러보다 넓어 주변부는 색이 없다.
+constexpr std::uint32_t kUnknownColor = 0x00808080U;
 
 /// 이 노드가 해독할 수 있는 depth 인코딩인지.
 bool isSupportedDepthEncoding(const sensor_msgs::msg::Image & image)
@@ -51,6 +53,9 @@ DepthOccupancyNode::DepthOccupancyNode(const rclcpp::NodeOptions & options)
   // 실측 점유는 1,700~1,900 셀이었다. 재할당이 융합 루프 안에서 일어나지 않도록 넉넉히
   // 잡아 둔다(상한은 어차피 격자 크기라 무한히 자라지 않는다).
   occupied_cells_.reserve(std::min<std::size_t>(grid_.cellCount(), 65536));
+  if (enable_color_skin_) {
+    occupied_colors_.reserve(std::min<std::size_t>(grid_.cellCount(), 65536));
+  }
   if (publish_ground_) {
     ground_occupancy_.assign(grid_.cellCount(), 0U);
     ground_cells_.reserve(std::min<std::size_t>(grid_.cellCount(), 65536));
@@ -94,6 +99,13 @@ void DepthOccupancyNode::declareParameters()
                                              "cam_rf"});
   depth_image_suffix_ = declare_parameter<std::string>("depth_image_suffix", "/depth/image_raw");
   depth_info_suffix_ = declare_parameter<std::string>("depth_info_suffix", "/depth/camera_info");
+  color_image_suffix_ = declare_parameter<std::string>("color_image_suffix", "/color/image_raw");
+  color_info_suffix_ = declare_parameter<std::string>("color_info_suffix", "/color/camera_info");
+  extrinsics_suffix_ = declare_parameter<std::string>("extrinsics_suffix", "/depth_to_color");
+
+  // 실사 색 입히기. 카메라 쪽에서 컬러 스트림과 enable_publish_extrinsic 이 켜져 있어야 한다.
+  // 켜도 컬러가 안 오면 색 없이(회색) 동작하므로 기능이 죽지는 않는다.
+  enable_color_skin_ = declare_parameter<bool>("enable_color_skin", false);
 
   declare_parameter<double>("rate_hz", 10.0);
 
@@ -167,6 +179,46 @@ void DepthOccupancyNode::createSubscriptions()
         const std::lock_guard<std::mutex> lock(stream_mutex_);
         streams_[index].latest_info = std::move(message);
       });
+
+    if (!enable_color_skin_) {
+      continue;
+    }
+
+    streams_[index].color_subscription = create_subscription<sensor_msgs::msg::Image>(
+      "/" + name + color_image_suffix_, qos,
+      [this, index](sensor_msgs::msg::Image::ConstSharedPtr message) {
+        const std::lock_guard<std::mutex> lock(stream_mutex_);
+        streams_[index].latest_color = std::move(message);
+      });
+
+    streams_[index].color_info_subscription = create_subscription<sensor_msgs::msg::CameraInfo>(
+      "/" + name + color_info_suffix_, qos,
+      [this, index](sensor_msgs::msg::CameraInfo::ConstSharedPtr message) {
+        const std::lock_guard<std::mutex> lock(stream_mutex_);
+        streams_[index].latest_color_info = std::move(message);
+      });
+
+    // 외부 파라미터는 정적 값이라 한 번만 실린다. 늦게 붙는 구독자도 받을 수 있도록
+    // transient_local 로 맞춘다(드라이버가 그렇게 발행한다).
+    streams_[index].extrinsics_subscription =
+      create_subscription<orbbec_camera_msgs::msg::Extrinsics>(
+        "/" + name + extrinsics_suffix_, rclcpp::QoS(1).transient_local(),
+        [this, index](orbbec_camera_msgs::msg::Extrinsics::ConstSharedPtr message) {
+          Eigen::Matrix3d rotation;
+          for (int row = 0; row < 3; ++row) {
+            for (int col = 0; col < 3; ++col) {
+              rotation(row, col) = message->rotation[static_cast<std::size_t>(row * 3 + col)];
+            }
+          }
+          Eigen::Isometry3d transform = Eigen::Isometry3d::Identity();
+          transform.linear() = rotation;
+          transform.translation() = Eigen::Vector3d(
+            message->translation[0], message->translation[1], message->translation[2]);
+
+          const std::lock_guard<std::mutex> lock(stream_mutex_);
+          streams_[index].depth_to_color = transform;
+          streams_[index].has_extrinsics = true;
+        });
   }
 }
 
@@ -196,9 +248,63 @@ bool DepthOccupancyNode::depthToMeters(
   return depth_m <= max_range_m_;
 }
 
+bool DepthOccupancyNode::sampleColor(
+  const ColorSnapshot & color, const Point3 & optical_point, std::uint32_t & rgb) const
+{
+  if (!color.isUsable()) {
+    return false;
+  }
+  const auto & color_image = color.image;
+  const auto & color_info = color.info;
+  const PinholeIntrinsics color_k{
+    color_info->k[0], color_info->k[4], color_info->k[2], color_info->k[5]};
+  if (!color_k.isUsable()) {
+    return false;
+  }
+
+  const bool is_rgb = color_image->encoding == sensor_msgs::image_encodings::RGB8;
+  const bool is_bgr = color_image->encoding == sensor_msgs::image_encodings::BGR8;
+  if ((!is_rgb && !is_bgr) || color_image->is_bigendian != 0) {
+    return false;
+  }
+
+  // depth 광학 좌표계 → color 광학 좌표계. 외부 파라미터 translation 은 m 단위다
+  // (실측값 x = -0.01252 → 베이스라인 12.5 mm, 이 모델의 물리 간격과 부합).
+  const Eigen::Vector3d in_color =
+    color.depth_to_color * Eigen::Vector3d(optical_point.x, optical_point.y, optical_point.z);
+  if (in_color.z() <= 0.0) {
+    return false;  // 컬러 카메라 뒤쪽
+  }
+
+  const double u = color_k.fx * in_color.x() / in_color.z() + color_k.cx;
+  const double v = color_k.fy * in_color.y() / in_color.z() + color_k.cy;
+  if (u < 0.0 || v < 0.0) {
+    return false;
+  }
+  const auto col = static_cast<std::size_t>(u);
+  const auto row = static_cast<std::size_t>(v);
+  if (col >= color_image->width || row >= color_image->height) {
+    return false;  // depth 시야가 컬러보다 넓어 주변부는 색이 없다
+  }
+
+  const std::size_t offset = row * color_image->step + col * 3U;
+  if (offset + 2U >= color_image->data.size()) {
+    return false;
+  }
+  const std::uint8_t first = color_image->data[offset];
+  const std::uint8_t green = color_image->data[offset + 1U];
+  const std::uint8_t third = color_image->data[offset + 2U];
+  const std::uint8_t red = is_rgb ? first : third;
+  const std::uint8_t blue = is_rgb ? third : first;
+  rgb = (static_cast<std::uint32_t>(red) << 16) | (static_cast<std::uint32_t>(green) << 8) |
+        static_cast<std::uint32_t>(blue);
+  return true;
+}
+
 bool DepthOccupancyNode::projectCamera(
   CameraStream & stream, const sensor_msgs::msg::Image::ConstSharedPtr & image,
-  const sensor_msgs::msg::CameraInfo::ConstSharedPtr & info, FusionStats & stats)
+  const sensor_msgs::msg::CameraInfo::ConstSharedPtr & info, const ColorSnapshot & color,
+  FusionStats & stats)
 {
   if (!image || !info) {
     return false;
@@ -296,6 +402,13 @@ bool DepthOccupancyNode::projectCamera(
       if (voxelIndex(grid_, point, cell) && occupancy_[cell] == 0U) {
         occupancy_[cell] = 1U;
         occupied_cells_.push_back(cell);
+        if (enable_color_skin_) {
+          // 보셀에 처음 들어온 점의 색을 쓴다(선착순). 색을 못 구하면 회색으로 둔다 —
+          // 클라우드 필드 구성을 프레임마다 바꾸지 않기 위함이다.
+          std::uint32_t rgb = kUnknownColor;
+          sampleColor(color, optical, rgb);
+          occupied_colors_.push_back(rgb);
+        }
         ++stats.voxels_occupied;
       }
 
@@ -318,6 +431,7 @@ void DepthOccupancyNode::onFusionTimer()
     occupancy_[cell] = 0U;
   }
   occupied_cells_.clear();
+  occupied_colors_.clear();
   for (const std::size_t cell : ground_cells_) {
     ground_occupancy_[cell] = 0U;
   }
@@ -333,11 +447,18 @@ void DepthOccupancyNode::onFusionTimer()
   // (같은 형태의 선례: docs/issues_and_fixes/issues_and_fixes.md:241-252).
   std::vector<sensor_msgs::msg::Image::ConstSharedPtr> images(streams_.size());
   std::vector<sensor_msgs::msg::CameraInfo::ConstSharedPtr> infos(streams_.size());
+  std::vector<ColorSnapshot> colors(streams_.size());
   {
     const std::lock_guard<std::mutex> lock(stream_mutex_);
     for (std::size_t index = 0; index < streams_.size(); ++index) {
       images[index] = streams_[index].latest_depth;
       infos[index] = streams_[index].latest_info;
+      if (enable_color_skin_) {
+        colors[index].image = streams_[index].latest_color;
+        colors[index].info = streams_[index].latest_color_info;
+        colors[index].depth_to_color = streams_[index].depth_to_color;
+        colors[index].has_extrinsics = streams_[index].has_extrinsics;
+      }
     }
   }
 
@@ -362,7 +483,7 @@ void DepthOccupancyNode::onFusionTimer()
   }
 
   for (std::size_t index = 0; index < streams_.size(); ++index) {
-    if (!projectCamera(streams_[index], images[index], infos[index], stats)) {
+    if (!projectCamera(streams_[index], images[index], infos[index], colors[index], stats)) {
       continue;
     }
     ++stats.cameras_used;
@@ -405,18 +526,25 @@ void DepthOccupancyNode::onFusionTimer()
 
 void DepthOccupancyNode::publishCells(
   const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr & publisher,
-  const std::vector<std::size_t> & cells, const rclcpp::Time & stamp)
+  const std::vector<std::size_t> & cells, const std::vector<std::uint32_t> & colors,
+  const rclcpp::Time & stamp)
 {
   if (!publisher) {
     return;
   }
+
+  const bool with_color = colors.size() == cells.size();
 
   sensor_msgs::msg::PointCloud2 cloud;
   cloud.header.stamp = stamp;
   cloud.header.frame_id = output_frame_;
 
   sensor_msgs::PointCloud2Modifier modifier(cloud);
-  modifier.setPointCloud2FieldsByString(1, "xyz");
+  if (with_color) {
+    modifier.setPointCloud2FieldsByString(2, "xyz", "rgb");
+  } else {
+    modifier.setPointCloud2FieldsByString(1, "xyz");
+  }
   modifier.resize(cells.size());
 
   sensor_msgs::PointCloud2Iterator<float> iter_x(cloud, "x");
@@ -424,8 +552,8 @@ void DepthOccupancyNode::publishCells(
   sensor_msgs::PointCloud2Iterator<float> iter_z(cloud, "z");
 
   // 표시된 셀만 돈다 — 격자 전체(57.6만)가 아니라 셀 수(보통 수천)에 비례한다.
-  for (const std::size_t cell : cells) {
-    const auto center = voxelCenter(grid_, cell);
+  for (std::size_t i = 0; i < cells.size(); ++i) {
+    const auto center = voxelCenter(grid_, cells[i]);
     *iter_x = static_cast<float>(center.x);
     *iter_y = static_cast<float>(center.y);
     *iter_z = static_cast<float>(center.z);
@@ -434,18 +562,30 @@ void DepthOccupancyNode::publishCells(
     ++iter_z;
   }
 
+  if (with_color) {
+    // rgb 필드는 float 로 선언되지만 내용은 0x00RRGGBB 비트패턴이다(PointCloud2 관례).
+    sensor_msgs::PointCloud2Iterator<std::uint8_t> iter_rgb(cloud, "rgb");
+    for (std::size_t i = 0; i < cells.size(); ++i) {
+      iter_rgb[0] = static_cast<std::uint8_t>(colors[i] & 0xFFU);          // B
+      iter_rgb[1] = static_cast<std::uint8_t>((colors[i] >> 8) & 0xFFU);   // G
+      iter_rgb[2] = static_cast<std::uint8_t>((colors[i] >> 16) & 0xFFU);  // R
+      ++iter_rgb;
+    }
+  }
+
   cloud.is_dense = true;
   publisher->publish(cloud);
 }
 
 void DepthOccupancyNode::publishOccupancyCloud(const rclcpp::Time & stamp)
 {
-  publishCells(cloud_publisher_, occupied_cells_, stamp);
+  publishCells(cloud_publisher_, occupied_cells_, occupied_colors_, stamp);
 }
 
 void DepthOccupancyNode::publishGroundCloud(const rclcpp::Time & stamp)
 {
-  publishCells(ground_publisher_, ground_cells_, stamp);
+  // 바닥은 확인용이라 색을 입히지 않는다 — 색 조회 비용을 바닥 4천여 점에 쓸 이유가 없다.
+  publishCells(ground_publisher_, ground_cells_, {}, stamp);
 }
 
 void DepthOccupancyNode::publishVirtualScan(const rclcpp::Time & stamp)
