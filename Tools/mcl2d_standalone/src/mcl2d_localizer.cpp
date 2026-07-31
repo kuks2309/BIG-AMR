@@ -40,8 +40,20 @@ Pose2D Mcl2dLocalizer::update(const Pose2D &prev_odom, const Pose2D &cur_odom, c
     //   스캔 적용 → 직전 추정 자세의 우도 → 산포 모드 선택 → kMove(정지면 생략) → kExtraMove → 우도갱신 → 추정 → 리샘플.
     pf_->applyScan(scans);
     const ControlIncrement2D ctrl = supplyControlVar(prev_odom, cur_odom);
+
+    // 산포 모드 판정은 **직전 판정 이후 누적** 이동량으로 한다 — 원본이 DoNormalUpdateAction 안의
+    //   정적 기준점(accumu)과의 차를 쓰고 그 자리에서 기준점을 갱신하기 때문이다(대조 문서 §1.1.2).
+    //   주기당 증분을 쓰면 스캔이 오도보다 느릴 때 이동량이 과소평가돼 모드가 최소 산포로 치우친다.
+    if (!has_accum_)
+    {
+        accum_odom_ = prev_odom;
+        has_accum_ = true;
+    }
+    const ControlIncrement2D accum = supplyControlVar(accum_odom_, cur_odom);
+    accum_odom_ = cur_odom;
+
     const ExtraMoveParams extra =
-        selectExtraMove(ctrl.trans, ctrl.dtheta, pf_->likelihoodAt(pf_->estimate()), params_);
+        selectExtraMove(accum.trans, accum.dtheta, pf_->likelihoodAt(pf_->estimate()), params_);
     if (!stopped)
     {
         // 원본 DoMoveAction @0x3d7d13: cv.is_stop 이면 kMove 자체를 건너뛴다(정지 중 파티클 전진 금지).
@@ -54,15 +66,14 @@ Pose2D Mcl2dLocalizer::update(const Pose2D &prev_odom, const Pose2D &cur_odom, c
     last_extra_move_ = extra;
 
     // 위치추정 상태 판정 (Seer §6.6 ②③): 슬립 우선, 아니면 신뢰도 게이트.
-    const double trans_odo = std::hypot(cur_odom.x - prev_odom.x, cur_odom.y - prev_odom.y);
-    const double dth_odo = normalizeAngle(cur_odom.theta - prev_odom.theta);
+    //   휠 오도 이동량은 위에서 구한 주기 증분(ctrl)을 그대로 쓴다 — 같은 양을 두 번 계산하지 않는다.
     double trans_state = 0.0, dth_state = 0.0;
     if (has_prev_est_)
     {
         trans_state = std::hypot(est.x - prev_est_.x, est.y - prev_est_.y);
         dth_state = normalizeAngle(est.theta - prev_est_.theta);
     }
-    LocReportState st = skid_.update(trans_odo, dth_odo, trans_state, dth_state, stopped, dt);
+    LocReportState st = skid_.update(ctrl.trans, ctrl.dtheta, trans_state, dth_state, stopped, dt);
     if (st == LocReportState::Normal && pf_->meanWeight() < params_.stop_confidence)
     {
         st = LocReportState::LowConfidence; // 저신뢰 정지

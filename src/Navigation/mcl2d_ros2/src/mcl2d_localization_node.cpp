@@ -7,6 +7,7 @@
 #include <optional>
 
 #include "geometry_msgs/msg/transform_stamped.hpp"
+#include "mcl2d_core/motion_model.hpp" // normalizeAngle
 #include "mcl2d_localizer.hpp"
 #include "mcl2d_map/smap.hpp"
 #include "mcl2d_ros2/conversions.hpp"
@@ -25,7 +26,8 @@ class Mcl2dLocalizationNode : public rclcpp::Node
         const double init_y = declare_parameter<double>("init_y", 0.0);
         const double init_theta = declare_parameter<double>("init_theta", 0.0);
 
-        loc_ = std::make_unique<Mcl2dLocalizer>(Mcl2dParams{}, /*seed=*/17);
+        // 파라미터는 노드가 단일 소유한다 — 로컬라이저에 넘긴 것과 정지 판정에 쓰는 것이 갈리지 않도록.
+        loc_ = std::make_unique<Mcl2dLocalizer>(params_, /*seed=*/17);
         if (!map_path.empty())
         {
             SmapMap m = loadSmap(map_path);
@@ -54,28 +56,40 @@ class Mcl2dLocalizationNode : public rclcpp::Node
     }
 
   private:
+    // 정지 판정. 원본은 오도 메시지의 is_stop 플래그를 쓰지만(DoMoveAction @0x3d7d13 의 kMove 생략 분기)
+    //   nav_msgs/Odometry 에는 그 필드가 없다. **pose 증분을 1차 근거**로 쓰고 twist 는 보조로만 쓴다 —
+    //   twist 는 선택 필드라 채우지 않는 발행자에서 0 으로 오고, twist 만 믿으면 항상 정지로 판정해
+    //   예측(kMove)이 영구 생략된다(코드리뷰 2026-07-31 H1).
+    bool isStopped(const nav_msgs::msg::Odometry &o, const Pose2D &cur, double dt) const
+    {
+        if (dt > 1e-6 && prev_odom_)
+        {
+            const double v = std::hypot(cur.x - prev_odom_->x, cur.y - prev_odom_->y) / dt;
+            const double w = std::fabs(normalizeAngle(cur.theta - prev_odom_->theta)) / dt;
+            return v < params_.motor_stop_threshold && w < params_.motor_stop_threshold;
+        }
+        // dt 를 못 구할 때만(스탬프 0·역행) twist 폴백. 전부 0 인 twist 는 '미채움'으로 보고 이동으로 취급한다.
+        const double v = std::hypot(o.twist.twist.linear.x, o.twist.twist.linear.y);
+        const double w = std::fabs(o.twist.twist.angular.z);
+        if (v == 0.0 && w == 0.0)
+            return false;
+        return v < params_.motor_stop_threshold && w < params_.motor_stop_threshold;
+    }
+
     void onOdom(const nav_msgs::msg::Odometry &o)
     {
         const Pose2D cur = fromRosOdom(o);
-        if (!prev_odom_)
+        const rclcpp::Time stamp(o.header.stamp);
+        if (!prev_odom_ || !front_ || !rear_)
         {
+            // 첫 샘플이거나 스캔 대기 — 기준만 세우고 반환한다(두 경로가 같은 상태를 남겨야 dt 가 어긋나지 않는다).
             prev_odom_ = cur;
+            prev_stamp_ = stamp;
             return;
         }
-        if (!front_ || !rear_)
-        {
-            prev_odom_ = cur;
-            prev_stamp_ = rclcpp::Time(o.header.stamp);
-            return;
-        } // 스캔 대기
 
-        // 원본은 오도 메시지의 is_stop 플래그를 쓴다(DoMoveAction 의 kMove 생략 분기). nav_msgs/Odometry 에는
-        // 그 플래그가 없으므로 twist 크기를 MotorStopThreshold(원본 배포값 0.02)와 비교해 대체한다.
-        const Mcl2dParams p{};
-        const double v = std::hypot(o.twist.twist.linear.x, o.twist.twist.linear.y);
-        const bool stopped = (v < p.motor_stop_threshold) && (std::fabs(o.twist.twist.angular.z) < p.motor_stop_threshold);
-        const rclcpp::Time stamp(o.header.stamp);
         const double dt = prev_stamp_ ? std::max(0.0, (stamp - *prev_stamp_).seconds()) : 0.0;
+        const bool stopped = isStopped(o, cur, dt);
 
         std::vector<LaserScan> scans = {*front_, *rear_};
         const Pose2D est = loc_->update(*prev_odom_, cur, scans, stopped, dt);
@@ -96,6 +110,7 @@ class Mcl2dLocalizationNode : public rclcpp::Node
         tf_->sendTransform(tf);
     }
 
+    Mcl2dParams params_{}; // 로컬라이저와 정지 판정이 공유하는 단일 소유 파라미터
     std::unique_ptr<Mcl2dLocalizer> loc_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_odom_;

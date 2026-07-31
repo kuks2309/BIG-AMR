@@ -71,6 +71,8 @@ class Mcl2dLocalizer
     ExtraMoveParams last_extra_move_;
     Pose2D prev_est_;
     bool has_prev_est_ = false;
+    Pose2D accum_odom_;     // 산포 모드 판정용 기준점 (원본 DoNormalUpdateAction 의 정적 accumu 대응)
+    bool has_accum_ = false;
 };
 
 } // namespace mcl2d

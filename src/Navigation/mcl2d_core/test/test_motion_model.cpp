@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "mcl2d_core/motion_model.hpp"
+#include "mcl2d_core/particle_filter.hpp"
 
 using namespace mcl2d;
 
@@ -174,14 +175,53 @@ static void testSelectExtraMove()
     }
 }
 
+// ── ParticleFilter2D 액션 분리: predict(kMove)는 결정론, extraMove(kExtraMove)만 퍼뜨린다 ──
+static void testParticleFilterActions()
+{
+    ObservationField field;
+    field.build({{0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}}, {});
+    Mcl2dParams pr;
+    pr.init_particle_number = 200;
+    pr.init_dist_scatter = 0.0; // 한 점에서 시작해야 이동량을 정확히 볼 수 있다
+    pr.init_angle_scatter = 0.0;
+    ParticleFilter2D pf(pr, std::move(field), LaserMount{}, /*seed=*/3);
+    pf.initialize({0.0, 0.0, 0.0});
+
+    auto meanX = [&pf]() {
+        double s = 0.0;
+        for (const auto &p : pf.particles())
+            s += p.pose.x;
+        return s / static_cast<double>(pf.particles().size());
+    };
+
+    // predict: 1m 전진 증분이 그대로 반영되고 파티클 간 산포가 생기지 않는다(결정론).
+    pf.predict({0, 0, 0}, {1.0, 0, 0});
+    CHECK(near(meanX(), 1.0, 1e-9), "predict 평균 이동 1m");
+    double spread = 0.0;
+    for (const auto &p : pf.particles())
+        spread = std::max(spread, std::fabs(p.pose.x - 1.0));
+    CHECK(spread < 1e-12, "predict 는 산포를 만들지 않는다");
+
+    // extraMove: 반폭 안에서만 퍼진다.
+    const ExtraMoveParams e{0.040, 0.052, 1};
+    pf.extraMove(e);
+    double max_dev = 0.0;
+    for (const auto &p : pf.particles())
+        max_dev = std::max(max_dev, std::fabs(p.pose.x - 1.0));
+    CHECK(max_dev <= e.radius * 0.5 + 1e-12, "extraMove 반폭 초과");
+    CHECK(max_dev > 0.0, "extraMove 가 산포를 만들지 않았다");
+}
+
 int main()
 {
     testSupplyControlVar();
     testDoParticleMove();
     testDoExtraMove();
     testSelectExtraMove();
+    testParticleFilterActions();
     if (g_fail == 0)
-        std::printf("[PASS] motion_model 단위 검증 통과 (supplyControlVar/doParticleMove/doExtraMove/selectExtraMove)\n");
+        std::printf("[PASS] motion_model 단위 검증 통과 (supplyControlVar/doParticleMove/doExtraMove/"
+                    "selectExtraMove/PF 액션분리)\n");
     else
         std::printf("[FAIL] %d 건 실패\n", g_fail);
     return g_fail == 0 ? 0 : 1;
