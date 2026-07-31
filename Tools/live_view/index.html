@@ -330,6 +330,14 @@
   // robot half-length + clearance. Driving to a machine's own coordinates
   // means driving into it.
   const APPROACH_DISTANCE = 1.6;
+
+  // Same numbers the Gazebo ACS uses (sim_acs.py), so the two agree.
+  const DWELL_SECONDS   = 3.0;   // loading time at the source
+  const INFLUENCE_R     = 1.9;   // obstacles nearer than this push back
+  const CRITICAL_R      = 0.7;   // push reaches maximum here
+  const MAX_REPULSION   = 0.85;  // capped BELOW the attraction of 1.0, so
+                                 // avoidance can deflect but never take over
+  const DOCK_FADE_M     = 2.2;   // avoidance fades out this close to the goal
   function approachOf(st) {
     const d = Math.hypot(st.x, st.y) || 1;
     return { x: st.x - st.x / d * APPROACH_DISTANCE,
@@ -379,7 +387,7 @@
     sim.robots.push({
       id: "AMR-" + i,
       x: -4.5 + (i - 1) * 2.2, y: -1.2,
-      steer: 0, job: null, goal: null, speed: 1.05
+      steer: 0, job: null, goal: null, speed: 1.05, dwellLeft: 0
     });
   }
 
@@ -479,11 +487,57 @@
     }
   }
 
+  /** Everything solid on the floor: the machines are obstacles too, which is
+   *  why the robot parks in front of them rather than at them. */
+  function solidThings() {
+    return OBSTACLES.map(o => ({ x: o.x, y: o.y, r: Math.max(o.w, o.h) / 2 }))
+      .concat(STATIONS.map(st => ({ x: st.x, y: st.y, r: 0.6 })));
+  }
+
+  /** Bounded push away from obstacles, mirroring sim_acs._repulsion().
+   *  The obstacles set the DIRECTION; the single closest one sets the
+   *  STRENGTH, capped below the attraction. An unbounded sum here would make
+   *  the robot flee walls instead of seeking its goal — which is exactly what
+   *  went wrong in the real simulator. */
+  function repulsion(r) {
+    let dx = 0, dy = 0, closest = Infinity;
+    for (const o of solidThings()) {
+      const ex = r.x - o.x, ey = r.y - o.y;
+      const d = Math.max(0.15, Math.hypot(ex, ey) - o.r);
+      if (d >= INFLUENCE_R) continue;
+      closest = Math.min(closest, d);
+      const w = 1 / (d * d);
+      dx += ex / (d || 1) * w;
+      dy += ey / (d || 1) * w;
+    }
+    if (!isFinite(closest)) return { x: 0, y: 0 };
+    const n = Math.hypot(dx, dy);
+    if (n < 1e-9) return { x: 0, y: 0 };
+    const t = Math.max(0, Math.min(1,
+      (INFLUENCE_R - closest) / (INFLUENCE_R - CRITICAL_R)));
+    const strength = t * MAX_REPULSION;
+    return { x: dx / n * strength, y: dy / n * strength };
+  }
+
   // ---------------------------------------------------------------- robots
   function driveRobots(dt) {
     if (sim.robots.some(r => r.job)) wake("robot", "driving");
     sim.robots.forEach(r => {
       if (!r.job || !r.goal) return;
+
+      // Loading takes real time on a real line — stand still while it happens.
+      if (r.dwellLeft > 0) {
+        r.dwellLeft -= dt;
+        if (r.dwellLeft <= 0) {
+          r.dwellLeft = 0;
+          const dst = STATIONS.find(s => s.id === r.job.to);
+          r.goal = approachOf(dst);
+          r.leg = "deliver";
+          wake("robot", `${r.job.id} loaded`);
+          say("acs", `${r.id} loaded at ${r.job.from} — delivering`);
+        }
+        return;
+      }
 
       const ex = r.goal.x - r.x, ey = r.goal.y - r.y;
       const dist = Math.hypot(ex, ey);
@@ -495,16 +549,14 @@
           const src = STATIONS.find(s => s.id === r.job.from);
           if (src) src.ready = false;
           r.job.state = "RUNNING";
-          r.leg = "deliver";
-          const dst = STATIONS.find(s => s.id === r.job.to);
-          r.goal = approachOf(dst);
-          say("acs", `${r.id} loaded at ${r.job.from} — delivering`);
+          r.dwellLeft = DWELL_SECONDS;      // stand still and load
+          say("acs", `${r.id} at ${r.job.from} — loading ${DWELL_SECONDS}s`);
         } else {
           r.job.state = "DONE";
           wake("jobs", `${r.job.id} done`);
           sim.done++;
           say("done", `${r.job.id} complete — delivered by ${r.id}`);
-          r.job = null; r.goal = null; r.leg = null;
+          r.job = null; r.goal = null; r.leg = null; r.dwellLeft = 0;
         }
         return;
       }
@@ -513,14 +565,24 @@
       // translates without turning, so heading never changes. The steering
       // angle shown on the wheels is the travel direction folded into +/-90,
       // exactly as the real inverse kinematics normalises it.
-      let a = Math.atan2(ey, ex);
+      let a = Math.atan2(vy, vx);
       if (a >  Math.PI / 2) a -= Math.PI;
       if (a < -Math.PI / 2) a += Math.PI;
       r.steer += (a - r.steer) * Math.min(1, dt * 4);   // steering servos are not instant
 
+      // Attraction is normalised to 1; avoidance fades to nothing near the
+      // goal so the approach point — deliberately close to a machine — stays
+      // reachable. Without that fade the two forces cancel and the robot
+      // stalls just short: the classic goal-near-obstacle deadlock.
+      const fade = Math.min(1, dist / DOCK_FADE_M);
+      const rep = repulsion(r);
+      let vx = ex / dist + fade * rep.x;
+      let vy = ey / dist + fade * rep.y;
+      const mag = Math.hypot(vx, vy) || 1;
+
       const v = Math.min(r.speed, dist * 1.6);
-      r.x += (ex / dist) * v * dt;
-      r.y += (ey / dist) * v * dt;
+      r.x += (vx / mag) * v * dt;
+      r.y += (vy / mag) * v * dt;
     });
   }
 
@@ -536,6 +598,7 @@
                         : r.leg === "collect" ? "--r-collect"
                         : "--r-deliver";
   const robotLabel = r => !r.job ? "available"
+                        : r.dwellLeft > 0 ? "loading"
                         : r.leg === "collect" ? "collecting" : "delivering";
 
   function fit() {
