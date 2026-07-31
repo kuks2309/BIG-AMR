@@ -16,11 +16,10 @@ depth:
 
 # 드라이버 동작
 driver:
-  # 실사 색 입히기(색 스킨)를 쓰려면 true. depth 총량이 92.4 → 62.1 fps 로 줄지만
-  # 전 카메라가 depth 약 10 fps 를 유지해 융합 10 Hz 를 충족한다(2026-07-31 실측).
-  # false 면 depth 전용이라 depth 총량이 최대가 된다.
-  enable_color: true
-  # 컬러 스트림 구동점. **프레임률을 낮게 유지하는 것이 핵심이다** —
+  # 컬러 스트림 on/off 는 **launch 인자** enable_color 로 정한다(여기 두지 않는다).
+  #   ros2 launch orbbec_multi_bringup surround_depth.launch.py enable_color:=true
+  # 기본은 꺼짐 — 켜면 depth 총량이 92.4 → 62.1 fps 로 줄기 때문이다(2026-07-31 실측).
+  # 아래는 켰을 때의 구동점이다. **프레임률을 낮게 유지하는 것이 핵심** —
   # 25 fps 에서는 6대 중 4대의 depth 가 아예 멈췄다(depth 합계 13.5 fps).
   # 색칠에는 초당 몇 장이면 충분하다.
   color:

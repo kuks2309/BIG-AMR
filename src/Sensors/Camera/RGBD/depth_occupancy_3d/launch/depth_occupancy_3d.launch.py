@@ -17,6 +17,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -36,14 +37,29 @@ def generate_launch_description():
         default_value="info",
         description="rclcpp 로그 수준. 주기별 집계를 보려면 debug.",
     )
+    color_skin_arg = DeclareLaunchArgument(
+        "enable_color_skin",
+        default_value="false",
+        description=(
+            "true 면 점유 보셀에 컬러 카메라의 실제 색을 입힌다. "
+            "카메라 쪽도 함께 켜야 한다: "
+            "ros2 launch orbbec_multi_bringup surround_depth.launch.py enable_color:=true. "
+            "기본 꺼짐 — 켜면 depth 총량이 92.4 → 62.1 fps 로 줄기 때문이다."
+        ),
+    )
 
     fusion_node = Node(
         package="depth_occupancy_3d",
         executable="depth_occupancy_3d_node",
         name="depth_occupancy_3d",
-        parameters=[LaunchConfiguration("params_file")],
+        # 뒤 항목이 앞을 덮는다 — launch 인자가 파라미터 파일 값을 이긴다.
+        parameters=[
+            LaunchConfiguration("params_file"),
+            {"enable_color_skin": ParameterValue(
+                LaunchConfiguration("enable_color_skin"), value_type=bool)},
+        ],
         arguments=["--ros-args", "--log-level", LaunchConfiguration("log_level")],
         output="screen",
     )
 
-    return LaunchDescription([params_arg, log_level_arg, fusion_node])
+    return LaunchDescription([params_arg, log_level_arg, color_skin_arg, fusion_node])

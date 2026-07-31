@@ -28,6 +28,23 @@ ros2 launch orbbec_multi_bringup surround_depth.launch.py
 | `allow_rgb_conflict` | `false` | `true` 면 `/dev/video` 점유자가 있어도 강행(진단용) |
 | `require_all_connected` | `true` | `false` 면 일부 카메라 미연결도 경고만 하고 기동 |
 | `use_single_container` | `false` | `true` 면 6대를 한 컨테이너에 넣는다 (**미검증**) |
+| `enable_color` | `false` | `true` 면 컬러 스트림 + `depth_to_color` 외부 파라미터를 켠다 (실사 색 입히기용) |
+
+### 실사 색 입히기 (선택)
+
+점유 보셀에 컬러 카메라의 실제 색을 입히려면 **양쪽을 함께** 켠다.
+
+```bash
+ros2 launch orbbec_multi_bringup surround_depth.launch.py enable_color:=true
+ros2 launch depth_occupancy_3d  depth_occupancy_3d.launch.py enable_color_skin:=true
+```
+
+**기본이 꺼짐인 이유**: 켜면 depth 총량이 **92.4 → 62.1 fps** 로 준다(2026-07-31 실측).
+전 카메라가 depth 약 10 fps 를 유지해 융합 10 Hz 는 충족하지만, depth 최대 성능이
+필요하면 끈 채로 쓴다. 색은 판단이 아니라 해석을 돕는 것이라 충돌 회피 결과는 같다.
+
+컬러 프레임률은 `config/surround_depth.yaml` 의 `driver.color.fps`(기본 5)로 정한다.
+**이 값을 올리지 말 것** — 25 fps 에서는 6대 중 4대의 depth 가 아예 멈췄다(합계 13.5 fps).
 
 ## 발행 인터페이스
 

@@ -60,8 +60,11 @@
     # (베이스라인 12.5 mm)로 역투영 → 좌표 변환 → 투영을 수행한다.
     #
     # 대가: depth 총량이 92.4 → 62.1 fps 로 줄어든다(전 카메라 약 10 fps 유지).
-    #       depth 최대 성능이 필요하면 이 값과 driver.enable_color 를 함께 false 로 둔다.
-    enable_color_skin: true
+    #
+    # 이 값은 **launch 인자로 덮어쓴다** — 평소에는 여기를 고치지 말고 아래처럼 켠다:
+    #   ros2 launch orbbec_multi_bringup surround_depth.launch.py enable_color:=true
+    #   ros2 launch depth_occupancy_3d  depth_occupancy_3d.launch.py enable_color_skin:=true
+    enable_color_skin: false
 
     transform_timeout_s: 0.05
 

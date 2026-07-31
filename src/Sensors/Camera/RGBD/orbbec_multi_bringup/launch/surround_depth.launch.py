@@ -224,13 +224,14 @@ def _assert_roster_connected(cameras, require_all_connected):
     print(f"[surround_depth] 경고: {message}")
 
 
-def _depth_params(defaults, driver, override):
+def _depth_params(defaults, driver, override, enable_color):
     """카메라 1대의 드라이버 파라미터를 만든다.
 
     Args:
         defaults: surround_depth.yaml 의 depth 절 (전 카메라 공통 기본값).
         driver: surround_depth.yaml 의 driver 절.
         override: 해당 카메라의 per_camera 재정의 dict (없으면 빈 dict).
+        enable_color: 컬러 스트림 on/off (launch 인자). 색 입히기를 쓸 때만 켠다.
 
     Returns:
         드라이버에 넘길 파라미터 dict.
@@ -244,7 +245,7 @@ def _depth_params(defaults, driver, override):
         "depth_format": str(override.get("format", defaults["format"])),
         "depth_qos": str(override.get("qos", defaults["qos"])),
         "depth_camera_info_qos": str(override.get("qos", defaults["qos"])),
-        "enable_color": bool(driver["enable_color"]),
+        "enable_color": bool(enable_color),
         # 컬러 스트림 — 실사 색 입히기용. 프레임률을 낮게 유지하는 것이 핵심이다:
         # 2026-07-31 실측에서 컬러 25 fps 면 6대 중 4대의 depth 가 아예 멈췄고(합계 13.5 fps),
         # 5 fps 로 낮추자 전 카메라가 depth 약 10 fps 를 유지했다(합계 62.1 fps).
@@ -255,7 +256,7 @@ def _depth_params(defaults, driver, override):
         # depth→color 외부 파라미터 발행. 융합 노드가 소프트웨어 정합에 쓴다.
         # 드라이버의 하드웨어 정합(depth_registration)은 이 모델에서 camera_info 를
         # 망가뜨려 쓸 수 없다(2026-07-31 실측) — 그래서 정합은 융합 노드가 직접 한다.
-        "enable_publish_extrinsic": bool(driver["enable_color"]),
+        "enable_publish_extrinsic": bool(enable_color),
         "depth_registration": False,
         "enable_ir": bool(driver["enable_ir"]),
         "enable_point_cloud": bool(driver["enable_point_cloud"]),
@@ -355,7 +356,8 @@ def _launch_setup(context, *args, **kwargs):
     composables = []
     for cam in cameras:
         params = _depth_params(
-            depth_defaults, driver_defaults, per_camera.get(cam["name"]) or {}
+            depth_defaults, driver_defaults, per_camera.get(cam["name"]) or {},
+            flag("enable_color")
         )
         composables.append(_camera_composable_node(cam["name"], cam["serial"], params))
 
@@ -433,6 +435,15 @@ def generate_launch_description():
             "use_single_container",
             default_value="false",
             description="true 면 6대를 한 컨테이너에 넣는다(미검증, ADR §D4).",
+        ),
+        DeclareLaunchArgument(
+            "enable_color",
+            default_value="false",
+            description=(
+                "true 면 컬러 스트림과 depth→color 외부 파라미터를 함께 켠다(실사 색 입히기용). "
+                "기본 꺼짐 — 켜면 depth 총량이 92.4 → 62.1 fps 로 줄기 때문이다. "
+                "융합 노드에도 enable_color_skin:=true 를 함께 줘야 색이 입혀진다."
+            ),
         ),
     ]
     return LaunchDescription(arguments + [OpaqueFunction(function=_launch_setup)])

@@ -167,8 +167,17 @@ depth `fx=381.75`, color `fx=357.14` 로 둘 다 정상이다. 정합만 켜고 
 실기 결과: 보셀 1,120 개 중 **1,118 개(99.8%)에 실제 색**이 입혀졌다. 회색 2 개는 depth 시야가
 컬러보다 넓어 생기는 주변부다. 색 분포 R 112 / G 101 / B 95 (범위 0~255).
 
-**색은 판단이 아니라 해석을 돕는다.** 충돌 회피 판정은 색과 무관하며, 색을 끄면(`enable_color`
-와 `enable_color_skin` 을 함께 false) depth 총량이 최대가 된다.
+**색은 판단이 아니라 해석을 돕는다.** 충돌 회피 판정은 색과 무관하다. 그래서 **기본은 꺼짐**이고
+launch 인자로만 켠다 — depth 총량을 33% 내주는 선택을 설정 파일에 묻어 두지 않는다.
+
+```bash
+ros2 launch orbbec_multi_bringup surround_depth.launch.py enable_color:=true
+ros2 launch depth_occupancy_3d  depth_occupancy_3d.launch.py enable_color_skin:=true
+```
+
+양쪽 경로를 실기로 확인했다: 기본은 컬러 토픽 0개·클라우드 필드 `xyz`·10.0 Hz,
+켠 쪽은 컬러/외부파라미터 각 6개·필드 `xyz+rgb`·실제 색 99.8%·9.7 Hz.
+RViz 설정에는 같은 토픽을 실사 색으로 보는 표시를 **꺼진 채로** 함께 넣어, 켤 때 체크만 하면 된다.
 
 ## Consequences
 

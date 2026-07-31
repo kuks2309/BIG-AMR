@@ -59,14 +59,37 @@ Visualization Manager:
       Style: Boxes
       Size (m): 0.05
       Alpha: 0.9
-      # 실사 색. 융합 노드가 컬러 카메라의 실제 색을 보셀에 입혀 rgb 필드로 싣는다.
-      # 색을 못 구한 보셀(depth 시야가 컬러보다 넓어 생기는 주변부)은 회색이다.
-      # 색 없이 높이로 보고 싶으면 AxisColor 로 바꾸고 Min/Max 를 0~1.2 로 둔다.
-      Color Transformer: RGB8
+      # 높이로 색을 준다. 색 입히기(enable_color_skin)를 끈 기본 구성에서 쓰는 표시다.
+      # 실측 장애물 높이는 대체로 0.08~1.05 m 라 범위를 1.2 로 좁혔다 — 1.8 까지 늘리면
+      # 낮은 물체가 램프 최하단으로 몰려 배경과 구분이 어렵다.
+      Color Transformer: AxisColor
       Axis: Z
       Autocompute Value Bounds: false
       Min Value: 0
       Max Value: 1.2
+      Decay Time: 0
+      Position Transformer: XYZ
+      Queue Size: 5
+      Selectable: true
+
+    # 같은 토픽을 실사 색으로 보는 표시. **기본 꺼짐** —
+    # 색 입히기를 켜고 띄웠을 때만 이 항목을 체크하고 위 'Occupancy Voxels' 를 끈다.
+    #   ros2 launch orbbec_multi_bringup surround_depth.launch.py enable_color:=true
+    #   ros2 launch depth_occupancy_3d  depth_occupancy_3d.launch.py enable_color_skin:=true
+    # 색 입히기가 꺼져 있으면 클라우드에 rgb 필드가 없어 이 표시는 아무것도 그리지 못한다.
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Occupancy Voxels (RGB skin)
+      Enabled: false
+      Topic:
+        Value: /depth_occupancy_3d/occupancy_points
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Style: Boxes
+      Size (m): 0.05
+      Alpha: 1
+      Color Transformer: RGB8
       Decay Time: 0
       Position Transformer: XYZ
       Queue Size: 5
