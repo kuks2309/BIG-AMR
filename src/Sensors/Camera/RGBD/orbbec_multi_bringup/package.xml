@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>orbbec_multi_bringup</name>
+  <version>0.1.0</version>
+  <description>
+    Big-AMR surround depth bringup — 차체 둘레 Orbbec Gemini E 6대를 시리얼로 식별해
+    depth 전용으로 기동하고, base_link 기준 정적 마운트 TF 를 함께 발행한다.
+    로컬 3D 점유맵(W6)의 입력단이며 전역 SLAM 이 아니다.
+    설계 근거: docs/adr/2026-07-31-surround-depth-occupancy.md
+  </description>
+  <maintainer email="drko0808@gmail.com">kuks2309</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- 실행 의존성: 노드 실행파일·플러그인 제공처를 명시한다.
+       (icp_odometry_bringup/package.xml 과 같은 이유 — 선언 누락 시 rosdep 재현 불가) -->
+  <exec_depend>orbbec_camera</exec_depend>
+  <exec_depend>rclcpp_components</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <!-- 런타임 전제(본 패키지가 제공하지 않음):
+       - 루트 config/camera/camera_common.yaml  : 카메라 6대 시리얼 로스터(SSOT)
+       - 루트 config/camera/extrinsics.yaml     : base_link 기준 마운트 값
+       두 파일은 비-ROS 도구(Tools/CameraCalibration, Tools/camera_service)도 읽으므로
+       패키지 share 로 복사하지 않고 저장소 루트를 단일 근원으로 둔다. -->
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

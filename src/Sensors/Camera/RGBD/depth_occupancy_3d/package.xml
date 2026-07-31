@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>depth_occupancy_3d</name>
+  <version>0.1.0</version>
+  <description>
+    Big-AMR surround depth 융합 — 차체 둘레 depth 카메라 6대를 base_link 기준 3D 보셀 점유
+    격자와 360° 가상 스캔으로 합친다. 로컬 표현이라 오도메트리에 의존하지 않는다.
+    입력은 orbbec_multi_bringup 이 띄운 카메라별 depth/image_raw 토픽 6개.
+    설계 근거: docs/adr/2026-07-31-surround-depth-occupancy.md
+  </description>
+  <maintainer email="drko0808@gmail.com">kuks2309</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_components</depend>
+  <depend>sensor_msgs</depend>
+  <!-- depth→color 외부 파라미터(Extrinsics). 색 입히기의 소프트웨어 정합에 쓴다. -->
+  <depend>orbbec_camera_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_eigen</depend>
+  <depend>eigen</depend>
+
+  <!-- 시각화 전용(view_occupancy.launch.py). 노드 동작에는 필요 없다. -->
+  <exec_depend>rviz2</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
