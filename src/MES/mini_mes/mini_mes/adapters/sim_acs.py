@@ -34,8 +34,8 @@ from sensor_msgs.msg import LaserScan
 
 from .base import AcsAdapter, TransportResult
 
-#: Station positions in warehouse.world. Obstacles sit at pallet_a (3.5, 2.5),
-#: pallet_b (-3.0, -3.0) and pillar (0.0, 4.0); the scanners handle the rest.
+#: Where the machines physically stand in warehouse.world. These are SOLID —
+#: the robot must never drive to these coordinates.
 STATION_POSES = {
     "station_3": (3.0, -3.0),
     "station_5": (-3.5, 1.5),
@@ -43,12 +43,37 @@ STATION_POSES = {
     "station_out": (-3.0, 3.5),
 }
 
+#: How far in front of a machine the robot parks to load or unload.
+#: station half-depth 0.5 + robot half-length 0.8 + clearance = 1.6 m.
+APPROACH_DISTANCE = 1.6
+
+
+def _approach_point(sx, sy):
+    """Where the robot parks to serve the machine at (sx, sy).
+
+    Navigating to the station's own coordinates means driving into it — the
+    machine is a solid model sitting exactly there. On a real floor you dock at
+    a defined position beside the machine, never at it.
+
+    The approach point is offset toward the middle of the hall, which is the
+    open side on this layout.
+    """
+    d = math.hypot(sx, sy) or 1.0
+    return (sx - sx / d * APPROACH_DISTANCE,
+            sy - sy / d * APPROACH_DISTANCE)
+
+
+#: What the robot actually navigates to.
+APPROACH_POSES = {name: _approach_point(x, y)
+                  for name, (x, y) in STATION_POSES.items()}
+
 
 class SimAcs(AcsAdapter):
 
     def __init__(self, node, arrive_tolerance=0.35, max_speed=0.6,
                  stations=None, influence_radius=1.9, repel_gain=1.4,
-                 stall_seconds=6.0, stall_distance=0.10):
+                 stall_seconds=8.0, stall_distance=0.12, dwell_seconds=3.0,
+                 dock_fade_m=2.2, max_repulsion=0.85, critical_distance=0.7):
         """
         :param arrive_tolerance: metres from the goal that counts as arrived
         :param max_speed:        m/s cap on commanded body velocity
@@ -56,15 +81,28 @@ class SimAcs(AcsAdapter):
         :param repel_gain:       strength of that push relative to the goal pull
         :param stall_seconds:    driving for this long without moving = stuck
         :param stall_distance:   ground-truth movement that counts as progress
+        :param dwell_seconds:    time spent loading at the source station
+        :param dock_fade_m:      inside this range of the goal, obstacle
+                                 avoidance fades to zero so the robot can dock
+        :param max_repulsion:    hard cap on the avoidance force. Below 1.0 —
+                                 the attraction is normalised to 1.0 — so
+                                 avoidance can deflect the robot strongly but
+                                 can never stop it seeking the goal
+        :param critical_distance: obstacle range at which repulsion reaches
+                                 max_repulsion
         """
         self.node = node
         self.tolerance = arrive_tolerance
         self.max_speed = max_speed
-        self.stations = dict(stations or STATION_POSES)
+        self.stations = dict(stations or APPROACH_POSES)
         self.influence_radius = influence_radius
         self.repel_gain = repel_gain
         self.stall_seconds = stall_seconds
         self.stall_distance = stall_distance
+        self.dwell_seconds = dwell_seconds
+        self.dock_fade_m = dock_fade_m
+        self.max_repulsion = max_repulsion
+        self.critical_distance = critical_distance
 
         self.pub_cmd = node.create_publisher(Twist, "/cmd_vel", 10)
         node.create_subscription(Odometry, "/odom_truth", self._on_truth, 10)
@@ -79,8 +117,16 @@ class SimAcs(AcsAdapter):
         self._goal = None
         self._results = {}
 
+        # A job is two journeys: collect at the source, then carry to the
+        # destination, with a loading pause between them.
+        self._leg = None            # "collect" | "deliver"
+        self._from = None
+        self._to = None
+        self._dwell_until = None    # loading finishes at this time
+
         self._stall_ref = None      # (x, y) last position that counted as progress
         self._stall_since = None    # when we last made progress
+        self._closest_obstacle = float("inf")   # for the blocked-path message
 
     # -------------------------------------------------------------- sensors
 
@@ -97,35 +143,59 @@ class SimAcs(AcsAdapter):
         self._rear = msg
 
     def _repulsion(self):
-        """Sum a push-away vector from both scanners, in the body frame.
+        """A BOUNDED push away from obstacles, in the body frame.
 
-        Each return nearer than influence_radius contributes a vector pointing
-        directly away from it, weighted by (1/r - 1/R) so the push grows sharply
-        as an obstacle gets close and is exactly zero at the influence boundary.
+        Returns (vector, closest_distance). The vector never exceeds
+        max_repulsion, so avoidance steers the robot without ever becoming the
+        thing that drives it.
+
+        Why bounded. The first version summed a term per beam, so the force grew
+        with how MANY beams saw something. A wall fills dozens of beams and
+        produced a push of magnitude 3.5 against an attraction of exactly 1.0 —
+        measured, not guessed. The robot stopped seeking its goal and simply
+        fled walls, wandering until the stall detector gave up. Direction was
+        always right; magnitude was unbounded.
+
+        So: the beams decide the DIRECTION, and the single closest obstacle
+        decides the STRENGTH. Strength is zero at the influence radius and rises
+        to max_repulsion at critical_distance, so a distant wall nudges and a
+        near miss shoves hard.
         """
-        rx = ry = 0.0
+        dx = dy = 0.0
+        closest = float("inf")
+
         # scan_rear is mounted yaw=pi, so its beam directions are negated.
         for scan, flip in ((self._front, 1.0), (self._rear, -1.0)):
             if scan is None:
                 continue
-            n = len(scan.ranges)
-            if n == 0:
-                continue
-            # Every 4th beam is plenty for a repulsion field and keeps this cheap
-            # enough to run at the drive rate.
-            for i in range(0, n, 4):
+            for i in range(0, len(scan.ranges), 4):
                 r = scan.ranges[i]
                 if not math.isfinite(r) or r <= scan.range_min:
                     continue
                 if r >= self.influence_radius:
                     continue
+                closest = min(closest, r)
                 angle = scan.angle_min + i * scan.angle_increment
-                bx = flip * math.cos(angle)
-                by = flip * math.sin(angle)
-                strength = (1.0 / max(r, 0.15)) - (1.0 / self.influence_radius)
-                rx -= bx * strength
-                ry -= by * strength
-        return rx, ry
+                # Weight by proximity so the direction leans away from the
+                # nearest thing, not the most numerous.
+                w = 1.0 / max(r, 0.15) ** 2
+                dx -= flip * math.cos(angle) * w
+                dy -= flip * math.sin(angle) * w
+
+        if closest == float("inf"):
+            return (0.0, 0.0), closest          # nothing within range
+
+        norm = math.hypot(dx, dy)
+        if norm < 1e-9:
+            return (0.0, 0.0), closest          # pushes cancelled out
+
+        # Strength from the closest obstacle alone: 0 at influence_radius,
+        # 1 at critical_distance.
+        span = max(self.influence_radius - self.critical_distance, 1e-6)
+        t = (self.influence_radius - closest) / span
+        strength = max(0.0, min(1.0, t)) * self.max_repulsion
+
+        return (dx / norm * strength, dy / norm * strength), closest
 
     # ----------------------------------------------------------- AcsAdapter
 
@@ -139,13 +209,24 @@ class SimAcs(AcsAdapter):
             # with a fleet would answer this from a different robot.
             return TransportResult.BUSY
 
+        if job.from_station not in self.stations:
+            self.node.get_logger().warn(f"unknown source {job.from_station}")
+            return TransportResult.REJECTED
+
+        # A transport job is TWO journeys, not one. Going straight to the
+        # destination would report the load delivered without the robot ever
+        # having visited the source to pick it up — the job would be fiction.
         self._active_job = job.job_id
-        self._goal = self.stations[job.to_station]
+        self._leg = "collect"
+        self._from = job.from_station
+        self._to = job.to_station
+        self._goal = self.stations[job.from_station]
+        self._dwell_until = None
         self._results[job.job_id] = TransportResult.IN_PROGRESS
-        self._stall_ref = None
-        self._stall_since = None
+        self._reset_stall()
         self.node.get_logger().info(
-            f"{job.job_id}: driving to {job.to_station} {self._goal}")
+            f"{job.job_id}: leg 1/2 — collecting from {job.from_station} "
+            f"{self._goal}")
         return TransportResult.ACCEPTED
 
     def get_job_result(self, job_id):
@@ -171,10 +252,18 @@ class SimAcs(AcsAdapter):
         ex, ey = gx - x, gy - y
         distance = math.hypot(ex, ey)
 
+        # Loading and unloading take real time on a real line. Standing still
+        # during a dwell is not a stall, so this is checked before _check_stall.
+        if self._dwell_until is not None:
+            if self._now() < self._dwell_until:
+                self._stop()
+                return
+            self._dwell_until = None
+            self._begin_delivery()
+            return
+
         if distance <= self.tolerance:
-            self.node.get_logger().info(
-                f"{self._active_job}: arrived ({distance:.2f} m from goal)")
-            self._finish(self._active_job, TransportResult.ARRIVED)
+            self._on_arrival(distance)
             return
 
         if self._check_stall(x, y):
@@ -187,9 +276,17 @@ class SimAcs(AcsAdapter):
         norm = math.hypot(ax, ay) or 1.0
         ax, ay = ax / norm, ay / norm
 
-        rx, ry = self._repulsion()
-        vx = ax + self.repel_gain * rx
-        vy = ay + self.repel_gain * ry
+        # Fade avoidance out as the robot docks. The approach point is
+        # deliberately close to a machine, so full-strength repulsion there
+        # would push the robot away from the very place it is trying to reach —
+        # the classic "goal near an obstacle" deadlock in a potential field.
+        # Beyond dock_fade_m the field is at full strength; at the goal it is
+        # zero, so the last stretch is committed.
+        fade = min(1.0, distance / self.dock_fade_m)
+        (rx, ry), closest = self._repulsion()
+        self._closest_obstacle = closest
+        vx = ax + fade * rx
+        vy = ay + fade * ry
 
         # Ease down near the goal so the robot settles inside the tolerance band
         # instead of overshooting and hunting.
@@ -200,6 +297,35 @@ class SimAcs(AcsAdapter):
         cmd.linear.x = vx / mag * speed
         cmd.linear.y = vy / mag * speed
         self.pub_cmd.publish(cmd)
+
+    def _on_arrival(self, distance):
+        """Reached the current leg's goal."""
+        self._stop()
+        if self._leg == "collect":
+            self.node.get_logger().info(
+                f"{self._active_job}: at {self._from} ({distance:.2f} m) — "
+                f"loading for {self.dwell_seconds:.0f}s")
+            self._dwell_until = self._now() + self.dwell_seconds
+        else:
+            self.node.get_logger().info(
+                f"{self._active_job}: delivered to {self._to} "
+                f"({distance:.2f} m from goal)")
+            self._finish(self._active_job, TransportResult.ARRIVED)
+
+    def _begin_delivery(self):
+        """Loading finished — set off on leg 2."""
+        self._leg = "deliver"
+        self._goal = self.stations[self._to]
+        self._reset_stall()
+        self.node.get_logger().info(
+            f"{self._active_job}: leg 2/2 — carrying to {self._to} {self._goal}")
+
+    def _now(self):
+        return self.node.get_clock().now().nanoseconds * 1e-9
+
+    def _reset_stall(self):
+        self._stall_ref = None
+        self._stall_since = None
 
     def _check_stall(self, x, y):
         """True if the robot is driving but not moving. Fails the job.
@@ -221,9 +347,16 @@ class SimAcs(AcsAdapter):
             return False
 
         if now - self._stall_since >= self.stall_seconds:
-            self.node.get_logger().error(
-                f"{self._active_job}: STUCK — moved {moved:.3f} m in "
-                f"{self.stall_seconds:.0f}s while driving. Failing the job.")
+            # Not an error — a robot that cannot get somewhere is a normal
+            # situation on a floor with obstacles. Report it as a blocked path
+            # so an operator can clear the route; the MES will re-raise the job
+            # while the station still holds material.
+            near = (f", nearest obstacle {self._closest_obstacle:.2f} m"
+                    if self._closest_obstacle < float("inf") else "")
+            self.node.get_logger().warn(
+                f"{self._active_job}: PATH BLOCKED — moved {moved:.2f} m in "
+                f"{self.stall_seconds:.0f}s while driving to {self._leg} goal"
+                f"{near}. Giving up on this attempt.")
             self._finish(self._active_job, TransportResult.FAILED)
             return True
         return False
@@ -232,6 +365,10 @@ class SimAcs(AcsAdapter):
         self._results[job_id] = result
         self._active_job = None
         self._goal = None
+        self._leg = None
+        self._from = None
+        self._to = None
+        self._dwell_until = None
         self._stall_ref = None
         self._stall_since = None
         self._stop()

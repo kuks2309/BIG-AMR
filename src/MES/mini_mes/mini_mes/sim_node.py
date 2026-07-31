@@ -29,6 +29,16 @@ from .adapters.mock import MockEquipment
 from .adapters.sim_acs import STATION_POSES, SimAcs
 from .main_cycle import MainCycle
 
+#: Where each station's output goes next. A real line is a process route, not
+#: everything piling into one place: a part finishes at one machine and moves to
+#: the next operation. This is what makes the robot travel between different
+#: pairs of stations rather than shuttling to the same corner every time.
+ROUTE = {
+    "station_3": "station_5",
+    "station_5": "station_9",
+    "station_9": "station_out",     # finished goods leave here
+}
+
 #: The job FSM thinks in jobs, which last minutes — a few hertz is ample.
 MES_RATE_HZ = 4.0
 #: The velocity controller wants a steadier rate to keep motion smooth.
@@ -40,10 +50,16 @@ class MesSimNode(Node):
     def __init__(self, batch_seconds, job_timeout):
         super().__init__("mini_mes")
 
-        stations = [s for s in STATION_POSES if s != "station_out"]
+        # Every station the equipment layer knows about, INCLUDING the outbound
+        # one — a delivery notification to a station that is not in this list is
+        # refused, which is what produced the "did not accept 'delivered'"
+        # warnings before.
+        all_stations = list(STATION_POSES)
+        #: Only these produce work. station_out is a sink; it receives and
+        #: never finishes a batch of its own.
+        self._producers = [s for s in ROUTE]
 
-        # Equipment stays mocked: the real protocol is still blocked on CATL.
-        self.equipment = MockEquipment(stations, time.monotonic,
+        self.equipment = MockEquipment(all_stations, time.monotonic,
                                        process_seconds=batch_seconds)
         self.acs = SimAcs(self)
 
@@ -53,25 +69,24 @@ class MesSimNode(Node):
             logger=lambda m: self.get_logger().info(m),
             job_timeout_s=job_timeout,
         )
-        # Everything goes to the outbound station, so the robot has a round trip.
+        # Follow the process route: a finished batch goes to the next operation.
         self.cycle.on_station_finished = \
-            lambda sid: self.cycle.create_job(sid, "station_out")
+            lambda sid: self.cycle.create_job(sid, ROUTE.get(sid, "station_out"))
 
         self.create_timer(1.0 / MES_RATE_HZ, self.cycle.tick)
         self.create_timer(1.0 / DRIVE_RATE_HZ, self.acs.drive)
         self.create_timer(batch_seconds + 2.0, self._produce_batch)
 
         self._next_station = 0
-        self._stations = stations
 
-        self.get_logger().info(
-            f"Mini MES up — stations {stations}, "
-            f"job timeout {job_timeout:.0f}s")
+        routes = " · ".join(f"{a}→{b}" for a, b in ROUTE.items())
+        self.get_logger().info(f"Mini MES up — route: {routes}")
+        self.get_logger().info(f"job timeout {job_timeout:.0f}s")
         self.get_logger().info("waiting for /odom from the simulation...")
 
     def _produce_batch(self):
         """The fake factory finishes a batch, round-robin across stations."""
-        station = self._stations[self._next_station % len(self._stations)]
+        station = self._producers[self._next_station % len(self._producers)]
         self._next_station += 1
         self.equipment.force_status(station, StationStatus.FINISHED)
         self.get_logger().info(f"--- {station} finished a batch ---")
