@@ -11,8 +11,14 @@
 정지 판정을 **pose 증분 1차 근거**로 교체(twist 는 dt 부재 시 폴백, 전부 0 인 twist 는 미채움으로 간주) ·
 산포 모드 판정에 **누적 기준점**(원본 `accumu` 대응) 도입 · 노드 파라미터 단일 소유 ·
 증분 중복 계산 제거 · 조기반환 경로의 `prev_stamp_` 일관 갱신. PF 액션 분리 회귀 테스트 1건 추가(`M3` 부분 해소).
-**재리뷰는 미실시** — `H2`(모드 5 임계 스케일 → `debt-031`)와 `M3`(파사드 stopped 경로 테스트) 잔존.
-다음 리뷰는 후속 커밋 기준 delta 로 수행할 것.
+**2차 후속 (같은 날)** — `H2`·`M3` 처리:
+- `H2` = **임계를 바꾸지 않고 진단으로 노출**(debt-031 상환계획 ③ 준수). `lastModeLikelihood()`·`lastExtraMove()`
+  접근자 + ROS2 노드 5초 throttle 로그(`mode/radius/angle/w/BPTT/stopped`). 관측 w = 0.076(데모)·0.376(단위시험)로
+  둘 다 임계 0.8 미달 — 모드 5 미발동이 재확인됐고, 실기 로그가 쌓이면 그 분포로 환산한다. **스케일 정합 자체는 잔존.**
+- `M3` = 파사드 정지 경로 회귀 테스트 신설(`Tools/mcl2d_standalone/test/test_localizer_stopped.cpp`, ctest 등록).
+  변이 검증으로 실패 가능성 확인(`if (!stopped)` 가드를 무력화하면 2건 FAIL).
+
+**재리뷰는 여전히 미실시** — 다음 리뷰는 후속 커밋 기준 delta 로 수행할 것.
 
 - 병기본: `src/Navigation/mcl2d_core/docs/code_review/mcl2d-motion-model/`
 - 관련: ADR(Architecture Decision Record) `docs/adr/2026-07-31-mcl2d-motion-model-fidelity.md` ·

@@ -52,8 +52,11 @@ Pose2D Mcl2dLocalizer::update(const Pose2D &prev_odom, const Pose2D &cur_odom, c
     const ControlIncrement2D accum = supplyControlVar(accum_odom_, cur_odom);
     accum_odom_ = cur_odom;
 
-    const ExtraMoveParams extra =
-        selectExtraMove(accum.trans, accum.dtheta, pf_->likelihoodAt(pf_->estimate()), params_);
+    // 모드 판정에 쓴 우도는 그대로 보관한다 — 임계(best_particle_tolerant_threshold)가 원본 스케일
+    //   값이라 우리 우도 스케일에서 같은 의미인지 미검증이고(debt-031), 그 사실은 값을 바꾸는 대신
+    //   진단으로 드러내야 판단 근거가 쌓인다.
+    last_mode_likelihood_ = pf_->likelihoodAt(pf_->estimate());
+    const ExtraMoveParams extra = selectExtraMove(accum.trans, accum.dtheta, last_mode_likelihood_, params_);
     if (!stopped)
     {
         // 원본 DoMoveAction @0x3d7d13: cv.is_stop 이면 kMove 자체를 건너뛴다(정지 중 파티클 전진 금지).

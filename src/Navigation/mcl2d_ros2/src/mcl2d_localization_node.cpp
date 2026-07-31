@@ -96,6 +96,15 @@ class Mcl2dLocalizationNode : public rclcpp::Node
         prev_odom_ = cur;
         prev_stamp_ = stamp;
 
+        // 산포 모드 진단 — 원본 MCLocUpdateMode 로그 대응. 모드 5(신뢰 높음)는 임계 0.8 이 원본 스케일
+        //   값이라 우리 우도(보통 0.0x)에서는 선택되지 않을 수 있다(debt-031). 어느 모드가 실제로
+        //   도는지·우도가 얼마인지를 남겨야 임계 환산의 근거가 쌓인다.
+        const ExtraMoveParams &em = loc_->lastExtraMove();
+        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000,
+                             "mode=%d radius=%.3fm angle=%.4frad w=%.4f (BPTT=%.2f) stopped=%d",
+                             em.mode, em.radius, em.angle, loc_->lastModeLikelihood(),
+                             params_.best_particle_tolerant_threshold, stopped ? 1 : 0);
+
         auto msg = toRosPose(est);
         msg.header.stamp = now();
         msg.header.frame_id = "map";

@@ -55,6 +55,12 @@ class Mcl2dLocalizer
     {
         return last_extra_move_;
     }
+    // 그 모드 판정에 실제로 쓰인 우도. 임계(best_particle_tolerant_threshold)와 함께 봐야 의미가 있다 —
+    //   두 값의 스케일 정합이 미검증이라(debt-031) 진단으로 노출한다.
+    double lastModeLikelihood() const
+    {
+        return last_mode_likelihood_;
+    }
     bool ready() const
     {
         return pf_ != nullptr;
@@ -69,6 +75,7 @@ class Mcl2dLocalizer
     SkidDetector skid_;
     LocReportState report_state_ = LocReportState::Normal;
     ExtraMoveParams last_extra_move_;
+    double last_mode_likelihood_ = 0.0;
     Pose2D prev_est_;
     bool has_prev_est_ = false;
     Pose2D accum_odom_;     // 산포 모드 판정용 기준점 (원본 DoNormalUpdateAction 의 정적 accumu 대응)

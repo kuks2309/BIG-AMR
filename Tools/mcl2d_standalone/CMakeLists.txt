@@ -28,3 +28,8 @@ target_link_libraries(mcl2d_non_ros_demo PRIVATE mcl2d_localizer)
 
 enable_testing()
 add_test(NAME non_ros_demo COMMAND mcl2d_non_ros_demo)
+
+# 파사드 정지 경로(kMove 생략) 회귀 — 코드리뷰 2026-07-31 M3. 자체 CHECK 매크로라 NDEBUG 무관.
+add_executable(test_localizer_stopped test/test_localizer_stopped.cpp)
+target_link_libraries(test_localizer_stopped PRIVATE mcl2d_localizer)
+add_test(NAME test_localizer_stopped COMMAND test_localizer_stopped)
