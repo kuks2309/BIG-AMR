@@ -1,0 +1,55 @@
+# Big-AMR surround depth 융합 노드 파라미터
+#
+# 설계 근거: docs/adr/2026-07-31-surround-depth-occupancy.md
+#
+# ⚠ 아래 값은 실기 튜닝 전 초기값이다. decimation·rate_hz·grid.resolution 셋이
+#   CPU 부하를 지배하며, 이 장비는 이미 포화 상태(총 74.7~80.9%)라 W1 실측 후 조정한다.
+
+/**:
+  ros__parameters:
+    output_frame: base_link
+
+    # orbbec_multi_bringup 이 띄우는 카메라 이름과 같아야 한다
+    # (로스터 SSOT: config/camera/camera_common.yaml).
+    camera_names: [cam_f, cam_lf, cam_lr, cam_r, cam_rr, cam_rf]
+    depth_image_suffix: /depth/image_raw
+    depth_info_suffix: /depth/camera_info
+
+    # 융합 주기. 카메라 프레임률(30 Hz 목표)보다 낮게 둔다 — 소비가 유입을 못 따라가도
+    # 최신 프레임만 쓰므로 밀리지 않고, 낮은 주기가 CPU 를 아낀다.
+    rate_hz: 10.0
+
+    # 픽셀 솎음. 640x480 을 4로 줄이면 카메라당 19,200 픽셀 → 6대 10 Hz 에서 약 1.15 M pt/s.
+    decimation: 4
+
+    # Gemini E 사양 (Datasheet v1.1): depth 유효거리 0.2~2.5 m.
+    # 이 범위 밖 값은 신뢰할 수 없으므로 버린다.
+    min_range_m: 0.2
+    max_range_m: 2.5
+
+    # 장애물로 볼 높이 구간. 하한은 바닥면 제거용, 상한은 천장·구조물 제거용.
+    obstacle_z_min_m: 0.05
+    obstacle_z_max_m: 1.8
+
+    transform_timeout_s: 0.05
+
+    # 보셀 격자 — base_link 기준. 유효거리가 2.5 m 라 ±3 m 면 충분하다.
+    # 120x120x40 = 576,000 셀 = 576 KiB (셀당 1바이트). 생성자에서 한 번만 할당한다.
+    grid:
+      min_x: -3.0
+      max_x: 3.0
+      min_y: -3.0
+      max_y: 3.0
+      min_z: 0.0
+      max_z: 2.0
+      resolution: 0.05
+
+    scan:
+      bins: 360          # 1° 분해능
+
+    # 차체 풋프린트 반치수 — 점유맵에서 자기 차체를 걸러내는 무한 기둥 마스크.
+    # 출처: 도면 Ford_Camera_Test_260730.dwg (전장 2027.62 / 전폭 1441.48 mm).
+    # 전·후면 카메라가 차체 끝면에, 측면 카메라가 측면에 장착되므로 카메라 장착선이 곧 외곽이다.
+    footprint:
+      half_length: 1.01381
+      half_width: 0.72074
