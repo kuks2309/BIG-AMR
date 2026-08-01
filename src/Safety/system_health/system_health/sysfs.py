@@ -40,6 +40,13 @@ _DEVFREQ_ROOT = Path("/sys/class/devfreq")
 _HWMON_ROOT = Path("/sys/class/hwmon")
 _INA3221_NAME = "ina3221"
 _MAX_RAIL_CHANNELS = 8
+_NETDEV_ROOT = Path("/sys/class/net")
+# `ARPHRD_CAN` — socketcan 인터페이스의 `type` 값. 이름을 `can*` 로 가정하지 않기 위해 쓴다
+# (2026-08-01 이 장비 `/usr/include/linux/if_arp.h:56` 에서 확인).
+_ARPHRD_CAN = 280
+_SHM_ROOT = Path("/dev/shm")
+# FastDDS 가 만드는 공유메모리 세그먼트 이름 조각. 다른 DDS 구현은 다른 이름을 쓴다.
+_DDS_SHM_PATTERNS = ("fastrtps", "fastdds")
 # 본 하드웨어(Jetson Orin NX)의 팬 hwmon 경로. 부재 시 팬 항목은 전부 None 이 된다.
 _FAN_HWMON_ROOT = Path("/sys/devices/platform/pwm-fan/hwmon")
 _PROC_ROOT = Path("/proc")
@@ -392,11 +399,17 @@ class ProcessScan:
         count: 살아 있는 프로세스 수.
         top_rss: RSS(Resident Set Size, 상주 메모리) 상위 프로세스. 누수 추적용.
         names: 실행 파일 이름 집합. 특정 데몬 생존 확인에 쓴다.
+        pids_by_name: 이름 → PID 튜플. **재시작 감지용** — 이름이 계속 보여도 PID 가 바뀌었으면
+            죽었다 살아난 것이다. 생존 검사만으로는 조용한 crash-loop 를 못 잡는다.
+
+    ⚠ 이름은 `/proc/<pid>/stat` 의 `comm` 이라 **15자에서 잘린다**(커널 제약). 긴 실행파일명을
+    감시하려면 선언도 잘린 이름으로 써야 한다.
     """
 
     count: int
     top_rss: tuple[ProcessInfo, ...]
     names: frozenset[str]
+    pids_by_name: dict[str, tuple[int, ...]]
 
 
 def _read_process(pid: int) -> ProcessInfo | None:
@@ -430,9 +443,9 @@ def scan_processes(top_n: int = 5) -> ProcessScan:
         `ProcessScan`.
     """
     found: list[ProcessInfo] = []
-    names: set[str] = set()
+    pids: dict[str, list[int]] = {}
     if not _PROC_ROOT.is_dir():
-        return ProcessScan(count=0, top_rss=(), names=frozenset())
+        return ProcessScan(count=0, top_rss=(), names=frozenset(), pids_by_name={})
     for entry in _PROC_ROOT.iterdir():
         if not entry.name.isdigit():
             continue
@@ -440,12 +453,13 @@ def scan_processes(top_n: int = 5) -> ProcessScan:
         if info is None:
             continue
         found.append(info)
-        names.add(info.name)
+        pids.setdefault(info.name, []).append(info.pid)
     found.sort(key=lambda p: p.rss_mb, reverse=True)
     return ProcessScan(
         count=len(found),
         top_rss=tuple(found[: max(0, top_n)]),
-        names=frozenset(names),
+        names=frozenset(pids),
+        pids_by_name={name: tuple(sorted(v)) for name, v in pids.items()},
     )
 
 
@@ -599,6 +613,107 @@ def swap_rate_pages_s(
     din = max(0, cur.pswpin - prev.pswpin)
     dout = max(0, cur.pswpout - prev.pswpout)
     return din / elapsed_s, dout / elapsed_s
+
+
+@dataclass(frozen=True)
+class CanInterface:
+    """socketcan 인터페이스 하나의 상태와 누적 카운터.
+
+    **카운터는 누계다.** 판정은 반드시 두 표본의 차분(증가율)으로 한다 — 누계 기준으로 판정하면
+    한 번 오른 값이 계속 남아 경보가 상시화된다(2026-07-31 스왑 사용량 기준에서 표본 97 % 가
+    WARN 이 된 것과 같은 실패).
+
+    Attributes:
+        name: 인터페이스 이름(`can0` 등). **이름으로 판별하지 않고** `type == ARPHRD_CAN` 으로 찾는다.
+        is_up: `operstate` 가 `up` 인지.
+        rx_packets · tx_packets: 누적 프레임 수.
+        rx_errors · tx_errors: 누적 에러 수.
+        rx_dropped · tx_dropped: 누적 드랍 수.
+    """
+
+    name: str
+    is_up: bool
+    rx_packets: int
+    tx_packets: int
+    rx_errors: int
+    tx_errors: int
+    rx_dropped: int
+    tx_dropped: int
+
+    @property
+    def total_errors(self) -> int:
+        """rx+tx 에러·드랍 합계. 증가율 판정의 입력."""
+        return self.rx_errors + self.tx_errors + self.rx_dropped + self.tx_dropped
+
+
+def read_can_interfaces() -> tuple[CanInterface, ...]:
+    """socketcan 인터페이스별 상태·누적 카운터.
+
+    **인터페이스가 없으면 빈 튜플**을 돌려준다 — CAN 을 쓰지 않는 운영도 정상이므로
+    부재 자체는 이상이 아니다(2026-08-01 이 장비 실측: socketcan 인터페이스 0개).
+
+    Returns:
+        `CanInterface` 튜플, 이름 오름차순.
+    """
+    if not _NETDEV_ROOT.is_dir():
+        return ()
+    out: list[CanInterface] = []
+    for dev in sorted(_NETDEV_ROOT.iterdir()):
+        if _read_int(dev / "type") != _ARPHRD_CAN:
+            continue
+        stats = dev / "statistics"
+
+        def counter(field: str) -> int:
+            return _read_int(stats / field) or 0
+
+        out.append(
+            CanInterface(
+                name=dev.name,
+                is_up=_read_text(dev / "operstate") == "up",
+                rx_packets=counter("rx_packets"),
+                tx_packets=counter("tx_packets"),
+                rx_errors=counter("rx_errors"),
+                tx_errors=counter("tx_errors"),
+                rx_dropped=counter("rx_dropped"),
+                tx_dropped=counter("tx_dropped"),
+            )
+        )
+    return tuple(out)
+
+
+def can_error_rate(prev: CanInterface, cur: CanInterface, elapsed_s: float) -> float:
+    """두 표본 사이 에러+드랍 증가율(건/초).
+
+    카운터가 되감기면(인터페이스 재기동) 0 을 돌려준다 — 음수 속도를 보고하지 않는다.
+
+    Args:
+        prev: 이전 표본.
+        cur: 현재 표본.
+        elapsed_s: 경과 시간(초). 0 이하면 0.0.
+    Returns:
+        증가율(건/초).
+    """
+    if elapsed_s <= 0:
+        return 0.0
+    return max(0, cur.total_errors - prev.total_errors) / elapsed_s
+
+
+def count_dds_segments() -> int:
+    """`/dev/shm` 의 DDS 공유메모리 세그먼트 수.
+
+    **판정하지 않고 기록만 한다** — 정상 개수는 노드 수·QoS 에 따라 달라져 기준을 세울 수 없다.
+    사후 분석에서 "그 시점에 DDS 가 살아 있었나"를 가리는 용도다.
+
+    Returns:
+        세그먼트 수. `/dev/shm` 을 읽을 수 없으면 0.
+    """
+    if not _SHM_ROOT.is_dir():
+        return 0
+    try:
+        names = [p.name.lower() for p in _SHM_ROOT.iterdir()]
+    except OSError:
+        return 0
+    return sum(1 for n in names if any(pat in n for pat in _DDS_SHM_PATTERNS))
 
 
 def read_load_average() -> tuple[float, float, float] | None:

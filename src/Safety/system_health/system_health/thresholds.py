@@ -81,9 +81,28 @@ class Thresholds:
     input_rail_name: str = "VDD_IN"
     input_current_warn_ma: float | None = None
     input_current_error_ma: float | None = None
+    # ── Phase 3a: SW(Software) 이상유무 ──────────────────────────────────────
+    # 살아 있어야 하는 프로세스 이름들(`/proc` comm — **15자에서 잘린다**).
+    # **비어 있으면 판정하지 않는다.** 감시기가 "무엇이 정상인지" 를 스스로 정하지 않는다:
+    # 운영 시나리오마다 띄우는 launch 가 다르고, 목록을 지어내면 실재하지 않는 것을 감시하게
+    # 된다(ADR 2026-08-01 §Decision 2 — 조사 시점에 ROS 노드가 0개였다).
+    expected_processes: tuple[str, ...] = ()
+    # CAN 에러 **증가율**(건/초) 임계. 누계가 아니다 — 누계 기준은 한 번 오르면 계속 경보한다.
+    # 기본 비활성: 이 장비에 socketcan 인터페이스가 아직 없어 정상 대역을 모른다.
+    can_error_rate_warn_s: float | None = None
+    can_error_rate_error_s: float | None = None
     # 팬을 실제로 돌리는 userspace 데몬. 이것이 죽으면 팬이 마지막 PWM 값에 얼어붙고,
     # 커널은 99 °C 까지 개입하지 않으므로 그 구간이 통째로 무방비가 된다.
     fan_daemon_name: str = "nvfancontrol"
+
+    def __post_init__(self) -> None:
+        """JSON 에서 온 list 를 tuple 로 맞춘다.
+
+        설정 파일은 배열을 list 로 주는데 필드는 tuple 이라, 그대로 두면
+        `from_mapping(x.to_mapping()) == x` 왕복 비교가 타입 때문에 깨진다.
+        """
+        if not isinstance(self.expected_processes, tuple):
+            object.__setattr__(self, "expected_processes", tuple(self.expected_processes))
 
     @classmethod
     def from_mapping(cls, overrides: Mapping[str, Any]) -> "Thresholds":
@@ -330,6 +349,54 @@ def evaluate(record: Mapping[str, Any], th: Thresholds) -> tuple[Finding, ...]:
                 "고정된다. 온도 상승의 원인이 될 수 있다",
             )
         )
+
+    watch = record.get("process_watch") or {}
+    for name in watch.get("missing", []):
+        findings.append(
+            Finding(
+                key=f"process_missing:{name}",
+                level=Level.ERROR,
+                value=None,
+                message=f"프로세스 '{name}' 가 없다 — 죽었거나 기동하지 않았다",
+            )
+        )
+    for name in watch.get("restarted", []):
+        findings.append(
+            Finding(
+                key=f"process_restarted:{name}",
+                level=Level.WARN,
+                value=None,
+                message=f"프로세스 '{name}' 의 PID 가 바뀌었다 — 죽었다 살아났다. "
+                "생존 검사만으로는 보이지 않는 crash-loop 일 수 있다",
+            )
+        )
+
+    for iface in record.get("can") or []:
+        if iface.get("up") is False:
+            findings.append(
+                Finding(
+                    key=f"can_down:{iface.get('name', '?')}",
+                    level=Level.ERROR,
+                    value=None,
+                    message=f"CAN 인터페이스 '{iface.get('name', '?')}' 가 down 이다",
+                )
+            )
+        rate = iface.get("error_rate_s")
+        if (rate is not None and th.can_error_rate_warn_s is not None
+                and th.can_error_rate_error_s is not None):
+            level = _grade(rate, th.can_error_rate_warn_s, th.can_error_rate_error_s,
+                           higher_is_worse=True)
+            if level is not Level.OK:
+                findings.append(
+                    Finding(
+                        key=f"can_errors:{iface.get('name', '?')}",
+                        level=level,
+                        value=rate,
+                        message=f"CAN '{iface.get('name', '?')}' 에러 {rate:.1f} 건/초 "
+                        f"(누계 {iface.get('errors_total', 0)}) — 임계 WARN "
+                        f"{th.can_error_rate_warn_s}/ERROR {th.can_error_rate_error_s} 건/초",
+                    )
+                )
 
     if record.get("log_write_failed"):
         findings.append(

@@ -16,73 +16,62 @@ def _isolate_stop_flag():
     sampler.reset_stop_flag()
 
 
-def _collect(prev=None, **kwargs):
-    options = {
-        "disk_paths": ["/"],
-        "proc_scan": False,
-        "top_rss": 3,
-        "fan_daemon_name": "nvfancontrol",
-    }
-    options.update(kwargs)
-    return sampler.collect(prev, **options)
-
-
 # ── record 스키마 ────────────────────────────────────────────────────────────
 
 
-def test_first_sample_omits_cpu_percent():
+def test_first_sample_omits_cpu_percent(collect_sample):
     # 누적값 차분이라 첫 표본에서는 낼 수 없다. 0 으로 채우면 "한가함"으로 오독된다.
-    record, snapshot = _collect(None)
+    record, snapshot = collect_sample(None)
     assert "cpu_total_pct" not in record
     assert snapshot is not None
 
 
-def test_second_sample_reports_cpu_percent_in_range():
-    _, first = _collect(None)
-    record, _ = _collect(first)
+def test_second_sample_reports_cpu_percent_in_range(collect_sample):
+    _, first = collect_sample(None)
+    record, _ = collect_sample(first)
     assert 0.0 <= record["cpu_total_pct"] <= 100.0
     assert all(0.0 <= p <= 100.0 for p in record["cpu_core_pct"])
 
 
-def test_record_has_core_fields_and_is_json_serializable():
-    record, _ = _collect(None)
+def test_record_has_core_fields_and_is_json_serializable(collect_sample):
+    record, _ = collect_sample(None)
     for key in ("iso_time", "epoch_s", "temperatures_c", "disks", "fan", "cooling_states"):
         assert key in record, key
     json.dumps(record, ensure_ascii=False)  # 예외가 없어야 한다
 
 
-def test_injected_time_is_used():
-    record, _ = _collect(None, now=0.0)
+def test_injected_time_is_used(collect_sample):
+    record, _ = collect_sample(None, now=0.0)
     assert record["epoch_s"] == 0.0
     assert record["iso_time"].startswith("19")  # epoch 0 = 1970
 
 
-def test_disk_read_error_is_recorded_not_raised():
-    record, _ = _collect(None, disk_paths=["/nonexistent-path-for-sampler-test"])
+def test_disk_read_error_is_recorded_not_raised(collect_sample):
+    record, _ = collect_sample(None, disk_paths=["/nonexistent-path-for-sampler-test"])
     assert record["disks"][0]["error"]
 
 
-def test_proc_scan_adds_liveness_and_top_rss():
-    record, _ = _collect(None, proc_scan=True)
+def test_proc_scan_adds_liveness_and_top_rss(collect_sample):
+    record, _ = collect_sample(None, proc_scan=True)
     assert record["process_count"] > 0
     assert len(record["top_rss"]) <= 3
     assert isinstance(record["fan_daemon_alive"], bool)
 
 
-def test_proc_scan_disabled_omits_those_fields():
-    record, _ = _collect(None, proc_scan=False)
+def test_proc_scan_disabled_omits_those_fields(collect_sample):
+    record, _ = collect_sample(None, proc_scan=False)
     assert "fan_daemon_alive" not in record
     assert "top_rss" not in record
 
 
-def test_fan_field_always_present_even_without_rpm_node():
+def test_fan_field_always_present_even_without_rpm_node(collect_sample):
     # 본 하드웨어는 rpm 노드가 없다(ADR §Decision 5). 스키마에서 사라지면 안 된다.
-    record, _ = _collect(None)
+    record, _ = collect_sample(None)
     assert set(record["fan"]) == {"pwm", "rpm"}
 
 
-def test_fan_daemon_name_is_honoured():
-    record, _ = _collect(None, proc_scan=True, fan_daemon_name="definitely-not-running-xyz")
+def test_fan_daemon_name_is_honoured(collect_sample):
+    record, _ = collect_sample(None, proc_scan=True, fan_daemon_name="definitely-not-running-xyz")
     assert record["fan_daemon_alive"] is False
 
 
@@ -275,8 +264,8 @@ def test_parse_args_defaults():
     assert args.once is False
 
 
-def test_sample_state_is_returned_for_next_call():
-    _, state = _collect(None)
+def test_sample_state_is_returned_for_next_call(collect_sample):
+    _, state = collect_sample(None)
     assert isinstance(state, sampler.SampleState)
     assert isinstance(state.cpu, sysfs.CpuSnapshot)
     assert state.stamp > 0
@@ -285,27 +274,27 @@ def test_sample_state_is_returned_for_next_call():
 # ── GPU · 스왑 활동량 ────────────────────────────────────────────────────────
 
 
-def test_gpu_field_is_always_present():
+def test_gpu_field_is_always_present(collect_sample):
     """Jetson 을 쓰는 이유가 GPU 다 — 노드가 없는 하드웨어에서도 스키마에서 사라지면 안 된다."""
-    record, _ = _collect(None)
+    record, _ = collect_sample(None)
     assert set(record["gpu"]) == {"load_pct", "freq_hz", "max_freq_hz"}
 
 
-def test_gpu_load_is_percent_not_per_mille():
-    record, _ = _collect(None)
+def test_gpu_load_is_percent_not_per_mille(collect_sample):
+    record, _ = collect_sample(None)
     load = record["gpu"]["load_pct"]
     if load is not None:
         assert 0.0 <= load <= 100.0, f"천분율이 그대로 실렸다: {load}"
 
 
-def test_swap_rate_absent_on_first_sample():
-    record, _ = _collect(None)
+def test_swap_rate_absent_on_first_sample(collect_sample):
+    record, _ = collect_sample(None)
     assert "swap_rate_pages_s" not in record
 
 
-def test_swap_rate_present_on_second_sample():
-    _, first = _collect(None)
-    record, _ = _collect(first)
+def test_swap_rate_present_on_second_sample(collect_sample):
+    _, first = collect_sample(None)
+    record, _ = collect_sample(first)
     assert set(record["swap_rate_pages_s"]) == {"in", "out"}
     assert record["swap_rate_pages_s"]["in"] >= 0
     assert record["swap_rate_pages_s"]["out"] >= 0
