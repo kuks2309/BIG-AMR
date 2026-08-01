@@ -20,7 +20,7 @@ import json
 import signal
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -72,15 +72,19 @@ def reset_stop_flag() -> None:
 
 @dataclass(frozen=True)
 class SampleState:
-    """차분이 필요한 항목의 직전 값 묶음.
+    """차분·비교가 필요한 항목의 직전 값 묶음.
 
-    CPU 사용률과 스왑 활동량은 둘 다 **누적 카운터의 차분**이라 이전 표본이 있어야 한다.
-    둘을 따로 들고 다니면 경과 시간 기준이 어긋날 수 있으므로 한 묶음으로 만든다.
+    CPU 사용률·스왑 활동량·CAN 에러율은 전부 **누적 카운터의 차분**이라 이전 표본이 있어야 한다.
+    프로세스 PID 는 차분이 아니라 **비교** 대상이다(바뀌었으면 재시작).
+    따로 들고 다니면 경과 시간 기준이 어긋날 수 있으므로 한 묶음으로 만든다.
     """
 
     stamp: float
     cpu: sysfs.CpuSnapshot | None
     swap: sysfs.SwapCounters | None
+    can: dict[str, sysfs.CanInterface] = field(default_factory=dict)
+    #: 감시 대상 프로세스의 직전 PID 집합. `/proc` 순회를 한 표본에서만 갱신된다.
+    pids: dict[str, tuple[int, ...]] = field(default_factory=dict)
 
 
 def collect(
@@ -90,6 +94,7 @@ def collect(
     proc_scan: bool,
     top_rss: int,
     fan_daemon_name: str,
+    expected_processes: Sequence[str] = (),
     now: float | None = None,
 ) -> tuple[dict[str, Any], SampleState]:
     """한 시점의 자원 상태를 모아 record 로 만든다.
@@ -103,6 +108,9 @@ def collect(
         proc_scan: 이번 주기에 `/proc` 전체 순회를 할지.
         top_rss: 순회 시 남길 RSS 상위 개수.
         fan_daemon_name: 생존을 확인할 팬 제어 데몬 이름.
+        expected_processes: 살아 있어야 하는 프로세스 이름들(`/proc` comm, 15자 제한).
+            **비어 있으면 프로세스 생존·재시작을 판정하지 않는다** — 감시기가 "무엇이 정상인지"를
+            스스로 정하지 않는다(ADR 2026-08-01 §Decision 2).
         now: epoch 초. None 이면 현재 시각(테스트 주입용).
     Returns:
         (record, 이번 표본 상태). 상태는 다음 호출에 그대로 넘긴다.
@@ -177,6 +185,32 @@ def collect(
     if load is not None:
         record["load_avg"] = [round(v, 2) for v in load]
 
+    # CAN — 인터페이스가 없으면 항목 자체를 넣지 않는다. CAN 을 안 쓰는 운영도 정상이다.
+    can_now = {c.name: c for c in sysfs.read_can_interfaces()}
+    if can_now:
+        elapsed = stamp - prev.stamp if prev is not None else 0.0
+        rows = []
+        for name, cur in sorted(can_now.items()):
+            row: dict[str, Any] = {
+                "name": name,
+                "up": cur.is_up,
+                "rx_packets": cur.rx_packets,
+                "tx_packets": cur.tx_packets,
+                "errors_total": cur.total_errors,
+            }
+            before = (prev.can if prev is not None else {}).get(name)
+            if before is not None:
+                # 누계가 아니라 증가율로 판정한다(ADR §Decision 3).
+                row["error_rate_s"] = round(sysfs.can_error_rate(before, cur, elapsed), 2)
+            rows.append(row)
+        record["can"] = rows
+
+    # DDS 세그먼트 — 기록만. 정상 개수를 모르므로 판정하지 않는다(ADR §Decision 4).
+    record["dds_segments"] = sysfs.count_dds_segments()
+
+    pids_now: dict[str, tuple[int, ...]] = (
+        dict(prev.pids) if prev is not None else {}
+    )
     if proc_scan:
         scan = sysfs.scan_processes(top_n=top_rss)
         record["process_count"] = scan.count
@@ -185,7 +219,24 @@ def collect(
         ]
         record["fan_daemon_alive"] = fan_daemon_name in scan.names
 
-    return record, SampleState(stamp=stamp, cpu=cpu_now, swap=swap_now)
+        if expected_processes:
+            watch = {n: scan.pids_by_name.get(n, ()) for n in expected_processes}
+            missing = sorted(n for n, p in watch.items() if not p)
+            # PID 가 바뀐 것 = 죽었다 살아난 것. 생존 검사만으로는 조용한 crash-loop 를 못 잡는다.
+            restarted = sorted(
+                n for n, p in watch.items()
+                if p and n in pids_now and pids_now[n] and set(p) != set(pids_now[n])
+            )
+            record["process_watch"] = {
+                "expected": list(expected_processes),
+                "missing": missing,
+                "restarted": restarted,
+                "pids": {n: list(p) for n, p in watch.items()},
+            }
+            pids_now = {n: p for n, p in watch.items() if p}
+
+    return record, SampleState(stamp=stamp, cpu=cpu_now, swap=swap_now,
+                               can=can_now, pids=pids_now)
 
 
 def _format_findings(findings: tuple[Finding, ...]) -> str:
@@ -358,6 +409,7 @@ def run(args: argparse.Namespace) -> int:
             proc_scan=proc_scan,
             top_rss=args.top_rss,
             fan_daemon_name=thresholds.fan_daemon_name,
+            expected_processes=thresholds.expected_processes,
         )
 
         # 직전 주기의 기록 실패를 이번 판정에 반영한다 — 기록 실패 자체가 최고 심각도 사건이다.

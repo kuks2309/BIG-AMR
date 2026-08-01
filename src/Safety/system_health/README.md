@@ -87,6 +87,9 @@ ssh -L 8770:127.0.0.1:8770 nvidia@<이 장비>   # 그 뒤 http://127.0.0.1:8770
 | 부하·가동시간 | `getloadavg`, `/proc/uptime` | 재시작 감지 |
 | 프로세스 수·상위 RSS | `/proc/*/stat` | 기본 12주기마다(무거우므로) |
 | 팬 데몬 생존 | 위 순회의 이름 집합 | `nvfancontrol` 이 죽으면 팬이 멈춘 채 고정된다 |
+| **선언 프로세스 생존·재시작** | `/proc/*/stat` comm·PID | Phase 3a. **선언이 없으면 판정 안 함** |
+| **CAN 인터페이스** | `/sys/class/net/*` (`type==280`) | Phase 3a. 인터페이스가 없으면 항목 자체가 없다 |
+| **DDS 세그먼트 수** | `/dev/shm` | Phase 3a. **기록만** — 정상 개수를 모른다 |
 
 ## 임계값
 
@@ -102,6 +105,10 @@ ssh -L 8770:127.0.0.1:8770 nvidia@<이 장비>   # 그 뒤 http://127.0.0.1:8770
 | GPU 사용률 | 기본 **비활성** | 기본 **비활성** |
 | 입력 전류 | 기본 **비활성** | 기본 **비활성** |
 | 팬 데몬 | — | 미동작 |
+| **선언 프로세스 소실** | — | 없으면 ERROR |
+| **선언 프로세스 재시작** | PID 변경 | — |
+| **CAN down** | — | down 이면 ERROR |
+| **CAN 에러 증가율** | 기본 **비활성** | 기본 **비활성** |
 | 로그 기록 | — | 실패 |
 
 **⚠잠정** 표시는 부하 램프 시험 전 잠정치라는 뜻이다(`thresholds.PROVISIONAL_KEYS`). 지어낸 값을
@@ -157,7 +164,7 @@ sudo systemctl restart amr-health-sampler
 ## 테스트
 
 ```bash
-python3 -m pytest test/ -q      # 159 PASS (2026-07-29)
+python3 -m pytest test/ -q      # 183 PASS (2026-08-01)
 ```
 
 ## 하지 않는 것
@@ -169,10 +176,37 @@ python3 -m pytest test/ -q      # 159 PASS (2026-07-29)
   participant 를 만들어 전체 노드에 discovery 트래픽을 유발하므로 금지다. Phase 3 의 토픽 감시도
   이 방법을 쓰지 않는다.
 
+## SW(Software) 이상유무 감시 (Phase 3a)
+
+**선언하지 않으면 아무것도 감시하지 않는다.** 운영 시나리오마다 띄우는 launch 가 다르므로
+감시기가 "무엇이 정상인지" 를 스스로 정하지 않는다
+(ADR [2026-08-01](../../../docs/adr/2026-08-01-system-health-phase3-sw-watchdog.md) §Decision 2).
+
+설정 파일에 살아 있어야 할 프로세스를 적는다:
+
+```json
+"expected_processes": ["nvfancontrol", "python3"]
+```
+
+- 선언한 이름이 없으면 → `process_missing` **ERROR**
+- 선언한 이름의 PID 가 바뀌면 → `process_restarted` **WARN**
+  생존 검사만으로는 죽었다 즉시 살아난 crash-loop 를 못 잡는다. PID 변화가 유일한 단서다.
+
+⚠ 이름은 `/proc/<pid>/stat` 의 `comm` 이라 **15자에서 잘린다**(커널 제약). 긴 실행파일명은
+잘린 이름으로 선언해야 한다. 현재 PID 목록이 `process_watch.pids` 에 함께 기록되므로
+그 값을 보고 실제 이름을 확인할 수 있다.
+
+**CAN 은 인터페이스가 생기면 자동으로 감시된다** — 이름이 아니라 `type == 280`(`ARPHRD_CAN`)
+으로 찾으므로 `can0` 이 아니어도 잡힌다. 없으면 항목 자체를 만들지 않는다(CAN 을 안 쓰는 운영도
+정상이다). 에러는 **누계가 아니라 증가율**로 판정한다 — 누계 기준은 한 번 오르면 계속 경보한다.
+
+**아직 못 하는 것**: "노드는 살아 있는데 발행이 멈춘" 상태는 토픽 구독이 필요해 Phase 3a 범위
+밖이다. Phase 3b(ROS 브리지)에서만 가능하다.
+
 ## 다음 단계
 
 - **Phase 2** — ROS `/diagnostics` 브리지(같은 패키지, `rclpy` 는 그 모듈만).
-- **Phase 3** — SW 이상유무 워치독(노드 생존·토픽 최신성·CAN 에러 카운터).
+- **Phase 3b** — 토픽 최신성(헤더 타임스탬프 노후도) — 구독이 필요하므로 브리지 쪽.
 - **후속 실험** — 팬 커브 램프 시험(온도 임계 확정), JPEG 장당 크기 실측(디스크 소모율).
 
 
