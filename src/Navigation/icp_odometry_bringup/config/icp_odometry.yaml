@@ -1,0 +1,36 @@
+# icp_odometry (rtabmap_odom) 파라미터 — Big-AMR 2D 듀얼 SICK 구성.
+#
+# 출처: TR_Nav_ros2_ws @ad7520981d50 `rtabmap_dual_lidar_localization.launch.py:47-57` 의
+#       실주행 검증값. 리뷰: docs/code_review/trnav-icp-odometry/2026-07-28.md
+# 기본값 대조는 설치본 실물 조회 기준 — `rtabmap --params` (rtabmap 0.23.7).
+#
+# launch 인자로 덮어쓰는 항목(publish_tf / Reg/Force3DoF / Odom/ResetCountdown)은
+# 여기 두지 않는다 — launch 가 나중에 얹으므로 중복 정의 시 혼동만 생긴다.
+
+/**:
+  ros__parameters:
+    # 프레임 (frame)
+    frame_id: base_link            # 오도메트리 기준 바디 프레임
+    odom_frame_id: odom            # 발행할 오도메트리 프레임
+
+    # 타이밍 (timing)
+    wait_for_transform: 0.2        # s, TF 조회 대기 상한
+
+    # 전송 (transport) — dual_laser_merger 가 SensorDataQoS(BEST_EFFORT)로 발행한다
+    #   근거: src/Sensors/Lidar/2D/dual_laser_merger/src/dual_laser_merger.cpp:25-26
+    #   ※ rtabmap 의 qos 값은 0=SYSTEM_DEFAULT, 1=RELIABLE, 2=BEST_EFFORT
+    qos: 2
+    topic_queue_size: 10
+
+    # ICP 정합 (registration)
+    Icp/VoxelSize: "0.05"                  # m, 입력 스캔 다운샘플 격자
+    Icp/MaxCorrespondenceDistance: "0.1"   # m, 대응점 최대거리 (rtabmap 기본값과 동일)
+    Icp/Iterations: "30"                   # 회, 반복 상한
+    Icp/Epsilon: "0.001"                   # m, 수렴 임계
+    Icp/PointToPlane: "false"              # 2D 평면 스캔이므로 point-to-point
+
+    # 키프레임 · 로컬맵 (keyframe / local map)
+    Odom/ScanKeyFrameThr: "0.6"            # 0~1, ICP inlier 비율이 이 아래로 떨어지면 키프레임 갱신
+                                           #   (rtabmap 기본 0.9 → TR_Nav 실주행값 0.6)
+    OdomF2M/ScanSubtractRadius: "0.05"     # m
+    OdomF2M/ScanMaxSize: "5000"            # 점, 로컬맵 상한

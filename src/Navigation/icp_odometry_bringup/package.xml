@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>icp_odometry_bringup</name>
+  <version>0.1.0</version>
+  <description>
+    Big-AMR 2D ICP 오도메트리 bringup — rtabmap_odom/icp_odometry 를 듀얼 SICK 병합 스캔
+    (/scan_merged) 위에서 구동해 휠 오도메트리 부재를 대체한다. 출력 /odom 은
+    mcl2d_localization_node 가 소비한다.
+  </description>
+  <maintainer email="drko0808@gmail.com">kuks2309</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- 실행 의존성: 노드 실행파일 제공처를 명시한다.
+       (TR_Nav 의 rtab_map_config 는 이 선언이 빠져 rosdep 재현이 불가했다 —
+        리뷰 docs/code_review/trnav-icp-odometry/2026-07-28.md 의 Info 항목) -->
+  <exec_depend>rtabmap_odom</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <!-- 런타임 전제(별도 기동, 본 패키지가 띄우지 않음): dual_laser_merger 가
+       /scan_merged 와 base_link→scan_merged static TF 를 제공해야 한다. -->
+  <exec_depend>dual_laser_merger</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
