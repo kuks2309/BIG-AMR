@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mcl2d_ros2</name>
+  <version>0.1.0</version>
+  <description>
+    Seer 2D MCL 위치추정 ROS2 어댑터. 프레임워크-독립 코어(mcl2d_core)를 rclcpp 노드로 감싼다.
+    /scan_front+/scan_rear+/odom → /mcl_pose+TF. non-ROS 어댑터와 동일 코어 → 결과 동일.
+    근거: docs/reverse_engineering/libMCLoc/2026-06-24-localization-deep-dive.md
+  </description>
+  <maintainer email="kukwonko@gmail.com">Seer RE</maintainer>
+  <license>Proprietary (유지보수·상호운용 목적)</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>tf2_ros</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
