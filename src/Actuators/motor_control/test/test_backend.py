@@ -339,3 +339,42 @@ def test_freewheel_leaves_steer_holding():
         assert len(all_writes(bus, 3, P.OBJ_TARGET_POSITION)) > n3  # 조향 setpoint 지속
     finally:
         b.shutdown()
+
+
+def _node_writes_seq(bus, node):
+    """해당 노드 (index, value) 쓰기 시퀀스(송신 순서 보존)."""
+    out = []
+    for msg in bus.sent:
+        if getattr(msg, "is_remote_frame", False):
+            continue
+        d = bytes(msg.data)
+        if msg.arbitration_id == 0x600 + node and len(d) == 8 and d[0] in (0x23, 0x2B, 0x2F):
+            out.append((d[1] | (d[2] << 8), struct.unpack("<i", d[4:8])[0]))
+    return out
+
+
+def test_freewheel_zeroes_device_velocity_before_servo_off():
+    """runaway 방지: servo-off(0x6040=CW_DISABLE) 직전에 Target_velocity(0x60FF)=0 을 장비에 송신.
+
+    진입 전 주행 중(비0 목표속도)이었고 드라이브가 조용히 재-enable(debt-003)돼도
+    잔류 목표속도로 급발진하지 않도록, 전이가 servo-off 직전 장비 목표를 0으로 확정한다.
+    """
+    bus = FakeBus(warm_positions())
+    b = make_backend(bus, cmd_timeout=10.0)
+    b.start()
+    try:
+        b.set_command([ModuleCommand(1, 0.1, 0.0), ModuleCommand(2, 0.1, 0.0)])  # 비0 주행 목표
+        time.sleep(0.08)
+        b.freewheel(True)
+        # node2(전이 루프 마지막 송신)까지 대기 → node1 은 이미 완료 보장(송신 레이스 방지)
+        assert _wait(lambda: P.CW_DISABLE in all_writes(bus, 2, P.OBJ_CONTROLWORD))
+        for n in (1, 2):
+            seq = _node_writes_seq(bus, n)
+            di = next(i for i, (idx, val) in enumerate(seq)
+                      if idx == P.OBJ_CONTROLWORD and val == P.CW_DISABLE)
+            assert di > 0, f"node{n}: CW_DISABLE 앞 쓰기 없음"
+            prev_idx, prev_val = seq[di - 1]
+            assert prev_idx == P.OBJ_TARGET_VELOCITY and prev_val == 0, \
+                f"node{n}: servo-off 직전 쓰기가 Target_velocity=0 이 아님 ({prev_idx:#06x}={prev_val})"
+    finally:
+        b.shutdown()

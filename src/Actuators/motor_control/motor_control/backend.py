@@ -168,6 +168,7 @@ class TongyiSdoBackend:
         engage=True: 구동 노드 servo enable 해제(0x6040=CW_DISABLE) → 바퀴 자유회전.
           ⚠ 홀딩토크 상실 — 경사면에서 굴러갈 수 있음(정지·평지·촉 확보 후 사용).
           조향축은 영향 없음(현 위치 hold). vel 목표를 0으로 리셋.
+          runaway 방지: TX 전이가 servo-off 직전 장비 목표속도도 0으로 확정한다(재-enable 시 잔류속도 급발진 차단).
         engage=False: 구동 노드 재-enable(0x86 + PV 모드) → 신선한 지령 전까지 워치독으로 vel 0.
         실제 CAN 송신은 상태 전이에서 TX 루프(유일 버스 writer)가 수행한다.
         """
@@ -293,6 +294,9 @@ class TongyiSdoBackend:
             # NOTE(debt-003): servo-off 1회 assert + guard 폴링 지속. HW가 조용히 재-enable하면 주기 재-assert 필요(벤치 미확인)
             if freewheel and not fw_active:
                 for n in self.drive_nodes:
+                    # runaway 방지: servo-off 직전 장비 목표속도를 0으로 확정(전이 후 vel write 스킵됨).
+                    #   드라이브가 조용히 재-enable(debt-003)돼도 잔류 목표속도로 급발진하지 않도록.
+                    self._send(P.sdo_write(n, P.OBJ_TARGET_VELOCITY, 0, size=4))
                     self._send(P.sdo_write(n, P.OBJ_CONTROLWORD, P.CW_DISABLE, size=2))
                 fw_active = True
             elif not freewheel and fw_active:
