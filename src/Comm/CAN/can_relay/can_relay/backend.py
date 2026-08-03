@@ -18,7 +18,7 @@
    없다** — `home()` 은 `0x60FB:04=1` 을 SDO 로 직접 보내고 그 뒤 상태워드만 본다.
    ⚠ "소프트웨어가 아예 못 멈춘다"는 뜻이 아니다: 판다 펌웨어의 호밍 시퀀서에는
    취소 프레임(`0x60FB:04=0`) 송신 경로가 있다
-   (`Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h:307-309`
+   (`Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h:312-316`
    `seer_home_cancel_frames()`, USB `0xea` wValue=0 으로 기동). 본 패키지는 그 경로를
    쓰지 않으므로 **우리 쪽 중단 수단이 하드웨어 E-STOP 뿐인 것**이며, 이는 개선 여지다.
    따라서 명시 요청으로만 수행한다.
@@ -203,7 +203,7 @@ class RelayBackend:
         """조향 호밍. **물리 스윙 100°+ 가 발생하며 본 구현에는 취소 경로가 없다**
         (이 함수는 `0x60FB:04=1` 송신 후 상태워드만 관측한다 — 아래 `_send` 참조).
         ⚠ 범위 주의: 펌웨어에는 취소 경로가 실재한다 —
-        `safety_seer_gate.h:307-309` `seer_home_cancel_frames()` 가 `0x60FB:04=0` 을 낸다.
+        `safety_seer_gate.h:312-316` `seer_home_cancel_frames()` 가 `0x60FB:04=0` 을 낸다.
         미사용일 뿐이므로 "불가능"이 아니라 "미구현"으로 적는다.
 
         시작하면 드라이브 내부 루틴이 수행하므로 **여기서는** 중단 수단이 하드웨어

@@ -237,7 +237,8 @@ class TongyiSdoBackend:
         if cold and not self.allow_homing_motion:
             deg = {n: round(d / (self.counts_per_rad * 3.14159265 / 180.0), 1) for n, d in cold.items()}
             raise BringupRefused(
-                f"조향 실측이 홈에서 {deg} ° 벗어남 — 원인 미판정(debt-007). "
+                f"조향 실측이 홈에서 {deg} ° 벗어남. 직전에 호밍했다면 "
+                f"+0.178°/+0.331° 는 정상이다(호밍은 0° 가 아니라 GOZERO 에 놓는다). "
                 f"주변 확보 후 파라미터 allow_homing_motion:=true 로 재시작하세요. "
                 f"참고: 브링업은 호밍 트리거를 보내지 않는다 — 물리 스윙은 GUI '호밍' 요청 시에만 발생. "
                 f"조향 0° 는 절대 ≈+137°(7,882,020/7,859,062 counts)이며 설계된 원점 오프셋이다.")
