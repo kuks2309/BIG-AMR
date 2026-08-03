@@ -9,12 +9,11 @@
     drive_nodes: [1, 2]           # 구동축(PV). 기계적 원점 없음 → 호밍 대상 아님
     steer_nodes: [3, 4]           # 조향축(PP)
 
-    # ⚠ debt-007 미판정 — 값 변경 금지(상환계획 ③).
-    # 같은 실측 캡처에서 Seer 가 호밍 후 유지한 0° 목표는 7882020 / 7859062 로
-    # +10,205 / +18,976 counts (= +0.178° / +0.331°) 다르다. 두 값 모두
-    # homing_tol·settle_tol 어느 게이트로도 검출되지 않는 영구 오프셋이다.
-    # 아래는 실기에서 쓰이고 있는 값이다. 근본 해법(호밍 후 실측 자동 취득)은 미구현.
-    steer_home_counts: [7871815, 7840086]
+    # ── 조향 홈은 여기 없다 ───────────────────────────────────────────────
+    # 정본은 `config/machine/<기체>.yaml` 의 `steer_home_counts` 하나뿐이다.
+    # 값이 두 곳에 있으면 어느 것이 실렸는지 알 수 없어 그 자체가 오판이 된다.
+    # 코드에도 기본값이 없다(`safety.DEFAULT_STEER_HOME = {}`) — 없으면 조향 거부.
+    # (2026-08-02 사용자 지시: "모터 홈은 중요하니 config 에서 설정하는 것이 맞다")
 
     steer_limit_deg: 90.0         # 실측 검증 범위. 기구 한계(±140°)가 아니다
     vel_max_units: 4889           # ≈0.2 m/s. 실측이 아니라 config 환산 + 계승 상한
@@ -28,7 +27,7 @@
     #   `grep -nE '0x6060|0x100C|0x100D|0x6081|0x6083|0x6084' Tools/amr_test_gui/gui.py` → 0건)
     # Seer 가 브링업한 축에 올라타는 방식이다. 단 gui.py 가 controlword 를 아예
     # 안 쓰는 것은 아니다 — `gui.py:942` 의 0x6040=0x86 은 조향축 호밍 전용이다.
-    # 잭업 상태에서 확인하기 전까지 false 로 둔다(debt-027).
+    # 잭업 상태에서 확인하기 전까지 false 로 둔다(debt-017).
     allow_bringup: false
 
     enable_cmd_vel: true          # false 면 직접 지령(~/steer_deg 등)만 연다
@@ -40,3 +39,12 @@
 
     diag_hz: 1.0
     state_hz: 10.0
+
+    # per-bus CAN 에러 상태(판다 0xc3) 폴링. 읽기 전용이라 제어 경로에 영향이 없다.
+    # bus_off / error_passive / error_warning 이 서면 diagnostics 를 ERROR 로 올린다.
+    # 0 이하로 두면 폴링하지 않는다.
+    health_hz: 1.0
+
+    # 호밍 속도(0x6099, 0.1 r/min). 0 = 펌웨어 기본값 2500(=250 r/min).
+    # 그 외에는 100~3000 만 허용된다(safety_seer_gate.h:207-208).
+    homing_speed: 0

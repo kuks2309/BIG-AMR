@@ -18,9 +18,15 @@ def generate_launch_description():
     default_params = os.path.join(
         get_package_share_directory("can_relay"), "config", "can_relay.yaml")
 
+    default_machine = os.path.join(
+        get_package_share_directory("can_relay"), "config", "machine", "foil_a082.yaml")
+
     params_arg = DeclareLaunchArgument(
         "params_file", default_value=default_params,
-        description="can_relay 파라미터 YAML")
+        description="can_relay 로직 파라미터 YAML (주기·토픽·한계)")
+    machine_arg = DeclareLaunchArgument(
+        "machine_file", default_value=default_machine,
+        description="장비별 캘리브레이션 YAML — 기체를 바꾸면 이 파일만 갈아끼운다")
     link_arg = DeclareLaunchArgument(
         "link", default_value="panda",
         description="panda | mock — mock 은 하드웨어 무접속 시험용")
@@ -31,10 +37,12 @@ def generate_launch_description():
         name="can_relay_node",
         output="screen",
         emulate_tty=True,
+        # 순서가 곧 우선순위 — 뒤가 이긴다. 캘리브레이션이 로직 기본값을 덮는다.
         parameters=[LaunchConfiguration("params_file"),
+                    LaunchConfiguration("machine_file"),
                     {"link": LaunchConfiguration("link")}],
         # 드라이버가 죽으면 살아 있는 척하지 않는다. respawn 하지 않는다 —
         # 재기동은 제어권을 다시 잡는 행위이고 사람이 판단해야 한다.
         on_exit=Shutdown(),
     )
-    return LaunchDescription([params_arg, link_arg, node])
+    return LaunchDescription([params_arg, machine_arg, link_arg, node])

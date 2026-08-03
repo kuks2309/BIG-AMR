@@ -25,13 +25,13 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
+  <!-- 모터 계층 계약. 상류 TR_Nav 와 같은 타입을 써야 체인이 이어진다 —
+       메시지를 이 패키지에 다시 정의하지 않는다(trnav_2ws_msgs 중복 폐기 선례). -->
+  <exec_depend>trnav_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
-  <!-- 역기구학 대여용. 이 패키지는 IK 를 자체 구현하지 않는다(중복 IK 금지). -->
-  <exec_depend>motor_control</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

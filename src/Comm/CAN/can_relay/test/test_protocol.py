@@ -174,3 +174,43 @@ def test_guard_time_is_500ms_uint16():
          if (x.data[1] | (x.data[2] << 8)) == P.OBJ_GUARD_TIME][0]
     assert f.data[0] == 0x2B                                 # 2바이트
     assert int.from_bytes(f.data[4:6], "little") == 500
+
+
+# ── method 35 프레임 (2026-08-03 리뷰: 시험 0건이었다) ────────────────────
+def test_home35_move_frames_match_upstream_order():
+    """상류 `can_open.hpp:483-486` 과 같은 순서·객체다: 0x607A → 0x6081 → 0x6040."""
+    frames = P.home35_move_frames(3, 1234, profile_vel=2500)
+    idxs = [(f.data[1] | (f.data[2] << 8)) for f in frames]
+    assert idxs == [P.OBJ_TARGET_POSITION, P.OBJ_PROFILE_VELOCITY, P.OBJ_CONTROLWORD]
+    assert int.from_bytes(frames[0].data[4:8], "little", signed=True) == 1234
+    assert int.from_bytes(frames[1].data[4:8], "little") == 2500
+    assert int.from_bytes(frames[2].data[4:6], "little") == P.CW_STEER_SETPOINT
+
+
+def test_home35_move_frames_carry_negative_offset():
+    """오프셋은 음수일 수 있다 — 부호 없이 인코딩하면 반대편으로 간다."""
+    f = P.home35_move_frames(4, -5_000_000)[0]
+    assert int.from_bytes(f.data[4:8], "little", signed=True) == -5_000_000
+
+
+def test_home35_set_frame_is_single_byte_35():
+    """`0x6098 = 35` 는 INT8 이다 — 4바이트로 쓰면 드라이브가 길이 불일치로 거부한다."""
+    frames = P.home35_set_frames(3)
+    assert len(frames) == 1
+    f = frames[0]
+    assert (f.data[1] | (f.data[2] << 8)) == P.OBJ_HOMING_METHOD
+    assert f.data[0] == 0x2F                       # 1바이트 expedited download
+    assert f.data[4] == P.HOMING_METHOD_CURRENT_POS == 35
+
+
+def test_home35_reached_requires_both_conditions():
+    """상태워드 bit10 **과** 잔차 둘 다여야 도착이다(상류 can_open.hpp:489)."""
+    assert P.home35_reached(P.STATUSWORD_TARGET_REACHED, 1000, 1000, 50) is True
+    assert P.home35_reached(P.STATUSWORD_TARGET_REACHED, 1051, 1000, 50) is False
+    assert P.home35_reached(0, 1000, 1000, 50) is False
+
+
+def test_home35_reached_is_false_when_unknown():
+    """모르는 것은 참이 아니다 — 미상이면 도착으로 치지 않는다."""
+    assert P.home35_reached(None, 1000, 1000, 50) is False
+    assert P.home35_reached(P.STATUSWORD_TARGET_REACHED, None, 1000, 50) is False

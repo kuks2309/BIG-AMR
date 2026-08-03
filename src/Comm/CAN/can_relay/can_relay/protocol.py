@@ -39,6 +39,16 @@ OBJ_DIGITAL_INPUT = 0x6000      # ★ sub **1** 이 비트맵(sub 0 은 엔트�
 #   구 판다 펌웨어가 sub 0 을 폴해 리밋 판정이 죽어 있던 이력이 있다
 #   (`Log/homing_run_1785160148.jsonl` 에서 응답 0x02 = 엔트리 수). sub 1 을 쓸 것.
 OBJ_VENDOR_60FB = 0x60FB        # sub 4 = RstStart. 1 을 쓰면 호밍이 **물리적으로 시작**된다.
+OBJ_HOMING_METHOD = 0x6098      # INT8. 1 = −리밋 트리거 · 35 = 현재 위치를 홈으로
+
+# CiA402 homing method 35 — "The home point is the current position".
+# 매뉴얼 근거(Handbook V7.0 §Home 35): "the driver records the current motor position as the
+# home position, **sets the current angle to zero**, and reset uwRstMode to 0.
+# … **it is only effective when the motor is powered on**."
+#   ⇒ ① 호밍 후 0x6064 ≈ 0 이 직진이다(홈 상수가 필요 없다)
+#     ② 전원 사이클마다 재호밍이 필요하다
+HOMING_METHOD_CURRENT_POS = 35
+STATUSWORD_TARGET_REACHED = 1 << 10     # bit10. 상류가 도착 판정에 쓰는 비트
 
 # ── Controlword 값 ────────────────────────────────────────────────────────
 CW_FAULT_RESET_ENABLE = 0x86    # 축 준비(Fault Reset 상승에지). 캡처 t=17.883·17.910
@@ -149,7 +159,7 @@ def drive_init_frames(node: int, bus: int = 0) -> list[Frame]:
 
     ⚠ `Tools/amr_test_gui/gui.py` 에는 이 시퀀스가 **없다** — 그 코드는 Seer 가
     이미 브링업해 둔 축에 올라타 0x60FF 만 덮어쓴다. 즉 여기는 실기 검증 이력이
-    없는 구간이므로 잭업 상태에서 먼저 확인할 것(debt-027).
+    없는 구간이므로 잭업 상태에서 먼저 확인할 것(debt-017).
 
     부정형 단정의 근거 명령(2026-07-29 실행, 0건):
         grep -nE '0x6060|0x100C|0x100D|0x6081|0x6083|0x6084' Tools/amr_test_gui/gui.py
@@ -184,7 +194,18 @@ def steer_init_frames(node: int, bus: int = 0) -> list[Frame]:
 
 
 def homing_frames(node: int, speed: int = 2500, bus: int = 0) -> list[Frame]:
-    """조향 호밍 개시. `gui.py:942-944` 의 실기 검증 시퀀스와 바이트 동일.
+    """조향 호밍 개시(SDO 직접 경로). ⚠ **이 패키지의 실행 경로에서는 쓰지 않는다.**
+
+    호출부는 회귀(`test/test_protocol.py`)뿐이다 — 실행 경로의 호밍은 펌웨어
+    시퀀서(`link.homing_start`, 0xea) 또는 method 35(`home35_*`)다. 남겨 두는 이유는
+    **바이트 대조 기준**이기 때문이다: `gui.py:942-944` 의 실기 검증 시퀀스와 같은
+    바이트임을 회귀가 고정하고 있어, 펌웨어 시퀀서가 내는 프레임을 이것과 대조할 수 있다.
+
+    ⚠ 새 코드에서 이 함수를 호출하지 말 것 — 이 경로로 시작한 호밍의 취소는
+    **호스트 프로세스가 살아 있을 때만** 성립한다(`link.py` 상단 참조).
+    (2026-08-03 코드 리뷰 L1 — 존치 근거 명시)
+
+    `gui.py:942-944` 의 실기 검증 시퀀스와 바이트 동일.
 
     `0x6098`(homing method)은 **쓰지 않는다** — 드라이브 저장값(전 노드 Home 1,
     −리밋 트리거)을 덮어쓰면 리셋 모드가 꺼져 호밍이 동작하지 않는다.
@@ -195,6 +216,44 @@ def homing_frames(node: int, speed: int = 2500, bus: int = 0) -> list[Frame]:
         sdo_write(node, OBJ_HOMING_SPEED, speed, 4, bus=bus),
         sdo_write(node, OBJ_VENDOR_60FB, 1, 1, sub=4, bus=bus),   # 여기서 움직인다
     ]
+
+
+def home35_move_frames(node: int, home_offset: int, profile_vel: int = 2500,
+                       bus: int = 0) -> list[Frame]:
+    """method 35 호밍 1단계 — 지정한 **절대 카운트로 이동**한다.
+
+    상류 `amr_canopen_motor_driver` 의 `can_open.hpp:483-486` 과 같은 순서·같은 객체다:
+        0x607A = home_offset · 0x6081 = profile_vel · 0x6040 = 0x3F(MoveAbsPos)
+
+    ⚠ 이 프레임은 **바퀴를 움직인다.** `home_offset` 이 그 기체 값이 아니면 엉뚱한 곳으로
+    간다 — 호출 전에 현재 위치가 `home_search_range` 안인지 확인할 것.
+    """
+    return [
+        sdo_write(node, OBJ_TARGET_POSITION, home_offset, 4, bus=bus),
+        sdo_write(node, OBJ_PROFILE_VELOCITY, profile_vel, 4, bus=bus),
+        sdo_write(node, OBJ_CONTROLWORD, CW_STEER_SETPOINT, 2, bus=bus),
+    ]
+
+
+def home35_set_frames(node: int, bus: int = 0) -> list[Frame]:
+    """method 35 호밍 2단계 — **현재 위치를 홈으로 선언**한다(각도가 0 이 된다).
+
+    상류 `can_open.hpp:461` 의 `AsyncWrite(0x6098, 0, (int8_t)35)` 와 동일.
+    1단계 도착을 확인한 **뒤에만** 보내야 한다 — 안 그러면 엉뚱한 자세가 0° 가 된다.
+    """
+    return [sdo_write(node, OBJ_HOMING_METHOD, HOMING_METHOD_CURRENT_POS, 1, bus=bus)]
+
+
+def home35_reached(statusword, position, home_offset: int, tol: int) -> bool:
+    """method 35 1단계 도착 판정. 상류와 같은 **2조건**이다(`can_open.hpp:489`).
+
+    상태워드나 위치를 모르면 도착으로 치지 않는다 — 모르는 것은 참이 아니다.
+    """
+    if statusword is None or position is None:
+        return False
+    if not (statusword & STATUSWORD_TARGET_REACHED):
+        return False
+    return abs(int(position) - int(home_offset)) < int(tol)
 
 
 def steer_target_frames(node: int, counts: int, bus: int = 0) -> list[Frame]:
@@ -211,6 +270,14 @@ def steer_target_frames(node: int, counts: int, bus: int = 0) -> list[Frame]:
 def drive_velocity_frame(node: int, units: int, bus: int = 0) -> Frame:
     """구동 속도 지령(0.1 r/min raw). units=0 이 정지 지령이다."""
     return sdo_write(node, OBJ_TARGET_VELOCITY, units, 4, bus=bus)
+
+
+# ── MotorCmd.mode (상류 `trnav_msgs/MotorCmd.msg` 와 **같은 값**) ──────────
+#   0=DISABLED · 1=VELOCITY · 2=POSITION · 3=TORQUE
+#   ⚠ 이 값을 안 보고 지나가면 축 종류와 모드가 어긋난 지령이 그대로 나간다 —
+#   조향축에 VELOCITY 가 오면 미설정 target_pos(=0)를 위치로 읽어 한계까지 스윙한다.
+MODE_DISABLED, MODE_VELOCITY, MODE_POSITION, MODE_TORQUE = 0, 1, 2, 3
+MODE_NAME = {0: "DISABLED", 1: "VELOCITY", 2: "POSITION", 3: "TORQUE"}
 
 
 POLL_OBJECTS = (

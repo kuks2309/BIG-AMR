@@ -35,6 +35,7 @@ intercept 로 남고 모터가 방치된다.
 from __future__ import annotations
 
 import os
+import struct
 import sys
 import threading
 import time
@@ -55,18 +56,126 @@ REQ_HEARTBEAT = 0xF3    # 보내면 fail-safe 검사가 되살아난다
 HEARTBEAT_PERIOD_S = 0.2    # 펌웨어 임계 1.0~2.0 s 대비 5~10배 여유
 HEARTBEAT_DEADLINE_S = 0.8  # 이 이상 못 보내면 fail-safe 가 임박한 것으로 본다
 
-_KIT = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.abspath(__file__)))))),
-    "Tools", "docking_field_kit")
+# ── per-bus CAN 에러 상태 (0xc3) ───────────────────────────────────────────
+# 펌웨어 `board/health.h:29-37` `struct __attribute__((packed)) can_health_t`.
+# ⚠ REC(Receive Error Counter)·TEC(Transmit Error Counter)는 **uint8** 이다 —
+#   bxCAN ESR 레지스터의 카운터 폭이 8비트라 255 에서 포화한다(그 이상은 구분 못 함).
+REQ_CAN_HEALTH = 0xC3
+CAN_HEALTH_STRUCT = struct.Struct("<BBBBBBI")
+
+# ── 펌웨어 호밍 시퀀서 (0xea 명령 / 0xeb 상태) ────────────────────────────
+# 이 경로를 쓰는 이유는 하나다 — **취소가 호스트 생사와 무관하게 성립한다.**
+# 펌웨어 시퀀서는 `seer_home_cancel_frames()`(safety_seer_gate.h:312-316)로 `0x60FB:04=0` 을
+# 내보낸다. 호스트가 죽거나 USB 가 끊겨도 판다가 권한·모드 상실을 감지해 스스로 취소를 낸다
+# (`safety_seer_gate.h:360`).
+#
+# ⚠ 정정 2026-08-03: 종전 주석의 「SDO 직접 경로는 소프트웨어가 멈출 수 없다」는 **과장이었다.**
+#   취소 프레임의 실체는 같은 `0x60FB:04` 에 0 을 쓰는 SDO 하나이므로 직접 경로로도 낼 수 있다.
+#   다른 것은 가능 여부가 아니라 **누가 보증하느냐**다 — 직접 경로의 취소는 호스트 프로세스가
+#   살아 있을 때만 성립하고, 펌웨어 경로는 fail-safe 계층이 보증한다. 그래서 이쪽을 쓴다.
+REQ_HOMING_CMD = 0xEA       # wValue: 0=취소 · ≠0=시작 / wIndex: 속도(0=기본 2500)
+REQ_HOMING_STATUS = 0xEB    # 8바이트 상태
+
+HOMING_SPEED_DEFAULT = 0    # 0 이면 펌웨어 기본값(2500 = 250 r/min)을 쓴다
+HOMING_SPEED_MIN, HOMING_SPEED_MAX = 100, 3000   # safety_seer_gate.h:207-208
+
+# safety_seer_gate.h:222-233. 이름은 펌웨어 매크로 그대로 쓴다(대조 가능하게).
+HOMING_STATE = {
+    0: "IDLE", 1: "ENABLE", 2: "SET_SPEED", 3: "START", 4: "WAIT", 5: "DONE",
+    6: "ERR_TIMEOUT", 7: "ERR_ABORT", 8: "RESTORE", 9: "GOZERO",
+    10: "ERR_GOZERO", 11: "GOZERO_W",
+}
+# `seer_home_is_terminal()` (safety_seer_gate.h) 와 동일 집합.
+HOMING_TERMINAL = frozenset({0, 5, 6, 7, 10})
+HOMING_OK = frozenset({5})          # DONE 만 성공
+HOMING_NODES = (3, 4)               # SEER_HOME_NODE_LO/HI
+
+
+def decode_can_health(data: bytes) -> dict:
+    """0xc3 응답 디코드. 순수 함수 — 하드웨어 없이 시험 가능하다."""
+    if len(data) < CAN_HEALTH_STRUCT.size:
+        raise LinkError(f"can_health 응답이 짧다: {len(data)}B "
+                        f"(기대 {CAN_HEALTH_STRUCT.size}B)")
+    a = CAN_HEALTH_STRUCT.unpack(data[:CAN_HEALTH_STRUCT.size])
+    return {
+        "bus_off": a[0],
+        "error_passive": a[1],
+        "error_warning": a[2],
+        "last_error_code": a[3],
+        "rec": a[4],            # Receive Error Counter (uint8, 255 포화)
+        "tec": a[5],            # Transmit Error Counter (uint8, 255 포화)
+        "esr_reg": a[6],
+    }
+
+
+def decode_homing_status(data: bytes) -> dict:
+    """0xeb 응답 디코드. 바이트 배치는 `board/usb_comms.h:417-426`."""
+    if len(data) < 8:
+        raise LinkError(f"호밍 상태 응답이 짧다: {len(data)}B (기대 8B)")
+    state = data[0]
+    return {
+        "state": state,
+        "state_name": HOMING_STATE.get(state, f"UNKNOWN({state})"),
+        "terminal": state in HOMING_TERMINAL,
+        "done_mask": data[1],
+        "seen_active": data[2],
+        "elapsed_s": data[3] | (data[4] << 8),
+        "digital_in": {3: data[5], 4: data[6]},
+        "reached_mask": data[7],
+    }
+
+
+def _find_repo_root(start: str) -> str:
+    """`Tools/docking_field_kit` 가 보이는 조상 디렉터리를 저장소 루트로 삼는다.
+
+    ⚠ 전에는 `os.path.dirname` 을 **고정 5회** 호출했는데 실제로는 6회가 필요해
+    `.../Big-AMR/src` 를 루트로 잡았다. 그 버그는 회귀 155건이 전부 `MockLink` 라
+    **실기에서 처음 드러났다**(2026-08-01). 깊이를 세지 않고 마커로 찾으면
+    패키지가 다른 깊이로 옮겨가도 깨지지 않는다.
+    """
+    d = os.path.dirname(os.path.abspath(start))
+    for _ in range(12):
+        if os.path.isdir(os.path.join(d, "Tools", "docking_field_kit")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    # 못 찾으면 예전 규칙(고정 6단계)으로 되돌아간다 — 조용히 빈 문자열을 주지 않는다.
+    d = os.path.abspath(start)
+    for _ in range(6):
+        d = os.path.dirname(d)
+    return d
+
+
+_REPO = _find_repo_root(__file__)
+
+# comma.ai panda 라이브러리 사본이 저장소에 **둘** 있다. 우선순위는 기능 기준이다.
+#   ① Tools/docking_field_kit/panda        — `can_health()`(0xc3) 포함 = 상위집합
+#   ② Tools/Can_Relay/panda-firmware/python — 펌웨어와 같은 트리, can_health 없음
+# ①이 없을 때만 ②로 내려간다. ②만 있으면 `can_health()` 는 쓸 수 없고, 그 사실을
+# 조용히 삼키지 않고 진단에 드러낸다(`PandaLink.can_health` 가 LinkError).
+_PANDA_SOURCES = (
+    (os.path.join(_REPO, "Tools", "docking_field_kit"), "panda"),
+    (os.path.join(_REPO, "Tools", "Can_Relay", "panda-firmware"), "python"),
+)
 
 
 def _panda_module():
-    """comma.ai panda 라이브러리(필드킷 동봉본) 로드."""
-    if _KIT not in sys.path:
-        sys.path.insert(0, _KIT)
-    from panda import Panda  # noqa: WPS433 - 선택적 의존성
-    return Panda
+    """comma.ai panda 라이브러리 로드. 사본 두 곳을 순서대로 시도한다."""
+    errors = []
+    for root, modname in _PANDA_SOURCES:
+        if not os.path.isdir(os.path.join(root, modname)):
+            errors.append(f"{root}/{modname}: 없음")
+            continue
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        try:
+            mod = __import__(modname, fromlist=["Panda"])
+            return mod.Panda
+        except Exception as exc:                       # pragma: no cover - 환경 의존
+            errors.append(f"{root}/{modname}: {type(exc).__name__}: {exc}")
+    raise LinkError("panda 라이브러리를 찾지 못했다 — " + " / ".join(errors))
 
 
 class LinkError(RuntimeError):
@@ -101,6 +210,20 @@ class BaseLink:
     def engaged(self) -> bool:
         raise NotImplementedError
 
+    # ── per-bus CAN 에러 상태 (선택 기능 — 라이브러리 사본에 따라 부재 가능) ──
+    def can_health(self, bus: int) -> dict:
+        raise NotImplementedError
+
+    # ── 펌웨어 호밍 시퀀서 ────────────────────────────────────────────────
+    def homing_start(self, speed: int = HOMING_SPEED_DEFAULT) -> bool:
+        raise NotImplementedError
+
+    def homing_cancel(self) -> bool:
+        raise NotImplementedError
+
+    def homing_status(self) -> dict:
+        raise NotImplementedError
+
 
 class MockLink(BaseLink):
     """하드웨어 없는 대역. 보낸 프레임을 기록하고 미리 넣어 둔 응답을 돌려준다.
@@ -115,6 +238,21 @@ class MockLink(BaseLink):
         self.opened = False
         self._engaged = False
         self.log: list[str] = []
+        self.health_fixture: Optional[dict] = None   # {bus: can_health dict}
+        self.homing: dict = self.homing_state(0)
+        # 시험용 상태 진행 대본. 비어 있지 않으면 `homing_status()` 가 앞에서부터
+        # 하나씩 꺼내 쓰고(마지막 것은 유지), 실기 시퀀서의 상태 전이를 흉내낸다.
+        self.homing_script: list = []
+
+    @staticmethod
+    def homing_state(state: int, **kw) -> dict:
+        """상태 번호 하나로 0xeb 응답 형태의 dict 를 만든다(시험 편의)."""
+        d = {"state": state, "state_name": HOMING_STATE.get(state, "UNKNOWN"),
+             "terminal": state in HOMING_TERMINAL, "done_mask": 0,
+             "seen_active": 0, "elapsed_s": 0,
+             "digital_in": {3: 0, 4: 0}, "reached_mask": 0}
+        d.update(kw)
+        return d
 
     def open(self):
         self.opened = True
@@ -152,6 +290,40 @@ class MockLink(BaseLink):
     def engaged(self) -> bool:
         return self._engaged
 
+    # ── 시험용 대역: 픽스처를 넣어 두면 그대로 돌려준다 ──────────────────
+    def can_health(self, bus: int) -> dict:
+        if self.health_fixture is None:
+            raise LinkError("can_health 픽스처 미설정")
+        return dict(self.health_fixture.get(bus, {}))
+
+    def homing_start(self, speed: int = HOMING_SPEED_DEFAULT) -> bool:
+        if not self._engaged:
+            raise LinkError("제어권 없이 호밍을 요청했다")
+        if speed != 0 and not (HOMING_SPEED_MIN <= speed <= HOMING_SPEED_MAX):
+            return False                    # 펌웨어와 같은 거부 조건
+        if not self.homing.get("terminal", True):
+            return False                    # 진행 중이면 재시작 거부
+        # 대본이 있으면 그것이 진행을 결정한다(시작 시 상태를 덮어쓰지 않는다).
+        if not self.homing_script:
+            self.homing = self.homing_state(1)          # ENABLE
+        self.log.append(f"homing_start(speed={speed})")
+        return True
+
+    def homing_cancel(self) -> bool:
+        # 펌웨어와 동일 — 취소는 **항상 수리된다**(terminal 이면 IDLE 로 정리).
+        prev = self.homing.get("state", 0)
+        self.homing_script = []
+        self.homing = self.homing_state(7 if prev not in HOMING_TERMINAL else 0)
+        self.log.append("homing_cancel")
+        return True
+
+    def homing_status(self) -> dict:
+        if self.homing_script:
+            # 마지막 항목은 남겨 둔다 — 종료 상태가 계속 관측되도록.
+            self.homing = (self.homing_script.pop(0) if len(self.homing_script) > 1
+                           else self.homing_script[0])
+        return dict(self.homing)
+
 
 class PandaLink(BaseLink):
     """실제 comma.ai panda 를 통한 전송.
@@ -169,7 +341,9 @@ class PandaLink(BaseLink):
         self._panda = None
         self._cls = None
         self._engaged = False
-        self._lock = threading.Lock()
+        # RLock 인 이유: 이 락은 **USB 핸들 하나**를 지킨다. `_ctrl()` 이 스스로 잠그므로
+        # 이미 잠근 구간에서 `_ctrl()` 을 부르면 일반 Lock 은 자기 자신에게 막힌다.
+        self._lock = threading.RLock()
         self._last_hb = 0.0
 
     # ── 수명주기 ──────────────────────────────────────────────────────
@@ -251,7 +425,16 @@ class PandaLink(BaseLink):
 
     # ── 입출력 ────────────────────────────────────────────────────────
     def _ctrl(self, P_, request: int, value: int):
-        self._panda._handle.controlWrite(P_.REQUEST_OUT, request, value, 0, b"")
+        """USB 제어 전송 1회. **락 안에서** 한다.
+
+        ⚠ 이 락이 없으면 심박(제어 스레드)과 0xea/0xeb(서비스 콜백 스레드)가 같은 핸들에서
+        겹친다 — 이 모듈 상단이 적어 둔 「heartbeat 를 별도 스레드에서 보내면 USB 핸들을
+        경합해 실패한 이력」과 같은 조건이다. 호밍 시퀀서가 들어오면서 USB 접근이
+        제어 스레드 하나라는 전제가 깨졌다(2026-08-03 리뷰 H2).
+        회귀: `test/test_link_concurrency.py`.
+        """
+        with self._lock:
+            self._panda._handle.controlWrite(P_.REQUEST_OUT, request, value, 0, b"")
 
     def heartbeat(self):
         if self._panda is None:
@@ -282,3 +465,61 @@ class PandaLink(BaseLink):
     @property
     def engaged(self) -> bool:
         return self._engaged
+
+    # ── per-bus CAN 에러 상태 (0xc3) ──────────────────────────────────────
+    def can_health(self, bus: int) -> dict:
+        """버스별 bxCAN 에러 상태. 읽기 전용이라 제어 경로에 영향이 없다.
+
+        라이브러리 사본에 `can_health()` 헬퍼가 없어도 동작하도록 **직접
+        controlRead** 한다 — 사본 이원화(①)에 영향받지 않는다.
+        """
+        if self._panda is None:
+            raise LinkError("판다 미개방 상태의 can_health")
+        with self._lock:
+            raw = self._panda._handle.controlRead(
+                self._cls.REQUEST_IN, REQ_CAN_HEALTH, int(bus), 0,
+                CAN_HEALTH_STRUCT.size)
+        return decode_can_health(bytes(raw))
+
+    # ── 펌웨어 호밍 시퀀서 (0xea / 0xeb) ─────────────────────────────────
+    def homing_start(self, speed: int = HOMING_SPEED_DEFAULT) -> bool:
+        """호밍 시작 요청. 반환 False = **펌웨어가 거부**(전제조건 미충족).
+
+        펌웨어 전제조건(`safety_seer_gate.h` `seer_homing_cmd`):
+        `pc_authority` ∧ `safety_mode == 30` ∧ 현재 상태가 terminal ∧
+        (speed == 0 또는 100 ≤ speed ≤ 3000).
+        """
+        if self._panda is None:
+            raise LinkError("판다 미개방 상태의 호밍 요청")
+        if speed != 0 and not (HOMING_SPEED_MIN <= speed <= HOMING_SPEED_MAX):
+            raise LinkError(
+                f"호밍 속도 {speed} 는 펌웨어 허용 범위 밖이다 "
+                f"({HOMING_SPEED_MIN}~{HOMING_SPEED_MAX}, 0=기본값)")
+        return self._homing_cmd(start=True, speed=speed)
+
+    def homing_cancel(self) -> bool:
+        """호밍 취소. **이것이 존재하는 것이 이 경로를 쓰는 이유다.**
+
+        펌웨어가 `0x60FB:04 = 0` 취소 프레임을 송신한다
+        (`safety_seer_gate.h:312-316` `seer_home_cancel_frames`).
+        SDO(Service Data Object) 직접 송신 경로로도 같은 프레임을 낼 수는 있으나,
+        그쪽 취소는 **호스트가 살아 있을 때만** 성립한다(정정 2026-08-03).
+        """
+        if self._panda is None:
+            raise LinkError("판다 미개방 상태의 호밍 취소")
+        return self._homing_cmd(start=False, speed=0)
+
+    def _homing_cmd(self, start: bool, speed: int) -> bool:
+        with self._lock:
+            raw = self._panda._handle.controlRead(
+                self._cls.REQUEST_IN, REQ_HOMING_CMD, 1 if start else 0,
+                int(speed), 1)
+        return bool(raw and raw[0])
+
+    def homing_status(self) -> dict:
+        if self._panda is None:
+            raise LinkError("판다 미개방 상태의 호밍 상태 조회")
+        with self._lock:
+            raw = self._panda._handle.controlRead(
+                self._cls.REQUEST_IN, REQ_HOMING_STATUS, 0, 0, 8)
+        return decode_homing_status(bytes(raw))
