@@ -69,6 +69,7 @@ class JobStore:
                          logger=self.logger, job_timeout_s=self.job_timeout_s)
         # A gated store hands submission timing to the Dispatcher FSM; an
         # ungated one lets each job ask for itself, as it always has.
+        ctx.dispatch_gated = self.dispatch_gated
         ctx.dispatch_permit = not self.dispatch_gated
 
         record = JobRecord(job, ctx, build_job_fsm(on_change=self._on_change))

@@ -55,6 +55,21 @@ class JobContext:
 
         #: How long a job waits in IDLE before asking a busy ACS again.
         self.retry_backoff_s = retry_backoff_s
+
+        #: Is a Dispatcher FSM deciding when this job may submit?
+        #:
+        #: False — the sequential default — means the job decides for itself as
+        #: soon as its backoff allows, which is what every existing test
+        #: describes. True hands that timing to the Dispatcher, so ten queued
+        #: jobs do not all submit to a one-robot fleet on the same tick and
+        #: collect nine BUSY answers.
+        self.dispatch_gated = False
+
+        #: May this job leave IDLE right now? Only consulted when gated. A
+        #: permit authorises one attempt and is spent on leaving IDLE, so a job
+        #: bounced back by t_busy must be granted afresh rather than retrying on
+        #: its own.
+        self.dispatch_permit = True
         #: Submissions attempted so far. The first is immediate; later ones are
         #: spaced by retry_backoff_s so a queued job does not hammer the ACS.
         self.submit_attempts = 0
