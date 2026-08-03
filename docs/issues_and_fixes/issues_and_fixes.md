@@ -2,6 +2,67 @@
 
 ---
 
+## 2026-08-03
+
+### [Fix] CCTV 표시 CPU 과다 — 퍼블리셔 디코드·raw 전송 제거(MJPEG 패스스루 + 웹 뷰어)
+
+- **문제**: 사용자 제기 "cctvview CPU 점유율이 매우 높다". 실측 기준선(`Log/usb_cctv_run_2026-07-30/
+  soak_samples.csv` 표본 1,330개 중앙값) 퍼블리셔 6개 **138.1%** + Qt 뷰어 **71.9%** = **210.0%**.
+- **원인**: [실측] 비용의 본체가 렌더가 아니라 **디코드·전송**이었다. 퍼블리셔가 카메라 MJPEG 를
+  디코드해 `bgr8` raw 로 발행하여 프레임이 2,700 KB 가 되고, 6대 30fps 면 약 498 MB/s 가 DDS 를
+  통과했다. 1대 8초x2회 벤치: **디코드 6.55 ms·2,700 KB/frame vs 패스스루 0.15 ms·131 KB/frame**
+  — CPU 44배·대역 20.7배 차이. 종전 기록의 "카운트 전용 구독자도 CPU 55%" 가 같은 사실을 가리켰다.
+- **해결**: ① 퍼블리셔에 `publish_mode`(compressed 기본/raw/both) 신설 — `CAP_PROP_CONVERT_RGB=0`
+  으로 드라이버 압축 버퍼를 받아 `CompressedImage` 로 그대로 발행(디코드·재인코딩 없음).
+  ② `cctv_webview` 패키지 신설 — 압축 바이트를 **디코드 없이** multipart MJPEG 로 서빙, 브라우저가
+  디코드. ③ 탐지기를 압축 구독으로 전환해 **추론하는 프레임만** 디코드(30 Hz 전량 → 실제 약 5 Hz).
+  선행 확인: UVC JPEG 에 DHT 포함·`imdecode` 성공·버퍼 패딩 0%(30/30) — 브라우저가 읽는 정상 JPEG.
+- **파일**: `src/Sensors/Camera/USB/usb_cam_publisher/src/usb_cam_publisher_node.cpp` ·
+  `.../launch/usb_cam_cctv.launch.py` · `config/camera/camera_common.yaml` ·
+  `src/Sensors/Camera/USB/ui/cctv_webview/**`(신설) · `src/AI/yolo_detector/yolo_detector/detector_node.py` ·
+  `Tools/usb_cam_bench/soak_stats.py`·`test_soak_stats.py` ·
+  `docs/adr/2026-08-03-mjpeg-passthrough-web-viewer.md`(신설)
+- **상태**: 완료 — 실기 검증(카메라 6대). 캡처 29.70~29.73 fps·grab_failures 0,
+  `/snapshot/<cam>` HTTP 200 image/jpeg 정상 이미지, `/stream/<cam>` 6개 동시 각 **정확히 10.0 fps**
+  (총 60 fps·8.11 MB/s), 검출 `/cam_rr/detections` **4.99 Hz**·변환 실패 0.
+  **표시 경로 CPU 210.0% → 47.9%**(퍼블리셔 25.0 + 웹 22.9, `/proc` jiffies 8초 차분).
+  단위 시험 `cctv_webview` 11 passed · `soak_stats` 15 passed.
+- **부수 수정**: 퍼블리셔 FPS 로그에 `decode_failures` 를 덧붙이면서 `soak_stats` 정규식이
+  `(grab_failures=N)` 의 **닫는 괄호까지 고정**돼 깨질 상태였다 — 요구를 없애고 회귀 시험 추가.
+- **미결**: 웹 스트림에 인증이 없고 `bind` 기본이 `0.0.0.0` 이다(같은 망 누구나 접속).
+
+### [Change] 웹 뷰어를 차량 배치로 놓고 AI 검출 표시 추가
+
+- **문제**: 웹 화면이 로스터 순서(`RF LF RR / F R LR`)로 흘러 어느 방향 카메라인지 화면만 보고
+  알 수 없었다. 또 AI 검출 결과가 Qt 뷰어에만 표시되고 웹에는 없었다.
+- **원인**: 격자가 `auto-fit` 흐름 배치였고, 웹 뷰어는 검출 토픽을 구독하지 않았다.
+- **해결**: ① 여섯 위치가 모두 있으면 **차량을 위에서 내려다본 배치**(전면 위 · 좌측 왼쪽 ·
+  후면 아래, 가운데는 차체 표시)로 놓고, 구성이 다르면 흐름 배치로 물러난다 — 위치를 모르는
+  카메라를 임의 자리에 놓으면 방향을 오독하므로 배치를 주장하지 않는다.
+  ② `/cam_*/detections` 를 구독해 `/detections` JSON 으로 좌표만 넘기고 **박스는 브라우저가
+  그린다**(서버 디코드 0 유지). 나이 기준은 Qt 뷰어와 동일(신선/낡음/만료).
+- **파일**: `src/Sensors/Camera/USB/ui/cctv_webview/cctv_webview/{server,frame_store,app}.py` ·
+  `.../test/test_frame_store.py` · `.../README.md` · `docs/adr/2026-08-03-mjpeg-passthrough-web-viewer.md`
+- **상태**: 완료 — 브라우저 실화면 확인. `/detections` 6대 응답(당시 `cam_r` 사람 2명 검출),
+  단위 시험 **18 passed**. **후속 정정 1건**: 가운데 열을 `0.5fr` 로 좁혀 전면·후면 타일만
+  절반 크기가 되는 것을 사용자가 지적 → `repeat(3,1fr)` 로 세 열 동일 폭 수정, 재확인 완료.
+- **미결**: 타일 6개가 세로로 길어 1080p 창에서 후면 R 이 스크롤 아래로 내려간다(뷰포트 높이
+  맞춤 축소 미구현). Qt 뷰어는 **사용자 결정으로 유지**(폐기하지 않음).
+
+### [Fix] Orbbec SDK 종료 후 카메라가 V4L2 로 돌아오지 않음
+
+- **문제**: RGB-D 스택(`surround_depth`)을 정상 종료했는데 `/dev/video*` 가 **0개**,
+  `/sys/class/video4linux` 도 비어 USB CCTV 스택을 띄울 수 없었다. `lsusb` 에는 6대 모두 보였다.
+- **원인**: Orbbec SDK 가 libusb 로 쓰려고 커널 드라이버를 뗀 뒤 종료 시 되돌리지 않았다.
+  `uvcvideo` 는 RGB 인터페이스 6개에 바인딩된 상태였으나 비디오 장치를 하나도 등록하지 않았다.
+- **해결**: `sudo modprobe -r uvcvideo && sudo modprobe uvcvideo` → **6/6 복구**.
+  비-root 수단은 모두 막혀 있다(`/sys/bus/usb/drivers/uvcvideo/unbind` 쓰기 불가,
+  `/dev/bus/usb/*` 가 root 소유라 `usbreset` 불가, `uhubctl` 미설치).
+- **파일**: (코드 변경 없음)
+- **상태**: 복구 절차 확인 완료. RGB-D 스택과 CCTV 스택을 번갈아 쓸 때마다 필요하다.
+
+---
+
 ## 2026-07-29
 
 ### [Fix] 패키지 안에 중첩 colcon 워크스페이스 생성 + 테스트가 환경 소싱 없이는 미실행
