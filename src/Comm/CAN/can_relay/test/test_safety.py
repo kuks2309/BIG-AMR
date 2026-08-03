@@ -12,6 +12,9 @@ import pytest
 
 from can_relay import safety as S
 
+# 코드에 홈 기본값이 없다(config 전용). 시험은 홈을 **명시적으로** 준다.
+HOME = {3: 7871815, 4: 7840086}
+
 
 # ── NaN / inf ─────────────────────────────────────────────────────────────
 def test_python_clamp_idiom_is_broken_for_nan():
@@ -40,19 +43,19 @@ def test_drive_conversion_refuses_nonfinite(bad):
 
 def test_steer_conversion_refuses_nonfinite():
     with pytest.raises(S.UnsafeCommand):
-        S.steer_deg_to_counts(3, float("nan"))
+        S.steer_deg_to_counts(3, float("nan"), HOME)
 
 
 # ── 조향 클램프 ───────────────────────────────────────────────────────────
 def test_steer_zero_is_home_counts():
-    applied, counts = S.steer_deg_to_counts(3, 0.0)
+    applied, counts = S.steer_deg_to_counts(3, 0.0, HOME)
     assert applied == 0.0
-    assert counts == S.DEFAULT_STEER_HOME[3]
+    assert counts == HOME[3]
 
 
 def test_steer_90deg_uses_counts_per_deg():
-    _applied, counts = S.steer_deg_to_counts(4, 90.0)
-    assert counts == S.DEFAULT_STEER_HOME[4] + int(round(90.0 * 57344))
+    _applied, counts = S.steer_deg_to_counts(4, 90.0, HOME)
+    assert counts == HOME[4] + int(round(90.0 * 57344))
 
 
 @pytest.mark.parametrize("deg,expect", [
@@ -61,14 +64,14 @@ def test_steer_90deg_uses_counts_per_deg():
 ])
 def test_steer_clamps_beyond_verified_range(deg, expect):
     """90~140° 는 미검증 구간이다. 접는 게 아니라 자른다."""
-    applied, counts = S.steer_deg_to_counts(3, deg)
+    applied, counts = S.steer_deg_to_counts(3, deg, HOME)
     assert applied == expect
-    assert counts == S.DEFAULT_STEER_HOME[3] + int(round(expect * 57344))
+    assert counts == HOME[3] + int(round(expect * 57344))
 
 
 def test_steer_rejects_unknown_node():
     with pytest.raises(S.UnsafeCommand):
-        S.steer_deg_to_counts(9, 0.0)
+        S.steer_deg_to_counts(9, 0.0, HOME)
 
 
 def test_steer_home_override_is_honored():
@@ -99,6 +102,7 @@ def test_position_untrusted_while_homing():
 
 def test_position_untrusted_when_statusword_unknown():
     assert S.position_trustworthy(None) is False
+
 
 
 def test_is_homed_returns_none_without_statusword():
@@ -167,3 +171,50 @@ def test_limit_is_verified_range_not_mechanical_range():
     """기구 한계(±140°)가 아니라 실측 검증 범위(±90°)를 한계로 쓴다."""
     assert S.STEER_LIMIT_DEG == 90.0
     assert math.isclose(S.VEL_MAX_UNITS / S.VEL_PER_MMPS, 199.98, abs_tol=0.05)
+
+
+# ── 홈은 config 전용 (2026-08-02) ────────────────────────────────────────
+def test_code_has_no_builtin_steer_home():
+    """코드에 홈 기본값이 있으면 config 미로드가 **조용한 오판**이 된다.
+
+    구값 {3:7871815, 4:7840086} 이 저장소 31개 파일에 퍼져 실측값보다 15배 널리
+    노출돼 있었다. 코드 기본값을 없애 config 를 강제한다.
+    """
+    assert S.DEFAULT_STEER_HOME == {}
+
+
+def test_steer_refused_when_home_not_configured():
+    """홈이 없으면 조용히 0 으로 대체하지 않고 거부한다."""
+    with pytest.raises(S.UnsafeCommand) as e:
+        S.steer_deg_to_counts(3, 10.0, {})
+    assert "캘리브레이션 config" in str(e.value)
+
+
+def test_steer_refused_when_home_is_none_and_no_default():
+    with pytest.raises(S.UnsafeCommand):
+        S.steer_deg_to_counts(3, 10.0, None)
+
+
+# ── 호밍 전 위치 게이트 (2026-08-03 리뷰: 시험 0건이었다) ─────────────────
+def test_home_search_refuses_unknown_position():
+    """위치를 모르면 호밍하지 않는다 — 모르는 것은 "범위 안"이 아니다."""
+    ok, why = S.home_search_allowed(None, (-100, 100))
+    assert ok is False and "현재 위치를 모른다" in why
+
+
+def test_home_search_allows_inside_range():
+    ok, why = S.home_search_allowed(0, (-100, 100))
+    assert ok is True and why == "범위 내"
+
+
+def test_home_search_boundaries_are_inclusive():
+    """경계값은 허용이다 — off-by-one 이 생기면 정상 기체가 호밍을 못 한다."""
+    assert S.home_search_allowed(-100, (-100, 100))[0] is True
+    assert S.home_search_allowed(100, (-100, 100))[0] is True
+
+
+def test_home_search_refuses_outside_range():
+    """엔코더 기준이 달라졌을 수 있다 — 움직이기 전에 멈춘다(debt-007 전제)."""
+    ok, why = S.home_search_allowed(5_000, (-100, 100))
+    assert ok is False
+    assert "예상 범위" in why and "재현성 미측정" in why

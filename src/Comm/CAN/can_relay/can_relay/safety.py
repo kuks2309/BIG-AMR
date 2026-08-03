@@ -28,13 +28,17 @@ VEL_MAX_UNITS = 4889            # ≈0.2 m/s. 실측이 아니라 config 환산 
 
 STATUSWORD_HOMED_BIT = 1 << 15  # 0=호밍 진행 중 · 1=완료
 
-DEFAULT_STEER_HOME = {3: 7871815, 4: 7840086}
-#   ⚠ debt-007 **미판정**. 값 변경 금지(상환계획 ③).
-#   같은 캡처에서 Seer 가 호밍 후 유지한 0° 목표는 7,882,020 / 7,859,062 로
-#   각각 +10,205 / +18,976 counts (= +0.178° / +0.331°) 다르다. 두 값 모두
-#   `homing_tol` 5° · `settle_tol` 3° 어느 게이트로도 검출되지 않는 영구 오프셋이다.
-#   본 패키지는 실기에서 쓰이는 값(위)을 기본값으로 두되 파라미터로 노출한다.
-#   근본 해법은 하드코딩 폐기 + 호밍 완료 후 실측 정착값 자동 취득이며 미구현이다.
+# ── 조향 홈: **코드에 값을 두지 않는다** ──────────────────────────────────
+#   2026-08-02 결정(사용자 지시) — 홈은 기체마다 다르고 잘못되면 전체 코드가 오판한다.
+#   따라서 **캘리브레이션 config 만이 정본**이고, 코드는 기본값을 갖지 않는다.
+#   값이 없으면 조용히 대체하지 않고 `UnsafeCommand` 로 거부한다(fail-safe).
+#
+#   왜 상수를 없앴나: 구값 `{3:7871815, 4:7840086}` 이 저장소 31개 파일에 퍼져 있었고,
+#   실측값보다 15배 널리 노출돼 새 세션이 grep 하면 틀린 값을 먼저 만났다.
+#   코드 기본값이 존재하는 한 config 미로드가 조용한 오판으로 이어진다.
+#
+#   정본 위치: `config/machine/<기체>.yaml` 의 `steer_home_counts`
+DEFAULT_STEER_HOME: dict = {}
 
 
 class UnsafeCommand(ValueError):
@@ -61,7 +65,8 @@ def clamp(value: float, limit: float) -> float:
 
 def steer_deg_to_counts(node: int, deg: float,
                         steer_home: Optional[dict] = None,
-                        limit_deg: float = STEER_LIMIT_DEG) -> tuple[float, int]:
+                        limit_deg: float = STEER_LIMIT_DEG,
+                        counts_per_deg: float = COUNTS_PER_DEG) -> tuple[float, int]:
     """조향 각도 → 절대위치 counts. 반환 `(적용된 각도, counts)`.
 
     **범위를 벗어난 각도는 잘라서 보낸다** — 이 클램프가 0x607A 를 만드는
@@ -69,19 +74,45 @@ def steer_deg_to_counts(node: int, deg: float,
     다른 상위가 붙었을 때 보호가 사라진다.
     """
     home = DEFAULT_STEER_HOME if steer_home is None else steer_home
+    if not home:
+        raise UnsafeCommand(
+            "조향 홈이 설정되지 않았다 — 코드에 기본값을 두지 않으므로 "
+            "캘리브레이션 config(`config/machine/<기체>.yaml` 의 `steer_home_counts`)가 "
+            "반드시 실려야 한다. 값 없이 조향 지령을 만들지 않는다")
     if node not in home:
         raise UnsafeCommand(f"조향 홈이 정의되지 않은 노드: {node}")
     applied = clamp(float(deg), float(limit_deg))
-    return applied, int(round(home[node] + applied * COUNTS_PER_DEG))
+    return applied, int(round(home[node] + applied * float(counts_per_deg)))
 
 
 def drive_mmps_to_units(mmps: float, sign: int = 1,
-                        max_units: int = VEL_MAX_UNITS) -> int:
+                        max_units: int = VEL_MAX_UNITS,
+                        units_per_mmps: float = VEL_PER_MMPS) -> int:
     """구동 속도 mm/s → raw(0.1 r/min) + 상한 클램프."""
     if not finite(mmps):
         raise UnsafeCommand(f"비유한 속도: {mmps!r}")
-    raw = int(round(sign * float(mmps) * VEL_PER_MMPS))
+    raw = int(round(sign * float(mmps) * float(units_per_mmps)))
     return max(-int(max_units), min(int(max_units), raw))
+
+
+def home_search_allowed(position: Optional[int], rng) -> tuple[bool, str]:
+    """호밍(method 35) 시작 전 현재 위치가 예상 범위 안인가.
+
+    **이 검사가 미측정 전제를 검출하는 장치다.** method 35 는 "지정한 절대 카운트로 가서
+    거기를 홈으로 삼는" 방식이라 절대 엔코더가 전원 사이클을 넘어 재현된다는 전제 위에 있다
+    (debt-007 상환계획 ② — 아직 측정되지 않았다). 전제가 깨지면 현재 위치가 엉뚱한 값이 되고,
+    그대로 이동하면 바퀴가 예상 밖으로 돈다. 여기서 걸어 **움직이기 전에** 멈춘다.
+
+    반환 `(허용, 사유)`.
+    """
+    if position is None:
+        return False, "현재 위치를 모른다 — 피드백을 먼저 확보해야 한다"
+    lo, hi = int(rng[0]), int(rng[1])
+    if not (lo <= int(position) <= hi):
+        return False, (f"현재 위치 {position} 가 예상 범위 [{lo}, {hi}] 밖이다 — "
+                       f"엔코더 기준이 달라졌을 수 있다(전원 재투입 재현성 미측정). "
+                       f"캘리브레이션을 확인하기 전에는 호밍하지 않는다")
+    return True, "범위 내"
 
 
 def is_homed(statusword: Optional[int]) -> Optional[bool]:
