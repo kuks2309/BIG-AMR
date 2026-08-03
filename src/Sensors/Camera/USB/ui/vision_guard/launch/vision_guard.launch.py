@@ -17,12 +17,13 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 # 공용 roster 를 못 찾을 때의 **축소** 기본값 — 안전값이 아니라 최소 기동값이다.
-# 현 로스터는 6대이므로 이 경로로 떨어지면 cam4·cam5 가 화면에서 사라진다.
+# 현 로스터는 6대이므로 이 경로로 떨어지면 나열되지 않은 2대가 화면에서 사라진다.
+# 이름은 장착 위치 기준(2026-07-30 개명, ADR: docs/adr/2026-07-30-camera-position-naming.md).
 _FALLBACK_TOPICS = [
-    "/cam0/image_raw",
-    "/cam1/image_raw",
-    "/cam2/image_raw",
-    "/cam3/image_raw",
+    "/cam_rf/image_raw",
+    "/cam_lf/image_raw",
+    "/cam_rr/image_raw",
+    "/cam_f/image_raw",
 ]
 
 

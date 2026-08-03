@@ -1,0 +1,39 @@
+# USB CCTV camera roster (up to 6 cameras).
+#
+# Each camera is identified by its stable V4L2 by-id symlink, keyed on the
+# device serial so the mapping survives re-plugging and reboots (unlike the
+# volatile /dev/videoN index). List discovered serials with:
+#
+#   ls /dev/v4l/by-id/
+#
+# The launch file builds the device path as:
+#   /dev/v4l/by-id/usb-<by_id_prefix>_<serial>-video-index0
+#
+# HARDWARE LIMIT: max 4 RGB cameras on this host (single USB 2.0 controller;
+# RGB video is isochronous / bandwidth-reserved). 6 cameras only bind 2 and are
+# NOT supported. See docs/performance/2026-07-22_usb_topology_limit.md.
+# A USB 3.0 hub does not help (Gemini E is USB 2.0-only).
+
+by_id_prefix: "Sonix_Technology_Co.__Ltd._Orbbec_Gemini_E_RGB_Camera"
+
+# Capture defaults applied to every camera (override per-camera below if needed).
+defaults:
+  image_width: 1280
+  image_height: 720
+  framerate: 30.0
+  pixel_format: "MJPG"
+  fps_report_interval_sec: 5.0
+
+cameras:
+  - name: "cam0"
+    serial: "AY4EC5400HL"
+  - name: "cam1"
+    serial: "AY4EC5400H0"
+  - name: "cam2"
+    serial: "AY4EC5400NR"
+  - name: "cam3"
+    serial: "AY4EC5401F4"
+  # - name: "cam4"
+  #   serial: "<SERIAL>"
+  # - name: "cam5"
+  #   serial: "<SERIAL>"

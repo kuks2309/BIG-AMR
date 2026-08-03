@@ -24,13 +24,15 @@ from __future__ import annotations
 
 import time
 
+import cv2
+import numpy as np
 import rclpy
 from ai_msgs.msg import Detection, DetectionArray
 from cv_bridge import CvBridge
 from rclpy.node import Node
 from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile,
                        QoSReliabilityPolicy)
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage, Image
 
 from .detection import (DEFAULT_TOTAL_HZ, build_boxes, missing_class_names,
                         next_camera_index, per_camera_hz, resolve_class_filter)
@@ -104,7 +106,11 @@ class YoloDetectorNode(Node):
                 "요청한 클래스가 모델에 하나도 없다 — 전 클래스를 발행하도록 되돌린다.")
 
         self._bridge = CvBridge()
-        self._latest: dict[str, Image] = {}
+        # 퍼블리셔 기본값이 compressed 다(config/camera/camera_common.yaml).
+        # raw 로 되돌리려면 이 파라미터와 퍼블리셔의 publish_mode 를 함께 바꿔야 한다.
+        self._compressed = str(
+            self.declare_parameter("image_transport", "compressed").value) == "compressed"
+        self._latest: dict[str, object] = {}
         self._cursor = -1
         self._counts: dict[str, int] = {}
         self._infer_ms_sum = 0.0
@@ -116,8 +122,15 @@ class YoloDetectorNode(Node):
             self._counts[camera] = 0
             self._det_pubs[camera] = self.create_publisher(
                 DetectionArray, f"/{camera}/detections", 10)
-            self.create_subscription(
-                Image, topic, lambda msg, t=topic: self._on_image(t, msg), sensor_qos())
+            if self._compressed:
+                # 압축 바이트를 그대로 보관했다가 **추론하는 프레임만** 디코드한다.
+                # 카메라당 30 Hz 를 다 푸는 대신 실제 추론률(약 5 Hz)만 디코드한다.
+                self.create_subscription(
+                    CompressedImage, topic + "/compressed",
+                    lambda msg, t=topic: self._on_image(t, msg), sensor_qos())
+            else:
+                self.create_subscription(
+                    Image, topic, lambda msg, t=topic: self._on_image(t, msg), sensor_qos())
 
         period = 1.0 / total_hz if total_hz > 0 else 1.0
         self.create_timer(period, self._on_tick)
@@ -164,7 +177,13 @@ class YoloDetectorNode(Node):
     def _infer_and_publish(self, topic: str, msg: Image) -> None:
         camera = camera_name_from_topic(topic)
         try:
-            frame = self._bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            if self._compressed:
+                frame = cv2.imdecode(
+                    np.frombuffer(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                if frame is None:
+                    raise ValueError("JPEG 디코드 실패")
+            else:
+                frame = self._bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         except Exception as exc:
             self.get_logger().warning(f"{camera}: 변환 실패 — 건너뜀: {exc}")
             return
