@@ -1,11 +1,10 @@
-"""MainCycle - the loop that runs forever.
+"""MainCycle - the sequential driver.
 
 The "Core loop / Main Cycle" box on the 2026-07-28 whiteboard. Each tick does
-three things and nothing else:
+two things and nothing else:
 
     read inputs   ask equipment what changed, create jobs for new work
     step the FSM  advance every active job by exactly one transition
-    send commands (done inside the states, through the adapters)
 
 The loop makes no decisions of its own. It only ticks. Every decision lives in a
 guard, which is what keeps the logic in one inspectable place instead of spread
@@ -14,12 +13,24 @@ through the loop body.
 Note it is `tick()` that is public, not the `while` itself. A cycle you can step
 by hand is a cycle you can test — the whole job lifecycle, timeouts included, is
 verified without ever calling run().
+
+**This is now one of two drivers.** The bookkeeping moved to `runtime.JobStore`
+so that this and the concurrent supervisor share it rather than each keeping a
+copy. What is left here is the sequencing: read, then step, in that order, on
+one thread.
+
+    MainCycle          everything in order on one thread — tests, demo, and the
+                       reference for what the system is supposed to do
+    runtime/tasks.py   the same store driven by independent FSMs under the
+                       Supervisor, which is the shape the whiteboard specifies
+
+Keep this one. A single-threaded driver that steps by hand is why the job FSM's
+bugs were findable at all, and the concurrent runtime is checked against it.
 """
 
 import time
 
-from .job import Job, JobContext
-from .job_fsm import build_job_fsm
+from .runtime.job_store import JobStore
 
 
 class MainCycle:
@@ -34,74 +45,72 @@ class MainCycle:
                               jobs, which last minutes, not in control cycles
         :param job_timeout_s: how long a job may stay in one state before t5
         """
-        self.equipment = equipment
-        self.acs = acs
-        self.clock = clock
-        self.logger = logger
         self.period = 1.0 / rate_hz
-        self.job_timeout_s = job_timeout_s
-
-        self.active = []            # [(Job, JobContext, StateMachine)]
-        self.finished = []          # jobs that reached DONE or FAILED
-        self._station_busy = set()   # stations with a job still in flight
-        self._job_seq = 0
         self.running = False
+        self.store = JobStore(equipment, acs, clock, logger=logger,
+                              job_timeout_s=job_timeout_s,
+                              dispatch_gated=False)
+
+    # -- delegated to the store, kept as attributes so callers read naturally --
+
+    @property
+    def equipment(self):
+        return self.store.equipment
+
+    @property
+    def acs(self):
+        return self.store.acs
+
+    @acs.setter
+    def acs(self, adapter):
+        """Swapping the ACS mid-run is a test affordance, not production use.
+
+        Jobs already created hold their own reference through JobContext, so
+        this only affects jobs created afterwards — which is what the tests that
+        use it expect.
+        """
+        self.store.acs = adapter
+
+    @property
+    def clock(self):
+        return self.store.clock
+
+    @property
+    def logger(self):
+        return self.store.logger
+
+    @logger.setter
+    def logger(self, fn):
+        self.store.logger = fn
+
+    @property
+    def job_timeout_s(self):
+        return self.store.job_timeout_s
+
+    @property
+    def active(self):
+        return self.store.active
+
+    @property
+    def finished(self):
+        return self.store.finished
 
     # ---------------------------------------------------------------- jobs
 
     def create_job(self, from_station, to_station, priority=0):
-        self._job_seq += 1
-        now = self.clock()
-        job = Job(
-            job_id=f"job_{self._job_seq:04d}",
-            from_station=from_station,
-            to_station=to_station,
-            priority=priority,
-            created_at=now,
-            state_since=now,
-        )
-        ctx = JobContext(job, self.equipment, self.acs, self.clock,
-                         logger=self.logger, job_timeout_s=self.job_timeout_s)
-        fsm = build_job_fsm(on_change=self._on_state_change)
-        self.active.append((job, ctx, fsm))
-        self.logger(f"[{job.job_id}] created: {from_station} -> {to_station}")
-        return job
-
-    def _on_state_change(self, ctx, transition):
-        """Mirror the FSM's state onto the job record.
-
-        state_since is reset here, and that is what makes the timeout guard mean
-        "too long in *this* state" rather than "too long since the job existed".
-        """
-        job = ctx.job
-        job.state_name = transition.target.name
-        job.state_since = ctx.now()
-        job.history.append((ctx.now(), transition.name, transition.target.name))
+        return self.store.create(from_station, to_station, priority).job
 
     # ---------------------------------------------------------------- loop
 
     def read_inputs(self):
         """Turn finished stations into transport jobs.
 
-        A station gets at most one job in flight at a time. Suppression is keyed
-        on "this station has an unfinished job", not on "I have already seen
-        this station finished".
-
-        The difference matters. An observation-based latch only clears on a tick
-        that happens to catch the station in a non-finished state, so a station
-        that produces its next batch before the next read_inputs stays latched
-        for ever. Symptom: the line runs a couple of jobs and then goes quiet
-        while batches keep completing. Keying on the job's lifetime instead
-        makes this independent of sampling timing.
+        A station gets at most one job in flight at a time; the store owns that
+        rule and the reasoning behind it.
         """
-        from .adapters.base import StationStatus
-
-        for station_id in self.equipment.list_stations():
-            if station_id in self._station_busy:
-                continue
-            if self.equipment.get_station_status(station_id) is StationStatus.FINISHED:
-                self._station_busy.add(station_id)
-                self.on_station_finished(station_id)
+        for station_id in self.store.find_finished_stations():
+            self.store.claim_station(station_id)
+            self.on_station_finished(station_id)
 
     def on_station_finished(self, station_id):
         """Override to choose a destination. Default sends everything to
@@ -110,18 +119,7 @@ class MainCycle:
 
     def step_jobs(self):
         """Advance every active job by one tick, retiring the terminal ones."""
-        still_active = []
-        for job, ctx, fsm in self.active:
-            fsm.step(ctx)
-            if fsm.current.name in ("DONE", "FAILED"):
-                self.finished.append(job)
-                # Free the source station whether the job succeeded or failed —
-                # a failed job must not block that station for ever.
-                self._station_busy.discard(job.from_station)
-                self.logger(f"[{job.job_id}] retired in {fsm.current.name}")
-            else:
-                still_active.append((job, ctx, fsm))
-        self.active = still_active
+        self.store.step_all()
 
     def tick(self):
         """One pass of the main cycle. Public so tests can drive it by hand."""
