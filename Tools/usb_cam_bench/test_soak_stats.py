@@ -39,6 +39,26 @@ def test_parse_capture_line_reads_grab_failures():
     assert parse_capture_line(line)["grab_failures"] == 7
 
 
+def test_parse_capture_line_accepts_extra_counters():
+    """퍼블리셔가 카운터를 덧붙여도 파싱이 깨지지 않는다(2026-08-03 decode_failures 추가)."""
+    line = CAPTURE_LINE.replace("grab_failures=0)", "grab_failures=2, decode_failures=1)")
+    parsed = parse_capture_line(line)
+    assert parsed["grab_failures"] == 2
+    assert parsed["fps"] == 29.70
+
+
+def test_parse_capture_line_accepts_position_names():
+    """이름 형식을 가정하지 않는다 — 위치 기준 개명(cam_lf 등)도 파싱한다."""
+    line = CAPTURE_LINE.replace("cam0", "cam_lf")
+    assert parse_capture_line(line)["camera"] == "cam_lf"
+
+
+def test_parse_display_line_accepts_position_names():
+    line = DISPLAY_LINE.replace("cam0", "cam_lf").replace("cam1", "cam_rr")
+    cameras = parse_display_line(line)["cameras"]
+    assert set(cameras) == {"cam_lf", "cam_rr"}
+
+
 def test_parse_display_line():
     # 숫자는 구간 증분(frames_delta)이지 누적이 아니다.
     parsed = parse_display_line(DISPLAY_LINE)

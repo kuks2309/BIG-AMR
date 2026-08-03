@@ -11,9 +11,11 @@ import re
 # usb_cam_publisher 캡처 로그:
 # [usb_cam_publisher_node-1] [INFO] [1785144791.235] [usb_cam_publisher_cam0]:
 #     [cam0] capture FPS: 29.70 (grab_failures=0)
+# 카메라 이름은 로스터가 정하므로 형식을 가정하지 않는다 — `cam0` 도 `cam_lf` 도 받는다
+# (2026-07-30 위치 기준 개명 때 `cam\d+` 가정이 깨졌다).
 _CAPTURE_RE = re.compile(
-    r"\[(?P<stamp>\d+\.\d+)\].*?\[(?P<cam>cam\d+)\] capture FPS: "
-    r"(?P<fps>[\d.]+) \(grab_failures=(?P<failures>\d+)\)"
+    r"\[(?P<stamp>\d+\.\d+)\].*?\[(?P<cam>[A-Za-z0-9_]+)\] capture FPS: "
+    r"(?P<fps>[\d.]+) \(grab_failures=(?P<failures>\d+)"
 )
 
 # vision_guard 표시 로그:
@@ -23,7 +25,7 @@ _CAPTURE_RE = re.compile(
 # 뒤집힌다 — 2026-07-28 오판 사례.
 _DISPLAY_RE = re.compile(r"\[(?P<stamp>\d+\.\d+)\].*?\bdisplay (?P<body>/cam.+)$")
 _DISPLAY_ITEM_RE = re.compile(
-    r"/(?P<cam>cam\d+)/image_raw=(?P<fps>[\d.]+)fps/(?P<frames>\d+)f"
+    r"/(?P<cam>[A-Za-z0-9_]+)/image_raw=(?P<fps>[\d.]+)fps/(?P<frames>\d+)f"
 )
 
 
