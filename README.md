@@ -7,6 +7,9 @@
 📐 **[ARCHITECTURE.md](ARCHITECTURE.md)** — full system architecture with diagrams,
 from job planning down to the wheels. Start there if you are new to the project.
 
+🤖 **[ARCHITECTURE-ROBOT.md](ARCHITECTURE-ROBOT.md)** — the autonomy stack as built on
+the machine: perception, localisation, motion control, and the two paths to the motors.
+
 🔄 **[WORKFLOW.md](WORKFLOW.md)** — one order followed end to end: every hop, every
 network boundary, and where each piece physically sits.
 
