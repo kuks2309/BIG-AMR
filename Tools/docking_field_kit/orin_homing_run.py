@@ -5,7 +5,8 @@
 **모터 지령 프레임은 호스트가 보내지 않는다** — 전부 펌웨어가 보낸다.
 
 동작: 제어권 획득(safety 30 + auth=PC + intercept) → 0xea 개시 → 0xeb 폴 → 종료 시 release.
-⚠ 조향축이 원점(리밋)까지 갔다가 조향 0° 로 복귀한다. 접지 상태면 차체가 움직일 수 있다.
+⚠ 조향축이 원점(리밋)까지 갔다가 GOZERO 지점으로 복귀한다(조향 0° 아님 — 0° 대비
+  +0.178°/+0.331°). 접지 상태면 차체가 움직일 수 있다.
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ SEER_BUS, MOTOR_BUS = 0, 2
 SEER_GATE, CAN_KBPS, HEARTBEAT_S = 30, 250, 0.4
 CPD = 57344.0
 STATE = {0: "IDLE", 1: "ENABLE", 2: "SET_SPEED", 3: "START", 4: "WAIT(원점탐색)",
-         5: "DONE(0° 복귀완료)", 6: "ERR_TIMEOUT", 7: "ERR_ABORT", 8: "RESTORE",
+         5: "DONE(GOZERO 복귀완료)", 6: "ERR_TIMEOUT", 7: "ERR_ABORT", 8: "RESTORE",
          9: "GOZERO", 10: "ERR_GOZERO", 11: "GOZERO_W"}
 TERMINAL = {0, 5, 6, 7, 10}
 RD = {0x43: 4, 0x47: 3, 0x4B: 2, 0x4F: 1}

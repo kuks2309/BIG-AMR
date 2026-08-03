@@ -1,4 +1,6 @@
 bool pc_authority = false;
+// 안전 off 후 재engage 차단 래치 — 0xe9 주도권 재취득 시 해제.
+bool relay_off_latched = false;
 
 #define SEER_COVER_US 300000U
 uint32_t seer_cover_start_us = 0U;
@@ -214,6 +216,9 @@ extern uint16_t current_safety_mode;
 #define SEER_HOME_PROF_DEC  250U
 #define SEER_HOME_ZERO_TOL  57344
 #define SEER_HOME_ZERO_TMO_S 30U
+// 「이미 홈」 판정 대기(초). 이 시간 안에 bit15 하강이 없고 위치가 목표 허용오차 이내면
+// 드라이브가 무동작 즉시 완료한 것으로 본다. 드라이브 기동 지연을 흡수할 만큼 넉넉해야 한다.
+#define SEER_HOME_ATHOME_S   3U
 #define SEER_HOME_CW_ENABLE 0x86U
 #define SEER_HOME_CW_SETPOINT 0x3FU
 
@@ -238,6 +243,8 @@ uint8_t seer_home_poll_cnt = 0U;
 uint8_t seer_home_seen_active = 0U;
 uint8_t seer_home_done_mask = 0U;
 uint8_t seer_home_reached_mask = 0U;
+// 「이미 홈이라 무동작 즉시 완료」로 판정된 노드 비트마스크. 2026-08-03 실기 확정 대응.
+uint8_t seer_home_athome_mask = 0U;
 
 static int32_t seer_home_zero_target(uint8_t node) {
   return (node == SEER_HOME_NODE_LO) ? (int32_t)SEER_HOME_ZERO_N3 : (int32_t)SEER_HOME_ZERO_N4;
@@ -341,6 +348,7 @@ bool seer_homing_cmd(bool start, uint16_t speed) {
   seer_home_seen_active = 0U;
   seer_home_done_mask = 0U;
   seer_home_reached_mask = 0U;
+  seer_home_athome_mask = 0U;
   seer_home_state = SEER_HOME_ENABLE;
   return true;
 }
@@ -384,6 +392,7 @@ void seer_homing_tick(void) {
         for (uint8_t n = SEER_HOME_NODE_LO; n <= SEER_HOME_NODE_HI; n++) {
           seer_home_sdo_read(n, 0x6041U, 0U);
           seer_home_sdo_read(n, 0x6000U, 0x01U);
+          seer_home_sdo_read(n, 0x6064U, 0U);   // 「이미 홈」 판정용
         }
       }
       for (uint8_t n = SEER_HOME_NODE_LO; n <= SEER_HOME_NODE_HI; n++) {
@@ -398,9 +407,57 @@ void seer_homing_tick(void) {
           }
         }
       }
+      // ── 「이미 홈」 처리 (2026-08-03 실기 확정) ─────────────────────────
+      // Handbook V7.0 §4.6: "When the motor is already in the resetting position, the
+      // resetting is triggered again, and the driver directly outputs the resetting end
+      // signal." ⇒ 축이 이미 홈이면 드라이브가 **움직이지 않고 즉시 완료**하므로
+      // 0x6041 bit15 가 1→0 으로 떨어지지 않는다. 위 에지 검출기만으로는 완료를 영영
+      // 인정하지 못하고 120 s 타임아웃한다 — 2026-08-03 09:58 실기가 그렇게 실패했고,
+      // 같은 날 14:46 축을 10° 떼어놓자 정상 완료(37.0 s)해 원인이 확정됐다.
+      //   근거: docs/homing/2026-08-03-can-relay-homing-assets.md §15·§16 · debt-035
+      //
+      // ⚠ 단순 타임아웃으로 완료 처리하면 **드라이브가 RstStart 를 무시한 경우까지**
+      //   완료로 오인해 GOZERO 로 축을 움직인다. 그래서 **위치를 확인한 경우에만** 인정한다:
+      //     ① 개시 후 SEER_HOME_ATHOME_S 경과 (드라이브 기동 지연 흡수)
+      //     ② 그 노드에서 bit15 하강을 **한 번도 못 봤다**(seen_active 비트 0)
+      //     ③ 현재 bit15 = 1
+      //     ④ 0x6064 가 GOZERO 목표의 SEER_HOME_ZERO_TOL 이내
+      //   ④가 핵심이다 — 위치가 목표 밖이면 「이미 홈」이 아니므로 인정하지 않고
+      //   기존대로 타임아웃까지 기다린다(안전 측 실패).
+      if (seer_home_elapsed_s >= SEER_HOME_ATHOME_S) {
+        for (uint8_t n = SEER_HOME_NODE_LO; n <= SEER_HOME_NODE_HI; n++) {
+          uint8_t abit = (uint8_t)(1U << (n - SEER_HOME_NODE_LO));
+          if (((seer_home_seen_active & abit) == 0U) &&
+              ((seer_home_done_mask & abit) == 0U)) {
+            uint32_t sw2 = 0U;
+            uint32_t raw = 0U;
+            if (seer_home_cached(n, 0x6041U, &sw2) && ((sw2 & 0x8000U) != 0U) &&
+                seer_home_cached(n, 0x6064U, &raw)) {
+              int32_t aerr = (int32_t)raw - seer_home_zero_target(n);
+              if (aerr < 0) { aerr = -aerr; }
+              if (aerr < (int32_t)SEER_HOME_ZERO_TOL) {
+                seer_home_athome_mask |= abit;
+              }
+            }
+          }
+        }
+      }
+
       if (seer_home_done_mask == ((1U << SEER_HOME_NODE_CNT) - 1U)) {
         seer_home_stage_reset();
         seer_home_state = SEER_HOME_RESTORE;
+      } else if ((uint8_t)(seer_home_done_mask | seer_home_athome_mask) ==
+                 ((1U << SEER_HOME_NODE_CNT) - 1U)) {
+        // 전 노드가 「실제 호밍 완료」이거나 「이미 홈」이다.
+        if (seer_home_done_mask == 0U) {
+          // 아무 축도 움직이지 않았다 — 이미 전부 홈이므로 GOZERO 이동도 불필요하다.
+          seer_home_reached_mask = seer_home_athome_mask;
+          seer_home_state = SEER_HOME_DONE;
+        } else {
+          // 일부만 움직였다 — 두 축을 같은 목표로 맞추기 위해 기존 복귀 경로를 탄다.
+          seer_home_stage_reset();
+          seer_home_state = SEER_HOME_RESTORE;
+        }
       } else {
         seer_home_tick_cnt++;
         if (seer_home_tick_cnt >= 8U) {
@@ -471,6 +528,18 @@ void seer_homing_tick(void) {
     default:
       seer_home_state = SEER_HOME_ERR_ABORT;
       break;
+  }
+}
+
+// 구동륜(node1,2)을 목표속도 0(0x60FF)으로 세운다 — PV 프로파일 감속.
+#define SEER_DRIVE_NODE_LO 1U
+#define SEER_DRIVE_NODE_HI 2U
+void seer_stop_drives(void) {
+  // 단발 SDO 유실 대비 각 노드 3회 발행.
+  for (uint8_t rep = 0U; rep < 3U; rep++) {
+    for (uint8_t n = SEER_DRIVE_NODE_LO; n <= SEER_DRIVE_NODE_HI; n++) {
+      seer_home_sdo_write(n, 0x60FFU, 0U, 0U, 4U);
+    }
   }
 }
 
