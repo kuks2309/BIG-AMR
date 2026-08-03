@@ -10,7 +10,29 @@ Orbbec Gemini E RGB 6대를 ROS2 로 발행하고 PyQt5 그리드 뷰어(AMR Vis
 | 카메라 로스터(SSOT) | `config/camera/camera_common.yaml` |
 | 벤치·내구 도구 | `Tools/usb_cam_bench` |
 
-## 한 줄 실행
+> **2026-08-03 변경**: 퍼블리셔가 카메라 MJPEG 를 **디코드하지 않고** 그대로 발행한다
+> (`publish_mode: compressed` 기본, 토픽 `<cam>/image_raw/compressed`). 표시는 웹 뷰어
+> `cctv_webview` 가 담당하며 브라우저가 디코드한다. 표시 경로 CPU 210% → 47.9% 실측.
+> 근거: [ADR 2026-08-03](../../../../docs/adr/2026-08-03-mjpeg-passthrough-web-viewer.md).
+
+## 한 줄 실행 (권장 — 웹 뷰어)
+
+```bash
+cd /home/nvidia/Project/Ford-CATL-AMR/Big-AMR && source /opt/ros/humble/setup.bash && source install/setup.bash && ros2 launch usb_cam_publisher usb_cam_cctv.launch.py & sleep 12 && cd /home/nvidia/Project/Ford-CATL-AMR/Big-AMR && ros2 launch cctv_webview cctv_webview.launch.py
+```
+
+브라우저에서 **http://localhost:8080/** — 상세는 [ui/cctv_webview/README.md](ui/cctv_webview/README.md).
+
+AI 사람 검출까지 함께:
+
+```bash
+cd /home/nvidia/Project/Ford-CATL-AMR/Big-AMR && source /opt/ros/humble/setup.bash && source install/setup.bash && ros2 launch yolo_detector detect.launch.py
+```
+
+## 한 줄 실행 (Qt 뷰어 — 종전 방식)
+
+Qt 뷰어는 프레임마다 파이썬에서 디코드하므로 웹 뷰어보다 무겁다. 압축 토픽으로 쓰려면
+`image_transport:=compressed` 가 필요하다.
 
 퍼블리셔 6대 + 뷰어(2x3)를 한 번에 띄운다 — **터미널 1개로 충분**:
 
@@ -24,8 +46,8 @@ cd /home/nvidia/Project/Ford-CATL-AMR/Big-AMR && source /opt/ros/humble/setup.ba
 # 터미널 1 — 퍼블리셔 (로스터에 등록된 전 카메라, 현재 6대)
 cd /home/nvidia/Project/Ford-CATL-AMR/Big-AMR && source /opt/ros/humble/setup.bash && source install/setup.bash && ros2 launch usb_cam_publisher usb_cam_cctv.launch.py
 
-# 터미널 2 — 뷰어 (2x3 그리드)
-cd /home/nvidia/Project/Ford-CATL-AMR/Big-AMR && source /opt/ros/humble/setup.bash && source install/setup.bash && ros2 launch vision_guard vision_guard.launch.py layout:=2x3
+# 터미널 2 — 뷰어 (2x3 그리드). 퍼블리셔가 compressed 모드면 transport 를 맞춰야 한다.
+cd /home/nvidia/Project/Ford-CATL-AMR/Big-AMR && source /opt/ros/humble/setup.bash && source install/setup.bash && ros2 launch vision_guard vision_guard.launch.py layout:=2x3 image_transport:=compressed
 ```
 
 종료: 각 터미널 `Ctrl+C`. **`kill -9` 금지** — SIGKILL 로 뷰어를 죽이면 FastDDS 공유메모리
