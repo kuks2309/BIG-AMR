@@ -4,7 +4,9 @@ type: rule-violation
 category: verify-skip
 status: open
 reflected_assets:
-  - docs/can_relay/field-record-orin-nx-2026-07-25.md (emulate 실동작 정정 기록)
+  # ⚠ 2026-07-27 감사: 아래 첫 항목은 지목 시점에 **실제로는 미반영**이었다. 본문 말미 「2026-07-27 감사」 절 참조.
+  #   (항목은 이력 보존을 위해 지우지 않는다.)
+  - docs/can_relay/field-record-orin-nx-2026-07-25.md §15 (emulate 실동작 정정 기록)  # ✅ 2026-08-03 반영 완료 (8일 지연)
   - .claude memory biguamr-canrelay-emulate-realpos-leak
 ---
 
@@ -43,9 +45,48 @@ emulate 펌웨어 소스를 **열어보지 않고** field-record §L47(fire-and-
 ## 재발 방지
 - (지식) field-record 에 emulate 실동작을 정정 기록: "relay ON/pc_authority 시 emulate 는
   실위치를 relay 하며 정지값 고정 로직이 없다(55602 실증)". 소스 라인 인용 첨부.
+  - ⚠ **[2026-07-27 감사] 이 항목은 지목 파일에 반영되지 않았다 — 미반영(예정).** 말미 §감사 참조.
 - (지식) 프로젝트 메모리 `biguamr-canrelay-emulate-realpos-leak` 신설 — 후속 세션이
   emulate 동작을 소스 대조 없이 추정하지 않도록.
 - (강제 gap) "펌웨어/코드 [동작] 확정 주장 전 소스 라인 인용 필수" 를 기계 차단하는 hook 은
   미설치 — 후속 과제. 현재는 규칙 재독 + 위 지식 자산으로 완화.
 
+### ✅ 2026-08-03 — 지목 자산 반영 완료 (8일 지연)
+
+`docs/can_relay/field-record-orin-nx-2026-07-25.md` **§15** 를 작성했다. 소스 대조 결과:
+
+- **결함은 이미 해소돼 있었다** — 현행 펌웨어에 동결 로직이 실재한다:
+  `seer_gate_fwd_hook()` 이 `pc_authority` **상승 에지**에서 `seer_freeze_snapshot()` 을 호출하고
+  (`safety_seer_gate.h:135-137`), `seer_cache_reply()` 가 동결값으로 Seer 응답을 치환한다(`:88-96`).
+  동결 대상은 `0x6064`·`0x606C`·`0x6078`·`0x6041` 4개(`:71-74`).
+- **다만 「정지값」이라는 표현은 지금도 부정확하다** — 동결값은 0 이 아니라 **취득 시점 스냅샷**이다.
+- ⚠ `[동작]` 재현 시험(55602 소멸 확인)은 **미수행**. §15-4 에 그렇게 적었다.
+
+**⚠ 7일 시한 초과 사유(정직)**: 「미반영(예정)」 표시를 2026-07-27 에 달아 놓고 **아무도 회수하지
+않았다.** 이 entry 는 그 사이 SessionStart 로 매번 주입됐으나 주입만으로는 회수되지 않았다 —
+`2026-07-28-005` 가 이미 결론지은 「**주입만으로는 막히지 않는다**」의 재확인이다.
+
+**`status` 는 `open` 을 유지한다.** 지식 자산은 반영됐으나 `type: rule-violation` 의 closure 요건인
+**강제 메커니즘이 여전히 없다**(위 「강제 gap」 항목). 형식을 맞추려 `closed` 로 바꾸는 것은
+lint 를 통과시킬 뿐 학습 루프를 닫지 않는다.
+
 **owner**: claude
+
+## 2026-07-27 감사 (append — 위 서술은 이력 보존을 위해 지우지 않는다)
+
+**대상**: frontmatter `reflected_assets` 첫 항목 및 본문 「재발 방지」 첫 항목.
+
+- **판정: 미반영(반증됨).** 지목된 `docs/can_relay/field-record-orin-nx-2026-07-25.md` 에는
+  해당 정정이 존재하지 않는다 — 2026-07-27 확인:
+  `grep -n "emulate\|55602\|실위치\|정지값" docs/can_relay/field-record-orin-nx-2026-07-25.md` → 출력 0건.
+  즉 `reflected_assets` 는 반영되지 않은 자산을 반영된 것처럼 기재하고 있었다.
+- **실제로 정정이 존재하는 위치**(병기):
+  - `~/.claude/projects/-home-nvidia-Project-Ford-CATL-AMR-Big-AMR/memory/biguamr-canrelay-emulate-realpos-leak.md:13`
+    (「relay ON/pc_authority 시 emulate 는 "정지값"이 아니라 실모터 위치를 그대로 Seer 로 넘긴다 …
+    정지값으로 고정/치환하는 코드 없음」) · 같은 파일 `:14` (55602 실증 조건).
+  - `Tools/Can_Relay/FIELD-RECORD-2026-07-25.md:64` (오용 사례로 정정 기록) 및 `:66`
+    (「대상 문서에 반영돼 있지 않았다(`emulate`/`55602`/`정지값` 문자열 0건, 2026-07-27 확인)」).
+    → 2026-07-27 감사에서 **다른 파일**에 대체 기록된 것이며, 지목 파일에는 여전히 없다.
+- **남은 작업(본 감사 범위 밖)**: `docs/can_relay/field-record-orin-nx-2026-07-25.md` 본문에 실제 정정을
+  넣는 일. 해당 파일은 본 감사 담당 영역(docs/debt, docs/claude-mistake) 밖이라 수정하지 않았다.
+- 값·수치·소스는 일절 변경하지 않았다(서술 정정만).

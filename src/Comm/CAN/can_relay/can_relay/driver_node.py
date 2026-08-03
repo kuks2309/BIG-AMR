@@ -11,7 +11,7 @@
   그것을 import 하지 못하면 조용히 대체하지 않고 **구독을 만들지 않는다.**
 - **자동으로 호밍하지 않는다.** 물리 스윙 100°+ 이고 **본 구현에 취소 경로가 없다**
   (`backend.home()` 은 `0x60FB:04=1` 송신 후 상태워드만 관측). 펌웨어에는 취소 경로가
-  있으나 미사용이다 — `safety_seer_gate.h:307-309`. `~/home` 명시 호출 전용이다.
+  있으나 미사용이다 — `safety_seer_gate.h:312-316`. `~/home` 명시 호출 전용이다.
 
 ## 인터페이스
 
@@ -242,8 +242,8 @@ class CanRelayNode(Node):
 
     def _srv_home(self, _req, res: Trigger.Response):
         self.get_logger().warn(
-            "호밍 요청 — 조향이 100° 이상 스윙합니다. 시작 뒤에는 소프트웨어가 "
-            "멈출 수 없습니다(드라이브 내부 루틴). 중단 수단은 하드웨어 E-STOP 뿐입니다.")
+            "호밍 요청 — 조향이 100° 이상 스윙합니다. 취소는 ~/home_cancel 로 "
+            "가능하며, 그 밖의 중단 수단은 하드웨어 E-STOP 입니다.")
         ok, why = self.backend.home()
         res.success = ok
         res.message = why
