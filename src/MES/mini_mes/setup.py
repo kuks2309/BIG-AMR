@@ -20,7 +20,11 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            # The sequential driver — one thread, injected clock, everything
+            # in order. The reference for what the system should do.
             'demo = mini_mes.demo:main',
+            # The same factory under the Supervisor, on real timers.
+            'supervised_demo = mini_mes.supervised_demo:main',
             'sim_node = mini_mes.sim_node:main',
             'seer_client = mini_mes.seer_client:main',
             'skeleton = mini_mes.runtime.demo_skeleton:main',
