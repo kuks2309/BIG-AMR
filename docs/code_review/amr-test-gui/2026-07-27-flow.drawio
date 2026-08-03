@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net">
+  <diagram name="amr_test_gui-flow">
+    <mxGraphModel dx="1200" dy="900" grid="0" page="1" pageWidth="1600" pageHeight="2400">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="NOTE1" value="&lt;b&gt;⚠ 감사 2026-07-27 — 본 다이어그램의 주장은 미검증&lt;/b&gt;&amp;#10;동반 리뷰 정본 .md 가 없다: docs/code_review/amr-test-gui/ 에는 본 .drawio 1개뿐이고&amp;#10;병기본 Tools/amr_test_gui/docs/code_review/amr-test-gui/ 는 빈 디렉토리다.&amp;#10;그런데 코드는 리뷰 finding id 를 근거로 인용한다 — ui_main.py:350(#C1), :666(#H2),&amp;#10;controller.py:110(#H4), :122(#M6), :130(#H3), :276(#M3), :313(#H1), sim_bus.py:86(#M9).&amp;#10;저장소 .md 전체에 해당 id 의 정의는 0건(grep) → 근거·verdict 대조 불가.&amp;#10;⇒ 리뷰 정본 .md 복원 전까지 본 흐름도를 &lt;b&gt;검증된 리뷰 결과로 인용하지 말 것&lt;/b&gt;.&amp;#10;(정본은 감사가 추정 작성하지 않는다 — 없는 verdict 를 만드는 것이 되므로.)" style="shape=note;whiteSpace=wrap;html=1;size=14;align=left;verticalAlign=top;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="40" y="-190" width="780" height="200" as="geometry"/></mxCell>
+        <mxCell id="NOTE2" value="&lt;b&gt;⚠ 감사 2026-07-27 — K 박스 라벨 정정(원 라벨: &quot;bus.shutdown() = release 보장&quot;)&lt;/b&gt;&amp;#10;release 는 보장되지 않는다:&amp;#10;· panda_can_bus.py:218-223 — auth(0xe9)/passthrough(0xe8)/set_safety_mode 제어전송을 try 로 감싸고&amp;#10;  실패 시 로그만 남긴 뒤 계속 진행(:224 controlling=False, :226- close).&amp;#10;· controller.py:116-119 — 호출측이 bus.shutdown() 을 try/except Exception: pass 로 삼킨다.&amp;#10;⇒ USB·제어전송 실패 시 판다는 즉시 반환되지 않고 heartbeat 타임아웃에 의존한다&amp;#10;  (main.c:233 heartbeat_counter 초과 → :248-249 set_safety_mode(SAFETY_SILENT)).&amp;#10;· 부수 정정: panda_can_bus.py:223 의 &quot;판다 fail-safe 복귀&quot; 서술은 passthrough 복귀가 아니라&amp;#10;  SAFETY_SILENT 복귀다(main.c:88-93 — set_intercept_relay(false) + can_silent=ALL_CAN_SILENT).&amp;#10;  ※ 다만 main.c:252-255 는 그 의도를 &quot;CAN-Relay fail-open(물리 통과 복귀)&quot;로 적으므로,&amp;#10;    &quot;물리 통과&quot;와 &quot;SAFETY_SILENT&quot; 의 실효 동일성 여부는 &lt;b&gt;본 감사 미판정&lt;/b&gt;.&amp;#10;    판정에 필요한 측정: heartbeat 강제 소실 후 릴레이 상태·양측 CAN 트래픽 실측 1회.&amp;#10;코드는 본 감사에서 변경하지 않았다(라벨·주석만 정정)." style="shape=note;whiteSpace=wrap;html=1;size=14;align=left;verticalAlign=top;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="1000" y="700" width="620" height="270" as="geometry"/></mxCell>
+        <mxCell id="A" value="run_gui.py main()&amp;#10;--dry-run 파싱" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;" vertex="1" parent="1"><mxGeometry x="400" y="40" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="B" value="ui_main.run()&amp;#10;QApplication + MainWindow" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="150" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="C" value="MainWindow.__init__&amp;#10;controller · seer · QTimer 20Hz" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="260" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="D" value="사용자 &#x27;연결&#x27; 클릭&amp;#10;_on_connect()" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="370" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="E" value="실기 모드?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="480" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="F" value="확인 다이얼로그&amp;#10;(구역·E-stop·조향 홈)" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="700" y="480" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="G" value="ConnectWorker 스레드 시작&amp;#10;(GUI 비블로킹)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="590" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="H" value="_bus_factory()&amp;#10;SimBus | PandaCanBus.take()" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="700" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="I" value="AmrTestController.connect()&amp;#10;backend 항등 구성(sign=+1)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="810" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="J" value="backend.start()&amp;#10;선판독→콜드 홈 게이트→init→TX/RX" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="920" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="K" value="bus.shutdown()&amp;#10;→ release &lt;b&gt;시도&lt;/b&gt;(보장 아님)&amp;#10;실패 시 예외 삼킴 → heartbeat&amp;#10;타임아웃 fail-safe 에 의존" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="700" y="920" width="230" height="86" as="geometry"/></mxCell>
+        <mxCell id="L" value="_on_connected(ok=False)&amp;#10;경고 표시" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="700" y="1030" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="M" value="_on_connected(ok=True)&amp;#10;제어 위젯 활성" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="1030" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="N" value="QTimer 20Hz → _on_tick()" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="1140" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="O" value="controller.tick()&amp;#10;backend.snapshot()" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="1250" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="P" value="_ramp_measurement()&amp;#10;조향축 중 최악 편차 선택" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="1360" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="Q" value="SteerRamp.tick()" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="1470" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="R" value="램프 상태?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="1580" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="S" value="FAULT: 지령 0°(홈 강제)&amp;#10;구동 금지 · 래치" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="100" y="1690" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="T" value="RAMPING: 단계 지령 유지&amp;#10;구동 raw 0" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="1690" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="U" value="SETTLED: raw = mode.raw_sign&amp;#10;× mmps_to_units(속도)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="700" y="1690" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="V" value="backend.set_command()&amp;#10;ModuleCommand[v_mps, θ_rad]" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="1800" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="W" value="backend TX 루프 50Hz&amp;#10;0x60FF · 0x607A+0x6040=0x3F" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="400" y="1910" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="X" value="bus.send() → CAN2 (모터)" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;" vertex="1" parent="1"><mxGeometry x="400" y="2020" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="Y" value="_update_conn/ramp/table/seer&amp;#10;화면 갱신" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="700" y="1250" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="Z" value="E-STOP 버튼 / Space 키" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;" vertex="1" parent="1"><mxGeometry x="1000" y="1470" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="AA" value="controller.estop()&amp;#10;→ backend 래치(vel 0)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="1000" y="1580" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="AB" value="창 종료 closeEvent()" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;" vertex="1" parent="1"><mxGeometry x="1000" y="1800" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="AC" value="estop → disconnect →&amp;#10;backend.shutdown() → bus release" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="1000" y="1910" width="230" height="62" as="geometry"/></mxCell>
+        <mxCell id="e0" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A" target="B"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="B" target="C"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="C" target="D"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="D" target="E"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="예" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="E" target="F"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="아니오(dry-run)" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="E" target="G"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="Yes" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="F" target="G"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="No(취소)" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="F" target="C"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="G" target="H"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="H" target="I"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e10" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="I" target="J"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e11" value="예외" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="J" target="K"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e12" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="K" target="L"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e13" value="성공" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="J" target="M"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e14" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="M" target="N"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e15" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="N" target="O"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e16" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="N" target="Y"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e17" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="O" target="P"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e18" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="P" target="Q"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e19" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="Q" target="R"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e20" value="FAULT" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="R" target="S"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e21" value="RAMPING" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="R" target="T"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e22" value="SETTLED" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="R" target="U"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e23" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="S" target="V"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e24" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="T" target="V"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e25" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U" target="V"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e26" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="V" target="W"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e27" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="W" target="X"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e28" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="Z" target="AA"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e29" value="vel 0 강제" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="AA" target="V"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e30" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="AB" target="AC"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e31" value="release" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="AC" target="X"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
