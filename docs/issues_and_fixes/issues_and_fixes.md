@@ -1,8 +1,125 @@
 # 이슈 및 수정 기록 (Issues and Fixes)
 
+> ⚠ **조향 홈 관련 서술은 2026-08-02 종결 판정으로 갱신됐다. 아래 원문은 이력으로 보존한다.**
+> 정본: `docs/verified_facts/2026-08-02-steer-home-closed.md`
+> (값 정본은 `src/Comm/CAN/can_relay/config/machine/foil_a082.yaml` 의 `steer_home_counts`)
+>
+> - 홈(0°) = **`[7871810, 7839894]`** — 직진 자세 실측(A무리). 세 경로 교차확인.
+> - 구값 `7871815 / 7840086` 은 **틀린 값이 아니라 출처 없는 값**이었다 —
+>   실측과 5c(**0.00009°**) / 192c(**0.0033°**) 차이로 거동상 동일하다.
+> - **`7882020 / 7859062` 는 홈이 아니다** — 「**호밍 후 정착값**」(B무리)이며 0° 에서
+>   **+0.178° / +0.332°** 벗어나 있다. **호밍은 조향을 0° 에 정확히 놓지 않는다.**
+>   이 둘을 모두 "조향 홈"이라 부른 것이 4주간 재실험 반복의 원인이었다.
+> - `debt-007` 은 **종결**(2026-08-02). 「미판정 · 값 변경 금지」 서술은 더 이상 유효하지 않다.
+> - Seer 각도와 CAN counts 는 **음의 상관** — 0° 역산은 `CAN + Seer° × 57344`.
+
+> ❌ **정정 2026-08-03: 위 배너의 값·판정 2건이 실측으로 뒤집혔다.** 원문은 이력으로 보존한다.
+> 정본: `docs/homing/2026-08-03-can-relay-homing-assets.md` §10 (실측 2026-08-03 11:44)
+>
+> - **홈(0°) = `[7871815, 7840086]`** 이다. 위 배너의 `[7871810, 7839894]` 은 **0° 가 아니라 raw 판독값**이었다 —
+>   0° 는 같은 배너 마지막 줄의 역산식 `0° = CAN_0x6064 + Seer_deg × 57344` 로 구해야 하는데 적용되지 않았다.
+>   실측 0° 는 node3 **7,871,816** / node4 **7,840,087** 이고, 구값 `[7871815, 7840086]` 은 **양 노드 모두 1 count
+>   (0.000017°) 이내**로 맞다. 위 배너 값은 node4 에서 **193 counts = 0.0034°** 어긋난다.
+> - 「구값은 **틀린 값이 아니라 출처 없는 값**」도 반증됐다 — **출처가 있다.** Seer 가 실시간으로 내는
+>   `0x607A` 조향 목표다(passthrough 캡처에서 연속 관측).
+>   > ❌ **재정정 2026-08-03 17:00. [E8]** 「출처가 `0x607A`」는 유효하나 **0° 근거로는 선택 인용**이다.
+>   > `Log/homing_capture_220350.jsonl` 의 `0x607A:00` 다운로드 전수(노드당 n=6,464):
+>   > `7,871,815 / 7,840,086` = **145회 (2.2%)** vs `7,882,020 / 7,859,062`(GOZERO 상수) = **6,319회 (97.8%)**.
+>   > Seer 가 압도적으로 많이 지령한 값은 **채택값 쪽이 아니다.**
+>   > 다른 근거였던 「1040 역산 재현」도 같은 캠페인이 **항등식이라 무효화**했다.
+>   > ⇒ `[7871815, 7840086]` 은 **값만 유지**(정본 `foil_a082.yaml:134`)하고
+>   > 라벨은 **「공학적 채택값」**까지만 — **「실측 0°」·「실측 확정」 표현 금지**.
+> - ⚠ **과장 금지**: 193 counts = **0.0034°** 로 **거동상 무의미**하다. 안전 문제가 아니라 정본 정확성 문제다.
+> - ⚠ `7882020 / 7859062`(펌웨어 `SEER_HOME_ZERO_N3/N4`)가 **0° 가 아니라 호밍 후 정착값**이라는 위 배너 서술은
+>   **그대로 유효**하다 — 별개 사안이다. 다만 0° 가 바뀌었으므로 편차는 재계산해 **+0.178° / +0.331°**
+>   (node3 +10,204 c / node4 +18,975 c @ 57,344 c/°)이다. 「0° 에 정확히 놓지 않는다」는 결론은 불변.
+
 ---
 
 ## 2026-08-03
+
+### [Fix] 「호밍이 안 된다」 진단이 10회 실측으로 반증 — 하루에 세운 원인 가설 3개가 전부 뒤집혔다
+
+- **문제**: 2026-08-03 09:58 호밍 1회가 120 s 소모 후 `ERR_TIMEOUT` 으로 끝난 것을 **「호밍이 실패한다」로
+  일반화**하고, 하루 동안 원인 가설을 세 번 세워 그때마다 **「확정」이라 문서에 기록**했다. 15:33~15:40
+  `orin_home_experiment.py --repeat 10` 실측 결과 **호밍은 10/10 성공**(소요 **35.0 s**, 편차 0.17 s,
+  리밋 도달 10회 모두 DI `0x01`→`0x09`)했다. 09:58 이후로 보면 **12회 연속 성공**이며 실패는
+  **재현되지 않는다**. ⇒ 고칠 대상이 애초에 없었고, 내가 세운 진단 3건이 전부 틀렸다.
+  > ❌ **재정정 2026-08-03 17:00 (원자료 `Log/*.json*` 직접 파싱).**
+  > · **[E1]** 「12회 연속 성공」 → **12회 연속 성공**. 오늘 시도 **13** / 성공 **12** / 실패 **1**
+  >   (성공 12 = 15:33 런 10회 + 14:46 `homing_edge_260803_144602.json` +
+  >   15:25 `homing_edge_260803_152520.json`; 실패 1 = 09:58 `final_state` 6 = `ERR_TIMEOUT`).
+  >   「13」은 15:33 요약의 `baseline` 을 성공 1건으로 더한 것인데, `baseline` 은 **호밍이 아니라
+  >   레지스터 스냅샷**이다(`Tools/docking_field_kit/orin_home_experiment.py:390` `snapshot()`).
+  > · **[E4]** 「35.0 s」 → **평균 35.068 · 중앙 35.045 s**(범위 34.99~35.16, 폭 0.17 은 정확).
+  > · **「10/10 성공」·「가설 3건이 뒤집혔다」는 결론은 그대로 유효.**
+  뒤집힌 가설: ① 「`0x6040=0x86` 이라 CiA402 `Switch on disabled` 를 못 벗어나 막힌다」
+  ② 「`0x6098`=0 이라 호밍 비활성 / RstStart 가 1 로 고착」 ③ 「축이 이미 홈이면 드라이브가 무동작
+  즉시 완료 → `bit15` 하강 에지 미발생 → WAIT 검출기 영구 대기」.
+- **원인**: 기전은 펌웨어가 아니라 **내 추론 절차**였다. (a) **단일 관측을 원인으로 승격** — ①은
+  09:58 한 회차의 statusword 만 보고 단정했고, 2026-07-27 **성공** 캡처가 **같은 `0x?050`** 에서
+  성공한 반례를 나중에야 확인했다. ②는 실측 없이 추정한 값이었다(실측은 `0x6098`=**1**,
+  `0x60FB:04`=**0**). (b) **대조군 없이 두 변수를 동시에 바꿈** — 14:46 실험은 「조향 +10° 오프셋」과
+  「11:38 리부팅으로 `0x6064` 래치 해제」가 함께 바뀐 상태였는데 **오프셋만 원인으로 귀속**해 ③을
+  「확정」이라 적었다. `--offset 0` 대조군을 같이 돌렸으면 바로 갈렸다. (c) **관측 2점의 상관을
+  실질 원인으로 승격** — 15:25 에 debt-036(`0x6064`=0)을 「호밍을 막는 실질 원인」으로 올렸으나,
+  근거는 09:58 실패 / 15:25 성공 **2점**뿐이었다. 관련 코드 위치는
+  `Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h:391-402`(WAIT 에지 검출)이며
+  **이 로직에는 실증된 결함이 없다** — 10회 모두 정상 완료했다.
+- **해결**: 코드 변경 **0줄**(펌웨어·드라이버 무수정). **반복 실측으로 진단을 대체**하고 기록을
+  정정했다 — ① `orin_home_experiment.py --repeat 10` 을 접지 상태에서 실행해 10회 전수 기록
+  (산출 `Log/home_experiment_260803_153319.jsonl` 10.3 MB · `_summary.json`).
+  ② `docs/homing/2026-08-03-can-relay-homing-assets.md` 에 **§0(최종 확정)** 을 신설하고 §15·§16 을
+  폐기 표기. ③ `docs/debt/registry.md` 를 정정 — debt-034 근거 보강 · debt-035 사유를 **「원인 미상 ·
+  우선순위 낮음」으로 환원** · debt-036 **「호밍을 막는다」 단정 철회 및 우선순위 하향**,
+  표 3행 인라인 정정 + 기존 절 3곳에 정정 배너 + **신규 확정 절 1개(59줄)**.
+  원문은 **한 줄도 지우지 않고** 「❌ 정정 2026-08-03 15:40」 표기로 인접 배치했다.
+  ⚠ 펌웨어에 앞서 추가했던 「이미 홈」 종료 조건(`SEER_HOME_ATHOME_S` · `seer_home_athome_mask`)은
+  **되돌리지 않되 보험으로만 존치**한다 — 10회 실측에서 **발동조차 하지 않았고**, 필요성이 미확인이므로
+  **「09:58 실패를 고쳤다」고 주장하지 않는다**(무해함만 실증됨).
+- **파일**: `docs/debt/registry.md`(debt-034/035/036 표 3행 + 기존 절 3곳 + 신규 절 `:524-582`) ·
+  `docs/issues_and_fixes/issues_and_fixes.md`(본 entry + 아래 「조향 0° counts 정정」 entry 인라인 정정) ·
+  `docs/homing/2026-08-03-can-relay-homing-assets.md`(§0 정본) ·
+  산출 `Log/home_experiment_260803_153319.jsonl` · `Log/home_experiment_260803_153319_summary.json`
+- **상태**: 완료 — 실측 근거: 호밍 **10/10 DONE**, 소요 34.99~35.16 s, 정착값 node3 **7,882,021**(σ 2.8 c) ·
+  node4 **7,859,065**(σ 3.2 c) ⇒ 조향 0° `[7871815, 7840086]` 대비 **+0.178° / +0.331°**, counts/°
+  **57,344**(실측 기울기 1.000000), `0x6098`=**1**, 리밋 스위치 **실재**(10회 DI 전이 관측).
+  펌웨어 `DEV-cc5e0491-DEBUG`, 호밍속도 2500.
+  > ❌ **재정정 2026-08-03 17:00.**
+  > · **[E6]** σ 2.80 / 3.21 은 **모표준편차** 기준(표본 σ 2.95 / 3.38) — 기준을 병기할 것.
+  >   10회 `post` 실측: node3 7,882,021 **×8** / 7,882,014 **×2**, node4 7,859,065 **×8** / 7,859,058 **×2**.
+  > · **[E5]** 「counts/° 57,344 (기울기 1.000000)」 → **node3 57,344.0 / node4 57,344.3**
+  >   (`Log/steer_two_phase_260803_131305.jsonl` phase A 최소제곱 57,344.000 / 57,344.280).
+  > · **[E8]** 조향 0° `[7871815, 7840086]` 은 정본(`foil_a082.yaml:134`)이라 **값 유지**하되
+  >   **「공학적 채택값」**으로만 서술할 것 — 「실측 확정」 표현 금지(아래 재정정 참조).
+- **확정된 부수 사실**: 정착 편차 +0.178°/+0.331° 는 **σ ≈ 3 counts(0.00005°) 로 10회 재현** ⇒
+  **결함이 아니라 설계 동작**이다(호밍은 조향을 0° 가 아니라 이 지점에 놓는다 — debt-034 는
+  「이름·허용오차」 부채로 유지). `ERR_TIMEOUT` 은 깔끔한 terminal 이라 **재시도로 충분** ⇒
+  **운영상 이슈가 아니다.**
+  > ❌ **재정정 2026-08-03 17:00. [E7]** 「**결함이 아니라 설계 동작**」은 **과잉 확정**이다.
+  > 실측이 보증하는 것은 **「펌웨어 상수 `SEER_HOME_ZERO_N3/N4`
+  > (`Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h:212-213`)에 재현성 있게
+  > 정착한다」**까지다(편차 node3 +1×8 / −6×2 · node4 +3×8 / −4×2, 최대 6 counts).
+  > **상수의 적정성은 실측 밖**이고 **debt-016** 이 같은 편차를 「영구 미검출 오프셋」으로
+  > 등록 중이라 **정면 충돌**한다.
+  > ⇒ **「재현되는 정착 동작(상수 적정성은 별건, debt-016)」**로 읽을 것.
+- **미결**: (a) 09:58 `ERR_TIMEOUT` 1회의 **원인은 미상**이다 — 재현되지 않아 추적 우선순위 낮음(debt-035).
+  (b) `0x6064`=0(bit15=1 동반)은 **1회 관측·재현 없음**, 인과 방향 미판정(debt-036).
+  > ✅ **종결 2026-08-03 19:45 — debt-036.** 원인은 **아침에 드라이브가 죽어 있던 것**이다(`Log/home_experiment_260803_095815.jsonl` 에 node1 `BOOTUP` 1건 · 오후 캡처엔 0건 · SDO abort 0건 · 재기동 후 미재현). 「인과 미판정」 서술은 해소됐다.
+  > ❌ **재정정 2026-08-03 17:00: (b) 의 「1회 관측·재현 없음」은 거짓 — 재현된다. [E2]**
+  > `0x6064:00` SDO 응답 전수 집계(0 / 전체): 09:19 `home_experiment_260803_091956.jsonl`
+  > **50/50 · 50/50** · 09:58 `…_095815.jsonl` **12,220/12,220 · 12,211/12,211** ·
+  > 10:08 `seer_homing_260803_100813.jsonl` **10,327/10,327 · 10,327/10,327**
+  > (같은 구간 `0x6041`=37968 **bit15=1** 258표본/노드 전량 = **호밍 중이 아닌데도 0**) ·
+  > 11:38 리부팅 **이후** `probe_113805.jsonl` 97/1,300 · 96/1,299 ·
+  > 14:43 `homing_edge_260803_144305_can.jsonl` 2/74 · 2/68.
+  > ⚠ **「인과 방향 미판정」은 유지**되며, 오히려 **양쪽 다 미판정**이다 —
+  > 0 이 관측된 14:43 직후의 14:46 호밍은 **성공**했으므로 「`0x6064`=0 이 호밍을 막는다」도
+  > 성립하지 않는다. debt-036 의 서술도 「1회 관측」이 아니라 **「재현되나 인과 미판정」**으로 읽을 것.
+  > ⚠ **「호밍 중(bit15=0)이면 `0x6064`=0」은 별개의 유효 관측**이다
+  > (15:33 런 node3 **32,243/32,243**). 폐기된 것은 **「전원 사이클 래치」주장뿐**이다.
+  (c) **조향 0° 는 Seer 좌표계 기준**이며 **물리적 직진과 같은지는 미확인**이다 — Seer 1005·1040 은
+  **둘 다 `0x6064` 유래**라 독립 앵커가 아니다. 非-Seer 계측이 필요하다.
 
 ### [Fix] CCTV 표시 CPU 과다 — 퍼블리셔 디코드·raw 전송 제거(MJPEG 패스스루 + 웹 뷰어)
 
@@ -61,6 +178,297 @@
 - **파일**: (코드 변경 없음)
 - **상태**: 복구 절차 확인 완료. RGB-D 스택과 CCTV 스택을 번갈아 쓸 때마다 필요하다.
 
+### [Fix] 조향 0° counts 정정 — raw 판독값이 0° 로 채택돼 있었다
+
+> ❌ **정정 2026-08-03 15:40: 본 entry 의 「근거」 2건이 뒤집혔다. 결론값은 유지된다.**
+> ✅ **결론값 `[7871815, 7840086]` 은 그대로 유효**하다 — 15:40 의 10회 실측에서도 조향 0° 정본으로 재확인됐다
+> (`docs/homing/2026-08-03-can-relay-homing-assets.md` §0-3). `7882020 / 7859062` 가 0° 가 아니라
+> **호밍 후 정착값**이고 편차가 **+0.178° / +0.331°** 라는 서술도 **10회 재현으로 굳어졌다**(§0-2).
+> ❌ **뒤집힌 근거 ①** — **원인** 절의 「판다 SILENT · passthrough ⇒ **CAN 과 Seer 가 독립 경로**」는
+> 성립하지 않는다. Seer **1005 · 1040 은 둘 다 `0x6064` 유래**(아핀 변환)이므로 **독립 앵커가 아니고**,
+> 이 둘의 일치를 **교차검증으로 인용할 수 없다**. ⇒ 확정된 것은 **「Seer 가 0° 라 부르는 자세 ↔ CAN counts」
+> 의 대응**뿐이며, **물리적 직진과 같은지는 여전히 미확인**이다(非-Seer 계측 필요).
+> ❌ **뒤집힌 근거 ②** — **상태** 절의 「**회귀 319건 통과**」는 값의 정확성을 검증하지 **않는다**.
+> 변이 시험에서 `steer_home_counts` 값을 바꿔도 **319건이 전부 통과**했다(§11-3 F1).
+> ⇒ 값 검증의 근거는 **실측뿐**이며, 회귀 건수를 값 근거로 인용 금지.
+> (아래 원문은 이력으로 보존한다.)
+
+- **문제**: 조향 0° 정본 `steer_home_counts` 가 `[7871810, 7839894]` 로 박혀 있었으나, 2026-08-03 실측
+  0° 는 **node3 7,871,816 / node4 7,840,087** 이다. node4 가 **193 counts** 어긋난다(node3 은 6 counts).
+  같은 날 2026-08-02 에 「틀린 값이 아니라 **출처 없는 값**」이라며 폐기 선언했던 구값 `[7871815, 7840086]`
+  이 **양 노드 모두 1 count(0.000017°) 이내로 맞았다.** ⚠ 193 counts = **0.0034°** — **거동상 무의미**하며
+  안전 문제가 아니라 **정본 정확성** 문제다.
+- **원인**: 0° 는 raw CAN 판독값이 아니라 Seer 각도로 역산해야 한다(`0° = CAN_0x6064 + Seer_deg × 57344`).
+  2026-08-02 종결 문서가 **이 식을 §4-2 에 적어 놓고도 §1 채택값에는 적용하지 않고 raw 판독값을 그대로
+  0° 로 박았다** — `docs/verified_facts/2026-08-02-steer-home-closed.md` §1 ↔ §4-2 (자기 모순).
+  node3 은 그 시점 Seer 각도가 작아 오차가 6c 에 그쳐 드러나지 않았고, **node4 에서 193c 로 드러났다.**
+  실측 근거: `docs/homing/2026-08-03-can-relay-homing-assets.md:375-425`(§10).
+  측정 조건 — `Tools/docking_field_kit/orin_steer_crosscheck.py`, 판다 **SILENT · passthrough**(제어권
+  미취득 ⇒ CAN 과 Seer 가 독립 경로), **송신 0건**(AST 구문트리 검사), **사용자 확인 「Seer 표시 앞바퀴
+  2축 모두 0°」** 자세, 2회 독립 실행이 counts 단위까지 동일(node3 7,871,823c σ=3 / node4 7,840,052c σ=2,
+  각 n=3,110). 산출물 `Log/steer_xcheck_reboot_0deg.jsonl` · `Log/steer_xcheck_reboot_0deg_confirm.jsonl`.
+- **해결**: `steer_home_counts`(및 `steer_home_offset`) 값을 `[7871810, 7839894]` → **`[7871815, 7840086]`**
+  로 되돌리고, 각 지점에 「══ 정정 2026-08-03 ══」 주석 블록을 인접 배치(원문 이력 보존). 정본 1곳 + 사본
+  6곳의 **상수 정의 각 1줄 수정 + 정정 주석 블록 추가**, 테스트 픽스처는 값이 이미 구값이라 **라벨만 정정**.
+  ⚠ `7882020 / 7859062` 는 **펌웨어 GOZERO 상수**(`SEER_HOME_ZERO_N3/N4`, 호밍 후 정착 목표)이며 0° 가
+  아니다 — **본 정정 범위 밖의 별개 사안**이다. 0° 가 바뀐 만큼 편차만 재계산해 **+0.178° / +0.331°**
+  (node3 +10,204 c / node4 +18,975 c)로 병기한다(→ **debt-034** 신규 등록).
+- **파일**:
+  - 정본 `src/Comm/CAN/can_relay/config/machine/foil_a082.yaml:100,119,133,136`
+  - 사본 `src/Actuators/motor_control/config/tongyi_amr.yaml:25,39` ·
+    `src/Actuators/motor_control/motor_control/driver_node.py:70` ·
+    `Tools/amr_test_gui/gui.py:31,45` · `Tools/Kinematics/chassis_kinematics.py:64,78` ·
+    `Tools/docking_field_kit/docking_drive.py:63,77` · `Tools/docking_field_kit/amap2_monitor.py:100,114`
+  - 테스트 픽스처 `src/Comm/CAN/can_relay/test/{test_safety,test_protocol,test_backend}.py` ·
+    `Tools/Kinematics/tests/test_can_protocol.py`
+  - 기록 `docs/homing/2026-08-03-can-relay-homing-assets.md`(§10 신설) · 본 파일 머리말 배너 ·
+    `docs/debt/registry.md`(debt-007·016·022 정정, debt-034~036 신규)
+- **상태**: 완료 — 회귀 **319건 통과**(`can_relay` 177 · `motor_control` 35 · `amr_test_gui` 88 ·
+  `Kinematics` 19). 실기 재확인 2회(위 측정 조건), 송신 0건 읽기 전용.
+
+## 2026-08-02
+
+### 조향 홈이 저장소 곳곳에 흩어져 「기록으로 오판」하는 구조를 닫음 (debt-007 종결) ← ❌ **2026-08-03 재정정 (채택값 폐기)**
+
+> ❌ **정정 2026-08-03**: 본 entry 의 **채택값 `[7871810, 7839894]` 과 「구값은 출처 없는 값」 판정은 반증됐다.**
+> 실측 0° 는 node3 **7,871,816** / node4 **7,840,087** 이고, 폐기 선언했던 구값 `[7871815, 7840086]` 이
+> **양 노드 1 count 이내로 맞다**(본 entry 채택값은 node4 에서 193c = **0.0034°**, 거동상 무의미).
+> 원인은 역산식 `0° = CAN + Seer°×57344` 를 채택값에 적용하지 않고 **raw 판독값을 0° 로 박은 것**이다.
+> 구값의 **출처도 있다** — Seer 의 실시간 `0x607A` 조향 목표.
+> 아래 원문은 이력으로 보존한다. 상세는 위 「2026-08-03 [Fix] 조향 0° counts 정정」 및
+> `docs/homing/2026-08-03-can-relay-homing-assets.md` §10.
+> ✅ 본 entry 의 나머지(정본 일원화 · `DEFAULT_STEER_HOME = {}` 로 코드 기본값 제거 · `7882020/7859062` 는
+> 홈이 아니라 정착값 · rclpy `dynamic_typing` 함정)는 **그대로 유효하다.**
+
+- **증상**: 홈 재측정·재호밍 실험이 세션마다 반복됐다. 원인은 하드웨어가 아니라 **기록**이었다 —
+  같은 물리량에 4개 값이 돌아다녔고(`7871815`/`7840086` 31파일, `7882020`/`7859062` 23파일,
+  실측값은 2파일), 정본이 어느 것인지 문서로 확정된 적이 없어 매번 처음부터 다시 쟀다.
+- **진단**: 값들끼리 실제로 얼마나 다른지 계산한 적이 없었던 것이 핵심이다. 재보니
+  `7871815` 는 실측 `7871810` 과 **5 counts(0.00009°)** 차이 — **틀린 값이 아니라 출처 없는 값**이었다.
+  진짜로 다른 것은 `7882020`/`7859062`(호밍 후 정착 목표, +0.178°/+0.331°)로, 이쪽이 「0°」로
+  오인되면 조향에 상시 바이어스가 생긴다.
+- **진실 기준**: 같은 자세를 **intercept off** 로 읽은 세 경로가 일치했다 —
+  2026-07-27 콜드부팅 캡처(7,871,818/7,840,084) · 2026-08-01 판다 SILENT 수동청취(7,871,810/7,839,894) ·
+  동시각 Seer API 1040(+0.0001°/+0.0035°). 4일·전원 인가·플래시 8회를 사이에 두고 8c/190c 재현.
+- **조치**:
+  1. 정본을 `src/Comm/CAN/can_relay/config/machine/foil_a082.yaml` **하나**로 고정.
+  2. **코드 기본값 제거** — `safety.DEFAULT_STEER_HOME = {}`. 값이 없으면 `UnsafeCommand` 로 거부하고,
+     `driver_node` 는 아예 기동하지 않는다. 「조용한 오판」보다 정지를 택했다.
+  3. 실행 자산 7곳의 구값을 실측값으로 갱신(+ 「미판정·값 변경 금지」 주석을 해소 서술로 교체, 원문 보존).
+  4. `homing_method` 를 `"firmware"` 로 확정하고 ADR 을 **Superseded in part** 로 표기.
+- **검증**: `can_relay` 176 passed · `motor_control` 35 passed · `Kinematics` 19 passed.
+  mock 기동 2종 — 캘리브레이션 로드 시 정상 기동(홈 `[7871810, 7839894]` 반영 확인),
+  미로드 시 기동 거부 메시지 확인.
+- **부수 발견 (rclpy 함정)**: 「미설정」을 빈 배열로 표현하면 rclpy 가 타입을 **`BYTE_ARRAY`** 로 추론해
+  YAML 의 정수 배열 로드를 **거부**한다. `ParameterDescriptor(type=...)` 지정만으로는 안 되고
+  (Humble 이 기본값 타입으로 덮어씀) **`dynamic_typing=True`** 가 필요하다. 실기 기동 실패로 확인.
+- **바로잡은 내 오류**: 「제어권 보유 중 판다 read 오염(emulate)」을 원인으로 적으려다 펌웨어를 열어
+  확인하니 틀렸다 — `emulate` 는 **bus 라우팅만** 바꾸고 PC 자신의 수신 경로는 건드리지 않는다
+  (`safety_seer_gate.h:164-193`). 남는 유력 후보는 `0x6041` bit15=0 구간의 `0x6064`=0 고정이나,
+  당시 statusword 로그가 없어 **확정이 아니다**.
+- **남은 것**: 「Seer 의 0°」와 물리적 직진의 일치는 육안 미확인 — 스티어링 중립 산출은 사용자 별도 진행.
+  `motor_control` 의 「미설정 = 0」은 타 세션 소유라 값 갱신까지만 하고 **debt-032** 로 등록.
+
+## 2026-08-01
+
+### [Change] can_relay 계층 이동 — `cmd_vel` → `/motor/low_cmd` (모터 계층)
+
+- **문제**: 신설 드라이버가 `cmd_vel`(Twist)을 구독해 **체인의 어느 노드와도 연결되지
+  않았다**(2026-07-31-004). 저장소 모션 스택의 실제 계약은
+  `액션서버 ─WheelSetArray→ mux ─→ translator ─MotorCmdArray→ /motor/low_cmd` 다.
+  부작용으로 축별 조향각 1.0° 편차 게이트가 들어가 **최소 선회반경 68.8 m** 를 강제했고
+  액션 서버 9종 중 6종의 지령이 전부 거부됐다.
+- **원인**: 계층을 잘못 잡았다. `cmd_vel` 을 구독한다는 것은 "차체 속도를 휠 지령으로
+  바꾸는 계층"이라는 선언인데, 그 변환은 이미 액션 서버(IK)와 translator(SI→raw)가
+  소유한다. `MotorCmd.msg` 가 명시한다 — "Units are raw device units — **NOT SI**",
+  "Produced by motor_cmd_translator, consumed by canopen_motor_driver".
+- **해결**:
+  - 구독 `/motor/low_cmd`(`trnav_msgs/MotorCmdArray`) · 발행 `/motor/low_state`
+    (`trnav_msgs/MotorStateArray`). QoS 는 체인과 같은 RELIABLE·KeepLast(10)·VOLATILE.
+  - `cmd_vel` 구독 · `motor_control.kinematics` 대여 · **1.0° 편차 게이트 제거**.
+    선회는 기능 추가가 아니라 **계층 하강으로** 해소된다 —
+    `qd_bicycle_model.hpp:24` `omega = vx(tan δf − tan δr)/L` 이므로 전·후 각이 다른 것이
+    회전의 정의다.
+  - 환산·기구학을 **하지 않는다**. 받은 raw 를 그대로 `0x60FF`/`0x607A` 로 낸다.
+  - **안전은 raw 단위로 유지** — 조향 위치를 홈 기준 ±`steer_limit_deg` 를 counts 로
+    환산해 클램프, 구동 속도 ±`vel_max_units`, 호밍 미완료 시 조향 거부, 워치독 동일.
+  - 메시지를 자체 정의하지 않고 `trnav_msgs` 를 빌린다(`trnav_2ws_msgs` 중복 폐기 선례).
+    import 실패 시 조용히 대체하지 않고 저수준 경로를 **열지 않는다**.
+  - `package.xml`: `motor_control`·`geometry_msgs` 의존 제거, `trnav_msgs` 추가.
+- **파일**: `can_relay/backend.py`(`set_motor_cmds`·`motor_states` 신설) ·
+  `can_relay/driver_node.py` · `package.xml` · `test/test_backend.py`
+- **상태**: 완료 — 회귀 **155 passed**(147 → +8), `colcon build` 통과.
+  실제 `ros2 launch` + `ros2 node info` 로 계약 확인:
+  `/motor/low_cmd: trnav_msgs/msg/MotorCmdArray`(구독) ·
+  `/motor/low_state: trnav_msgs/msg/MotorStateArray`(발행).
+  **선회 지령이 통과함을 회귀로 고정**(`test_low_cmd_accepts_differential_steer_angles` —
+  전·후 조향각이 다르게 CAN 으로 나가는 것까지 확인).
+  ⚠ 실기 검증 0 · 체인 전체 연동 미실행(상류 mux·translator 와 함께 띄운 적 없음).
+- **참고**: `docs/adr/2026-07-31-can-relay-cpp-motor-layer.md`(타 세션, Proposed)는 같은
+  계층 이동을 **C++ 포팅**으로 제안한다. 본 변경은 Python 현행본에 계층만 적용한 것이며
+  C++ 포팅을 막지 않는다(안전 계층·판다 계약이 그대로 이식 대상으로 남는다).
+
+### [Diag] 조향 절대위치 교차검증 도구 신설 — 3톤 차체 잭업 없이 측정하는 경로
+
+- **문제**: `homing_method: 35` 는 "전원 재투입 후 절대 엔코더 재현"을 전제하는데
+  미측정이다(debt-007 상환계획 ②). 사용자 제약: **AMR 이 3톤이라 잭업이 어렵다.**
+- **정리(제가 앞서 뭉뚱그린 부분)**: 두 시험은 성격이 다르다.
+  **재현성 측정은 바퀴를 움직이지 않으므로 잭업이 불필요**하다(전원 차단→재투입→읽기).
+  잭업이 필요한 것은 137° 스윙이 나는 **호밍 완주 시험**뿐이다.
+- **사용자 착안**: Seer API 로 조향값을 읽어 검증. **확인 결과 이미 구현돼 있었다** —
+  `Tools/amr_test_gui/gui.py` `_seer_loop` 가 `cli.call("status", 1040)` 으로
+  `motor_info[].position`(rad)을 받고 `_on_seer_data` 가 `× 180/π` 로 도 변환한다.
+  주석도 "네트워크 읽기 전용. 제어권과 무관하다"로 명시. `RobokitClient` 경로 실재 확인.
+- **⚠ 핵심 발견 — 제어권을 잡으면 이 교차검증이 무의미해진다**:
+  펌웨어가 `bool emulate = cover || pc_authority;`(`safety_seer_gate.h:164`)로 제어권
+  획득 시 **자동으로 emulate** 에 들어간다. emulate 중에는 모터의 SDO 응답
+  (`0x581~0x584`)과 guard 가 **Seer 로 전달되지 않고**(`bus_fwd = -1`, `:188-190`)
+  판다 캐시가 대신 답한다(`seer_cache_reply` `:167-172`). 전환 순간도 `cover` 가 덮는다.
+  ⇒ 제어권을 쥔 채 Seer 1040 을 읽으면 **모터 실측이 아니라 판다 캐시**를 보는 것이라,
+  CAN 과 값이 같아도 "같은 출처를 두 번 읽은 것"일 뿐이다.
+  **이 관점은 debt-007 의 미판정 관측을 재검토하게 만든다** — 그 관측 시점에 판다가
+  제어권을 쥐고 있었다면 "Seer 1040 ≈ 0" 은 독립 관측이 아니었을 수 있다.
+- **해결**: `Tools/docking_field_kit/orin_steer_crosscheck.py` 신설(읽기 전용).
+  - 판다 **SAFETY_SILENT 탭** — `main.c:85` 가 `can_silent = ALL_CAN_SILENT`,
+    `set_intercept_relay(false)`(= passthrough, Seer↔모터 직결 유지).
+    SDO 읽기 요청조차 보내지 않고 **Seer 가 이미 ~100 Hz 로 폴하는 응답을 엿듣는다.**
+  - Seer 1040 을 병행 폴링해 같은 시각의 두 값을 JSONL 로 기록.
+  - `--compare` 가 전원 사이클 전후를 대조해 CAN ±1000c / Seer ±0.05° 로 판정.
+  - **`steer_home_offset` 을 호밍 없이 역산**한다 —
+    `offset = 현재_counts − Seer각[도] × 57344`. 137° 스윙이 필요 없다.
+  - 런타임 가드: `safety_mode == 30`(제어권 보유 가능성)이면 **실행 거부**.
+- **구현 중 자체 결함 3건**(전부 검증 과정에서 드러나 수정):
+  - 문서에 적은 감사 명령이 **자기 docstring 을 매치**해 "0건"이 거짓이 됐다 →
+    구문 트리(AST) 기반 명령으로 교체하고 실제로 실행해 0건 재현 확인.
+  - S6 게이트가 "송신 자체가 불가능하다"는 **근거 없는 절대형 단정**을 잡아냈다 →
+    확인 범위(`can_silent` 플래그까지)로 좁히고 펌웨어 줄번호를 병기.
+  - 비교 시 파일 부재에 역추적이 떴다 → 명확한 안내 + exit 2.
+- **파일**: `Tools/docking_field_kit/orin_steer_crosscheck.py`(신설)
+- **상태**: 완료(도구) — 합성 데이터로 3경로 검증: 재현 O `exit 0` · 재현 X `exit 2`
+  (Seer 는 0° 라는데 CAN 이 137° 점프하는 기준 리셋 서명을 잡아냄) · 파일부재 `exit 2`.
+  AST 기준 **송신 호출 0건**, S6 게이트 FAIL 0, `can_relay` 회귀 147 passed(영향 없음).
+  ⚠ **실기 미실행** — 판다·Seer 접속 없이 로직만 검증했다.
+
+### [Change] 조향 홈을 장비별 캘리브레이션으로 일반화 — homing method 35 (상류식)
+
+- **문제**: 같은 조향 홈 값이 **세 곳에 박혀 있고 값도 서로 달랐다**.
+  판다 펌웨어 `safety_seer_gate.h:212-213`(`7882020`/`7859062`, **컴파일 상수**) ·
+  translator `..._qd.yaml:26-27`(`-1.676°`) · can_relay `safety.py:32`(`7871815`/`7840086`).
+  장비를 바꾸면 펌웨어 **재빌드·재플래시**가 필요했다.
+- **원인**: 홈을 "값"으로 다뤘다. 홈은 **호밍 절차의 산출물**이라 장비마다 다른 게 정상인데,
+  값으로 취급하니 코드에 박히고 세 곳으로 번졌다.
+- **상류 대조(2026-08-01, 원문 확인)**: `kuks2309/TR_Nav_ros2_ws` 의
+  `amr_canopen_motor_driver` 는 이 일반화가 **이미 되어 있다** —
+  `steer_home_offset_front/rear` 가 **드라이버 YAML 파라미터**(`amr_canopen_motor_driver.yaml:14-15`).
+  절차는 `0x607A=home_offset` → 도착확인(bit10 ∧ `|fb_pos−offset|<50`) → `SDO 0x6098=35`
+  (`can_open.hpp:483-489,461`). `target_pos` 는 가공 없이 `0x607A` 로 나간다(절대 raw).
+- **매뉴얼 근거(1차)**: Handbook V7.0 §Home 35 — "records the current motor position as the
+  home position, **sets the current angle to zero**", "**only effective when the motor is
+  powered on**". ⇒ ① 호밍 후 `0x6064 ≈ 0` 이 직진이라 **홈 상수가 코드에서 사라진다**
+  ② **전원 사이클마다 재호밍 필수**.
+- **해결**:
+  - 장비별 캘리브레이션 YAML 신설 `config/machine/foil_a082.yaml`(13키). 상류 이름을 계승하되
+    상류가 **코드에 박아 둔** 두 가지를 파라미터로 올렸다 — 조향 한계(상류 `can_open.hpp:463`
+    하드코딩 ±130°)와 호밍 방식(상류 코드 고정 35).
+  - `homing_method: "35" | "firmware"` — 방식이 장비마다 다르므로 선택 가능. 2026-08-01 에
+    구현한 판다 시퀀서 경로는 대안으로 **존치**한다.
+  - `safety.DEFAULT_STEER_HOME` 을 `{3:0, 4:0}` 으로 — **debt-026 상환**.
+  - 스케일(`steer_counts_per_deg`·`drive_units_per_mmps`·`drive_max_units`)도 캘리브레이션으로
+    이관. ⚠ 상류 QD(Carrier AGV) 값 48,332.8 counts/도는 우리 실측 57,344 와 다르다.
+  - **미측정 전제를 코드가 검출한다** — D안은 "전원 재투입 후 절대 엔코더 재현"을 전제하는데
+    이는 debt-007 상환계획 ②로 **아직 측정되지 않았다**. `home_search_range` 밖이면 **바퀴가
+    움직이기 전에** 거부하고, `homing_enabled: false` 가 기본이며, 호밍 완료 전 조향 지령을
+    전부 막는다(상류 `home_comp` 와 같은 역할).
+- **파일**: `config/machine/foil_a082.yaml`(신설) · `can_relay/protocol.py`(`home35_*` 3함수) ·
+  `can_relay/safety.py` · `can_relay/backend.py` · `can_relay/driver_node.py` ·
+  `launch/can_relay.launch.py` · `setup.py` · `test/test_backend.py`
+- **상태**: 완료(설계·구현) — 회귀 **147 passed**(138 → +9), `colcon build` 통과.
+  실제 `ros2 launch` 로 캘리브레이션 로드 확인(`기체 'Foil_A082' · 호밍 35 (활성=False)`,
+  `steer_home_offset=[7871815, 7840086]`, `steer_counts_per_deg=57344.0`).
+  게이트 실동작 확인: 호밍 전 조향 지령 거부 · 비활성 시 `0x607A` 송신 **0건**.
+  ⚠ **실기 검증 0** — ADR §검증 게이트 4항 미통과. 특히 **절대 엔코더 재현성 측정**이
+  통과해야 `homing_method: 35` 를 지면에서 쓸 수 있다.
+- **근거 ADR**: `docs/adr/2026-08-01-can-relay-home-calibration-method35.md`
+
+### [Fix] can_relay ↔ 판다 펌웨어 연동 3건 — 호밍 취소 경로 신설 · 버스 헬스 진단 · 라이브러리 사본 폴백
+
+- **문제**: 신설 드라이버 `src/Comm/CAN/can_relay` 가 `Tools/Can_Relay/` 펌웨어의 기능 중
+  셋을 쓰지 않고 있었다.
+  - ① panda 파이썬 라이브러리를 `Tools/docking_field_kit` 한 곳에서만 가져와, 그 사본이
+    없는 환경에서는 기동이 불가능했다.
+  - ② **호밍 시작 후 소프트 중단 수단이 없었다.** `0x60FB:04=1` 을 SDO(Service Data Object)로
+    직접 보내면 드라이브 내부 루틴이 시작돼 하드웨어 E-STOP 외에는 멈출 방법이 없다.
+  - ③ CAN 버스 에러 상태를 관측하지 않아, 버스가 error-passive·bus-off 로 떨어져도
+    지령이 나가는 것처럼 보였다.
+- **원인**: 펌웨어가 제공하는 벤더 요청 3종을 미사용 — 확인 `grep -c '0xea\|0xeb\|0xc3'
+  src/Comm/CAN/can_relay/can_relay/` → 0건. 펌웨어 쪽 구현은 실재한다:
+  `board/usb_comms.h:411-427`(`0xea`/`0xeb`), `:223-225`(`0xc3`),
+  `board/safety/safety_seer_gate.h:307-309` `seer_home_cancel_frames()`,
+  `board/health.h:29-37` `can_health_t`.
+  > ❌ **재정정 2026-08-03 17:00: 줄 범위가 틀렸다. [E9]**
+  > `seer_home_cancel_frames()` 는 `board/safety/safety_seer_gate.h` **:312-316** 이다.
+  > **:307-311 은 `seer_home_digital_in()`** 으로 다른 함수다
+  > (헤더 직접 확인 — `grep -n` 결과 `:307` `static uint8_t seer_home_digital_in`,
+  > `:312` `static void seer_home_cancel_frames`).
+- **해결**:
+  - ① `link.py` `_PANDA_SOURCES` — `docking_field_kit`(상위집합, `can_health` 보유) 우선,
+    없으면 `Can_Relay/panda-firmware/python` 으로 폴백. 둘 다 없으면 사유를 모아 `LinkError`.
+  - ② `home()` 을 **펌웨어 시퀀서 전용**으로 교체하고 `cancel_home()`·`~/home_cancel`
+    서비스 신설. **폴백을 두지 않는다** — 시퀀서를 못 쓰면 실패로 보고하고 SDO 직접 송신으로
+    내려가지 않는다(덜 안전한 경로로 미끄러지는 것이 tech-debt-shortcut).
+  - ③ `_poll_bus_health()`(1 Hz) + `bus_fault()` + `diagnostics` 노출. `bus_off` >
+    `error_passive` > `error_warning` 우선순위로 ERROR 승격.
+  - 순수 디코더 `decode_can_health()`·`decode_homing_status()` 로 바이트 계약을 분리해
+    하드웨어 없이 고정.
+- **구현 중 발견해 함께 고친 결함 2건**:
+  - **일시적 실패의 영구 래치** — 헬스 폴링이 첫 실패에 영구 비활성됐다. 노드 smoke 에서
+    드러났다(픽스처가 늦게 붙자 영영 꺼짐). 기능 부재(`NotImplementedError`)만 영구 비활성,
+    그 외 예외는 재시도하고 사유가 바뀔 때만 로그하도록 분리.
+  - **낡은 서술 3곳** — "본 구현에는 취소 경로가 없다"가 구현 후에도 남아 있었다.
+    S6 게이트가 1곳, grep 이 2곳을 잡았다.
+- **파일**: `can_relay/link.py` · `can_relay/backend.py` · `can_relay/driver_node.py` ·
+  `config/can_relay.yaml` · `README.md` · `test/test_link.py`(신설 21건) · `test/test_backend.py`
+- **상태**: 완료 — 회귀 **138 passed**(84 → +54), `colcon build` 통과, S6 selftest 10/10 ·
+  대상 전수 FAIL 0. 노드 mock 실행으로 ②③ 경로 확인: `bus2 error-passive (REC=140 TEC=12)` 가
+  ERROR 로 승격, 호밍 `WAIT → 취소 → ERR_ABORT`, 직접 SDO `0x60FB` 송신 **0건**.
+  ⚠ **실기 검증 0** — 장치 접속·모터 구동 없음. 판다 실기에서 `0xea`/`0xeb`/`0xc3` 왕복은
+  미확인이며, 이는 debt-027(브링업 미검증)과 같은 잭업 시험에서 함께 확인해야 한다.
+
+## 2026-07-30
+
+### [Change] 카메라 이름을 장착 위치 기준으로 개명 + 로스터를 안 읽던 결합 3곳 수정
+
+- **문제**: 카메라 6대가 `cam0`~`cam5`(발견 순서)로 이름 붙어 토픽·로그·화면에서 어느 방향
+  카메라인지 알 수 없었다. 사용자가 장착 위치별 시리얼 표를 확정(2026-07-30)하고 **토픽명까지
+  위치 기준 개명**을 지시했다.
+- **원인**: 이름이 로스터(`config/camera/camera_common.yaml`)에서 파생되지만, **로스터를 읽지
+  않고 이름 형식을 가정한 곳이 3곳** 있어 개명이 조용히 깨질 상태였다.
+  - `src/AI/yolo_detector/yolo_detector/detector_node.py:38`
+    `DEFAULT_TOPICS = [f"/cam{i}/image_raw" for i in range(6)]` 이고 `detect.launch.py` 가
+    `camera_topics` 를 넘기지 않았다 → 개명 후 **에러 없이 검출 0**(없는 토픽 구독).
+  - `Tools/usb_cam_bench/soak_stats.py` 로그 파서 정규식이 `cam\d+` 가정.
+  - `Tools/usb_cam_bench/soak_monitor.py` 가 `cam{i}` 로 CSV 열 이름을 생성 → 전 열 공란.
+- **해결**: 로스터 `name` 6개를 위치 코드로 개명(`cam_rf`·`cam_lf`·`cam_rr`·`cam_f`·`cam_r`·`cam_lr`).
+  **순서는 바꾸지 않았다** — 그리드 순서 정렬은 사용자 결정으로 향후 별건.
+  결합 3곳은 로스터를 읽도록 수정: `detect.launch.py` 에 로스터 탐색 + `camera_topics` 전달,
+  파서 정규식을 `[A-Za-z0-9_]+` 로 일반화, `soak_monitor.camera_names()` 신설(로스터 우선 ·
+  `--cameras` 명시 가능 · 미발견 시 경고 후 종전 관례). 뷰어 fallback 토픽도 새 이름으로 갱신.
+  ADR: `docs/adr/2026-07-30-camera-position-naming.md`(Rollback Plan 포함).
+- **파일**: `config/camera/camera_common.yaml` · `src/AI/yolo_detector/launch/detect.launch.py` ·
+  `src/Sensors/Camera/USB/ui/vision_guard/launch/vision_guard.launch.py` ·
+  `Tools/usb_cam_bench/soak_stats.py` · `Tools/usb_cam_bench/soak_monitor.py` ·
+  `Tools/usb_cam_bench/test_soak_stats.py`(회귀 2건 추가)
+- **상태**: 완료 — 실기 재기동 검증(2026-07-30 22:14~22:18).
+  토픽 `/cam_{rf,lf,rr,f,r,lr}/image_raw` 6개 · 검출 `/cam_*/detections` 6개 발행,
+  퍼블리셔 로그의 device by-id 대조로 **이름↔시리얼 6/6 일치**, 캡처 전 카메라 29.70~29.71 fps
+  `grab_failures=0`, 뷰어 `6/6 cameras shown`(화면 캡처 확인), 표시 8.7~10.0 fps,
+  모니터 CSV 열이 `cam_rf_capture_fps` 형식으로 생성되고 값 채워짐. 테스트 14 passed.
+- **미확인**: 사용자가 2026-07-28 보고한 **cam1·cam5(현 `cam_lf`·`cam_lr`) 검은 줄무늬**는
+  현재 야간·소등 상태로 화면 전체가 어두워 **판정 불가**. 조명 있는 조건에서 재확인 필요.
+  퍼블리셔는 기동 시 `power_line_frequency=2`(60Hz)·`exposure auto-priority` 해제를 적용했다고
+  로그에 남긴다(`Log/usb_cctv_run_2026-07-30/pub.log`). 장치 실제 컨트롤 값 직접 판독은
+  `v4l2-ctl` 미설치로 하지 못했다.
+
 ---
 
 ## 2026-07-29
@@ -91,6 +499,9 @@
   `Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h:307-309`
   `seer_home_cancel_frames()` 가 `0x60FB:04 = 0`(호밍 중단)을 송신하는 경로가 **실재**하며,
   USB `0xea` wValue=0 으로 기동된다. 즉 "불가능"이 아니라 **본 구현이 그 경로를 안 쓰는 것**이다.
+  > ❌ **재정정 2026-08-03 17:00: 줄 범위만 정정(경로 실재라는 결론은 불변). [E9]**
+  > `seer_home_cancel_frames()` 는 같은 헤더 **:312-316** 이다.
+  > **:307-311 은 `seer_home_digital_in()`** 으로 다른 함수다(헤더 직접 확인).
 - **해결**: 3곳을 "불가능" → "본 구현에 취소 경로가 없다(미구현)" 으로 정정하고 펌웨어 경로를
   `파일:줄` 로 병기(각 3~6줄). 주장 범위를 구현 단위로 좁힌 것이 핵심이다.
 - **파일**: `src/Comm/CAN/can_relay/can_relay/backend.py`(모듈 docstring · `home()`) ·
@@ -124,7 +535,7 @@
 
 > 대상은 **오늘 신설한** `src/Comm/CAN/can_relay` 다. 기존 코드에서 발견한 결함
 > (조향 클램프 부재·NaN·단발 송신·피드백 신선도)은 **이번에 고치지 않았고** 부채로 등록했다
-> (debt-025~019) — 소유 세션이 다르거나 실기 검증이 선행돼야 하기 때문이다.
+> (debt-015~019) — 소유 세션이 다르거나 실기 검증이 선행돼야 하기 때문이다.
 
 - **문제**:
   - ① 신설 테스트 2건 FAIL — `test_write_controlword_exact`,
@@ -163,10 +574,81 @@
 - **상태**: 완료 — `PYTHONPATH=. python3 -m pytest test -q` → **84 passed in 1.64s**,
   `colcon build --packages-select can_relay` → **1 package finished [3.08s]**,
   YAML 파싱 확인 → 파라미터 20개 로드. ④ 는 `docs/claude-mistake/2026-07-29-003` 에 별도 기록
-  (강제 메커니즘 S6 적용으로 `status: closed`. 미채택 항목은 debt-030 으로 이관).
-
+  (강제 메커니즘 S6 적용으로 `status: closed`. 미채택 항목은 debt-020 으로 이관).
 
 ## 2026-07-28
+
+### [Fix] 조향 슬라이더가 먹통 — 실측 되먹임 + 78×20 px 크기
+
+- **문제**: `앞뒤 바퀴 조정` 슬라이더를 움직여도 눈금이 제자리로 돌아오고 조향 지령이
+  나가지 않았다. 같은 세션에서 조그 구동(`0x60FF`)은 정상 동작해 조향만 안 되는 비대칭이었다.
+- **원인**: 두 결함이 겹쳤다.
+  - ① **실측 되먹임** — `_redraw_wheel` 이 실측 각도를 슬라이더에 되썼다
+    (`Tools/amr_test_gui/gui.py` 구 `_sync_sliders`). 폴링이 약 5 Hz 라 손을 뗀 뒤 0.2 초 안에
+    눈금이 원위치로 튕겼다. 슬라이더는 사용자가 **목표를 넣는 명령 입력**인데 거기에 실측을
+    되먹여 방금 넣은 값을 지웠다. 또 마우스 드래그가 아닌 조작(키보드·홈 클릭)은
+    `sliderReleased` 가 오지 않아 **지령이 아예 나가지 않았다**.
+  - ② **크기** (실제 원인) — 슬라이더가 **78×20 px** 이었다. 범위 ±90°(181 단계)이므로
+    **1 px = 2.3°**, 핸들은 10 px 남짓이라 잡을 수 없었다. `앞뒤 바퀴 조정` 그룹 348 px 중
+    이름 라벨 108 px · 값 라벨 144 px 가 차지하고 슬라이더에 78 px 만 남는 배치였다.
+    실측 병기를 넣으며 값 라벨 폭을 46 → 120 으로 올린 것이 결정타였으나, 근본은
+    **이름·슬라이더·값을 한 줄에 나란히 놓은 배치**다.
+- **해결**:
+  - `_sync_sliders` 삭제(20 줄). `_redraw_wheel` 은 그림만 그린다. 목표·실측은
+    `_update_wheel_labels` 가 `+30°  (실측 +12.3°)` 로 나란히 보여준다.
+  - 슬라이더 배선을 축별로 분리 — 드래그는 `sliderReleased` 로 1 회, 키보드·홈 클릭은
+    `valueChanged` 에서 즉시 송신(`_on_wheel_changed` → `_send_steer`).
+  - 레이아웃 재구성 — 슬라이더가 **자기 줄을 통째로** 쓴다. 이름·값은 위 줄에 좌우 배치.
+    결과 **324×30 px**(1 px = 0.56°), `pageStep=5`.
+  - 진단 계측 — `log()` 를 stdout 에도 흘리고, 버리던 SDO abort(`0x80`) 응답을 사유와 함께
+    로그에 남긴다. **CAN 송신은 한 줄도 추가하지 않았다.**
+- **파일**: `Tools/amr_test_gui/gui.py` · `Tools/amr_test_gui/test/test_slider.py`(신설 12건)
+- **상태**: 완료 — 실기 검증(2026-07-28 21:06). 로그 `조향 지령 N4 → -34°` · `N3 → +19°`,
+  판다 직독 실측 `3 F.S +18.9°` · `4 R.S -34.0°` 로 추종 확인. 테스트 88 건 통과.
+
+## 2026-07-28
+
+### [Fix] CCTV 뷰어·탐지기 조용한 결함 3건 (적대적 설계 검토 파생)
+
+> ⚠ **후속 정정 (2026-07-29 감사)**
+> - **③ 은 무효(superseded)** — 2026-07-29 구조 변경으로 주석 영상 발행 경로 자체가 삭제됐다
+>   (`publish_annotated`·`_render()`·`/camN/detections/image` 전부). 따라서 "게이팅으로 비용
+>   제거" 라는 해결도, 그 검증도 **현재 코드에서 재현 불가**하다. 아래 ③ 항은 당시 코드에
+>   대한 기록이다. 현재는 탐지기가 결과만 발행하고 표시는 GUI 소관이다.
+> - **① · ② 는 지금도 유효**하며 코드에 존재한다(`check_stale`, `_last_report_frames.clear()`).
+> - **테스트 수 갱신** — "vision_guard 25 passed(기존 13 + 신규 12)" 는 2026-07-28 시점 값이다.
+>   2026-07-29 오버레이 도입 후 **50 passed**(frame_convert 7 · layouts 7 · overlay 25 ·
+>   stale_detection 11). "신규 12" 는 실제 11, "기존 13" 은 실제 14 였다.
+> - **인용 줄 번호 4건 전부 dangling** — `main_window.py` 가 두 차례 대폭 이동했다. 아래
+>   `:94`·`:131-133`·`:97`·`:174`·`:233` 은 **2026-07-28 시점 기준**이며 현재 파일과 맞지 않는다.
+>   심볼 기준으로 읽을 것: `CameraCell.update_frame()` 의 `_fps` EMA / `_frames_rendered` 초기화 /
+>   `MainWindow._last_report_frames` / `_report_display_stats()` 의 `delta == 0`.
+> - ADR 참조 `§2 (F6/F9/F8)` 중 **F8 은 무효**(주석 발행 삭제로 전제 소멸). F6·F9 는 유효.
+
+- **문제**: ① 뷰어에서 프레임이 끊겨도 헤더가 **마지막 FPS 를 영원히 표시**하고 `_pixmap` 도 지워지지
+  않아 **정지 화면이 라이브처럼 보였다**(감시 기능의 조용한 실패). ② 레이아웃 변경 후 **정지 경고가
+  영구히 나가지 않았다**. ③ 탐지기가 주석 영상 구독자가 **0인데도** 프레임당 약 2.8 MB 를 두 번
+  복사해 27 Hz 로 발행하며 추론 예산을 깎았다.
+- **원인**:
+  - ① `_fps` 는 `update_frame` 안에서만 갱신되고 **0 으로 감쇠하는 경로가 없다** —
+    `vision_guard/main_window.py:94,131-133`.
+  - ② 새 셀은 `_frames_rendered = 0` 으로 시작(`main_window.py:97`)하는데 `_last_report_frames` 는
+    초기화되지 않아(`:174`) `delta = 0 - 이전누적` 이 **음수**가 되고, `delta == 0` 정지 검사(`:233`)를
+    통과하지 못했다.
+  - ③ `publish_annotated` 는 기동 파라미터일 뿐 구독자 유무를 보지 않았다 —
+    `yolo_detector/detector_node.py` 주석 발행 블록.
+- **해결**:
+  - ① `_STALE_AFTER_S = 2.0` + `CameraCell.check_stale()` 추가, `_pump()` 이 매 틱 호출. 강등 시
+    `_fps = 0.0` + 헤더 `신호 없음`. 프레임 복귀 시 자동 해제. (약 30줄 추가)
+  - ② `_apply_layout()` 에서 `_last_report_frames.clear()`. (1줄 + 주석)
+  - ③ 발행 조건에 `get_subscription_count() > 0` 추가 — 파라미터는 유지하고 비용만 제거. (1줄 + 주석)
+- **파일**: `src/Sensors/Camera/USB/ui/vision_guard/vision_guard/main_window.py`,
+  `src/Sensors/Camera/USB/ui/vision_guard/test/test_stale_detection.py`(신규 12 테스트),
+  `src/AI/yolo_detector/yolo_detector/detector_node.py`
+- **상태**: 완료 — vision_guard 25 passed(기존 13 + 신규 12), yolo_detector 23 passed.
+  ③ 은 실행 검증: 구독자 0 → 주석 발행 없음(`Subscription count: 0`, 박스 토픽은 4.36 Hz 정상),
+  구독자 부착 → 4.85 Hz 로 즉시 재개. 근거·경위는
+  [ADR 2026-07-28-cctv-ai-overlay-toggle](../adr/2026-07-28-cctv-ai-overlay-toggle.md) §2 (F6/F9/F8).
 
 ### [Fix] 호밍 기록의 잘못된 서술 정정 + 정오표 수립 (2회 적대적 검증)
 
@@ -195,8 +677,30 @@
 
 ---
 
-
 ## 2026-07-27
+
+### [Fix] 로봇 단독 전원 인가 시 Seer CAN/모터 알람 지속 — 판다 부팅 기본 비트레이트 500 kbps
+
+- **문제**: 호스트 소프트웨어를 **하나도 실행하지 않은 채** 전원만 인가하면 Seer 가 `52106 odo data lost` + `52111 motor driver connection error` + `54022 CAN1 Bit Recessive error`(10 초마다 타임스탬프 갱신 = 진행 중) + `54301 Motor is calibrating` 을 지속 발생. 판다 health 는 `safety_mode=0`·`power_save=1`·`car_harness_status=1`·`faults=0`.
+- **원인**: 세 가지가 겹침 — ① `Tools/Can_Relay/panda-firmware/board/drivers/harness.h:91` `set_intercept_relay(false)`("keep busses connected by default")로 **릴레이가 버스를 물리 연결**(Seer↔모터 직결, 펌웨어 포워딩 무관) ② `board/main.c:405-406` `can_silent = ALL_CAN_LIVE` + 루프마다 `enable_can_transceivers(true)` 로 **판다가 그 버스에 live 로 부착** ③ `board/drivers/can_common.h:164-166` `.can_speed = 5000U` = **500 kbps**(버스는 250 kbps). 단위 근거: `usb_comms.h:322` 가 `wIndex` 를 그대로 저장, `panda/python/__init__.py:550` 이 `speed*10` 송신. ⇒ 250k 버스에 500k 로 붙은 live 노드가 전 프레임을 오독해 에러 프레임을 방출, 버스 파괴. **호스트 도구가 take() 에서 `set_can_speed_kbps(b,250)` 을 부르기 때문에 지금까지 가려져 있었다**(= PC 가 붙어야만 버스가 성립하는 구조).
+- **해결**: `bus_config[]` 의 bus0/1/2 `can_speed` `5000U`→`2500U`(250 kbps). 함께 ① heartbeat 상실 블록(`main.c`)에 `set_intercept_relay(false)` + `pc_authority = false` 추가 — 이상 상태에서 릴레이가 intercept 로 남지 않도록(fail-open, 사용자 요구) ② `safety/safety_seer_gate.h` freeze 집합에 `0x6041` 추가(Seer SDO 폴 12초 실측으로 확정: `0x6064` 2718~2920회·`0x6041` 66~312회·`0x6078` 66회, **`0x606C` 0회 = 미폴**). 총 3 파일 소수 라인.
+- **파일**: `Tools/Can_Relay/panda-firmware/board/drivers/can_common.h`, `.../board/main.c`, `.../board/safety/safety_seer_gate.h`, `docs/adr/2026-07-27-panda-boot-bitrate-and-failsafe.md`(신규)
+- **상태**: 완료 — 빌드 `-Werror` 0 error → 플래시 → **비트레이트 미설정 상태로** 8초 29,625 프레임 수신(부팅 기본 250 kbps 확정) · Seer `errors=[]` 21초+ 유지 · `rx_errs=0 faults=0` · 현장 육안 확인("오류 안남"). ⚠ 펌웨어 version 문자열은 상위 레포 HEAD 에서 오므로(`panda-firmware` 자체 .git 없음) 커밋 전 빌드는 신구 구분 불가 — 현재 플래시본은 `DEV-d98bc1a5-DEBUG` 표기이나 내용은 본 수정 반영본이다.
+
+> ### ⚠ [2026-07-27 감사 부기] 위 entry 의 미검증·미판정 표시 (원문 무변경 · 값/코드 무변경)
+>
+> **(1) "상태: 완료" 를 변경 단위로 분리** — 이 entry 의 변경은 3건인데(① `can_speed` 5000U→2500U · ② heartbeat fail-open · ③ `0x6041` freeze 추가) 인용된 증거는 전부 ① 에 대한 것뿐이다.
+> - **① 비트레이트 정합 = 실측 검증 완료** (증거 상동: 비트레이트 미설정 상태 8초 29,625 프레임 · Seer `errors=[]` 21초+ · `rx_errs=0 faults=0`). 코드 반영 확인: `Tools/Can_Relay/panda-firmware/board/drivers/can_common.h:174-176`(`.can_speed = 2500U` ×3).
+> - **② heartbeat fail-open = 미검증** — heartbeat 를 실제로 끊어본 시험 기록이 본 문서·ADR 어디에도 없다. 코드 반영 자체는 확인됨(`.../board/main.c:257-258`).
+> - **③ `0x6041` freeze = 미검증** — `docs/can_relay/test-process.md:14` 가 요구하는 실로봇 판정(구동 중 **신규** 52111/52106/52954/54301 + 55602 = 0) 미실시. 코드 반영 자체는 확인됨(`.../board/safety/safety_seer_gate.h:170-172` `seer_is_motion_obj()` 에 `0x6041U` 포함).
+>
+> **(2) "fail-open → Seer 가 모터를 직접 보게 한다" = 미판정 모순** (어느 쪽으로도 고치지 않음)
+> - *이쪽 기록*: heartbeat 상실 시 `set_intercept_relay(false)` + `pc_authority = false` 로 물리 통과 복귀 → Seer 직결 (`Tools/Can_Relay/panda-firmware/board/main.c:252-258` 주석·코드).
+> - *어긋나는 기록*: `Tools/docking_field_kit/PINMAP.md:80` 은 "passthrough(fail-safe)는 **판다 미전원 시** 기계적 브릿지로 확실히 동작(검증됨)"이라 적고, 뒤이어 "판다 켜진 SILENT 는 트랜시버 간섭으로 불통"을 (현재 취소선 + `PINMAP.md:82-103` 의 **미판정 모순** 부기 상태로) 기록한다. heartbeat 상실 경로는 **판다가 전원 ON 인 채 SILENT 로 전환**되고(`main.c:248-250` → `main.c:88-93` `set_intercept_relay(false)` + `can_silent = ALL_CAN_SILENT`) 메인 루프가 매 회전 `enable_can_transceivers(true)` 로 트랜시버를 계속 켜 두는(`main.c:421`) 상태 — 즉 PINMAP 이 "불통"이라 적은 바로 그 조건이다.
+> - ⇒ "Seer 가 모터를 직접 보게 된다"는 **아직 실증되지 않았다**. (릴레이가 물리적으로 붙는다는 점은 별개로 확인돼 있다 — `PINMAP.md:87-90`.)
+> - **판정에 필요한 측정**: 250 kbps 정합 펌웨어에서 heartbeat 를 5초 이상 끊은 뒤(판다 전원 ON · SILENT · relay OFF) ⓐ Seer↔모터 SDO 왕복(요청/응답 쌍) 프레임 수 ⓑ per-bus `can_health` 에러 카운터 ⓒ Seer 알람(52111/52106/54022) 을 동시 실측. **값·코드는 변경하지 말 것.**
+>
+> **(3) SDO 폴 "12초 실측으로 확정" 은 창 조건 미기재** — 관측은 **12초 단일 창** 기준이며 그 창의 로봇 상태(정차/구동 · `pc_authority` engage 여부 · 호밍 진행 여부)가 기록돼 있지 않다. 특히 `0x606C`(실속도)는 정차 창에서 0회여도 구동/호밍 중에는 폴될 수 있으며 이를 배제한 측정이 없다 ⇒ **"`0x606C` 0회 = 미폴" 은 재측정 전까지 잠정**. 같은 전제가 펌웨어 주석 `.../board/safety/safety_seer_gate.h:138`("0회(Seer 미폴) → 현재 죽은 분기")에도 전파돼 있다(단 `:171-172` 가 `0x606C` 를 freeze 집합에 유지하므로 현재 동작 위험은 낮다). **판정에 필요한 측정**: 구동 중·재호밍 중 각 60초 이상 SDO 폴 카운트 재수집. **freeze 집합·값은 변경하지 말 것.**
 
 ### [Fix] vision_guard 6대 표시가 16fps로 저하 — 프레임 변환의 BGR→RGB 복사(9.2ms/대)가 렌더 병목
 
@@ -242,17 +746,45 @@
 > - 또 본 entry 의 6대 측정에는 **조건이 기재돼 있지 않다**(해상도·픽셀포맷·측정 지속시간·동시 뷰어 유무).
 > **판정에 필요한 측정**: 6대 동시 구동을 해상도·픽셀포맷(`camera_common.yaml:14-17` 기준)·지속시간을 명기해 재측정하고, cam4/cam5(Bus 001 공유)의 FPS·`grab_failures` 를 별도로 기록.
 
+### [Fix] vision_guard(USB_CCTV 뷰어) 메모리 누수 → OOM kill (프레임별 queued signal 무한 적재)
+
+- **문제**: CCTV 5-카메라 내구 테스트 중 GUI `vision_guard` 가 시작 ~1시간 만에 강제 종료(exit code -9=SIGKILL). 동시에 20:32~20:49 5대 publisher FPS 가 0.5~28 로 요동. `journalctl -k`: `20:49:59 Out of memory: Killed process 1195045 (vision_guard) total-vm:24.9GB anon-rss:11.2GB` — vision_guard 가 11.2GB 까지 성장해 OOM killer 가 kill, 그 메모리·스왑 압박 여파로 publisher 캡처 FPS 동반 하락(카메라/USB 결함 아님 — grab_failures=0·stall=0, GUI 사망 후 9시간+ 29.7 FPS 안정).
+- **원인**: [실측·증거] `main_window.py:37` `frame_ready = pyqtSignal(str, object)` 를 ROS 스핀 스레드에서 프레임마다 emit(`ros_worker.py:102·125`), GUI 스레드 `_on_frame`(`main_window.py:189`)에 **cross-thread queued connection**(`main_window.py:154`)으로 연결. GUI 렌더(bgr_to_qimage copy+scale+setPixmap)가 유입률(5대×30=150fps, 각 ~2.7MB)을 못 따라가면 **Qt 이벤트 큐에 프레임이 무한 적재**(드롭·백프레셔 없음) → 11GB/1h → OOM. ROS 구독 QoS 는 KEEP_LAST depth=1 로 정상(ROS 큐 누수 아님). 원본 tr-orin-22 는 2대라 누수가 느려 미노출, 5대에서 발현.
+- **해결**: 유입률과 렌더율 **분리**. `FrameSignals`(queued signal) → `LatestFrameStore`(스레드 안전 dict, `put`=카메라별 최신 프레임 덮어쓰기·`drain`=GUI가 당겨 비움)로 교체. ros_worker 는 `_store.put(topic, frame)`, GUI 는 `QTimer(30Hz)`로 `_pump` 드레인 렌더. 메모리 상한 = 카메라수×1프레임(구버전 무한 큐 제거). (main_window.py: 클래스 교체+QTimer+_pump, ros_worker.py: emit→put 2곳+docstring, app.py: wiring)
+- **파일**: `src/Sensors/Camera/USB/ui/vision_guard/vision_guard/{main_window.py, ros_worker.py, app.py}` (원본 병기: `tr-orin-22:~/Project/Ford_CATL_AMR/src/Sensors/Camera/USB/ui/vision_guard/` 동일 3파일)
+- **상태**: 양쪽 완료·검증. **tegra**: 빌드 클린·테스트 7 passed(flake8·pep257 포함)·GUI RSS **268.6MB 80초 완전 평탄(Δ=0)** 실측(구 11GB→OOM 대비 상한 고정)·5대 렌더·소크 무영향. **tr-orin-22(원본)**: 수정 3파일 rsync 전파·빌드 클린·테스트 7 passed(코드 tegra와 동일). ⚠ tr-orin-22 런타임 RSS 미실측(동일 코드라 동작 동일 판단). launch 의 카메라 하드코딩은 누수 무관이라 이번 범위 외.
+
 ---
 
 ## 2026-07-26
 
+### [Fix] motor_control 리뷰 지적 4건 수정 (E-stop 안전 2 · 브링업 누수 1 · 테스트 레이스 1)
+
+- **문제**: 이식된 `src/Actuators/motor_control/` 코드 리뷰([docs/code_review/motor_control/2026-07-26.md](../code_review/motor_control/2026-07-26.md), Verdict REQUEST CHANGES) High 1·Medium 3. ① `test_cold_bringup_allowed_with_permission` 이 이 Jetson(ARM)에서 8/8 결정적 실패(x86 원격은 통과). ② E-stop 중 조향축이 계속 지령받아 정지 상태에서 물리 스윙 가능. ③ 브링업 예외 시 CAN 버스·rclpy 컨텍스트 누수. ④ E-stop 중 도착한 cmd_vel 이 해제 직후 급발진.
+- **원인**: ① `_tx_loop`(backend.py:258)이 생성하는 조향 write 를 tx 데몬 스레드 기동 전에 테스트가 단언 — 스케줄링 레이스(`test_backend.py:126`). ② `_tx_loop`(backend.py:257-259)가 조향 setpoint 를 `_estop` 무관하게 무조건 송신. ③ `main`(driver_node.py:206)의 `node = MotorControlNode()` 가 try/finally 밖 + `__init__` 이 버스 개방(72) 후 `start()`(83) 예외 시 정리 없음. ④ `set_command`(backend.py:131)이 `_estop` 미확인.
+- **해결**: ① 테스트를 tx 첫 write 폴링 대기(≤1s)로 견고화(+회귀 테스트 2건 추가). ② `_tx_loop` 에 `estopped` 캡처 후 E-stop 시 조향 setpoint 송신 `continue`(현 위치 hold, 설계문서 §5-4 step-cut 정렬). ③ `__init__` start() 를 try 로 감싸 실패 시 `backend.shutdown()`(버스 close) 재-raise + `main()` 노드 생성 실패 시 `rclpy.shutdown()`. ④ `set_command` 진입부 `if self._estop: return`. (backend.py +5줄, driver_node.py +8줄, test_backend.py +42줄)
+- **파일**: `src/Actuators/motor_control/motor_control/backend.py`, `.../motor_control/driver_node.py`, `.../test/test_backend.py` (병기: `src/Actuators/motor_control/docs/code_review/motor_control/2026-07-26.md` findings 상태 [해결])
+- **상태**: 로컬 완료 · 원본 반영 **부분(검증 보류)** — 로컬 **31 passed**(원본 29 + 신규 2), 레이스 테스트 8/8 PASS(Jetson), AST 정상. ⚠ 원본과 바이트 동일했던 코드에 **의도적 divergence**. 원본 `amap@amap-2:.../T-Driver-Analysis/src/Motor_Control/` 에 3파일 **rsync 전송 성공**(backend.py·driver_node.py·test_backend.py)했으나, 직후 amap-2 **SSH 도달 불가(오프라인)** 로 원격 pytest 검증·원격 doc 기록·git commit **미완**. 재개 시: (1) 원격 `python3 -m pytest test -q` 31 passed 확인, (2) 원격 docs/issues_and_fixes 동일 기록, (3) 협업 모드 확인 후 commit.
+
 ### [Diag] emulate 내구 중 Seer 52954(zeroing/재호밍 timeout) 1회 — zeroDI 하드웨어 아님, 기동 전환 트랜지언트로 추정
 
 - **문제**: `emulate_endurance.py` 내구(2026-07-26 09:05~13:00, emulate firmware, engage180s/diseng5s) 중 Seer API 1050 알람에 **52954 "Motor calibration/zeroing timeout"(ERROR) 1회**(desc 09:29:19). 재호밍(원점복귀) 타임아웃.
-- **원인**: [실측·증거] appendix 002 매뉴얼의 일반원인(zeroDI 원점스위치 손상/오설치)은 **이 런 증거로 미지지**. 실제 인과사슬 = **첫 engage 전환(09:08) 순간 emulate 인수 전 수초 모터 통신 순단** → Seer가 모터침묵 감지(동시각 52111 motor timeout·52106 odo lost·54022 stuff, `seermon_endur.log` 09:08:42~43) → 자동 재호밍(54301 calibrating) 시작 → **emulate 경로가 실 원점센서(zeroDI) 피드백 미제공** → 시작+약20분 뒤 zeroing 카운트다운 만료로 52954(09:29). 09:29 시점 판다측 모터응답 정상(endur cyc7/8 급감0)=신규 통신갭 아님=09:08 zeroing의 종착점. 이후 59사이클 급감0·무재발. 근거모델: `docs/can_relay/field-record-orin-nx-2026-07-25.md:47,137`(모터응답/guard 상실=재호밍 방아쇠).
+- **원인**: [실측·증거 — ⚠ 2026-07-27 감사: 인과사슬 후반부는 **[가설]** 로 하향, 아래 부기 참조] appendix 002 매뉴얼의 일반원인(zeroDI 원점스위치 손상/오설치)은 **이 런 증거로 미지지**. 실제 인과사슬 = **첫 engage 전환(09:08) 순간 emulate 인수 전 수초 모터 통신 순단** → Seer가 모터침묵 감지(동시각 52111 motor timeout·52106 odo lost·54022 stuff, `seermon_endur.log` 09:08:42~43) → 자동 재호밍(54301 calibrating) 시작 → **emulate 경로가 실 원점센서(zeroDI) 피드백 미제공** → 시작+약20분 뒤 zeroing 카운트다운 만료로 52954(09:29). 09:29 시점 판다측 모터응답 정상(endur cyc7/8 급감0)=신규 통신갭 아님=09:08 zeroing의 종착점. 이후 59사이클 급감0·무재발. 근거모델: `docs/can_relay/field-record-orin-nx-2026-07-25.md:47,137`(모터응답/guard 상실=재호밍 방아쇠).
 - **해결**: [미확정·검증대기] 코드 변경 없음. zeroDI 하드웨어 고장 가설 배제 위해 **실로봇 전원사이클 재현**(emulate 없이 실 Seer 재기동 → zeroing 정상완료=52954 미발생 확인) 예정. 정상완료 시 "emulate 기동 전환 트랜지언트"로 확정, 재발 시 실 zeroDI 점검. ⚠안전: Seer 전원복구=조향 물리 재호밍 동반(field-record §5-4), 가동범위 주변 클리어 후 수행.
 - **파일**: (분석) `~/docking_reliability/seermon_endur.log`, `~/docking_reliability/endur_out.log`, `T-Robot_seer_gui/references/seer/robokit-api/appendix/002-alarm-code.md:183`; (재현도구) `~/Project/CAN-Relay/docking_field_kit/seer_powercycle_repro.py`(신규 작성·검증)
 - **상태**: 진단 완료 · **재현검증 미실시(다음 세션 재개 필요)**. 내구는 76사이클 완주 PASS(모터급감 0, `endur_out.log` 13:00:12 종료요약). 전원사이클 재현 모니터 2회 기동(13:01·14:52, 각 10분 창)했으나 **양 창 모두 실 전원 OFF→ON 미수행**으로 zeroDI 하드웨어 가설 확정/배제 못함. **재개 절차**: (안전-조향 재호밍 물리이동 주변 클리어) → `python3 ~/Project/CAN-Relay/docking_field_kit/seer_powercycle_repro.py 192.168.44.82 600` 실행 후 Seer 전원 OFF→수초→ON → 판정(zeroing 완료=배제 / 52954 재발=하드웨어).
+
+> ⚠ **[2026-07-27 감사 부기 — "emulate 경로가 실 원점센서(zeroDI) 피드백 미제공" 은 코드 근거 없음]** (원문 무변경 · 값/코드 무변경)
+> 본 entry 는 제목이 "…**추정**", 상태가 "[미확정·검증대기]" 인데 원인 절만 `[실측·증거]` 라벨 + "**실제 인과사슬 =**" 단정형이었다. 인과사슬 중 **09:08 통신 순단 → Seer 재호밍 개시** 까지는 로그 인용이 있으나(`seermon_endur.log` 09:08:42~43), 그 뒤의 "**zeroDI 피드백 미제공**" 은 이를 뒷받침하는 로그·캡처 인용이 없고 펌웨어 코드는 오히려 반대 방향을 가리킨다.
+> - 디지털 입력 `0x6000` 은 **모션 객체가 아니어서 freeze 대상이 아니다**(`Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h:139` "0x603F error·0x6000 digital in 은 폴되나 모션 아님 → **freeze 금지**", 모션객체 정의 `:170-172`, freeze 적용 조건 `:203`).
+>   - ⚠ **정정 (2026-07-27)** — 위 「모션 객체가 아니어서」라는 **근거 서술은 부정확**하다(원문 보존. freeze 금지라는 운영 결정 자체를 뒤집는 것은 아니며, 값·코드 변경 없음).
+>     `0x6000` 은 **배열 오브젝트**이고 실제 입력값은 **sub 1** 이다(sub 0 = 항목 수 = 2). sub 1 의 비트는 **bit0 = Servo Enable, bit1 = Positive Limit, bit2 = Alarm, bit3 = Negative Limit** [Handbook V7.0 Appendix I(Object Dictionary), printed page 197]. 그리고 조향축에는 리밋 스위치가 실재하며 호밍 방식은 **Home 1(음(−)의 리밋 트리거)** 이다(전 노드 `0x6098 = 1` 실기 파라미터 판독; Handbook 기본 RstMode 도 1 [§4.6, page 116]). 즉 `0x6000` sub 1 은 위치·속도는 아니어도 **호밍 진행/완료를 간접 노출**한다.
+>     실측: 조향 노드만 `0x01 → 0x09`(bit3 = −Limit 셋) t=47.0249(node3)/47.0254(node4), `0x09 → 0x01` t=49.4223/49.4227, **구동 노드(1·2)는 180 s 전 구간 `0x01` 무변화** [`Log/homing_capture_220350.jsonl`]. 구동축은 호밍하지 않으므로 예상과 정합한다.
+>     ⇒ freeze 제외의 근거는 「모션 객체가 아님」이 아니라 「**위치·속도 등 연속 모션량을 노출하지 않아 현 단계에서 은닉 필요성이 낮음**」으로 정정해 읽는다. 호밍 상태 은닉이 요구되는 시나리오(PC 가 조향을 리밋까지 몰 수 있는 경우 포함)가 생기면 재검토 대상이다.
+> - emulate 중 Seer 의 SDO **읽기**(cmd `0x40`)는 캐시로 즉답되면서 **모터로도 forward**(`:286-288` `bus_fwd = 2`) 되어 캐시가 갱신되므로, 비-모션 객체의 실값은 (1폴 지연으로) Seer 에 전달되는 구조다. 단 캐시에 항목이 없으면 무응답이 될 수 있다는 한계는 별도로 기록돼 있다(`:182-194`, `:212`).
+> ⇒ **정정**: "emulate 경로가 zeroing 을 완료시키지 못한 기전은 **미확정**" 으로 읽는다. 후보 —
+> **(a)** SDO **쓰기**가 가짜 ack 후 모터로 전달되지 않아 호밍 지령이 모터에 미도달(`safety_seer_gate.h:289-291` `seer_fake_ack()` + `bus_fwd = -1` "모터로 안 보냄"), **(b)** `pc_authority` 중 모션객체(`0x6064` 등)를 engage 스냅샷(정지값)으로 고정해 위치가 불변으로 보임(`:179-180`, `:203-211`). 둘 다 **미검증**이다.
+> **판정에 필요한 측정**: 재현 시 emulate 중 bus2(모터) 방향으로 나가는 호밍 관련 SDO **쓰기** 프레임 유무를 스니핑하고, 같은 창에서 `0x6000`(digital in) 응답값 변화와 `0x6064` 실위치 변화를 동시 기록. (기존 "실로봇 전원사이클 재현" 절차는 그대로 유효.)
 
 ---
 
@@ -261,10 +793,20 @@
 ### [Fix] amap-2 현장 CAN 버스 단절오류 다발 — Seer 끝 종단저항(120Ω) 누락
 
 - **문제**: 실 로봇 Foil_A082에서 CAN1(모터) 버스에러 다발(2026-07-23 23:13~24 01:05, 1h52m). Seer 알람 54022(Ack 250·Bit Recessive 183·Bit Dominant 104·Stuff 7 = 544회), 52111 모터 응답타임아웃(4개 동시 302회), 52106 odo lost 408회, 54301 재캘리 347회. 로봇 정지 중 발생, 수 초 내 자동복구 반복. Seer는 "check CAN router"만 지목, 원인 특정 못함. 판다측 모니터도 트래픽만 봐서 못 잡음.
-- **원인**: **CAN 버스 종단이 모터(Tongyi) 끝 120Ω 하나뿐 = under-termination.** Seer 끝(DB9 2·7번=CAN_L/H) 종단 **없음**(실측 51.6kΩ 개방). 개방단 신호반사 → Bit/Ack/Stuff 에러. 판다는 온보드 종단이 없음(CAN0 pin4·5 / CAN2 pin23·24 실측 개방) — 문서 `tools/docking_field_kit/PINMAP.md:50`의 "CAN2 온보드 120Ω 내장"은 오기였음(초기 혼선 원인).
+- **원인**: **CAN 버스 종단이 모터(Tongyi) 끝 120Ω 하나뿐 = under-termination.** Seer 끝(DB9 2·7번=CAN_L/H) 종단 **없음**(실측 51.6kΩ 개방). 개방단 신호반사 → Bit/Ack/Stuff 에러. 판다는 온보드 종단이 없음(CAN0 pin4·5 / CAN2 pin23·24 실측 개방) — 문서 `Tools/docking_field_kit/PINMAP.md:50`의 "CAN2 온보드 120Ω 내장"은 오기였음(초기 혼선 원인).
 - **해결**: **Seer 끝(DB9 2–7번)에 120Ω 종단저항 1개 추가** → 전체 60Ω(양단 120Ω) 정상화. PINMAP.md 종단 문구를 실측대로 정정(판다 종단 없음·Seer끝 120 필수·도킹시 스위칭종단 필요 명시).
-- **파일**: `tools/docking_field_kit/PINMAP.md`(정정), (하드웨어) Seer DB9 종단 120Ω 추가
+- **파일**: `Tools/docking_field_kit/PINMAP.md`(정정), (하드웨어) Seer DB9 종단 120Ω 추가
 - **상태**: 완료(판다측 검증) — 종단 60Ω 확인 후 라이브 트래픽 12s(33,278프레임·2,773fps)에서 판다 CAN 에러 전부 0(can_rx/send/fwd_errs Δ0, faults 0). **잔여 확증**: Seer 자체 로그 지속 무에러(수시간~밤샘 관찰) + per-bus 에러카운터(can_health) 위한 펌웨어 보강 예정.
+- **[2026-07-27 종결 append]** 위 "잔여 확증" 항목을 닫는다. 그 후로도 간헐 재발하던 Seer CAN 알람의 원인은 **종단이 아니라 판다 부팅 기본 비트레이트 500 kbps** 였다(같은 날짜 상단 entry 참조). 250 kbps 정합만으로 `52106`·`52111`·`54022` 전량 소멸이 실증됐고 펌웨어 기본값을 정정했다. ⇒ **종단 문제는 종결. 이후 CAN 계열 알람에서 종단을 원인 후보로 재제기하지 않는다**(사용자 지시 2026-07-27). 먼저 판다 비트레이트·펌웨어 버전을 확인할 것.
+
+> ⚠ **[2026-07-27 감사 부기 — 07-23 단절오류의 원인 귀속은 미판정]** (위 두 서술 모두 무변경 · 값/하드웨어 무변경)
+> **양쪽 기록을 병기한다.**
+> - *종단 쪽*: 위 "원인" 절은 2026-07-24 **실측**을 기록한다 — Seer 끝 DB9 2·7번 종단 없음(**51.6kΩ 개방**), 모터 끝 120Ω 하나뿐 = under-termination. `docs/adr/2026-07-24-canhealth-firmware.md:8` 은 "근본원인은 Seer 끝 120Ω 종단 누락이었고 종단 추가(60Ω)로 해소", 같은 문서 `:48` 은 "종단 수리 후 REC/TEC=0 → 종단 수리 하드웨어 레벨 확증" 이라 적는다. (해당 ADR 에는 `:12-19`·`:55` 로 2026-07-27 정정 부기가 이미 달려 있다.)
+> - *비트레이트 쪽*: 위 종결 append 와 `docs/adr/2026-07-27-panda-boot-bitrate-and-failsafe.md`.
+> **미판정 사유**: 120Ω 종단은 **07-24 에 이미 장착**됐고(위 "해결"·"상태" 절), 07-27 검증(8초 29,625 프레임 · Seer `errors=[]`)은 **그 종단이 장착된 상태에서** 수행됐다. 두 변경(종단 추가 · 비트레이트 정합)을 **분리해 측정한 기록이 없다** — 07-27 ADR 에는 '종단/termination/120' 문자열이 0건(grep, 2026-07-27).
+> ⇒ 실증된 것은 **"250 kbps 정합이 '호스트 미실행 시 잔여 알람'을 없앴다"** 까지다. **07-23 단절오류(1h52m, 54022 544회 등)의 원인 귀속(종단 vs 비트레이트, 또는 양자 복합)은 미판정.**
+> **운용 지시의 유효 범위**: "종단을 원인 후보로 재제기하지 않는다"는 **원인 후보 확인 순서**(판다 비트레이트·펌웨어 버전을 **먼저** 확인)로 운용하며, **물리 종단 60Ω 상시 확인은 별개로 유지**한다(`Tools/docking_field_kit/PINMAP.md:62-71`: 판다는 온보드 종단 없음 · Seer 끝·모터 끝 각 120Ω 필요 · 도킹 intercept 시 스위칭 종단 별도 필요).
+> **판정에 필요한 측정**: ① 250 kbps 정합 상태의 **현재 버스 종단 저항 실측**(60Ω 유지 여부) 기록 ② 가능하면 종단 정상·비트레이트 정합 상태에서 장시간 `can_health`(REC/TEC) + Seer 1050 알람 무에러 지속 확인.
 
 ---
 
