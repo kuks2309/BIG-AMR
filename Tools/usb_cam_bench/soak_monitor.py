@@ -96,6 +96,39 @@ def cpu_percent(previous, current, elapsed):
     return (current - previous) / CLK_TCK / elapsed * 100.0
 
 
+def camera_names(explicit=None):
+    """감시할 카메라 이름 목록.
+
+    이름은 로스터(`config/camera/camera_common.yaml`)가 정한다 — 여기서 `cam0..N` 을 만들어
+    쓰면 위치 기준 이름(`cam_lf` 등)으로 개명했을 때 전 열이 공란이 된다(2026-07-30).
+    로스터를 못 찾으면 빈 목록을 돌려주고, 호출부는 로그에서 발견된 이름으로 채운다.
+    """
+    if explicit:
+        return [name.strip() for name in explicit.split(",") if name.strip()]
+    env = os.environ.get("CAMERA_CONFIG")
+    candidates = [env] if env else []
+    directory = os.path.dirname(os.path.realpath(__file__))
+    for _ in range(10):
+        candidates.append(os.path.join(directory, "config", "camera", "camera_common.yaml"))
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            break
+        directory = parent
+    for path in candidates:
+        if not path or not os.path.exists(path):
+            continue
+        try:
+            import yaml
+            with open(path, "r") as handle:
+                config = yaml.safe_load(handle) or {}
+        except Exception:
+            continue
+        names = [c["name"] for c in (config.get("cameras") or []) if c.get("name")]
+        if names:
+            return names
+    return []
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pub-log", required=True)
@@ -103,11 +136,19 @@ def main():
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--duration-h", type=float, default=24.0)
     parser.add_argument("--interval", type=float, default=30.0)
-    parser.add_argument("--cameras", type=int, default=6)
+    parser.add_argument("--cameras", default=None,
+                        help="카메라 이름 쉼표 목록. 생략하면 공용 로스터에서 읽는다.")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
-    cams = [f"cam{i}" for i in range(args.cameras)]
+    cams = camera_names(args.cameras)
+    if not cams:
+        # CSV 열은 헤더 작성 시 고정되므로 이름을 여기서 확정해야 한다. 로스터를 못 찾았으면
+        # 종전 관례로 되돌리되, 이름이 다르면 해당 열이 공란이 되므로 크게 알린다.
+        cams = [f"cam{i}" for i in range(6)]
+        print(f"경고: 로스터를 찾지 못해 이름을 {cams} 로 가정한다 "
+              "(--cameras 로 명시하거나 CAMERA_CONFIG 를 지정할 것)", flush=True)
+    print(f"감시 대상 카메라: {', '.join(cams)}", flush=True)
     csv_path = os.path.join(args.out_dir, "soak_samples.csv")
     report_path = os.path.join(args.out_dir, "soak_report.md")
 
