@@ -297,36 +297,49 @@ matches the motion stack being C++. **In ROS 2 the equivalent already exists** �
 with an executor and callbacks *is* an active object, and hand-rolling threads beside it
 usually causes more trouble than it solves. See the open language question in §10.
 
-### 5.3 Which FSMs — not yet decided
+### 5.3 Which FSMs — three built, the fourth still open
 
-The whiteboard shows four. What each one owns has not been settled. The likely division,
-given the layers in §3:
+The whiteboard shows four. Three are implemented and running
+(`src/MES/mini_mes/mini_mes/runtime/tasks/`); the fourth is the one that cannot be
+written until the ACS interface is decided.
 
-| Candidate FSM | Would own |
-|---|---|
-| Equipment monitor | watching the machines, noticing a finished batch |
-| Dispatcher | choosing which robot takes which job |
-| Robot handler | one per robot: drive it, collect its reports |
-| Job tracker | the job records and their lifecycle |
+| FSM | Owns | Status |
+|---|---|---|
+| `equipment_monitor` | watching the machines, noticing a finished batch | **built** — polls at 1 Hz, creates jobs |
+| `dispatcher` | whose turn it is to ask for transport | **built** — one permit at a time, priority then age |
+| `job_tracker` | the job records and their lifecycle | **built** — steps every job at 4 Hz |
+| Robot handler | one per robot: drive it, collect its reports | ⚠ not built |
 
-⚠ **This split determines everything below it and should be confirmed before coding.**
-Note the consequence: if the FSMs are attached to *subsystems*, then **jobs become data
-passed between them** rather than each job carrying its own state machine. The current
-prototype does the opposite — see §5.4.
+The robot handler is deliberately absent. It needs to know how many robots exist and
+address them individually, and the MES → ACS interface is still undecided (§10) — it may
+be JSON path files, a new API, or Seer's own. The dispatcher works around this by never
+asking how many robots are free: it offers **one** job and lets a `BUSY` answer mean
+"wait", which needs no interface the ACS might not have.
+
+⚠ The four names on the whiteboard have still not been confirmed. These three are the
+division that the layers in §3 imply; if Dr. Shim's four are different, the split
+changes.
 
 ### 5.4 Where the job lifecycle lives
 
-The job lifecycle in §5.5 is required either way. What changes is **what owns it**:
+This was posed as a choice, and the answer turned out to be **both** — the two designs
+are at different levels and do not compete.
 
-| Design | An FSM is attached to | Jobs are |
+| Level | An FSM is attached to | Which machine |
 |---|---|---|
-| Prototype as built | each **job** | state machines |
-| Whiteboard 2026-07-29 | each **subsystem** | plain data passed between FSMs |
+| Long-lived tasks | each **subsystem** | monitor, dispatcher, tracker — the whiteboard's list |
+| Per job | each **job** | `IDLE → ASSIGNED → RUNNING → DONE/FAILED` (§5.5) |
 
-Under the whiteboard design the job states do not disappear — they move inside the FSM
-that owns jobs. The three exits from `RUNNING` (success, failure, **timeout**) must
-survive that move; the timeout is the only thing that ends a job when the layers below
-have gone blind (§4).
+The subsystem FSMs run forever and are what the supervisor holds. Each job still carries
+its own small state machine, and the `job_tracker` is the subsystem FSM that steps them.
+
+Keeping the per-job machine was not sentiment about existing code. A job's state has to
+be attached to the job: it is what a timeout is measured against, what an operator reads
+when asking why something failed, and what makes `RUNNING` provably have three exits.
+Flattened into the tracker, those become bookkeeping fields that nothing enforces — and
+the three exits from `RUNNING` (success, failure, **timeout**) are exactly what must not
+become optional. The timeout is the only thing that ends a job when the layers below have
+gone blind (§4).
 
 ### 5.5 The job state machine
 
@@ -560,8 +573,8 @@ An architecture that only shows the plan is a sales drawing. This is the honest 
 | **Simulation** | ✅ working | Full robot in Gazebo with a control panel |
 | **Jetson motion software** | 🟠 partly | Maths verified correct, but loaded with the wrong robot's dimensions |
 | **Link: motion → motors** | ❌ missing | The mux that routes commands into the motor driver does not exist |
-| **Mini MES** | 🟠 prototyped | Job FSM, adapters and 15 tests working; drives the simulation end to end. Built as one FSM **per job** in a single thread — see §5.4, the whiteboard design differs |
-| **Camera** | ✅ exists | `src/Sensors/Camera/USB/` arrived 2026-07-28 |
+| **Mini MES** | 🟠 prototyped | Three supervised FSMs (§5.3) plus a per-job FSM, 76 tests. Drives the simulation end to end. The fourth FSM — a robot handler — waits on the ACS interface |
+| **Camera** | ✅ exists | `src/Sensors/Camera/USB/` arrived 2026-07-28. Since 2026-08-03 also 6× Orbbec depth — see [`ARCHITECTURE-ROBOT.md`](ARCHITECTURE-ROBOT.md) |
 
 > ⚠️ **Fix this before anything else.** The nine settings files in
 > `trnav_2ws_action_server/config/` still contain the measurements of a **different
