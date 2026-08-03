@@ -212,8 +212,7 @@ def _may_dispatch(ctx):
     """
     if ctx.dispatch_gated and not ctx.dispatch_permit:
         return False
-    return (ctx.submit_attempts == 0
-            or ctx.time_in_state() >= ctx.retry_backoff_s)
+    return ctx.backoff_elapsed()
 
 
 def _acs_failed(ctx):

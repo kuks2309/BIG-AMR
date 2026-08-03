@@ -91,6 +91,21 @@ class JobContext:
     def timed_out(self):
         return self.time_in_state() > self.job_timeout_s
 
+    def backoff_elapsed(self):
+        """Has this job waited long enough since its own last ACS attempt?
+
+        The first attempt goes immediately; later ones are spaced so a queued
+        job does not re-ask a busy ACS on every tick.
+
+        Lives here because two callers need the same answer: t1's guard, which
+        decides whether to move, and the Dispatcher, which decides who to grant
+        a permit to. A dispatcher using a different rule would hand permits to
+        jobs the guard then refuses to act on — permits burned on jobs that
+        cannot move, while jobs that could move wait.
+        """
+        return (self.submit_attempts == 0
+                or self.time_in_state() >= self.retry_backoff_s)
+
     def fail(self, reason):
         """Record why a job is failing. Call before the transition fires."""
         self.job.failure_reason = reason
