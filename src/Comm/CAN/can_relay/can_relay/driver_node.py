@@ -336,8 +336,9 @@ class CanRelayNode(Node):
     def _srv_stop(self, _req, res: Trigger.Response):
         ok = self.backend.stop_all("서비스 요청")
         res.success = True
-        res.message = ("구동 0 + 조향 정지 송신" if ok else
-                       "구동 0 송신 · ⚠ 조향 정지 실패(실측 위치 미확보)")
+        # 사유를 그대로 전달한다 — 「실측 미확보」와 「이동 중 보류」는 대처가 다르다.
+        res.message = ("구동 0 + 조향을 현재 위치에 유지" if ok else
+                       f"구동 0 송신 · ⚠ 조향 미유지 — {self.backend.halt_note()}")
         return res
 
     def _srv_home(self, _req, res: Trigger.Response):

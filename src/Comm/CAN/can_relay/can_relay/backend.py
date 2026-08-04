@@ -428,13 +428,18 @@ class RelayBackend:
             self._steer_counts = dict(pos)
             self._steer_target_deg = None
         blocked = [n for n, ok in moving.items() if ok is not True]
+        self._halt_note = ""
         if blocked:
+            self._halt_note = (f"이동 중이거나 판정 불가한 축 {sorted(blocked)} 는 잡지 않았다 "
+                               f"— 그 축은 직전 목표까지 계속 회전한다")
             self._log(
                 f"조향 정지 보류 — 노드 {sorted(blocked)} 는 정지 상태로 확인되지 않았다"
                 f"(연속 두 표본 차 > {self.cfg.stationary_tol_counts} c 이거나 표본 부족). "
                 f"이동 중 이 지령을 쓰는 것은 마스터 캡처에 **0건**이라 보내지 않는다 ({reason})")
         if not pos:
-            self._log(f"조향 정지 실패 — 정지 확인된 축이 없다 ({reason})")
+            if not self._halt_note:
+                self._halt_note = "실측 위치를 확보하지 못했다"
+            self._log(f"조향 유지 실패 — {self._halt_note} ({reason})")
             return False
         try:
             frames = []
@@ -472,11 +477,18 @@ class RelayBackend:
             self._log(f"정지 — {reason}")
 
     def stop_all(self, reason: str = "") -> bool:
-        """구동 + **조향** 을 함께 세운다. 운용자가 "정지"라 부르는 것은 이쪽이다.
+        """구동을 0 으로 하고, **정지 상태로 확인된 조향축은 현재 위치에 붙잡는다.**
 
-        `stop()` 은 구동만 세운다(설계상 분리). 조향까지 세우려면 `halt_steer()` 가
-        필요한데, 그것이 호밍 경로에만 연결돼 있어 **현 설정에서 도달 불가**였다
-        (2026-08-01 감사). 이 함수가 그 구멍을 메운다.
+        ⚠ **이름과 달리 「조향을 세우는」 함수가 아니다.** `halt_steer` 는 2026-08-03 결정으로
+        **정지 확인된 축에만** 지령을 보낸다(사용자 결정 「실제 캡처한 상황에서만 사용하게 할것」).
+        따라서 **조향이 움직이는 중이면 이 함수는 그 축을 잡지 않으며, 축은 직전 PP 목표까지
+        계속 회전한다.** 그것이 현재 확정된 동작이다(2026-08-04 사용자 결정 「현행 유지」).
+
+        반환 `True` 는 **「조향축을 실제로 잡았다」**는 뜻이고, `False` 는 못 잡았다는 뜻이다.
+        사유는 `halt_note()` 로 꺼낸다 — 「실측 미확보」와 「이동 중 보류」는 다른 사건이라
+        운용자가 구분할 수 있어야 한다.
+
+        구동 정지는 어떤 경우에도 수행된다(`stop()` 은 상태와 무관하게 받아들여진다).
         """
         self.stop(reason)
         return self.halt_steer(reason)
@@ -728,6 +740,10 @@ class RelayBackend:
                 "health_error": self._health_error,
                 "homing_status": dict(self._homing_status),
             }
+
+    def halt_note(self) -> str:
+        """직전 `halt_steer` 가 조향을 못 잡았다면 그 사유. 잡았으면 빈 문자열."""
+        return self._halt_note
 
     def bus_fault(self) -> Optional[str]:
         """버스가 정상이 아니면 사유 1줄, 정상이면 None.
