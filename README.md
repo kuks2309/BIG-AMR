@@ -13,6 +13,9 @@ the machine: perception, localisation, motion control, and the two paths to the 
 🔄 **[WORKFLOW.md](WORKFLOW.md)** — one order followed end to end: every hop, every
 network boundary, and where each piece physically sits.
 
+📖 **[GLOSSARY.md](GLOSSARY.md)** — every term you will hear in a meeting about this
+project, from CANopen to ISA-95, with the project's own names marked.
+
 > Proprietary and confidential. © 2026 T-Robotics. Internal, unreleased.
 
 ---
