@@ -462,7 +462,9 @@ def test_steer_axis_rejected_before_homing_when_required():
     link, be = make(require_homed_for_steer=True, steer_home={3: 0, 4: 0})
     with pytest.raises(S.UnsafeCommand) as e:
         be.set_steer_axis_deg(3, 10.0)
-    assert "호밍이 완료되지 않았다" in str(e.value)
+    # 2026-08-04: 문구가 바뀌었다 — 판정이 `_homed` 단독에서 `homed_effective()`(드라이브
+    # bit15 포함)로 확장됐다. Seer 가 호밍한 경우를 인정하기 위해서다.
+    assert "조향 0° 기준을 확인할 수 없다" in str(e.value)
 
 
 def test_steer_axis_rejected_without_home_config():

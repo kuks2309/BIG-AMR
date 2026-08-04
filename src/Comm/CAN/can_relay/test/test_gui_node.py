@@ -294,12 +294,34 @@ def test_drive_command_is_republished_so_watchdog_does_not_kill_the_jog(rig):
     assert _wait(lambda: driver.backend.snapshot()["drive_units"] != 0), "지령이 도달하지 않았다"
 
     # 워치독 만료보다 넉넉히 오래 기다린다 — 재발행이 있으면 지령이 살아 있어야 한다.
+    #
+    # ⚠ 판정은 **두 가지**를 본다. 이 rig 는 드라이버와 클라이언트를 한 실행기에 올리므로,
+    #   전체 시험을 함께 돌리면 타이머가 밀려 드라이버 쪽 상태만으로는 간헐 실패가 난다
+    #   (2026-08-04 실측). 그래서 **우리가 통제하는 발행 횟수**를 주 판정으로 삼고,
+    #   드라이버 상태는 잠깐의 스케줄링 지연을 흡수하도록 재시도한다.
+    #   재발행이 아예 없으면(원래 결함) 발행은 1건뿐이고 드라이버 상태도 0 으로 남아 둘 다 깨진다.
+    ns = str(client.cfg["driver_ns"]).rstrip("/")
+    seen = []
+    sub = client.create_subscription(Float64, f"{ns}/drive_mmps",
+                                     lambda m: seen.append(m.data), 20)
     timeout_s = driver.backend.cfg.cmd_timeout_s
-    deadline = time.monotonic() + timeout_s * 4
-    while time.monotonic() < deadline:
+    window = timeout_s * 4
+    time.sleep(0.2)                       # 구독 연결
+    seen.clear()
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < window:
+        time.sleep(0.05)
+    client.destroy_subscription(sub)
+
+    assert len(seen) >= 5, (
+        f"{window:.1f}s 동안 구동 지령 발행이 {len(seen)}건뿐 — 재발행이 없다")
+    assert all(v == 50.0 for v in seen), f"재발행 값이 지령과 다르다: {set(seen)}"
+    for _ in range(20):                   # 스케줄링 지연 흡수(재발행이 있으면 곧 복구된다)
+        if driver.backend.snapshot()["drive_units"] != 0:
+            break
         time.sleep(0.05)
     assert driver.backend.snapshot()["drive_units"] != 0, (
-        f"워치독({timeout_s}s)의 {4}배를 기다리는 동안 지령이 사라졌다 — 재발행이 없다")
+        f"발행은 {len(seen)}건 있었는데 드라이버 지령이 0 이다 — 전달 경로를 확인할 것")
 
     client.send_drive(0.0)
     assert _wait(lambda: driver.backend.snapshot()["drive_units"] == 0)

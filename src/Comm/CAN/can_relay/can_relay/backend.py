@@ -201,6 +201,56 @@ class RelayBackend:
             self._drive_units = units
             self._last_cmd_time = time.monotonic()
 
+    # ── 조향 0° 기준이 유효한가 ────────────────────────────────────────
+    def homed_effective(self) -> bool:
+        """조향 지령을 보내도 되는가 — **호밍의 출처를 가리지 않는다**.
+
+        인정하는 근거 2가지:
+          ① 이번 프로세스에서 우리가 호밍했다(`self._homed`).
+          ② **드라이브가 스스로 「호밍 완료」를 보고한다**(`0x6041` bit15).
+             **Seer 가 호밍한 경우가 여기 잡힌다.**
+
+        ⚠ 예전에는 ①만 봤다. 그래서 Seer 가 이미 호밍해 둔 상태(bit15=1)인데도 조향이 통째로
+          거부돼, 실기에서 바퀴가 **한 카운트도 움직이지 않았다**(2026-08-04 실측:
+          호밍 전 판독 N3·N4 = `0x9450` → bit15 이미 1).
+          「0° 기준을 모른다」는 전제 자체도 같은 날 반증됐다 — 판다 직독 조향과 Seer 판독이
+          0° 로 교차 일치했고(−0.0° ↔ +0.0°) 정본 YAML 과 ±6 counts 였다.
+
+        ⚠ **신선한 피드백일 때만** 인정한다. 낡은 상태워드로 「호밍됐다」고 하면 통신이 끊긴
+          뒤에도 조향이 열린다.
+        """
+        if self._homed:
+            return True
+        now = time.monotonic()
+        nodes = [self.nodes.get(n) for n in self.cfg.steer_nodes]
+        if not nodes or any(st is None for st in nodes):
+            return False
+        for st in nodes:
+            if not st.fresh(now, self.cfg.feedback_ttl_s):
+                return False
+            if S.is_homed(st.statusword) is not True:
+                return False
+        return True
+
+    def _not_homed_reason(self) -> str:
+        """거부 사유 — 무엇이 모자라 막혔는지 운용자가 알 수 있게 적는다."""
+        now = time.monotonic()
+        detail = []
+        for n in self.cfg.steer_nodes:
+            st = self.nodes.get(n)
+            if st is None or st.last_seen <= 0.0:
+                # 한 번도 못 받은 것과 낡은 것은 원인이 다르다 — 배선/기동 문제 vs 통신 두절.
+                detail.append(f"N{n} 피드백 없음")
+            elif not st.fresh(now, self.cfg.feedback_ttl_s):
+                detail.append(f"N{n} 피드백 낡음({now - st.last_seen:.1f}s 경과)")
+            elif S.is_homed(st.statusword) is not True:
+                sw = st.statusword
+                detail.append(f"N{n} bit15=0"
+                              + ("(상태워드 미수신)" if sw is None else f"(0x{sw & 0xFFFF:04X})"))
+        return ("조향 0° 기준을 확인할 수 없다 — 우리가 호밍한 적이 없고 드라이브도 "
+                "호밍 완료(0x6041 bit15)를 보고하지 않는다: " + ", ".join(detail)
+                + ". `~/home` 를 수행하거나, Seer 가 호밍한 뒤 다시 시도할 것")
+
     def set_steer_deg(self, deg: float):
         """조향 절대각 지령. ±limit 로 잘라서 보낸다(거부가 아니라 클램프).
 
@@ -210,12 +260,8 @@ class RelayBackend:
             raise S.UnsafeCommand("호밍 진행 중에는 조향 지령을 보내지 않는다")
         if self._estop:
             raise S.UnsafeCommand("E-stop 인가 중 — 조향 지령을 보내지 않는다")
-        if self.cfg.require_homed_for_steer and not self._homed:
-            # 매뉴얼 §Home 35: 홈 설정은 전원이 켜져 있는 동안만 유효하다.
-            # 따라서 기동 후 호밍 전의 0x6064 는 어떤 각도를 뜻하는지 알 수 없다.
-            raise S.UnsafeCommand(
-                "호밍이 완료되지 않았다 — 조향 0° 기준이 없어 지령을 보낼 수 없다. "
-                "`~/home` 를 먼저 수행할 것(전원 사이클마다 필요)")
+        if self.cfg.require_homed_for_steer and not self.homed_effective():
+            raise S.UnsafeCommand(self._not_homed_reason())
         applied = None
         counts = {}
         for n in self.cfg.steer_nodes:
@@ -251,10 +297,8 @@ class RelayBackend:
             raise S.UnsafeCommand("호밍 진행 중에는 조향 지령을 보내지 않는다")
         if self._estop:
             raise S.UnsafeCommand("E-stop 인가 중 — 조향 지령을 보내지 않는다")
-        if self.cfg.require_homed_for_steer and not self._homed:
-            raise S.UnsafeCommand(
-                "호밍이 완료되지 않았다 — 조향 0° 기준이 없어 지령을 보낼 수 없다. "
-                "`~/home` 를 먼저 수행할 것(전원 사이클마다 필요)")
+        if self.cfg.require_homed_for_steer and not self.homed_effective():
+            raise S.UnsafeCommand(self._not_homed_reason())
         node = int(node)
         if node not in self.cfg.steer_nodes:
             raise S.UnsafeCommand(
@@ -383,7 +427,10 @@ class RelayBackend:
                     "error_code": int(st.last_abort or 0) & 0xFFFF,
                     "amps": int(st.current_raw or 0),
                     "voltage": 0,                   # 0x6079 미폴 — 0 으로 둔다
-                    "home_comp": bool(self._homed),
+                    # 필드 뜻 그대로 **드라이브 자신의 보고**(0x6041 bit15)를 싣는다.
+                    # 예전에는 우리 프로세스 변수 `self._homed` 를 실어, Seer 가 호밍해 둔
+                    # 상태(bit15=1)인데도 `home_comp=False` 로 나갔다(2026-08-04 실기 확인).
+                    "home_comp": bool(S.is_homed(st.statusword)),
                     "homing": bool(self._homing),
                     "motor_enabled": bool(fresh and not self._estop),
                     "can_reset": not fresh,
@@ -723,7 +770,8 @@ class RelayBackend:
                 "steer_target_deg": self._steer_target_deg,
                 "estop": self._estop,
                 "homing": self._homing,
-                "homed": self._homed,
+                "homed": self._homed,                 # 우리가 호밍했는가
+                "homed_effective": self.homed_effective(),  # 드라이브 보고 포함(Seer 호밍)
                 "homing_method": str(self.cfg.homing_method),
                 "fault": self._fault,
                 "running": self._running,

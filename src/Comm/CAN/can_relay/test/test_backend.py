@@ -745,13 +745,21 @@ def test_m35_requires_both_conditions_for_arrival():
 
 
 def test_steer_blocked_until_homed():
-    """매뉴얼 §Home 35 — 홈은 전원이 켜져 있는 동안만 유효하다."""
+    """호밍 근거가 **하나도 없으면** 막는다.
+
+    ⚠ 2026-08-04 계약 변경: 판정이 `_homed`(우리가 호밍했는가) 단독에서
+    `homed_effective()`(우리 호밍 **또는** 드라이브가 보고하는 bit15)로 바뀌었다.
+    Seer 가 호밍해 둔 상태를 놓쳐 실기에서 조향이 통째로 거부됐기 때문이다.
+    여기서는 피드백 자체가 없어 두 근거 모두 없는 경우를 고정한다.
+    """
     link, be = make(require_homed_for_steer=True)
+    assert be.homed_effective() is False
     with pytest.raises(S.UnsafeCommand) as e:
         be.set_steer_deg(10.0)
-    assert "호밍이 완료되지 않았다" in str(e.value)
+    assert "조향 0° 기준을 확인할 수 없다" in str(e.value)
+    assert "피드백 없음" in str(e.value) or "미수신" in str(e.value), str(e.value)
     be._homed = True
-    assert be.set_steer_deg(10.0) == 10.0        # 완료 후에는 통과
+    assert be.set_steer_deg(10.0) == 10.0        # 우리가 호밍하면 통과
 
 
 def test_m35_cancel_actually_sends_steer_hold_frames():
@@ -1039,3 +1047,76 @@ def test_home_clears_stale_statusword_before_starting():
             f"개시 시점에 직전 상태워드가 남아 있다: {seen['at_start']}"
     finally:
         be.shutdown()
+
+
+# ── 조향 게이트: 호밍의 **출처를 가리지 않는다** (2026-08-04 실기 발견) ──────
+def _mark_homed_by_drive(be, homed=True, age_s=0.0):
+    """드라이브가 0x6041 bit15 로 「호밍 완료」를 보고하는 상태를 만든다(= Seer 가 호밍한 경우)."""
+    import time as _t
+    from can_relay import safety as _S
+    for n in be.cfg.steer_nodes:
+        st = be.nodes[n]
+        st.statusword = (_S.STATUSWORD_HOMED_BIT if homed else 0) | 0x0450
+        st.position = be.cfg.steer_home[n]
+        st.last_seen = _t.monotonic() - age_s
+
+
+def test_steer_allowed_when_drive_reports_homed():
+    """**Seer 가 호밍했으면 우리가 호밍하지 않았어도 조향할 수 있어야 한다.**
+
+    2026-08-04 실기: 호밍 전 판독에서 N3·N4 상태워드가 이미 `0x9450`(bit15=1)이었는데도
+    드라이버가 자기 프로세스 변수만 보고 조향을 통째로 거부해 **바퀴가 한 카운트도 움직이지
+    않았다.** 「0° 기준을 모른다」는 전제도 같은 날 반증됐다 — 판다 직독과 Seer 판독이 0° 로
+    교차 일치(−0.0° ↔ +0.0°)했고 정본 YAML 과 ±6 counts 였다.
+    """
+    link, be = make(require_homed_for_steer=True)
+    assert be._homed is False, "우리가 호밍한 적은 없는 상태여야 한다"
+    _mark_homed_by_drive(be)
+    assert be.homed_effective() is True
+    be.set_steer_deg(10.0)              # 예외가 나면 실패
+    assert be.snapshot()["homed_effective"] is True
+
+
+def test_steer_still_blocked_when_drive_says_not_homed():
+    """드라이브가 bit15=0 이면 여전히 막는다 — 게이트를 없앤 것이 아니다."""
+    link, be = make(require_homed_for_steer=True)
+    _mark_homed_by_drive(be, homed=False)
+    assert be.homed_effective() is False
+    with pytest.raises(S.UnsafeCommand) as e:
+        be.set_steer_deg(10.0)
+    assert "bit15=0" in str(e.value), str(e.value)
+
+
+def test_steer_blocked_when_statusword_is_stale():
+    """낡은 상태워드로 「호밍됐다」고 하면 안 된다 — 통신이 끊긴 뒤에도 조향이 열린다."""
+    link, be = make(require_homed_for_steer=True)
+    _mark_homed_by_drive(be, homed=True, age_s=be.cfg.feedback_ttl_s + 1.0)
+    assert be.homed_effective() is False
+    with pytest.raises(S.UnsafeCommand) as e:
+        be.set_steer_deg(10.0)
+    assert "낡음" in str(e.value), str(e.value)
+
+
+def test_steer_axis_uses_the_same_gate():
+    """축별 조향도 같은 판정을 쓴다 — 한쪽만 고치면 우회로가 생긴다."""
+    link, be = make(require_homed_for_steer=True)
+    _mark_homed_by_drive(be)
+    be.set_steer_axis_deg(3, 10.0)
+
+
+def test_home_comp_reports_the_drive_not_our_flag():
+    """`MotorState.home_comp` 는 **드라이브의 0x6041 bit15** 를 실어야 한다.
+
+    예전에는 `self._homed`(우리가 호밍했는가)를 실어, Seer 가 호밍해 둔 상태인데도
+    `home_comp=False` 로 나갔다(2026-08-04 실기: 조향은 통과했는데 표시만 False).
+    """
+    link, be = make(require_homed_for_steer=True)
+    assert be._homed is False
+    _mark_homed_by_drive(be)                      # 드라이브만 「완료」 보고
+    rows = {d["motor_id"]: d for d in be.motor_states()}
+    for n in be.cfg.steer_nodes:
+        assert rows[n]["home_comp"] is True, f"N{n} 이 드라이브 보고를 반영하지 않는다"
+    _mark_homed_by_drive(be, homed=False)
+    rows = {d["motor_id"]: d for d in be.motor_states()}
+    for n in be.cfg.steer_nodes:
+        assert rows[n]["home_comp"] is False
