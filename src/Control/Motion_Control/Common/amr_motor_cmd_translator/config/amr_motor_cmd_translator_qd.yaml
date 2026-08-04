@@ -1,10 +1,22 @@
 amr_motor_cmd_translator:
   ros__parameters:
     platform: "QD_DIAGONAL"
-    wheel_radius_m: 0.08
-    gear_walk: 20.0
-    gear_steer: 265.5
-    pulses_per_rev: 65536.0
+    # ── 기하·감속비 (2026-08-05 Foil_A082 값으로 정정) ────────────────────
+    # 종전 값 0.08 / 20.0 / 265.5 는 **Carrier AGV(QD 원본)** 것이 이식 때 그대로 남은
+    # 것이었다. 이 파일이 SI→raw 환산의 유일한 소유자라(node.cpp:129,142) 그 상수가
+    # 곧 로봇이 실제로 도는 양이 된다.
+    #   · 조향: 65536×265.5/360 = 48,332.8 c/deg 로 환산했으나 이 기체 드라이브는
+    #           57,344.0 c/deg 다 → 90° 지령이 75.86° 로만 꺾였다(비 0.843).
+    #   · 구동: 23.873 u/(mm/s) vs 24.447 → 지령 −2.3%, 피드백 +2.4%(반대 방향).
+    # 대조 근거는 can_relay 기체 캘리브레이션 config 이며, 재도출 검사기가 매 실행마다
+    # 두 파일에서 다시 계산해 대조한다: Tools/motion_chain_check/check_chain_contract.py
+    wheel_radius_m: 0.125   # m — Ø250. References/Tongyi-Motor-Controller/docs/
+                            #     tongyi-canopen-protocol-reference.md:15 wheelRadius 0.125
+    gear_walk: 32.0         # walk 노드 reduction. 같은 문서 :11-12
+    gear_steer: 315.0       # 65536×315/360 = 57,344.0 c/deg
+                            #   = can_relay config/machine/foil_a082.yaml:20 실측
+                            #     (홈↔90° Δ = 5,160,960c = 90.00°)
+    pulses_per_rev: 65536.0 # 엔코더 16384 라인 × 4체배 (변경 없음 — 양쪽 일치)
 
     motor_id_walk_front: 1
     motor_id_walk_rear:  2
