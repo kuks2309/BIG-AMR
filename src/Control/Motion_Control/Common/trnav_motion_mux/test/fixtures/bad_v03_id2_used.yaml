@@ -1,0 +1,28 @@
+# Bad: V-04 — id=2 의 name 이 "translate_reverse" 가 아님 (2026-05-16 SSOT)
+# 이전 의도 (V-03 = id=2 영구 미예약) 는 2026-04-27 폐지. id=2 는 translate_reverse 로 재배정됨.
+# 현재 의도: id=2 블록은 허용하되 name="translate_reverse" 강제 (V-04 reserved name 검증).
+trnav_motion_mux:
+  ros__parameters:
+    output_topic: "/motion/wheel_out"
+    default_source_id: 0
+    source_ids: [0, 1, 2, 3]
+
+    source_0:
+      name: "joystick"
+      topic: "/motion/wheel_cmd/joystick"
+      timeout_ms: 200
+
+    source_1:
+      name: "translate_forward"
+      topic: "/motion/wheel_cmd/translate_forward"
+      timeout_ms: 200
+
+    source_2:                          # ← V-04 위반: id=2 는 name="translate_reverse" 강제
+      name: "old_joystick"
+      topic: "/motion/wheel_cmd/old_joystick"
+      timeout_ms: 200
+
+    source_3:
+      name: "spin"
+      topic: "/motion/wheel_cmd/spin"
+      timeout_ms: 200

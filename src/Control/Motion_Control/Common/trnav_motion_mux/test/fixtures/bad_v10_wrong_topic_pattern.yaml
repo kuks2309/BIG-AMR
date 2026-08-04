@@ -1,0 +1,24 @@
+# Bad: V-10 — source_3 의 topic 이 "/motion/wheel_cmd/" prefix 를 따르지 않음 (WARN only 예상)
+#
+# V-10 은 FATAL 이 아닌 WARN 만 발생 (레거시 하위 호환 이유).
+# 참고: source_1.topic="/motion/wheel_cmd/action" 도 name 과 불일치하지만 레거시 예외 허용.
+trnav_motion_mux:
+  ros__parameters:
+    output_topic: "/motion/wheel_out"
+    default_source_id: 0
+    source_ids: [0, 1, 3]
+
+    source_0:
+      name: "joystick"
+      topic: "/motion/wheel_cmd/joystick"
+      timeout_ms: 200
+
+    source_1:
+      name: "translate_forward"
+      topic: "/motion/wheel_cmd/action"
+      timeout_ms: 200
+
+    source_3:
+      name: "spin"
+      topic: "/invalid/topic"           # ← V-10 위반: "/motion/wheel_cmd/" prefix 없음 (WARN only)
+      timeout_ms: 200

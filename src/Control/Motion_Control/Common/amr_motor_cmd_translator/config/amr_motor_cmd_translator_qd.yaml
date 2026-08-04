@@ -1,0 +1,35 @@
+amr_motor_cmd_translator:
+  ros__parameters:
+    platform: "QD_DIAGONAL"
+    wheel_radius_m: 0.08
+    gear_walk: 20.0
+    gear_steer: 265.5
+    pulses_per_rev: 65536.0
+
+    motor_id_walk_front: 1
+    motor_id_walk_rear:  2
+    motor_id_steer_front: 3
+    motor_id_steer_rear:  4
+
+    direction_walk_front: -1
+    direction_walk_rear:  -1
+    direction_steer_front: -1
+    direction_steer_rear:  -1
+
+    # ── 조향 영점(zero) 보정 (2026-07-13) ──
+    # 의미: 엔코더 raw 가 0 일 때의 **실제 물리 조향각(deg)**.
+    #   지령   raw_target = cmd − offset   (cmd 0° → 물리 0°)
+    #   피드백 reported   = raw + offset   (보고 0° = 물리 0°)
+    # 실측: 개루프 같은방향 leg 테스트(캐스터 플립 배제) — 전진정착 δ −1.216°, 후진정착 δ −2.136°
+    #       → 방향 따라 뒤집히는 성분 δ0 = −1.676° = 조향 영점 오차 (공통모드)
+    #       상세: experiments/2026-07-13_steer_zero_calib/
+    steer_offset_front_deg: -1.676
+    steer_offset_rear_deg:  -1.676
+
+    steer_profile_velocity: 30000
+
+    wheel_index_front: 0
+    wheel_index_rear: 1
+
+    publish_legacy_wheel_motor_state: true
+    publish_legacy_wheel_motor_state_detailed: true

@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>trnav_motion_mux</name>
+  <version>0.1.0</version>
+  <description>Motion command multiplexer with config-based source selection</description>
+  <maintainer email="team@trobotics.com">T-Robotics</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>launch_testing_ament_cmake</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <depend>rclcpp</depend>
+  <depend>trnav_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
