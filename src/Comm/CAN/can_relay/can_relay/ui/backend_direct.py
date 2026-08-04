@@ -45,7 +45,7 @@ from .backend_base import (CAP_DRIVE, CAP_ENGAGE, CAP_HOME, CAP_MOTOR_TABLE,
 SEER_BUS, MOTOR_BUS = 0, 2
 SEER_GATE, CAN_KBPS = 30, 250
 COUNTS_PER_DEG = 57344
-STEER_HOME = {3: 7871815, 4: 7840086}
+_STEER_HOME_FALLBACK = {3: 7871815, 4: 7840086}
 VEL_PER_MMPS, VEL_MAX_UNITS = 24.447, 4889
 STEER_LIMIT_DEG = 90.0
 DRIVE_NODES, STEER_NODES = (1, 2), (3, 4)
@@ -61,6 +61,35 @@ RX_TTL_S = 1.0              # 이보다 오래 응답이 없으면 구동을 0 �
 #   `ModuleNotFoundError: No module named 'panda'` 가 났다(2026-08-04 오프스크린 스모크).
 #   `link.py:_find_repo_root` 가 문서화해 둔 것과 같은 off-by-one 이므로 그 함수를 쓴다.
 _KIT = os.path.join(_find_repo_root(__file__), "Tools", "docking_field_kit")
+
+
+def _load_steer_home():
+    """조향 0° counts 를 **정본 YAML 에서 읽는다**. 실패하면 사본으로 내려간다.
+
+    원본 `Tools/amr_test_gui/gui.py` 의 `_load_steer_home` 과 같은 방식이다 — 두 구현이
+    **같은 출처**를 봐야 `--backend` 를 바꿔도 같은 각도로 간다. 예전에는 이 파일만 리터럴이라
+    정본이 바뀌면 direct 만 옛 값으로 남았다(2026-08-04 리뷰 Medium ②).
+
+    반환 `(값, 출처 설명)`.
+    """
+    path = os.path.join(_find_repo_root(__file__), "src", "Comm", "CAN", "can_relay",
+                        "config", "machine", "foil_a082.yaml")
+    try:
+        import yaml
+        with open(path, encoding="utf-8") as fh:
+            params = yaml.safe_load(fh)["/**"]["ros__parameters"]
+        counts = [int(c) for c in params["steer_home_counts"]]
+        nodes = [int(n) for n in params.get("steer_nodes", [3, 4])]
+        home = dict(zip(nodes, counts))
+        if home != _STEER_HOME_FALLBACK:
+            return home, f"정본 YAML (⚠ 코드 사본 {_STEER_HOME_FALLBACK} 와 다름 — 정본을 따름)"
+        return home, "정본 YAML (코드 사본과 일치)"
+    except Exception as exc:
+        return dict(_STEER_HOME_FALLBACK), (
+            f"⚠ 코드 사본 — 정본 YAML 을 읽지 못했습니다({type(exc).__name__}): {path}")
+
+
+STEER_HOME, STEER_HOME_SOURCE = _load_steer_home()
 
 
 def steer_counts(node: int, deg: float):
@@ -168,8 +197,12 @@ class DirectBackend(BackendBase):
         if len(self._serials) == 1:
             return True, f"판다 검출: {self._serials[0]}"
         # **차단한다** — 어느 장치에 지령이 갈지 모르는 채 진행할 수 없다(원본 Medium ③).
+        # ⚠ 대수·시리얼을 **비우기 전에** 잡는다. 예전에는 `self._serials = []` 뒤에
+        #   `len(self._serials) or '여러'` 를 써서 **항상 "여러대"** 가 되어 실제 대수가
+        #   보고에서 사라졌다(2026-08-04 리뷰 Medium ①, 같은 날 조치가 만든 회귀).
+        found = list(self._serials)
         self._serials = []
-        return False, (f"⚠ 판다 {len(self._serials) or '여러'}대 검출 — 1 PC 1대 원칙 위반. "
+        return False, (f"⚠ 판다 {len(found)}대 검출({', '.join(found)}) — 1 PC 1대 원칙 위반. "
                        f"어느 장치에 지령이 갈지 알 수 없으므로 연결을 막습니다. "
                        f"한 대만 남기고 다시 검색하세요.")
 

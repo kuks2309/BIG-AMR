@@ -165,3 +165,52 @@ def test_direct_homing_frames_match_original():
                  _orig_bytes(n, 0x6099, 2500, 4),
                  _orig_bytes(n, 0x60FB, 1, 1, sub=4)]
     assert be.frames[:len(want)] == want, "호밍 시퀀스가 원본과 다르다"
+
+
+# ── 2026-08-04 리뷰 Medium·Low 조치 회귀 ────────────────────────────────
+def test_scan_reports_actual_panda_count():
+    """판다 2대 이상일 때 **대수와 시리얼**을 보고해야 한다(리뷰 Medium ①).
+
+    비우기 전에 잡지 않으면 `len([]) or '여러'` 가 되어 실제 대수가 사라진다.
+    """
+    class _Two:
+        @staticmethod
+        def list():
+            return ["AAA", "BBB", "CCC"]
+
+    from can_relay.ui import backend_direct as D
+    be = DirectBackend()
+    orig_cls = D._panda_class
+    D._panda_class = lambda: _Two
+    try:
+        ok, why = be.scan()
+    finally:
+        D._panda_class = orig_cls
+    assert ok is False, "1 PC 1대 원칙 위반인데 통과시켰다"
+    assert "3대" in why, f"실제 대수가 사라졌다: {why}"
+    assert "AAA" in why and "CCC" in why, f"시리얼이 빠졌다: {why}"
+
+
+def test_direct_steer_home_comes_from_canonical_yaml():
+    """`--backend direct` 도 정본 YAML 을 봐야 한다 — 원본과 같은 출처(리뷰 Medium ②)."""
+    from can_relay.ui import backend_direct as D
+    assert "정본 YAML" in D.STEER_HOME_SOURCE, D.STEER_HOME_SOURCE
+    assert D.STEER_HOME == orig.STEER_HOME, "원본과 이식본의 조향 0° 가 다르다"
+
+
+def test_direct_steer_home_fallback_is_announced(monkeypatch):
+    """정본을 못 읽으면 **그 사실이 출처에 남아야** 한다(조용한 사본 사용 금지)."""
+    from can_relay.ui import backend_direct as D
+    monkeypatch.setattr(D, "_find_repo_root", lambda _p: "/nonexistent")
+    home, src = D._load_steer_home()
+    assert home == D._STEER_HOME_FALLBACK
+    assert "코드 사본" in src and "⚠" in src
+
+
+def test_app_inner_thread_functions_have_distinct_names():
+    """스택 트레이스에서 구분되도록 내부 함수 이름이 달라야 한다(리뷰 Low ④)."""
+    import inspect
+    from can_relay.ui import app as A
+    src = inspect.getsource(A)
+    assert src.count("def work(") == 0
+    assert "def _op_work(" in src and "def _clearfatal_work(" in src

@@ -470,18 +470,22 @@ class MainWindow(QWidget):
 
     def _run_op(self, name: str, fn, *args):
         """블로킹 백엔드 호출을 작업 스레드로 돌린다 — UI 를 잡지 않는다."""
-        def work():
+        def _op_work():
             try:
                 ok, why = fn(*args)
             except Exception as exc:
                 ok, why = False, f"{type(exc).__name__}: {exc}"
             self.op_done.emit(name, bool(ok), str(why))
-        threading.Thread(target=work, daemon=True, name=name).start()
+        threading.Thread(target=_op_work, daemon=True, name=name).start()
 
     def _on_op_done(self, name: str, ok: bool, why: str):
         self.log(f"{name} — {why}" if ok else f"{name} 실패 — {why}")
         if name == "검색":
-            self.lab_panda.setText(why.split(":")[-1].strip() if ok else "검색 실패")
+            # 콜론 쪼개기(`why.split(":")[-1]`)는 메시지에 콜론이 여럿이면 엉뚱한 조각을
+            # 라벨에 올린다(2026-08-04 리뷰 Low ①). 알려진 접두사만 벗긴다.
+            PREFIX = "판다 검출: "
+            label = why[len(PREFIX):] if why.startswith(PREFIX) else why
+            self.lab_panda.setText((label if ok else "검색 실패")[:48])
             if self.be.can(CAP_USB):
                 self.btn_usb.setEnabled(ok)
         elif name == "USB":
@@ -688,7 +692,7 @@ class MainWindow(QWidget):
         self.btn_clear_fatal.setEnabled(False)
         path, ip = self._seer_gui_path, self._seer_ip
 
-        def work():
+        def _clearfatal_work():
             try:
                 if path not in sys.path:
                     sys.path.insert(0, path)
@@ -700,7 +704,7 @@ class MainWindow(QWidget):
             except Exception as exc:
                 self.seer_log_line.emit(f"Fatal 리셋 실패: {type(exc).__name__}: {exc}")
 
-        threading.Thread(target=work, daemon=True, name="clearfatal").start()
+        threading.Thread(target=_clearfatal_work, daemon=True, name="clearfatal").start()
         QTimer.singleShot(1500, lambda: self.btn_clear_fatal.setEnabled(True))
 
     # ── 종료 ──────────────────────────────────────────────────────────
