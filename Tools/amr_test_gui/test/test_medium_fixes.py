@@ -165,3 +165,58 @@ def test_log_is_thread_safe_from_worker(win):
     t.join(timeout=3.0)
     QtWidgets.QApplication.processEvents()
     assert "작업 스레드에서" in win.txt_log.toPlainText()
+
+
+def test_poll_thread_death_actually_emits_the_signal(win):
+    """⑤의 **배선**을 고정한다 — 핸들러가 아니라 「스레드가 죽으면 알리는가」.
+
+    ⚠ 2026-08-04 돌연변이 검사에서 드러난 공백: `test_poll_death_drops_the_control_toggle` 은
+    `_on_poll_died()` 를 **직접 부른다.** 그래서 `_loop` 안의 `self.poll_died.emit()` 을 통째로
+    지워도 111개가 전부 통과했다 — 핸들러는 검증되고 **배선은 검증되지 않는** 상태였다.
+    여기서는 폴링을 실제로 죽여서 신호가 나오는지 본다.
+    """
+    import threading
+    import time as _t
+
+    class _DeadPanda:
+        class _Handle:
+            def controlWrite(self, *_a, **_kw):
+                raise OSError("USB 가 빠졌다")
+        def __init__(self):
+            self._handle = self._Handle()
+        def can_send(self, *_a, **_kw):
+            raise OSError("USB 가 빠졌다")
+        def can_recv(self):
+            raise OSError("USB 가 빠졌다")
+
+    fired = threading.Event()
+    # ⚠ **직접 연결**이어야 한다. PyQt5 는 평범한 콜러블을 송신자(GUI) 스레드로 **큐잉**하므로
+    #   기본 연결로는 `th.join()` 이 끝날 때까지 호출되지 않아 「방출됐는가」를 볼 수 없다.
+    from PyQt5 import QtCore
+    win.poll_died.connect(lambda: fired.set(), QtCore.Qt.DirectConnection)
+
+    # Seer 폴링을 먼저 세운다. 같은 `lab_status` 라벨을 그쪽도 쓰기 때문에, 켜 둔 채로 문구를
+    # 단언하면 「Seer … 폴링 실패(RobokitError)」가 나중에 덮어써 무작위로 깨진다(2026-08-04 실측).
+    win._seer_run = False
+    win.btn_take.blockSignals(True)
+    win.btn_take.setChecked(True)          # 「제어권 보유」 표시 상태에서 시작
+    win.btn_take.blockSignals(False)
+
+    win.panda = _DeadPanda()
+    win._run = True
+    th = threading.Thread(target=win._loop, daemon=True)
+    th.start()
+    th.join(timeout=3.0)
+
+    assert not th.is_alive(), "폴링 스레드가 예외에도 끝나지 않았다"
+    assert fired.wait(timeout=1.0), "폴링이 죽었는데 poll_died 가 방출되지 않았다"
+    assert win._run is False, "폴링이 죽었는데 제어권 플래그가 남아 있다"
+
+    # 신호가 핸들러까지 도달해 화면 상태가 실제로 내려가는지 (큐 연결이므로 이벤트 처리 필요).
+    # 판정은 **토글**로 한다 — 상태 라벨은 Seer 쪽도 쓰는 공유 위젯이라 판정 근거로 못 쓴다.
+    for _ in range(20):
+        QtWidgets.QApplication.processEvents()
+        if not win.btn_take.isChecked():
+            break
+        _t.sleep(0.05)
+    assert win.btn_take.isChecked() is False, "신호는 났는데 제어권 표시가 내려가지 않았다"
