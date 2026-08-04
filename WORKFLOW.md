@@ -53,6 +53,58 @@ flowchart TB
 
 Amber is what we build; blue is what already exists and must not be modified.
 
+### And the way back
+
+The diagram above shows **commands only**. Something has to travel the other way too, or
+no job could ever reach `DONE`.
+
+```mermaid
+flowchart BT
+    MOT["<b>⑥ MOTORS</b>"]
+    SEER["<b>④ SEER</b>"]
+    ACS["<b>③ ACS</b>"]
+    MES["<b>② MINI MES</b>"]
+    ERP["<b>① ERP</b>"]
+    EQ["<b>Equipment</b>"]
+
+    MOT -->|"encoder · CANopen<br/>⚠ frozen while the gate is engaged"| SEER
+    SEER -->|"pose, status · Seer API"| ACS
+    ACS -->|"<b>the MES ASKS</b><br/>get_job_result(job_id) @ 4 Hz"| MES
+    MES -->|"'collected' / 'delivered'"| EQ
+    MES -->|"order complete<br/>⚠ NOT BUILT"| ERP
+
+    classDef build fill:#FBEFD5,stroke:#B4790C,stroke-width:3px,color:#14181E
+    classDef exists fill:#E4EBF3,stroke:#2E5C8A,stroke-width:2px,color:#14181E
+    classDef missing fill:#F5F5F5,stroke:#9A9A9A,stroke-width:2px,stroke-dasharray:5 4,color:#5A5A5A
+    class MES build
+    class MOT,SEER,ACS,EQ exists
+    class ERP missing
+```
+
+**Three things about this direction are worth knowing.**
+
+**It is a pull, not a push.** The Mini MES asks the ACS "is `job_0007` finished?" four
+times a second (`job_fsm.py:103`, `Running.execute`). The ACS never calls us. That is
+forced by the interface rather than chosen — `AcsAdapter.get_job_result` is
+request/response because the real MES → ACS interface is still undecided (§9) and may be
+poll-only. If it turns out to support callbacks, only the adapter changes.
+
+**The chain is only as honest as its weakest link — and one link is deliberately lying.**
+While the Panda gate is engaged it *freezes the motor readback*, so Seer reports "parked,
+nothing moving" while the Jetson is actually driving. Seer then tells the ACS that, and
+the ACS tells us. Every layer above the gate is blind **by design** for the duration.
+
+That is why `RUNNING` has a **timeout** and not only a success and a failure exit. If the
+Jetson dies mid-dock, nothing upstream reports a problem — Seer keeps saying "parked,
+normal" and the ACS faithfully repeats it. The timeout is the only thing that ends such a
+job. (Compare Seer's own alarm `52954`: a re-homing state that timed out after 20
+minutes.)
+
+**ERP reporting does not exist.** There is no ERP adapter in the code — `grep -i erp`
+returns nothing. Jobs complete and the Mini MES tells the two stations, but nothing
+travels back up to the order system. It is drawn here because the design calls for it,
+greyed because it is not built.
+
 ---
 
 ## 2. Raising the order
