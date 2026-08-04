@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>trnav_2ws_core</name>
+  <version>0.1.0</version>
+  <description>AMR Motion Core - platform-agnostic abstraction library (TrapezoidalProfile, TransientGuard, LocalizationMonitor, RobotGeometry, RecursiveMovingAverage, math_utils, ActionMutex) for trnav_motion_mux consumers. Platform-specific controllers/packer/ActionServerBase live in trnav_2ws_motion / trnav_motion_dd per ADR-012 (2026-05-21); kinematics (IK/BicycleModel) live in trnav_2ws_kinematics / trnav_dd_kinematics under src/Control/Kinematics/ per AD-012 amendment (2026-07-04).</description>
+  <maintainer email="amap@t-robotics.com">amap</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>trnav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>std_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -1,0 +1,45 @@
+# AMRMotionPurePursuit Action - nav_msgs/Path 다중 waypoint 추종 (BICYCLE 전륜 조향)
+# trnav_2ws_interfaces/action/AMRMotionPurePursuit
+#
+# 알고리즘: Pure Pursuit (base_link frame 변환 후 직접형 steering)
+#   delta_f = atan2(2 * wheelbase * L_y, L_x*L_x + L_y*L_y)  (전륜만, delta_r=0)
+#
+# Reverse 방향은 후속 wave 에서 별도 액션 (translate_forward/reverse 패턴) 으로 분리.
+# 4WS counter-steer / vx 비례 가변 lookahead 도 후속 wave.
+
+# Goal
+nav_msgs/Path path           # map frame 다중 waypoint (>=2 poses, frame_id="map")
+float64 max_linear_speed     # m/s (> 0)
+float64 acceleration         # m/s^2 (> 0)
+bool    hold_steer           # true: skip Phase 4 steer return
+float64 exit_steer_angle     # deg: Phase 4 target steer (ignored if hold_steer)
+float64 exit_speed           # m/s (0=완전정지, >0=이 속도로 종료, 기본=0)
+float64 entry_speed          # m/s (0=정지에서 시작, >0=이 속도로 시작)
+bool    has_next             # true=다음 segment 존재 -> 감속 안 함
+# Control mode: 0=node param default, 1=Bicycle (Pure Pursuit on bicycle)
+uint8   CTRL_DEFAULT     = 0
+uint8   CTRL_MODE_A      = 1
+uint8   control_mode 0
+# Per-goal Localization watchdog 토글 (acs_gui Link.enable_localization_watchdog 전파, 2026-05-18)
+# Effective = 본 필드 AND node param (translate_enable_localization_watchdog 등). 둘 다 true 여야 작동.
+bool enable_localization_watchdog true
+---
+# Result
+int8    status               # 0=success, -1=cancelled, -2=invalid_param, -3=timeout, -4=loc_timeout, -5=loc_jump, -6=tf_lookup_fail
+float64 actual_distance      # m (path 누적거리 진행)
+float64 final_lateral_error  # m (closest segment 점-직선 거리, 부호: +좌 -우)
+float64 final_heading_error  # deg (path tangent vs robot yaw)
+float64 elapsed_time         # sec
+---
+# Feedback
+float64 current_distance     # m (path 누적거리 투영)
+float64 current_lateral_error # m (cross-track error, +좌 -우)
+float64 current_heading_error # deg (heading error)
+float64 current_vx           # m/s (forward velocity)
+float64 current_vy           # m/s (전륜만 조향이라 BicycleModel 결과 그대로)
+float64 current_omega        # rad/s
+uint8   phase                # 0=steer_align, 1=accel, 2=cruise, 3=decel, 4=steer_return
+float64 w1_drive_rpm         # W1 drive motor RPM (+FWD/-REV)
+float64 w2_drive_rpm         # W2 drive motor RPM (+FWD/-REV)
+float64 lookahead_x          # debug: 현재 lookahead point (map frame)
+float64 lookahead_y

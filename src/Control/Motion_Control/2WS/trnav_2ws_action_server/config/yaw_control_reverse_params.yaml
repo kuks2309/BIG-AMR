@@ -1,0 +1,70 @@
+/trnav_yaw_control_reverse_node:
+  ros__parameters:
+    # ══ ⚠ 2026-07-27 감사 경고 — 이 파일의 기하·감속비는 본 기체(Foil_A082) 실측이 아니다 ══
+    #  출처: 이 파일은 QD(Carrier AGV) 원본
+    #    `src/Control/Motion_Control/QD/trnav_motion_action_server/config/yaw_control_reverse_params.yaml`
+    #    과 **바이트 동일 복사본**이다(diff 결과 차이는 `loadGeometry` 네임스페이스 주석 1줄뿐;
+    #    mpc_reverse_params.yaml 은 차이 0줄). 같은 파일 안의 「Carrier_AGV_기구LAYOUT Rev.1.3」
+    #    주석이 그 사실을 그대로 남기고 있다.
+    #  본 기체의 장비 config 는 다른 값을 기록한다 —
+    #    `References/Tongyi-Motor-Controller/docs/tongyi-canopen-protocol-reference.md:11-12`
+    #    (EasyDRIVE canID config, ✓): walk 노드 **reduction 32**
+    #    같은 문서 `:15`: **wheelRadius 0.125 m**, **휠베이스 1.20 m**
+    #    저장소 내 정본 주장 파일도 32.0 / 0.125 를 쓴다
+    #    (`trnav_2ws_core/config/robot_geometry_2ws.yaml:57,60`).
+    #  ⇒ **값은 본 감사에서 바꾸지 않는다**(본 기체 실측·주행 확인 전에는 불가). 서술만 정정한다.
+    #  ⚠ 다만 **실행 시 실제로 로드되는 값은 이 파일이다** — 9종 launch 는 전부
+    #    `<action>_params.yaml` 만 넘기고(`launch/spin.launch.py:14-17`), 어떤 launch 도
+    #    `robot_geometry_2ws.yaml` 을 읽지 않는다. 파라미터 미지정 시 default 도 동일
+    #    (`trnav_2ws_motion/include/trnav_2ws_motion/qd_action_server_base.hpp:189-194`).
+    #    그 결과 `src/mpc/mpc_action_server.cpp:119` `wheelbase_ = |w1_x - w2_x|` = **0.660 m**
+    #    (실측 휠베이스 1.20 m 의 절반)가 MPC 자전거모델
+    #    (`trnav_2ws_motion/src/qd_mpc_controller.cpp:115` tan(δ)/wheelbase)에 들어간다.
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ── Platform (trnav_2ws_core::loadGeometry) ──
+    platform: "QD_DIAGONAL"
+
+    # ── 로봇 기하 (Carrier_AGV_기구LAYOUT Rev.1.3) ──
+    body_length: 1.1974
+    body_width: 0.648
+    w1_x: 0.330
+    w1_y: 0.135
+    w2_x: -0.330
+    w2_y: -0.135
+    wheel_radius: 0.080
+    # ⚠ 2026-07-27 감사: Carrier AGV 원본 값. 본 기체는 protocol-reference:15 기준 wheelRadius **0.125 m**.
+    #   값 변경 없음(실측 재확인 후 별건).
+    steer_limit_deg: 90.0
+    gear_walk: 20.0
+    # ⚠ 2026-07-27 감사: Carrier AGV 원본 값. 본 기체는 protocol-reference:11-12 기준 reduction **32**.
+    #   값 변경 없음(실측 재확인 후 별건).
+
+    # ── ActionServerBase 공통 ──
+    control_rate_hz: 50.0
+    steer_tolerance_deg: 1.0
+    steer_timeout_sec: 5.0
+
+    # ── YawControlReverse 파라미터 (yaw_control 과 동일 구조, prefix 만 다름) ──
+    # vx_max 는 magnitude(>0) 로 받고 내부에서 항상 -vx 적용 — yaml 파라미터엔 영향 없음.
+    yaw_control_reverse_max_steer_deg: 25.0
+    yaw_control_reverse_i_max_deg: 10.0
+    yaw_control_reverse_max_timeout_sec: 60.0
+    yaw_control_reverse_walk_accel_limit: 0.5
+    yaw_control_reverse_walk_decel_limit: 1.0
+    yaw_control_reverse_steer_rate_limit: 0.35
+    yaw_control_reverse_min_vx: 0.02   # vx_profile floor magnitude (m/s) — 시작 시 정지 방지
+
+    # ── LocalizationMonitor ──
+    yaw_control_reverse_pose_topic: "/rtabmap/localization_pose"
+    yaw_control_reverse_pose_qos: 2                       # 0=default 1=reliable 2=sensor_data
+    yaw_control_reverse_localization_timeout_sec: 2.0
+    yaw_control_reverse_position_jump_threshold: 0.3
+    yaw_control_reverse_enable_localization_watchdog: true
+
+    # ── TransientGuard ──
+    transient_vy_rate_limit: 0.3
+    transient_omega_rate_limit: 0.5
+    transient_steer_gate_threshold_deg: 3.0
+    transient_steer_error_max_deg: 10.0
+    transient_enable_proportional_decel: true
+    transient_runtime_gate_threshold_deg: 15.0

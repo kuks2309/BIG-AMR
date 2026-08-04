@@ -1,0 +1,47 @@
+# AMRMotionTranslateForward Action - Forward direction linear path following with PD heading + Stanley lateral
+# trnav_2ws_interfaces/action/AMRMotionTranslateForward
+#
+# Reverse direction 은 별도 액션: trnav_2ws_interfaces/action/AMRMotionTranslateReverse
+
+# Goal
+float64 start_x              # map frame start X (m)
+float64 start_y              # map frame start Y (m)
+float64 end_x                # map frame end X (m)
+float64 end_y                # map frame end Y (m)
+float64 max_linear_speed     # m/s (> 0)
+float64 acceleration         # m/s^2 (> 0)
+bool    hold_steer           # true: skip Phase 4 steer return
+float64 exit_steer_angle     # deg: Phase 4 target steer (ignored if hold_steer)
+float64 exit_speed           # m/s (0=완전정지, >0=이 속도로 종료, 기본=0)
+float64 entry_speed          # m/s (0=start from stop, >0=resume at this speed)
+bool    has_next             # true=다음 Segment 존재 → 감속 안 함
+# Control mode: 0=node param default, 1=Bicycle, 2=Sequential CTE, 3=Pure Stanley
+uint8   CTRL_DEFAULT     = 0
+uint8   CTRL_MODE_A      = 1
+uint8   CTRL_MODE_B      = 2
+uint8   CTRL_MODE_C      = 3
+uint8   control_mode 0
+# Per-goal Localization watchdog 토글 (acs_gui Link.enable_localization_watchdog 전파, 2026-05-18)
+# Effective = 본 필드 AND node param (translate_enable_localization_watchdog 등). 둘 다 true 여야 작동.
+bool enable_localization_watchdog true
+# Per-goal 초기 pose 검증 skip (acs_gui Link.on_position_mismatch='none' 전파, 2026-06-19)
+# true 면 action server 가 validateInitialPose(path 측면 offset) 를 skip → 경로 밖에서도 시작. 운영자 위치 책임.
+bool skip_initial_pose_check false
+---
+# Result
+int8    status               # 0=success, -1=cancelled, -2=invalid_param, -3=timeout, -4=loc_timeout, -5=loc_jump, -6=tf_lookup_fail
+float64 actual_distance      # m (achieved projection distance)
+float64 final_lateral_error  # m (final lateral error)
+float64 final_heading_error  # deg (final heading error)
+float64 elapsed_time         # sec
+---
+# Feedback
+float64 current_distance     # m (projection distance along path)
+float64 current_lateral_error # m (cross-track error, + left, - right)
+float64 current_heading_error # deg (heading error)
+float64 current_vx           # m/s (forward velocity)
+float64 current_vy           # m/s (lateral velocity)
+float64 current_omega        # rad/s (angular velocity)
+uint8   phase                # 0=steer_align, 1=accel, 2=cruise, 3=decel, 4=steer_return
+float64 w1_drive_rpm         # W1 drive motor RPM (+FWD/-REV)
+float64 w2_drive_rpm         # W2 drive motor RPM (+FWD/-REV)

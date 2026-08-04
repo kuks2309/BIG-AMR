@@ -1,0 +1,60 @@
+/**:
+  ros__parameters:
+    # ⚠ 2026-07-27 감사 — **이 파일은 런타임에 로드되지 않는다.**
+    #   trnav_2ws_action_server 의 launch 9종은 전부 `<action>_params.yaml` 만 넘긴다
+    #   (예: `trnav_2ws_action_server/launch/spin.launch.py:14-17`). 2WS 전 트리 grep 결과
+    #   `robot_geometry_2ws` 참조처는 docs/ADR 뿐이며 어떤 launch·노드도 이 파일을 읽지 않는다.
+    #   실행 시 실제로 쓰이는 기하는 각 `<action>_params.yaml` 의 **Carrier AGV 플레이스홀더**
+    #   (`spin_params.yaml:30-34` w1_x 0.330 / w2_x −0.330 / r 0.080)이고, 파라미터 미지정 시
+    #   코드 default 도 동일하다(`trnav_2ws_motion/include/trnav_2ws_motion/qd_action_server_base.hpp:189-194`).
+    #   ⇒ 아래 값을 「현재 로봇이 쓰는 값」으로 읽지 말 것. 배선(파라미터 병합)은 별도 승인 후.
+    # ── Platform identification ──
+    # 2WS = inline dual-steer: 앞뒤 "센터라인"에 조향-구동 휠 2개 (대각 아님).
+    # Seer 분류상 multisteer(2 모듈). QD_DIAGONAL enum 은 wheel_set_packer 의 "2륜 pack"
+    # 경로일 뿐이라 대각/inline 무관 동일 동작 → 재사용(전용 enum 불필요).
+    platform: "QD_DIAGONAL"
+
+    # ── Foil_A082 실측 휠 위치 (robot frame, meters) — inline 센터라인 ──
+    # 정본(2 source 교차확인):
+    #   1) Tools/Kinematics/chassis_kinematics.py  (Seer live_models.hpp 추출: KIN_NODE_XY)
+    #   2) src/Actuators/motor_control/config/tongyi_amr.yaml (실물 driver: module_x/module_y)
+    # W1 = Front(앞), W2 = Rear(뒤). 둘 다 y ≈ 0 (센터라인) — 대각(Carrier AGV) 아님.
+    #
+    # ⚠ 2026-07-27 감사 정정 (원문 위 4줄은 이력 보존용으로 남김. **값 변경 0건**)
+    #  (가) 「Foil_A082 실측」 라벨의 근거 없음 — 인용된 2 source 어느 쪽도 Foil_A082 실측이 아니다:
+    #      · source1 `Tools/Kinematics/chassis_kinematics.py:32` 는 동일 수치를 「**Roll_A084** 실측 config
+    #        (live_models.hpp:67)」 로 귀속한다(`Tools/Kinematics/README.md:75` 동일).
+    #        (2026-07-27 세션 중 `Tool/` → `Tools/` 로 디렉터리가 이동됐다. 구 경로 인용은 `Tools/` 로 읽을 것.)
+    #      · source2 `src/Actuators/motor_control/config/tongyi_amr.yaml:57` 는 그 행 자체가
+    #        「⚠ node1=Rear 가정 (부호 정합 도출 — 출처 미인용)」 으로 **스스로 가정임을 표기**한다
+    #        (`motor_control/driver_node.py:73` 의 기본값도 동일).
+    #      ⇒ 「정본(2 source 교차확인)」 은 **교차확인 미성립**(측정 캡처·일시·절차 인용 없음).
+    #        본 파일의 수치 출처는 「Seer `live_models.hpp:67` 추출값 — 원 기록은 Roll_A084 config 귀속,
+    #        Foil_A082 직접 실측 기록 없음」 이다. 다만 **크기 자체**는
+    #        `References/Tongyi-Motor-Controller/docs/tongyi-canopen-protocol-reference.md:11-15`
+    #        (EasyDRIVE canID config, ✓)의 ±0.604 / −0.596 · 휠베이스 1.20 m 와 일치한다.
+    #  (나) 전/후 노드 귀속은 **미판정 모순** — 아래 w1_x/w2_x 행 주석 참조.
+    w1_x: 0.6039      # m  Front(앞)  (motor_control node2 = +0.6039)
+    w1_y: -0.0014     # m  (센터라인)
+    w2_x: -0.5961     # m  Rear(뒤)   (motor_control node1 = -0.5961)
+    w2_y: -0.0014     # m  (센터라인)
+    # ⚠ 미판정 모순 (2026-07-27 감사) — 위 두 행 괄호 안의 **노드 귀속**(node2=+0.6039 / node1=−0.5961):
+    #   EasyDRIVE canID config 는 정반대다 — `References/Tongyi-Motor-Controller/docs/
+    #   tongyi-canopen-protocol-reference.md:11-14` (✓ 실측/설정 직접):
+    #     node1 FrontWalk +0.604 / node2 RealWalk −0.596 / node3 FrontSteer +0.604 / node4 RearSteer −0.596
+    #   즉 그 레퍼런스대로면 node1=Front, node2=Rear 다.
+    #   동일 반전이 `docs/code_review/motor_control-can-consistency/2026-07-26.md:59-68` 에
+    #   「🔴 HIGH — 모듈 전/후(module_x) 노드 배정 반전 (실측 데이터와 정면 모순)」 로 이미 등록됐고
+    #   **미해소**(같은 문서 :116 「§3 HIGH 의 권고 값은 본 감사에서 적용하지 않았다」).
+    #   이 배정은 spin/크랩 모멘트암·yaw 부호에 직접 들어간다
+    #   (`trnav_2ws_motion/include/trnav_2ws_motion/qd_action_server_base.hpp:61`
+    #    `wheels = {{w1_x,w1_y},{w2_x,w2_y}}`).
+    #   ⇒ 값(0.6039 / −0.5961)은 **바꾸지 않는다**. 어느 쪽이 참인지 미판정이기 때문이다.
+    #   판정에 필요한 측정: 잭업(바퀴 지면 이격) 상태에서 node1 만 저속 단독 구동 후
+    #   앞/뒤 어느 바퀴가 도는지 육안 확인(저속 ≤0.05 m/s, E-STOP 상비).
+    # wheelbase = 0.6039 + 0.5961 = 1.200 m  (tongyi_amr.yaml track_width: 1.2)
+
+    wheel_radius: 0.125   # m  (chassis_kinematics r=0.125, driver_node WHEEL_RADIUS=0.125)
+
+    # ── Walk motor gear ratio (RPM feedback display only) ──
+    gear_walk: 32.0       # reduction=32 (chassis_kinematics M_S_PER_UNIT 주석)

@@ -1,0 +1,92 @@
+/trnav_translate_forward_node:
+  ros__parameters:
+    # ══ ⚠ 2026-07-27 감사 경고 — 이 파일의 기하·감속비는 본 기체(Foil_A082) 실측이 아니다 ══
+    #  출처: 이 파일은 QD(Carrier AGV) 원본
+    #    `src/Control/Motion_Control/QD/trnav_motion_action_server/config/translate_forward_params.yaml`
+    #    과 **바이트 동일 복사본**이다(diff 결과 차이는 `loadGeometry` 네임스페이스 주석 1줄뿐;
+    #    mpc_reverse_params.yaml 은 차이 0줄). 같은 파일 안의 「Carrier_AGV_기구LAYOUT Rev.1.3」
+    #    주석이 그 사실을 그대로 남기고 있다.
+    #  본 기체의 장비 config 는 다른 값을 기록한다 —
+    #    `References/Tongyi-Motor-Controller/docs/tongyi-canopen-protocol-reference.md:11-12`
+    #    (EasyDRIVE canID config, ✓): walk 노드 **reduction 32**
+    #    같은 문서 `:15`: **wheelRadius 0.125 m**, **휠베이스 1.20 m**
+    #    저장소 내 정본 주장 파일도 32.0 / 0.125 를 쓴다
+    #    (`trnav_2ws_core/config/robot_geometry_2ws.yaml:57,60`).
+    #  ⇒ **값은 본 감사에서 바꾸지 않는다**(본 기체 실측·주행 확인 전에는 불가). 서술만 정정한다.
+    #  ⚠ 다만 **실행 시 실제로 로드되는 값은 이 파일이다** — 9종 launch 는 전부
+    #    `<action>_params.yaml` 만 넘기고(`launch/spin.launch.py:14-17`), 어떤 launch 도
+    #    `robot_geometry_2ws.yaml` 을 읽지 않는다. 파라미터 미지정 시 default 도 동일
+    #    (`trnav_2ws_motion/include/trnav_2ws_motion/qd_action_server_base.hpp:189-194`).
+    #    그 결과 `src/mpc/mpc_action_server.cpp:119` `wheelbase_ = |w1_x - w2_x|` = **0.660 m**
+    #    (실측 휠베이스 1.20 m 의 절반)가 MPC 자전거모델
+    #    (`trnav_2ws_motion/src/qd_mpc_controller.cpp:115` tan(δ)/wheelbase)에 들어간다.
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ── Platform (trnav_2ws_core::loadGeometry) ──
+    platform: "QD_DIAGONAL"
+
+    # ── 로봇 기하 (Carrier_AGV_기구LAYOUT Rev.1.3) ──
+    body_length: 1.1974
+    body_width: 0.648
+    w1_x: 0.330
+    w1_y: 0.135
+    w2_x: -0.330
+    w2_y: -0.135
+    wheel_radius: 0.080
+    # ⚠ 2026-07-27 감사: Carrier AGV 원본 값. 본 기체는 protocol-reference:15 기준 wheelRadius **0.125 m**.
+    #   값 변경 없음(실측 재확인 후 별건).
+    steer_limit_deg: 90.0
+    gear_walk: 20.0
+    # ⚠ 2026-07-27 감사: Carrier AGV 원본 값. 본 기체는 protocol-reference:11-12 기준 reduction **32**.
+    #   값 변경 없음(실측 재확인 후 별건).
+
+    # ── ActionServerBase 공통 ──
+    control_rate_hz: 50.0
+    steer_tolerance_deg: 1.0
+    steer_timeout_sec: 5.0
+
+    # ── PathController(BICYCLE) ──
+    translate_Kp_heading: 0.7
+    translate_Kd_heading: 0.3
+    translate_K_stanley: 2.0
+    translate_K_soft: 1.0
+    translate_heading_threshold_deg: 90.0
+    translate_max_lateral_offset: 1.0
+    translate_heading_filter_window: 5
+    # heading yaw 소스: 0=robot_pose(기본) / 1=IMU(시작 RMA10 offset 후 고정). A/B 실험용. x,y(CTE)는 항상 pose.
+    translate_heading_source: 0
+    translate_cte_filter_window: 5
+    translate_max_delta_deg: 45.0
+
+    # Wave 4 default: BICYCLE(=1). Goal control_mode=0 → default, =1 → BICYCLE.
+    # Mode 2/3 은 후속 Wave 에서 활성화.
+    translate_control_mode: 1
+
+    # ── TransientGuard ──
+    transient_vy_rate_limit: 0.3
+    transient_omega_rate_limit: 0.5
+    transient_steer_gate_threshold_deg: 3.0
+    transient_steer_error_max_deg: 10.0
+    transient_enable_proportional_decel: true
+    transient_runtime_gate_threshold_deg: 90.0
+
+    # ── LocalizationMonitor ──
+    translate_pose_topic: "/rtabmap/localization_pose"
+    translate_pose_qos: 2                       # 0=default 1=reliable 2=sensor_data
+    translate_localization_timeout_sec: 2.0
+    translate_position_jump_threshold: 0.3
+    translate_enable_localization_watchdog: true
+
+    # ── Translate execute 파라미터 ──
+    translate_goal_reach_threshold: 0.05
+    translate_min_vx: 0.02
+    translate_behind_start_speed: 0.2
+    translate_vy_ramp_time: 1.0
+    translate_max_timeout_sec: 60.0
+    translate_steer_rate_static: 0.140
+    translate_steer_rate_dynamic: 0.350
+    translate_steer_rate_vx_threshold: 0.05
+    translate_walk_accel_limit: 0.5
+    translate_walk_decel_limit: 1.0
+    translate_steer_converge_err_low_deg: 3.0
+    translate_steer_converge_err_high_deg: 30.0
+    translate_steer_converge_min_scale: 0.3

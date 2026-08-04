@@ -1,0 +1,93 @@
+/trnav_spin_node:
+  ros__parameters:
+    # ══ ⚠ 2026-07-27 감사 경고 — 이 파일의 기하·감속비는 본 기체(Foil_A082) 실측이 아니다 ══
+    #  출처: 이 파일은 QD(Carrier AGV) 원본
+    #    `src/Control/Motion_Control/QD/trnav_motion_action_server/config/spin_params.yaml`
+    #    과 **바이트 동일 복사본**이다(diff 결과 차이는 `loadGeometry` 네임스페이스 주석 1줄뿐;
+    #    mpc_reverse_params.yaml 은 차이 0줄). 같은 파일 안의 「Carrier_AGV_기구LAYOUT Rev.1.3」
+    #    주석이 그 사실을 그대로 남기고 있다.
+    #  본 기체의 장비 config 는 다른 값을 기록한다 —
+    #    `References/Tongyi-Motor-Controller/docs/tongyi-canopen-protocol-reference.md:11-12`
+    #    (EasyDRIVE canID config, ✓): walk 노드 **reduction 32**
+    #    같은 문서 `:15`: **wheelRadius 0.125 m**, **휠베이스 1.20 m**
+    #    저장소 내 정본 주장 파일도 32.0 / 0.125 를 쓴다
+    #    (`trnav_2ws_core/config/robot_geometry_2ws.yaml:57,60`).
+    #  ⇒ **값은 본 감사에서 바꾸지 않는다**(본 기체 실측·주행 확인 전에는 불가). 서술만 정정한다.
+    #  ⚠ 다만 **실행 시 실제로 로드되는 값은 이 파일이다** — 9종 launch 는 전부
+    #    `<action>_params.yaml` 만 넘기고(`launch/spin.launch.py:14-17`), 어떤 launch 도
+    #    `robot_geometry_2ws.yaml` 을 읽지 않는다. 파라미터 미지정 시 default 도 동일
+    #    (`trnav_2ws_motion/include/trnav_2ws_motion/qd_action_server_base.hpp:189-194`).
+    #    그 결과 `src/mpc/mpc_action_server.cpp:119` `wheelbase_ = |w1_x - w2_x|` = **0.660 m**
+    #    (실측 휠베이스 1.20 m 의 절반)가 MPC 자전거모델
+    #    (`trnav_2ws_motion/src/qd_mpc_controller.cpp:115` tan(δ)/wheelbase)에 들어간다.
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ── Platform (trnav_2ws_core::loadGeometry) ──
+    platform: "QD_DIAGONAL"
+
+    # ── 로봇 기하 (Carrier_AGV_기구LAYOUT Rev.1.3) ──
+    body_length: 1.1974       # m (1197.4 mm)
+    body_width: 0.648         # m (648 mm)
+    w1_x: 0.330               # m (+330 mm, 전방좌측)
+    w1_y: 0.135               # m (+135 mm, 도면 기준)
+    w2_x: -0.330              # m (-330 mm, 후방우측)
+    w2_y: -0.135              # m (-135 mm, 도면 기준)
+    wheel_radius: 0.080       # m (Ø160 mm)
+    # ⚠ 2026-07-27 감사: Carrier AGV 원본 값. 본 기체는 protocol-reference:15 기준 wheelRadius **0.125 m**.
+    #   값 변경 없음(실측 재확인 후 별건).
+    steer_limit_deg: 90.0     # deg (조향 플립 기준)
+
+    # ── 감속비 (motors_canopen.hpp 확인값, Feedback RPM 계산용) ──
+    gear_walk: 20.0           # Walk 모터 (하드웨어 실측)
+    # ⚠ 2026-07-27 감사: 위 「하드웨어 실측」 라벨은 **Carrier AGV 원본 값이 그대로 남은 것**이며
+    #   본 기체(Foil_A082) 실측이 아니다. protocol-reference:11-12 은 walk 노드 reduction **32**.
+    #   값 변경 없음(실측 재확인 후 별건).
+
+    # ── 제어 파라미터 ──
+    control_rate_hz: 50.0     # 제어/피드백 주기 (Hz) — 20→50 (이산화 지연 50ms→20ms, overshoot 저감 테스트)
+    steer_tolerance_deg: 1.0  # 조향 도달 임계값 (deg)
+    steer_timeout_sec: 5.0    # Phase 0/4 타임아웃 (sec)
+
+    # -- Spin precision parameters --
+    spin_max_timeout_sec: 60.0      # Spin 글로벌 타임아웃 (sec)
+    fine_correction_threshold_deg: 0.3  # 종료 각오차 임계값 (deg) — PID 종료 게이트 tol 로 재사용
+    start_yaw_avg_samples: 10       # start_yaw 원형 이동평균 샘플 수 (윈도우 = N / control_rate_hz)
+
+    # -- 하이브리드: Stage1(사다리꼴 coarse) → 남은오차 ≤ pid_band → Stage2(PID fine) --
+    pid_band_deg: 30.0              # coarse→PID 핸드오프 임계 (deg) — 실차 HIL 튜닝값 (2026-06-02)
+
+    # -- Stage2 PID 게인 (bang-bang fine 대체) --
+    # ω_cmd[deg/s] = kp·e + ki·∫e + kd·de/dt, |ω| 하한 min_speed_dps / 상한 max_angular_speed.
+    # 실차 HIL 확정 (2026-06-02): ±10~±180.1 전 각도 |오차|≤0.42°, overshoot~0, ±180 방향 일관.
+    # ⚠ 2026-07-27 감사 정정 — 위 「실차 HIL 확정」에서 **어느 실차인지가 빠졌다.**
+    #   (원문은 이력 보존용으로 남김. 게인 값 변경 0건.)
+    #   정정 서술: 「실차 HIL 확정(2026-06-02, **Carrier AGV**) — 본 기체(Foil_A082)에서는 **미검증**」.
+    #   근거:
+    #    · 이 파일은 QD(Carrier AGV) 원본 `QD/trnav_motion_action_server/config/spin_params.yaml` 과
+    #      바이트 동일 복사본이다(diff = 네임스페이스 주석 1줄). 같은 파일 위쪽 기하 블록도
+    #      「Carrier_AGV_기구LAYOUT Rev.1.3」 으로 명시돼 있다.
+    #    · 본 기체는 Foil_A082 (`docs/verified_facts/2026-07-27.md:11` 「장비: Foil_A082 실기」).
+    #      휠베이스가 다르다 — 이 파일 로드값 기준 0.660 m 대 실측 1.20 m
+    #      (`References/Tongyi-Motor-Controller/docs/tongyi-canopen-protocol-reference.md:15`).
+    #      회전 관성·모멘트암이 다르므로 스핀 게인은 그대로 이식되지 않는다.
+    #    · 2WS 스택 신설 ADR 자신도 미검증이라 적었다 —
+    #      `docs/adr/2026-07-26-2ws-motion-from-qd-refactor.md` §검증(2026-07-27 기준 :95)
+    #      「미검증(정직): 런타임(SIL/HIL/실차) 거동·조향부호(kin_steer_sign)·drive_sign 은 범위 밖」.
+    #      코드 default 주석도 동일하다 —
+    #      `src/spin/spin_action_server.cpp:25` 「SIL 검증 시드 — 실차 재튜닝」.
+    #   ⇒ 본 기체 **첫 스핀은 저각도·저속으로 재튜닝**할 것(E-STOP 상비). 아래 pid_band_deg(위 행)의
+    #     「실차 HIL 튜닝값」 라벨도 동일하게 Carrier AGV 건이다.
+    kp_spin: 1.7                    # 비례 게인 (deg/s per deg)
+    ki_spin: 0.0                    # 적분 게인 (정상오차 0화; 정지마찰 클 때만 소량)
+    kd_spin: 0.1                    # 미분 게인 (derivative-on-measurement, overshoot 댐핑)
+    integral_limit_deg: 30.0        # I항 anti-windup clamp (deg·s)
+
+    # -- 공용 (Stage1+Stage2) --
+    min_speed_dps: 2.0              # |ω| 하한 (Stage1 floor; Stage2 fine 은 floor 없음)
+    # fine timeout 은 코드에서 진행시간(target/max_ω)×3 으로 적응 계산 (아래 값 미사용)
+    fine_correction_timeout_sec: 3.0
+
+    # -- (하이브리드 전환으로 미사용; yaml 호환 위해 유지) --
+    settle_rate_dps: 2.0
+    settle_count: 5
+    fine_correction_speed_dps: 3.0
+    settling_delay_ms: 200
