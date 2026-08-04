@@ -326,12 +326,24 @@ class RelayBackend:
                 if mid not in self.cfg.steer_home:
                     notes.append(f"node{mid} 조향 홈 미설정 — 캘리브레이션 config 필요, 거부")
                     continue
+                # 상류가 보내는 `target_pos` 는 **홈(직진 0°) 기준 상대 counts** 다.
+                # 여기서 기체 원점을 더해 절대 counts 로 만든다 — `set_steer_deg` 가
+                # `steer_deg_to_counts`(safety.py:85 `home + deg×counts_per_deg`)로 하는 것과
+                # 같은 일이며, 실기 검증된 그 원점을 raw 경로가 재사용하는 것이다.
+                #
+                # ⚠ 상류가 원점을 더하게 두지 않는 이유: 홈 counts 의 정본은
+                #   `config/machine/<기체>.yaml` 하나다. 상류 config 에 복제하면 정본이 둘이 되고,
+                #   기체를 바꿀 때 한쪽만 갱신되면 그 오차가 그대로 바퀴로 나간다.
+                #
+                # 이 변환이 없으면 0°(직진) 지령이 상대 0 counts 로 들어와 절대 0 으로 읽히고,
+                # 아래 클램프 하한(home−limit)까지 잘려 **−90° 로 지령된다**(2026-08-05 리뷰 Critical).
                 home = int(self.cfg.steer_home[mid])
+                target = home + int(tpos)
                 lo, hi = home - limit_c, home + limit_c
-                c = max(lo, min(hi, int(tpos)))
-                if c != int(tpos):
-                    notes.append(f"node{mid} target_pos {tpos}→{c} 클램프(±"
-                                 f"{self.cfg.steer_limit_deg:.0f}°)")
+                c = max(lo, min(hi, target))
+                if c != target:
+                    notes.append(f"node{mid} target_pos {tpos}→{c - home} 클램프(±"
+                                 f"{self.cfg.steer_limit_deg:.0f}°, 홈 기준)")
                 # profile_vel 은 **반영하지 않는다** — 조향은 PP 모드라 실제 속도는
                 # 드라이브에 마지막으로 기록된 0x6081 이 결정한다. 매 지령마다 0x6081 을
                 # 덧붙이는 것은 실기 미검증 변경이라 HIL 게이트 전까지 하지 않는다(debt-038).
@@ -376,10 +388,16 @@ class RelayBackend:
             for n in sorted(self.nodes):
                 st = self.nodes[n]
                 fresh = st.fresh(now, self.cfg.feedback_ttl_s)
+                # 조향축 위치는 **홈 기준 상대 counts** 로 올린다 — 지령과 같은 좌표계다
+                # (`set_motor_cmds` 가 `home + tpos` 로 받는 것의 역방향).
+                # 절대 counts 를 그대로 올리면 상류가 직진(7,871,815c)을 137.3° 로 읽는다.
+                pos = int(st.position or 0)
+                if n in self.cfg.steer_home:
+                    pos -= int(self.cfg.steer_home[n])
                 out.append({
                     "motor_id": n,
                     "fb_vel": int(st.velocity_raw or 0),
-                    "fb_pos": int(st.position or 0),
+                    "fb_pos": pos,
                     "error_code": int(st.last_abort or 0) & 0xFFFF,
                     "amps": int(st.current_raw or 0),
                     "voltage": 0,                   # 0x6079 미폴 — 0 으로 둔다
