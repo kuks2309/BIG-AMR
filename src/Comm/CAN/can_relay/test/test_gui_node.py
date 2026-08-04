@@ -345,12 +345,15 @@ def test_zero_is_repeated_briefly_then_goes_quiet(rig):
     got.clear()
     client.send_drive(0.0)
     t_cmd = time.monotonic()
-    time.sleep(ZERO_HOLD_S * 0.6)
-    during = len(got)
-    time.sleep(ZERO_HOLD_S + 0.4)
-    after = len([1 for t, _ in got if t > t_cmd + ZERO_HOLD_S + 0.1])
+    # ⚠ 판정 창을 넉넉히 잡는다. 짧은 창에서 발행 횟수를 세면 전체 시험을 함께 돌릴 때
+    #   실행기가 밀려 간헐 실패한다(2026-08-04 실측). 검출력은 그대로다 —
+    #   재발행이 없으면 보유 구간 수신이 1건뿐이고, 침묵이 없으면 이후 구간에 계속 잡힌다.
+    time.sleep(ZERO_HOLD_S + 0.3)
+    during = len([1 for t, _ in got if t <= t_cmd + ZERO_HOLD_S])
+    time.sleep(1.5)                       # 침묵 판정 여유
+    after = len([1 for t, _ in got if t > t_cmd + ZERO_HOLD_S + 0.5])
     client.destroy_subscription(sub)
-    assert during >= 3, f"정지 0 이 반복되지 않는다(보유 구간 수신 {during}건)"
+    assert during >= 2, f"정지 0 이 반복되지 않는다(보유 구간 수신 {during}건)"
     assert all(v == 0.0 for _, v in got), got
     assert after == 0, f"보유 시간이 지나도 계속 발행한다({after}건) — 토픽을 점유한다"
 

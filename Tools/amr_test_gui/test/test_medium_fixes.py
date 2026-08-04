@@ -220,3 +220,70 @@ def test_poll_thread_death_actually_emits_the_signal(win):
             break
         _t.sleep(0.05)
     assert win.btn_take.isChecked() is False, "신호는 났는데 제어권 표시가 내려가지 않았다"
+
+
+def test_seer_angle_is_normalized_to_our_sign(win):
+    """Seer 각도는 **우리 규약(CAN)으로 정규화**해 담아야 한다.
+
+    ⚠ 2026-08-04 실기: Seer 원값을 그대로 담아, 제어권을 잡고 놓을 때마다 `_meas_angle` 의
+    부호가 뒤집혔다(바퀴 그림·실측 라벨 동반). 근거는 정본 YAML 의 0° 역산식
+    `0° = CAN + Seer_deg × 57344`(음의 상관)와 실측 CAN +90.133° ↔ Seer −90.1°.
+    """
+    import math
+    win._run = False                       # 제어권 없음 → Seer 값이 실측 자리를 대신한다
+    win._on_seer_data({3: {"position": math.radians(-90.1)},
+                       4: {"position": math.radians(-89.9)}})
+    assert win._meas_angle(3) == pytest.approx(+90.1, abs=0.01), "부호가 뒤집힌 채 쓰인다"
+    assert win._meas_angle(4) == pytest.approx(+89.9, abs=0.01)
+
+
+def test_seer_table_keeps_seer_own_sign(win):
+    """Seer **표**는 Seer 가 보고한 값 그대로여야 한다 — 정규화는 실측 경로에서만."""
+    import math
+    win._on_seer_data({3: {"position": math.radians(-90.1)}})
+    txt = win.tbl_seer.item(2, 1).text()     # row 2 = node3
+    assert txt.startswith("-"), f"Seer 표가 부호를 바꿔 버렸다: {txt}"
+
+
+def _render(widget, w=320, h=340):
+    from PyQt5 import QtGui
+    widget.resize(w, h)
+    img = QtGui.QImage(w, h, QtGui.QImage.Format_RGB32)
+    img.fill(0xFFFFFFFF)
+    widget.render(img)
+    return img.bits().asstring(img.byteCount())
+
+
+def test_wheel_drawing_includes_a_direction_arrow():
+    """바퀴 그림에 **지향 화살표**가 있어야 한다(2026-08-04 사용자 요청).
+
+    사각형만 그리면 +90° 와 −90° 가 완전히 같은 모양이라 크랩 좌/우를 눈으로 못 가린다.
+
+    ⚠ 처음에는 위젯 전체를 +90°/−90° 로 렌더해 이미지가 다른지 봤는데, **각도 라벨 텍스트**
+    (`+90.0°` vs `-90.0°`)만으로도 이미지가 달라져 화살표를 지워도 통과했다. 그래서 호출
+    지점 자체를 고정한다.
+    """
+    import inspect
+    src = inspect.getsource(gui.WheelView._draw_wheel)
+    assert "_draw_arrow(" in src, "`_draw_wheel` 이 화살표를 그리지 않는다"
+    assert hasattr(gui.WheelView, "_draw_arrow")
+
+
+def test_arrow_points_opposite_ways_for_opposite_headings(app):
+    """지향이 반대면 화살표도 반대로 그려져야 한다 — 그래야 좌/우가 구분된다."""
+    from PyQt5 import QtGui, QtCore
+    def draw(ax, ay):
+        img = QtGui.QImage(120, 120, QtGui.QImage.Format_RGB32)
+        img.fill(0xFFFFFFFF)
+        p = QtGui.QPainter(img)
+        gui.WheelView._draw_arrow(gui.WheelView(), p, QtCore.QPointF(60, 60), ax, ay, 40.0)
+        p.end()
+        return img.bits().asstring(img.byteCount())
+    assert draw(1.0, 0.0) != draw(-1.0, 0.0), "지향이 반대인데 같은 그림이다"
+
+
+def test_zero_degrees_still_renders(app):
+    """화살표를 넣어도 0° 가 정상적으로 그려진다(회귀)."""
+    wv = gui.WheelView()
+    wv.set_angles(0.0, 0.0)
+    assert len(_render(wv)) > 0

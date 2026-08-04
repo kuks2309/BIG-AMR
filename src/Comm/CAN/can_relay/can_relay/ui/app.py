@@ -121,9 +121,25 @@ class WheelView(QWidget):
         p.drawPolygon(QPolygonF(pts))
         p.setPen(QPen(QColor("#22303c"), 1))
         p.setBrush(Qt.NoBrush)
+        self._draw_arrow(p, ctr, ax, ay, L * 0.72)
         p.drawEllipse(ctr, 3.0, 3.0)
         p.drawText(QRectF(ctr.x() + 22, ctr.y() - 10, 120, 20),
                    Qt.AlignLeft | Qt.AlignVCenter, f"{name}  {deg:+.1f}°")
+
+    def _draw_arrow(self, p: QPainter, ctr: QPointF, ax: float, ay: float, length: float):
+        """바퀴 지향 화살표. **사각형만으로는 +90° 와 −90° 가 똑같이 보인다** — 방향을 드러낸다.
+
+        `(ax, ay)` 는 이미 화면 좌표계로 변환된 지향 단위벡터다(+각 방향).
+        """
+        tip = QPointF(ctr.x() + ax * length, ctr.y() + ay * length)
+        p.setPen(QPen(QColor("#c0392b"), 2.2))
+        p.setBrush(Qt.NoBrush)
+        p.drawLine(ctr, tip)
+        head = max(6.0, length * 0.28)
+        for sign in (+1, -1):                       # 화살촉 두 날개(지향 기준 ±150°)
+            a = math.atan2(ay, ax) + sign * math.radians(150.0)
+            p.drawLine(tip, QPointF(tip.x() + math.cos(a) * head,
+                                    tip.y() + math.sin(a) * head))
 
 
 def _toggle(text: str, on_bg: str, on_border: str) -> QPushButton:
@@ -664,7 +680,15 @@ class MainWindow(QWidget):
             deg = None if pos is None else pos * 180.0 / math.pi
             self._fill_row(self.tbl_seer, node, (deg, m.get("speed"), m.get("current")))
             if node in STEER_NODES and deg is not None:
-                self._seer_deg[node] = deg
+                # ⚠ **우리 규약(CAN)으로 정규화해 담는다.** Seer 각도와 CAN counts 는
+                #   **음의 상관**이다 — 정본 `config/machine/foil_a082.yaml` 의 0° 역산식
+                #   `0° = CAN_0x6064 + Seer_deg x 57344` 가 그 뜻이고,
+                #   실측 2026-08-04 20:34 도 같다: CAN +90.133°/+89.865° <-> Seer -90.1°/-89.9°.
+                #   예전에는 Seer 원값을 그대로 담아, 제어권을 잡고 놓을 때마다 `_meas_angle`
+                #   의 부호가 뒤집혔다(바퀴 그림·실측 라벨이 함께 뒤집힘).
+                #   ⚠ Seer **표**(`tbl_seer`)는 Seer 가 보고한 값을 그대로 보여야 하므로
+                #     정규화하지 않는다 — 여기서만 바꾼다.
+                self._seer_deg[node] = -deg
 
     def _on_seer_status(self, text: str, ok: bool):
         self.lab_status.setText(text)
