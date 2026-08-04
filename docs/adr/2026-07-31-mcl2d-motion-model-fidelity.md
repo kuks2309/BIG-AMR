@@ -12,7 +12,7 @@ Accepted (2026-07-31). 구현·회귀시험 완료, 최종 verdict 는 외부 �
 
 2026-07-31 원본 바이너리를 직접 디스어셈블한 결과(근거 전문:
 [docs/comparison/seer-libmcloc-odom_vs_mcl2d-port_2026-07-31.md](../comparison/seer-libmcloc-odom_vs_mcl2d-port_2026-07-31.md),
-1차 산출물 `references/seer/libMCLoc/*.asm`), 기존 이식본의 모션모델은 원본과 **구조가 달랐다**:
+1차 산출물 `References/seer/libMCLoc/*.asm`), 기존 이식본의 모션모델은 원본과 **구조가 달랐다**:
 
 | 항목 | 원본 (실측) | 이식본(기존) |
 | --- | --- | --- |

@@ -55,7 +55,7 @@
 - "코드 리뷰"/"코드 분석" 트리거 감지 시 **응답 전 의무 선행 점검**(등록만 알고 건너뛰지 말 것): 먼저 docs/claude_guideline/code_review/review.md 를 Read 한 뒤 9단계 SOP(인벤토리[목적·함수표·전역표·의존성] + severity 평가 + 산출물 docs/code_review/<주제>/YYYY-MM-DD.md(루트 정본+패키지 병기 이중기록) + 플로우차트 .drawio 기록)를 따른다. 일반 탐색+요약으로 대체 금지. (도메인: docs/claude_guideline/code_review/domains/)
 
 <!-- kuks_agent_setup:external_reference -->
-- 외부 참조 문서(매뉴얼·datasheet·SDK·표준) 트리거 감지 시 **응답 전 의무 선행 점검**(등록만 알고 건너뛰지 말 것): 먼저 docs/claude_guideline/external_reference/handling.md 를 Read 한 뒤 보관(references/)·인용(출처·페이지·버전)·원문 대조 검증 규칙을 따른다. 기억 의존 추정(환각) 금지. (도메인: docs/claude_guideline/external_reference/domains/)
+- 외부 참조 문서(매뉴얼·datasheet·SDK·표준) 트리거 감지 시 **응답 전 의무 선행 점검**(등록만 알고 건너뛰지 말 것): 먼저 docs/claude_guideline/external_reference/handling.md 를 Read 한 뒤 보관(**루트 `References/`** — 복수·대문자 R 고정, 소문자 `references/`·단수 `reference/`·`Reference/` 금지)·인용(출처·페이지·버전)·원문 대조 검증 규칙을 따른다. 기억 의존 추정(환각) 금지. **타 저장소의 참조 폴더는 철자를 고치지 말고 저장소 이름을 접두로 붙여 인용**한다(예: `T-Robot_seer_gui/references/…`). (도메인: docs/claude_guideline/external_reference/domains/)
 
 <!-- kuks_agent_setup:user_instruction -->
 - 사용자 지시는 UserPromptSubmit hook 이 이 세션 전용 파일(docs/user_instructions/sessions/{session_id}.md)에 자동 기록하고 SessionEnd 에 단일 누적 로그(docs/user_instructions/user_instructions.md)로 병합한다(규칙: docs/claude_guideline/user_instruction/recording.md). 모델은 다른 세션 기록·병합 로그를 현재 작업 소스로 읽지 않는다(세션 격리).

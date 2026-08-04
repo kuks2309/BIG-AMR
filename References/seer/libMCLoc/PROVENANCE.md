@@ -1,7 +1,7 @@
 # PROVENANCE — Seer libMCLoc 리버스 엔지니어링(Reverse Engineering) 산출물
 
 보관 규약: [docs/claude_guideline/external_reference/handling.md](../../../docs/claude_guideline/external_reference/handling.md) §1
-(루트 `references/<vendor>/<product>/`). 2026-07-31 보관.
+(루트 `References/<vendor>/<product>/`). 2026-07-31 보관.
 
 ## 출처
 

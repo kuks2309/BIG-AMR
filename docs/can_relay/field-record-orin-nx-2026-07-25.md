@@ -257,7 +257,7 @@
 ## 9. Seer API 직접 모니터 + 릴레이 재검증 2차 (2026-07-25 ~14:55) [실측]
 
 - **Seer TCP API 접속**: 192.168.44.82(orin wlan0 192.168.44.30/24), ping ~5ms, SEER Robokit API 포트(19204 status 등) 전부 open. 로봇 **Foil_A082, RBK v3.4.5.22**.
-- **CAN 개입 없이 Seer 알람 직접 조회**: SEER API **1050**(`robot_status_alarm`, 포트 19204) → fatals/errors/warnings/notices. 근거: `~/T-Robot_seer_gui`(github kuks2309/T-Robot_seer_gui) `seer_core/client.py`(16B 헤더 0x5A+JSON, 응답=요청+10000) + `references/seer/robokit-api/appendix/002-alarm-code.md`(SEER wiki https://seer-group.feishu.cn/wiki/ 추출).
+- **CAN 개입 없이 Seer 알람 직접 조회**: SEER API **1050**(`robot_status_alarm`, 포트 19204) → fatals/errors/warnings/notices. 근거: `~/T-Robot_seer_gui`(github kuks2309/T-Robot_seer_gui) `seer_core/client.py`(16B 헤더 0x5A+JSON, 응답=요청+10000) + `T-Robot_seer_gui/references/seer/robokit-api/appendix/002-alarm-code.md`(타 저장소)(SEER wiki https://seer-group.feishu.cn/wiki/ 추출).
 - **도구 신규**: `docking_field_kit/seer_can_monitor.py` — API 1050 폴링(0.4s), CAN/모터 알람코드(52111 motor driver connection error, 52106 odo, 52116 network break, 52130~52135 모터폴트, 52136 chassis speed timeout 등) 신규 발생 실시간 포착. 읽기 전용(제어권 미취득). (주의: "can" 부분매칭 오탐 방지 위해 단어경계 정규식 사용.)
 - **재검증 2차 (Seer 모니터 병행)**: `seer_can_monitor.py 25` 백그라운드 + `amap2_monitor.py gate 8`(intercept 8s). 결과 **모두 정상** — 신규 CAN/모터 알람 **0건**, 재호밍 **0**, 모터응답 손실 **Δ8**(경미), 최종 Seer fatals 0·모터errors 0·e-stop 없음(잔존 errors=레이저 52102/52103, 별개 이슈).
 - **[가설] intercept 전환 글리치는 간헐적**: 1차(14:28, 20s, Δ431 → Seer 리셋·재호밍) vs 2차(14:55, 8s, Δ8 → 무교란). 표본 2회(1 나쁨/1 좋음). 신뢰 안전엔 전환 무중단화(PCAN 커널 can-gw 수준) 필요.

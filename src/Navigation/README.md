@@ -63,7 +63,7 @@ cd Tools/mcl2d_standalone && cmake -B build -S . && cmake --build build -j6 && .
   twist 크기를 `MotorStopThreshold`(0.02) 와 비교해 대체 배선.
 - 근거: [ADR](../../docs/adr/2026-07-31-mcl2d-motion-model-fidelity.md) ·
   [대조 문서](../../docs/comparison/seer-libmcloc-odom_vs_mcl2d-port_2026-07-31.md) ·
-  1차 산출물 `references/seer/libMCLoc/*.asm` · 함수표 [mcl2d_core/docs/function_table.md](mcl2d_core/docs/function_table.md)
+  1차 산출물 `References/seer/libMCLoc/*.asm` · 함수표 [mcl2d_core/docs/function_table.md](mcl2d_core/docs/function_table.md)
 - 검증(이 장비): `ctest` **4/4 PASS**(신규 `test_motion_model` 포함, 변이 검증으로 실패 가능성 확인) ·
   비-ROS2 데모 최종 오차 **0.007 m** · `colcon build --packages-select mcl2d_ros2` 성공.
 - 남은 위험: 모드 판정에 쓰는 우도 스케일이 원본과 같은지 미검증 → `docs/debt/registry.md` **debt-031**.

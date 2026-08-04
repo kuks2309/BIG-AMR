@@ -22,7 +22,7 @@
 - 배포 파라미터 `…/usr/local/etc/.SeerRobotics/rbk/resources/params/robot.param`(SQLite) — `/tmp` 사본을 `mode=ro` 로 조회, `MCLoc` 테이블 101키
 - 접근법·함정은 [docs/network/seer_network_access.md §amap-1](../network/seer_network_access.md)
 
-분석 문서(2차 자료)는 [references/seer/libMCLoc/](../../references/seer/libMCLoc/PROVENANCE.md).
+분석 문서(2차 자료)는 [References/seer/libMCLoc/](../../References/seer/libMCLoc/PROVENANCE.md).
 
 ## 1. Seer 가 odom 을 쓰는 다섯 갈래
 
@@ -213,7 +213,7 @@ odom 자체의 기구학(`*Odometer::CalSpeed`)은 이 테이블 밖이며 이�
 
 ## 6. 참조 분석 문서 반증 1건
 
-[deep-dive §6.5②](../../references/seer/libMCLoc/2026-06-24-localization-deep-dive.md) 는 모션 노이즈를 이렇게 서술한다:
+[deep-dive §6.5②](../../References/seer/libMCLoc/2026-06-24-localization-deep-dive.md) 는 모션 노이즈를 이렇게 서술한다:
 
 > `RangeRandom(int,int)`(균등난수) **2회**(@0x33cba8, 0x33cbde) + `cos`/`sin` → `r·cosθ, r·sinθ` 디스크 산포.
 
