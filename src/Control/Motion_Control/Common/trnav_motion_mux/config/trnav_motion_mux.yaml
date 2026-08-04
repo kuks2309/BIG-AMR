@@ -1,0 +1,131 @@
+trnav_motion_mux:
+  ros__parameters:
+    output_topic: "/motor/wheel_cmd"
+    default_source_id: 0    # 0 = joystick (수동 override, 부팅 시 안전 기본값)
+
+    # 활성 소스 ID 목록. loadSources() 가 이 목록을 순회해 source_N 블록을 등록.
+    # Reserved IDs (영구 확정, docs/abstraction/motion_source_id_contract.md SSOT 참조):
+    #   0 = joystick             — 수동 override, safe default
+    #   1 = translate_forward    — amr_translate_forward_node (forward direction)
+    #   2 = translate_reverse    — amr_translate_reverse_node (reverse direction)
+    #   3 = spin                 — amr_spin_node (제자리 회전, target_angle ±)
+    #   4 = crab_linear          — amr_crab_linear_node (target_yaw 능동 유지 + start↔end 직선 closed-loop)
+    #   5 = turn                 — amr_turn_node (R-turn arc)
+    #   6 = yaw_control          — amr_yaw_control_node (yaw 추종 직진 forward)
+    #   7 = yaw_control_reverse  — amr_yaw_control_reverse_node (yaw 추종 직진 reverse)
+    #   8 = mpc                  — trnav_mpc_node (path tracking forward, kinematic bicycle MPC, NLopt SLSQP. 2026-05-28 PurePursuit 폐기 후 교체)
+    #   9 = mpc_reverse          — trnav_mpc_reverse_node (path tracking reverse, effective_yaw+π)
+    #  10 = stanley              — (예약, 미구현) Stanley lateral control forward
+    #  11 = stanley_reverse      — (예약, 미구현) Stanley lateral control reverse
+    #  40 = dock               — amr_dock_align (Stage2 결합 closed-loop: marker 직접 피드백 vy+omega, 2026-06-02)
+    # 짝 패턴: (1,2) translate, (6,7) yaw_control, (8,9) mpc, (10,11) stanley
+    # 단일: spin(3), crab(4), turn(5), dock(40)
+    source_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 40]
+
+    # --- source_0: joystick ---
+    # 수동 조이스틱 입력. default_source_id=0 이므로 부팅 직후 즉시 활성.
+    # 안전 설계: 자율 주행 명령이 없을 때 항상 수동으로 fallback 가능.
+    source_0:
+      name: "joystick"
+      topic: "/motion/wheel_cmd/joystick"
+      timeout_ms: 200   # NOTE: source alive 감시는 amr_safety_watchdog 책임 (future wave).
+                        #       현재 mux 는 timeout 을 enforce 하지 않음 (io_contract §7/§8).
+
+    # --- source_1: translate_forward ---
+    # amr_translate_forward_node (BICYCLE 모드, forward direction only) 가 발행.
+    source_1:
+      name: "translate_forward"
+      topic: "/motion/wheel_cmd/translate_forward"
+      timeout_ms: 200
+
+    # --- source_2: translate_reverse ---
+    # amr_translate_reverse_node (BICYCLE 모드, reverse direction) 가 발행.
+    source_2:
+      name: "translate_reverse"
+      topic: "/motion/wheel_cmd/translate_reverse"
+      timeout_ms: 200
+
+    # --- source_3: spin ---
+    # amr_spin_node 가 발행하는 제자리 회전 명령 (ICR=base_link 원점).
+    # target_angle ± 부호로 양방향 (CCW/CW) 회전 — 별도 reverse 슬롯 불필요.
+    source_3:
+      name: "spin"
+      topic: "/motion/wheel_cmd/spin"
+      timeout_ms: 200
+
+    # --- source_4: crab_linear (2026-05-21, 기존 crab open-loop 폐기 + 동일 슬롯 재사용) ---
+    # amr_crab_linear_node 가 발행 — target_yaw 능동 유지 + start↔end world-frame 직선 closed-loop 추종.
+    # PathController (CTE 측정) + LocalizationMonitor + IK {v·cosθ, v·sinθ, ω=PD(target_yaw−robot_yaw)}.
+    # 단일 슬롯 (forward/reverse 짝 없음 — direction 은 path 방향 sign 으로 표현).
+    source_4:
+      name: "crab_linear"
+      topic: "/motion/wheel_cmd/crab_linear"
+      timeout_ms: 200
+
+    # --- source_5: turn (2026-04-28 활성) ---
+    # amr_turn_node 가 발행 (R-turn = ICR 기반 호 운동, T-Robot ROS2 원본 그대로 이식).
+    # target_angle ± 부호로 양방향 — 별도 reverse 슬롯 불필요.
+    source_5:
+      name: "turn"
+      topic: "/motion/wheel_cmd/turn"
+      timeout_ms: 200
+
+    # --- source_6: yaw_control (2026-04-28 활성) ---
+    # amr_yaw_control_node 가 발행 (ROS1 개념 + bicycle + 거리 종료, forward).
+    # PID(yaw error) → steering δ → BicycleModel(vx, δ_f, δ_r) → wheel cmd.
+    # IMU + 시작 1회 localization offset calibration 으로 절대 yaw 추종.
+    source_6:
+      name: "yaw_control"
+      topic: "/motion/wheel_cmd/yaw_control"
+      timeout_ms: 200
+
+    # --- source_7: yaw_control_reverse (2026-04-28 활성, 2026-05-16 9→7 재할당) ---
+    # amr_yaw_control_reverse_node 가 발행 (yaw_control 의 reverse 분리, vx_max magnitude 입력).
+    # PID(yaw error) → steering δ → BicycleModel(-vx, δ_f, δ_r) → wheel cmd × (-1).
+    # IMU + 시작 1회 localization offset calibration. effective_yaw 보정 미적용 (PathController 미사용).
+    source_7:
+      name: "yaw_control_reverse"
+      topic: "/motion/wheel_cmd/yaw_control_reverse"
+      timeout_ms: 200
+
+    # --- source_8: mpc (2026-05-28 PurePursuit 폐기 후 MPC 교체) ---
+    # mpc_action_server 가 발행 (nav_msgs/Path 다중 waypoint 추종, BICYCLE 전륜).
+    # kinematic bicycle MPC (NLopt SLSQP, N=10 horizon, 1.0s). cost = lat² + hdg² + Δδ² + goal_dist².
+    # 채택 사유: HF5 R=1m 90° arc — MPC hdg 0.22° vs PP 4.96° (20× 우위).
+    source_8:
+      name: "mpc"
+      topic: "/motion/wheel_cmd/mpc"
+      timeout_ms: 200
+
+    # --- source_9: mpc_reverse (2026-05-28) ---
+    # mpc_reverse_action_server 가 발행 (nav_msgs/Path 다중 waypoint 후진 추종).
+    # effective_yaw = robot_yaw + π 보정 → QdMpcController 그대로 사용. wheel velocity × -1 (translate_reverse 패턴).
+    source_9:
+      name: "mpc_reverse"
+      topic: "/motion/wheel_cmd/mpc_reverse"
+      timeout_ms: 200
+
+    # --- source_10: stanley (예약, 미구현, 2026-05-16 8→10 재할당) ---
+    # Stanley lateral control (forward) — mpc 대안.
+    # 블록 정의만 유지, source_ids 활성 목록에서 제외. 활성화는 구현 + 별도 wave 결정.
+    source_10:
+      name: "stanley"
+      topic: "/motion/wheel_cmd/stanley"
+      timeout_ms: 200
+
+    # --- source_11: stanley_reverse (예약, 미구현, 2026-05-16 신규) ---
+    # Stanley lateral control 의 reverse 변형 — mpc_reverse 패턴 (effective_yaw+π, wheel 출력 반전).
+    # 블록 정의만 유지, source_ids 활성 목록에서 제외. 활성화는 stanley(10) 구현 후 별도 wave 결정.
+    source_11:
+      name: "stanley_reverse"
+      topic: "/motion/wheel_cmd/stanley_reverse"
+      timeout_ms: 200
+
+    # --- source_40: dock (2026-06-02, amr_docking Stage2 결합 closed-loop) ---
+    # amr_dock_align 노드가 발행 — /dock/observation(base_link) marker_x·yaw_err 직접 피드백.
+    # vy = -Kp_lat·marker_x, omega = -Kp_yaw·(yaw_err - sgn(yaw_err)·90) → QdDualSteerIK{vx=0,vy,omega} → wheel cmd.
+    # yaw+lateral 동시 제어 (순차 spin+translate 의 커플링/overshoot 회피). 단일 슬롯.
+    source_40:
+      name: "dock"
+      topic: "/motion/wheel_cmd/dock"
+      timeout_ms: 200

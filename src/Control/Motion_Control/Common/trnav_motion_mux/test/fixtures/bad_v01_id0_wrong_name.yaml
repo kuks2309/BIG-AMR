@@ -1,0 +1,21 @@
+# Bad: V-01 — id=0 의 name 이 "joystick" 이 아님 (오타 "joysstick")
+trnav_motion_mux:
+  ros__parameters:
+    output_topic: "/motion/wheel_out"
+    default_source_id: 0
+    source_ids: [0, 1, 3]
+
+    source_0:
+      name: "joysstick"   # ← V-01 위반: id=0 은 반드시 name="joystick" 이어야 함
+      topic: "/motion/wheel_cmd/joysstick"
+      timeout_ms: 200
+
+    source_1:
+      name: "translate_forward"
+      topic: "/motion/wheel_cmd/action"
+      timeout_ms: 200
+
+    source_3:
+      name: "spin"
+      topic: "/motion/wheel_cmd/spin"
+      timeout_ms: 200

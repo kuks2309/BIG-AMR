@@ -1,0 +1,26 @@
+# Bad: V-06 — source_3 과 source_5 가 동일 topic="/motion/wheel_cmd/spin" (중복 topic)
+trnav_motion_mux:
+  ros__parameters:
+    output_topic: "/motion/wheel_out"
+    default_source_id: 0
+    source_ids: [0, 1, 3, 5]
+
+    source_0:
+      name: "joystick"
+      topic: "/motion/wheel_cmd/joystick"
+      timeout_ms: 200
+
+    source_1:
+      name: "translate_forward"
+      topic: "/motion/wheel_cmd/action"
+      timeout_ms: 200
+
+    source_3:
+      name: "spin"
+      topic: "/motion/wheel_cmd/spin"   # ← V-06 위반 기준점: topic 첫 등록
+      timeout_ms: 200
+
+    source_5:
+      name: "turn"
+      topic: "/motion/wheel_cmd/spin"   # ← V-06 위반: topic "/motion/wheel_cmd/spin" 중복
+      timeout_ms: 200

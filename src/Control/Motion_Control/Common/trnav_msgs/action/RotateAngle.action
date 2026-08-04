@@ -1,0 +1,18 @@
+# Goal: Target angle to rotate
+float64 target_angle
+float64 target_vel
+
+uint8 mode_type 
+uint8 loc_type 
+
+uint8 ABSOLUTE_TYPE = 0
+uint8 RELATIVE_TYPE = 1
+
+uint8 ODOM_TYPE = 0
+uint8 AMCL_TYPE = 1
+---
+# Result: Was the rotation successful or not
+bool success
+---
+# Feedback: Current error in angle
+float64 current_error
