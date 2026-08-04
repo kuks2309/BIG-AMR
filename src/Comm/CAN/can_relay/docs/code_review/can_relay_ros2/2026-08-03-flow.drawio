@@ -1,0 +1,105 @@
+<mxfile host="code-review-sop" modified="2026-08-03" agent="can_relay delta review">
+  <diagram id="can_relay_delta_2026_08_03" name="can_relay delta flow">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1"
+                  arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200"
+                  math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- A: /motor/low_cmd raw 지령 경로 -->
+        <mxCell id="A1" value="/motor/low_cmd (MotorCmdArray)" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="A2" value="CanRelayNode._on_low_cmd #111" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="130" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="A3" value="MotorCmd 필드 접근 실패?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="220" width="300" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="A4" value="_reject → diagnostics rejected_commands" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;" vertex="1" parent="1">
+          <mxGeometry x="400" y="225" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="A5" value="RelayBackend.set_motor_cmds #103" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="330" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="A6" value="mode 검사 (DISABLED / 축별 허용 mode)" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="420" width="300" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="A7" value="±vel_max_units 클램프" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-280" y="540" width="280" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="A8" value="홈±limit 을 counts 로 클램프 + 호밍완료 요구" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="540" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="A9" value="_drive_units_by_node / _steer_counts 갱신 + 워치독 타임스탬프" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-110" y="630" width="340" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="A10" value="RelayBackend._loop #62 — 20 Hz 재송신" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;" vertex="1" parent="1">
+          <mxGeometry x="-110" y="730" width="340" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="A11" value="link.send → 판다 → CAN bus2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;" vertex="1" parent="1">
+          <mxGeometry x="-110" y="820" width="340" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- B: 호밍 경로 -->
+        <mxCell id="B1" value="~/home (Trigger)" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="40" width="280" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="B2" value="RelayBackend.home #55" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="130" width="280" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="B3" value="homing_method == 35 ?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="220" width="280" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="B4" value="_home_method35 #107 — 0x607A 이동 → 0x6098=35" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;" vertex="1" parent="1">
+          <mxGeometry x="420" y="330" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="B5" value="link.homing_start #99 — USB 0xea" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="780" y="330" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="B6" value="homing_status #102 폴링 루프 (호출 스레드 블록)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;" vertex="1" parent="1">
+          <mxGeometry x="780" y="430" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="B7" value="terminal 판정 → _homed 갱신" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="780" y="540" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="B8" value="~/home_cancel → cancel_home" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="430" width="280" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- C: 버스 헬스 -->
+        <mxCell id="C1" value="_poll_bus_health #109 — USB 0xc3" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="700" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="C2" value="bus_fault #108 → diagnostics ERROR" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="790" width="300" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- 엣지 22 -->
+        <mxCell id="E1" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A1" target="A2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E2" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A2" target="A3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E3" value="예" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A3" target="A4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E4" value="아니오" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A3" target="A5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E5" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A5" target="A6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E6" value="거부" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A6" target="A4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E7" value="구동" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A6" target="A7"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E8" value="조향" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A6" target="A8"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E9" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A7" target="A9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E10" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A8" target="A9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E11" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A9" target="A10"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E12" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A10" target="A11"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E13" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="B1" target="B2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E14" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="B2" target="B3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E15" value="예" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="B3" target="B4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E16" value="아니오" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="B3" target="B5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E17" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="B4" target="A11"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E18" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="B5" target="B6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E19" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="B6" target="B7"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E20" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="B7" target="A10"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E21" value="H1: 단일 스레드 실행기에서 도달 불가" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;dashed=1;strokeColor=#b85450;" edge="1" parent="1" source="B8" target="B6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E22" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="C1" target="C2"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

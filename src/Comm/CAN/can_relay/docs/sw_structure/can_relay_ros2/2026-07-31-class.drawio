@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1600" pageHeight="1100">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+    <mxCell id="Node" value="Node «external»" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;" vertex="1" parent="1">
+      <mxGeometry x="40" y="40" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="CanRelayNode" value="CanRelayNode" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+      <mxGeometry x="40" y="140" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="RelayBackend" value="RelayBackend" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+      <mxGeometry x="40" y="260" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="RelayConfig" value="RelayConfig" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+      <mxGeometry x="280" y="260" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="NodeState" value="NodeState" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+      <mxGeometry x="280" y="360" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="BaseLink" value="BaseLink" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+      <mxGeometry x="520" y="140" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="MockLink" value="MockLink" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+      <mxGeometry x="460" y="240" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="PandaLink" value="PandaLink" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+      <mxGeometry x="600" y="240" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="HomingJudge" value="HomingJudge" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+      <mxGeometry x="40" y="380" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="Frame" value="Frame" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+      <mxGeometry x="520" y="380" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="SdoResponse" value="SdoResponse" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+      <mxGeometry x="520" y="460" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="DualSteerKinematics" value="DualSteerKinematics «external pkg»" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;" vertex="1" parent="1">
+      <mxGeometry x="280" y="140" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="RuntimeError" value="RuntimeError «external»" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;" vertex="1" parent="1">
+      <mxGeometry x="760" y="40" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="LinkError" value="LinkError" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+      <mxGeometry x="760" y="140" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="ValueError" value="ValueError «external»" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;" vertex="1" parent="1">
+      <mxGeometry x="760" y="260" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="UnsafeCommand" value="UnsafeCommand" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+      <mxGeometry x="760" y="360" width="200" height="40" as="geometry" />
+    </mxCell>
+    <mxCell id="e0" value="inherit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="Node" target="CanRelayNode">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e1" value="inherit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="BaseLink" target="MockLink">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e2" value="inherit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="BaseLink" target="PandaLink">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e3" value="inherit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="RuntimeError" target="LinkError">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e4" value="inherit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="ValueError" target="UnsafeCommand">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e5" value="compose" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="CanRelayNode" target="RelayBackend">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e6" value="compose" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="CanRelayNode" target="MockLink">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e7" value="compose" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="CanRelayNode" target="PandaLink">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e8" value="compose" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="CanRelayNode" target="RelayConfig">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e9" value="aggregate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="CanRelayNode" target="DualSteerKinematics">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e10" value="aggregate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="RelayBackend" target="BaseLink">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e11" value="associate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="RelayBackend" target="RelayConfig">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e12" value="compose" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="RelayBackend" target="NodeState">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e13" value="depend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="RelayBackend" target="HomingJudge">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e14" value="depend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="RelayBackend" target="Frame">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e15" value="depend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="RelayBackend" target="SdoResponse">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e16" value="depend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="PandaLink" target="Frame">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e17" value="depend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="MockLink" target="Frame">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+  </root>
+</mxGraphModel>

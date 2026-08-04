@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>can_relay</name>
+  <version>0.1.0</version>
+  <description>
+    판다(comma.ai Black Panda) CAN 릴레이 경유 Tongyi 4축 모터 구동 ROS2 드라이버.
+
+    ⚠ 이름 주의 — 이 패키지는 Tools/Can_Relay/ 의 **판다 펌웨어 프로젝트가 아니다.**
+    저장소에서 "can_relay" 는 지금까지 그 펌웨어(Tools/Can_Relay/, docs/can_relay/,
+    docs/code_review/can_relay_firmware/)를 가리켜 왔다. 이쪽은 그 릴레이를 **호스트에서
+    사용하는** rclpy 드라이버다. 두 맥락의 이름 공유로 debt id 오참조가 실제로 발생한
+    이력이 있으므로(docs/debt/registry.md:41-45), 문서·주석에서 인용할 때 어느 쪽인지
+    반드시 명시할 것.
+
+    src/Actuators/motor_control 과의 차이: 그쪽은 socketcan 직결·Seer 분리 전제이고
+    guard RTR 중단으로 정지한다. 이쪽은 판다 경유·Seer 공존이며 판다는 RTR 송신이
+    불가능해 정지를 펌웨어 heartbeat fail-safe 에 위임한다. 두 안전 모델은 배타적이다.
+  </description>
+  <maintainer email="gabekim883@gmail.com">kuks2309</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <!-- 모터 계층 계약. 상류 TR_Nav 와 같은 타입을 써야 체인이 이어진다 —
+       메시지를 이 패키지에 다시 정의하지 않는다(trnav_2ws_msgs 중복 폐기 선례). -->
+  <exec_depend>trnav_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>diagnostic_msgs</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
