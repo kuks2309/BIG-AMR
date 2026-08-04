@@ -22,6 +22,7 @@ control, and the two different ways commands reach the motors.
 7. [Non-ROS tooling](#7-non-ros-tooling)
 8. [Package map](#8-package-map)
 9. [Open points](#9-open-points)
+10. [Component reference — what each box does](#10-component-reference--what-each-box-does)
 
 ---
 
@@ -69,6 +70,9 @@ flowchart TB
     class L2,IMU,RGBD,CCTV s
     class ICP,MCL,OCC,ACT,KIN,MC,CR m
 ```
+
+> **New to this?** [§10](#10-component-reference--what-each-box-does) explains every box
+> above one at a time — what it physically is, what it actually does, and why it is there.
 
 ---
 
@@ -256,6 +260,305 @@ Facts from the code, not judgements.
 **Front/rear node assignment is disputed.** `Tools/Kinematics/chassis_kinematics.py:38` records `EasyDRIVE canID config` contradicting `KIN_NODE_XY` on which node is the front wheel. Logged as HIGH severity in the debt registry.
 
 **Localisation ownership is now ambiguous.** `ARCHITECTURE.md` assumes Seer localises the robot. `mcl2d` + `icp_odometry` provide an independent path. Which one the system actually uses — and whether both run — is not stated anywhere.
+
+---
+
+## 10. Component reference — what each box does
+
+Every box in the §1 diagram, one at a time. Numbers here are read from the code, not
+recalled — the file is named where it matters.
+
+---
+
+### PERCEPTION — the robot's senses
+
+Perception answers **"what is around me right now?"** Nothing here knows where the robot
+is or where it is going. It only reports what the sensors see.
+
+---
+
+#### 🔵 2D lidar — 2 × SICK safety scanner
+
+**What it is.** A laser on a spinning mirror. It fires a pulse, times how long the
+reflection takes, and turns that into a distance. Spin it and you get a ring of distances
+— a horizontal slice of the world, typically hundreds of measurements per revolution,
+tens of times a second.
+
+**What it does here.** One at the front, one at the rear. Each covers most of a circle
+but is blind behind itself, so `dual_laser_merger` fuses them into `/scan_merged` — one
+360° scan with no blind spot. `lidar_calibration_2d` works out the exact transform
+between the two units (they are bolted on by hand, so it is never exactly what the
+drawing says), and `seer_lidar_tf` reads the mounting position from Seer's own API 1009
+rather than hard-coding a number that could drift out of date.
+
+**Why it matters most.** These are **safety** scanners, not ordinary ones. They have a
+hardware safety output that stops the robot on their own, wired independently of every
+piece of software in this document. Nothing above can override it. If the whole ROS 2
+stack crashed, the scanners would still stop the robot before it hit a person.
+
+Everything else in localisation is built on this one sensor.
+
+---
+
+#### 🔵 IMU — iAHRS
+
+**What it is.** Inertial Measurement Unit. Accelerometers feel acceleration; gyroscopes
+feel rotation rate. No contact with the outside world at all — it senses only its own
+motion.
+
+**What it does here.** Reports how fast the robot is turning and which way it is tilted,
+on `/imu/data`.
+
+**Its one weakness, and why that shapes the design.** An IMU measures *rate*, so getting
+an angle out means integrating, and integration accumulates error. It is excellent over
+one second and worthless over ten minutes — the reported heading slowly drifts away from
+the truth with nothing to pull it back. That is exactly the opposite of the lidar, which
+is noisy tick to tick but never drifts because it keeps re-measuring real walls. Fusing
+the two gives you both properties, and it is why neither sensor alone is enough.
+
+---
+
+#### 🔵 6 × Orbbec Gemini E — depth cameras
+
+**What it is.** A camera where every pixel is a *distance* instead of a colour. Point it
+at a chair and you get the shape of the chair in 3D.
+
+**What it does here.** Six of them ring the body — `cam_f`, `cam_lf`, `cam_lr`, `cam_r`,
+`cam_rr`, `cam_rf` (front, left-front, left-rear, right, right-rear, right-front).
+Useful range is **0.2 m to 2.5 m**, so this is close-quarters vision, not long-range.
+
+**Why six cameras when there are already two lidars.** Because a 2D lidar sees exactly
+**one horizontal plane** — a single height, usually somewhere around knee level. It is
+completely blind to:
+
+- a forklift tine sticking out at chest height
+- a pallet overhanging its own base
+- a low step, a kerb, or a hole in the floor
+- a table top the robot would drive underneath and then wedge itself against
+
+None of those exist as far as the scanners are concerned. The robot would drive straight
+into them. The depth ring is what makes the machine aware of a world with a *height* to
+it.
+
+---
+
+#### 🔵 USB CCTV
+
+**What it is.** Ordinary colour cameras.
+
+**What it does here.** Feeds the YOLO detector (§6) and a `vision_guard` viewer for
+humans. This is for recognising *what* something is — a person, a pallet, a specific
+part — which depth and lidar cannot do. They measure shape; only colour vision reads
+identity.
+
+---
+
+### LOCALISATION — where am I, and what is in the way
+
+Two different questions get confused constantly, so it is worth separating them:
+
+| Question | Answered by | Fails how |
+|---|---|---|
+| "How far have I moved since a moment ago?" | **odometry** | drifts — small errors accumulate for ever |
+| "Where am I on the map?" | **localisation** | can be lost or wrong, but does not drift |
+
+Odometry is fast and smooth and slowly wrong. Localisation is slower and occasionally
+jumpy but stays anchored to reality. You need both, and one feeds the other.
+
+---
+
+#### 🟠 icp_odometry — "how far have I moved?"
+
+**What it is.** ICP means *Iterative Closest Point*. Take the laser scan from a moment
+ago and the scan from now. They look almost the same, just shifted. ICP finds the exact
+rotation and translation that makes the old scan line up on top of the new one — and
+**that shift is how the robot moved.** Repeat forever and you have odometry.
+
+Configured with `Reg/Force3DoF`, which pins the answer to `x`, `y` and `yaw` and forces
+`z`, roll and pitch to zero. The robot drives on a flat factory floor; allowing the
+solver to imagine the robot floating upward would only let noise leak into a dimension
+that physically cannot change.
+
+**Why it exists at all.** Normally you get odometry free from the wheel encoders — count
+wheel rotations, multiply by circumference. Two problems here:
+
+1. **The motion stack does not own the drive.** The wheels are on the other side of the
+   Panda gate. Encoder counts are not simply available.
+2. **Wheel odometry lies when it matters most.** A wheel that spins on a wet patch
+   reports metres of travel while the robot sits still. Get stuck against a wall and the
+   wheels keep counting happily. That is not a rare edge case — it is exactly the
+   situation where you most need to know you have stopped.
+
+Scan matching measures how **the world** moved past the robot, which is not fooled by a
+slipping wheel. If the robot did not move, the walls did not move, and ICP reports zero.
+
+`Odom/ResetCountdown` handles the failure case: if matching fails for N frames straight —
+a featureless corridor, a sudden crowd — it resets rather than reporting confident
+nonsense.
+
+---
+
+#### 🟠 mcl2d — "where am I on the map?"
+
+**What it is.** MCL means *Monte Carlo Localisation*, and this is a **particle filter**.
+The idea is easier than the name.
+
+Imagine scattering ten thousand guesses across the map — "maybe the robot is here, or
+here, or here". Each guess is a *particle*. Then, every cycle:
+
+1. **Move every particle** by whatever the odometry just reported, plus a little random
+   noise (because odometry is not perfect).
+2. **Score every particle**: if the robot really were standing there, what would the
+   laser see? Compare that to what the laser *actually* sees. Good match, high score.
+3. **Resample**: throw away low scorers, duplicate high scorers.
+
+Repeat, and the cloud collapses onto the true position and then tracks it. The robot
+never computes its position directly — it maintains a *population of hypotheses* and lets
+the bad ones die. That is why it recovers from being wrong: a scattered cloud is a robot
+that knows it is unsure, and it re-converges once it sees something distinctive.
+
+**The numbers**, from `mcl2d_core/include/mcl2d_core/types.hpp:96-98`: it starts with
+**10,000** particles, then runs between **500 and 3,000**. Many at first because it has no
+idea where it is; far fewer once converged, because tracking a known position is cheap
+and 10,000 particles would be wasted CPU.
+
+**In:** `/scan_merged` + `/odom` (from `icp_odometry`) + a Seer `.smap` map.
+**Out:** `/mcl_pose` and the TF tree.
+
+**The part that makes this remarkable.** This is a **reverse-engineered re-implementation
+of Seer's own `libMCLoc.so`** (rbk 3.4.5.20), governed by the project's rule that
+re-implementation output must be *100% identical* to the original — "similar" counts as
+failure. Verification claimed: bit-identical on 245/245 samples, and 125/125 on dual
+lidar with Δ=0.
+
+The consequence is strategic, not technical: **the robot can now locate itself without
+Seer.** `ARCHITECTURE.md` assumes Seer owns localisation. That is no longer necessarily
+true, and which one the system actually uses is [an open point](#9-open-points).
+
+---
+
+#### 🟠 depth_occupancy_3d — the 3D picture
+
+**What it is.** Takes the six depth cameras and fuses them into one 3D model of the space
+immediately around the robot, at **10 Hz**.
+
+**How it works** (`depth_occupancy_node.cpp`). Space around the robot is divided into
+small cubes — **5 cm** each, over a volume of **6 m × 6 m × 2.2 m** centred on the robot.
+Each cube is marked occupied or free based on what the cameras see. Points below
+**0.05 m** are classified as ground and separated out; obstacles are tracked up to
+**1.8 m**. `decimation: 4` means it uses every 4th pixel — a depth image has hundreds of
+thousands of points and you do not need all of them to know a pallet is there.
+
+**Three outputs, and the third is the clever one:**
+
+| Topic | What it is |
+|---|---|
+| `~/occupancy_points` | the obstacles — the 3D picture |
+| `~/ground_points` | the floor, separated so it is not mistaken for an obstacle |
+| `~/virtual_scan` | **a fake 2D laser scan, 360 bins** |
+
+That last one is the interesting design move. It squashes the 3D information down into
+the *shape of a 2D laser scan* — so any existing code that expects a `LaserScan` can
+consume the depth cameras without knowing they are cameras. The chest-height forklift
+tine shows up as an obstacle in a message format written for a device that could never
+have seen it.
+
+---
+
+### MOTION CONTROL — deciding how to move
+
+---
+
+#### 🟠 9 action servers
+
+**What an "action" is.** ROS 2 has three ways to talk. A *topic* is a broadcast ("here is
+the current scan"). A *service* is a question with an immediate answer ("what is 2+2?").
+An **action** is a long-running job you can watch and cancel — "drive 3 metres forward",
+which takes seconds, reports progress, and might fail. Motion is always an action.
+
+**The nine**, each one motion primitive:
+
+| Server | Movement |
+|---|---|
+| `spin` | rotate in place |
+| `turn` | drive along a curve |
+| `translate_forward` / `_reverse` | straight line, either way |
+| `crab_linear` | **sideways, body never rotating** |
+| `yaw_control` / `_reverse` | hold or reach a heading |
+| `mpc` / `mpc_reverse` | Model Predictive Control — follow a path by repeatedly simulating the next few seconds and picking the best steering. Uses NLopt (SLSQP) |
+
+`crab_linear` is the one that is unusual on a factory floor. Both wheels swivel to the
+same angle and the robot slides sideways with the body still square — which is how it can
+slot into a narrow bay it could never turn into.
+
+All nine publish `WheelSetArray` on `/motion/wheel_cmd/<action>`: for each wheel, a speed
+and a steering angle.
+
+---
+
+#### 🟠 Inverse kinematics — 2WS inline dual-steer
+
+**Forward kinematics** asks: the wheels are doing this, so where does the body go?
+**Inverse kinematics** asks the useful question: I want the body to do *this*, so what
+must each wheel do? Every action server ends here.
+
+**In:** how the body should move (`vx`, `vy`, `ω`). **Out:** per wheel, a steering angle
+and a speed.
+
+**The ±90° fold.** Every wheel's velocity has two equally valid descriptions: point at
+angle θ and drive forward at `+v`, or point at `θ∓180°` and drive backward at `−v`. Same
+motion, two answers. The code folds every angle into a half-circle, ±90°, which picks
+exactly one — and always the one requiring the smallest steering movement. Without that,
+a wheel could decide to swing 180° to achieve a motion it could have reached by turning
+5°, and on a real machine that is a visible, slow, pointless lurch.
+
+**Foil_A082's geometry**: both wheels on the centreline — `W1 (+0.6039, −0.0014)`,
+`W2 (−0.5961, −0.0014)`, radius `0.125 m`, 1.2 m wheelbase, steering limited to ±90°.
+Both on the centreline and both able to swivel is what makes crab motion possible at all.
+
+---
+
+### TO THE MOTORS — two paths that must never be confused
+
+Fully covered in [§5](#5-the-two-paths-to-the-motors). In brief:
+
+#### 🟠 motor_control — the direct path
+
+Talks CANopen SDO straight onto `can1` via socketcan. **Seer must be physically
+disconnected** — this code assumes it is the only master on the bus, and two masters
+commanding one drive is a genuine hazard. Safety rests on a guard RTR frame at 20 Hz: if
+those frames stop arriving, the drive halts within 500 ms. Silence means stop, so a
+crashed PC or an unplugged cable stops the robot rather than leaving it running.
+
+#### 🟠 can_relay — the intercepting path
+
+Goes USB → Panda board → CAN bus 2, and **Seer must stay connected**, because the whole
+point is to sit between Seer and the motors and override it while letting Seer believe
+nothing happened.
+
+**It cannot send RTR frames at all** — the panda packet header has no RTR bit. So the
+20 Hz guard scheme is simply unavailable, and it needs a completely different stop
+mechanism: the firmware watches a heartbeat, and on loss it zeroes the drive and opens
+the relay. That single missing bit in a packet header is why the firmware gate is shaped
+the way it is.
+
+Confusing these two is a registered hazard — `debt-025` requires every citation to state
+which one it means.
+
+#### 🔵 Tongyi 4-axis servos
+
+The actual motors: **2 drive** (make the wheels spin) and **2 steer** (make the wheels
+point). Spoken to in CANopen SDO — `0x607A` target position, `0x60FF` target velocity,
+`0x6064` actual position, `0x6041` statusword — and each runs the **CiA 402** drive state
+machine, an industry-standard sequence a drive must be walked through before it will
+accept motion at all.
+
+Freezing the readback of `0x6041` is precisely how the gate convinces Seer the robot is
+parked while it is in fact driving.
+
+---
+
+### 🔵 blue = existing / vendor · 🟠 amber = built by this project
 
 ---
 
