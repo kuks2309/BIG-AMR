@@ -787,7 +787,7 @@ node4 0° = **7,840,095** 이고 정본값 `7,839,894` 는 거기서 201 counts 
 같은 시각 1040 이 node4 **+0.000605°(≈35 counts)** 이탈을 보고할 때 1005 는 **정확히 `0.0`** 이었고,
 6-counts 디더도 잡지 않는다. ⇒ **1040 과 같은 데이터가 아니다.**
 
-벤더 정의 [`references/seer/robokit-api/robot-status-api/005-query-robot-speed.md:40-41`]:
+벤더 정의 [`T-Robot_seer_gui/references/seer/robokit-api/robot-status-api/005-query-robot-speed.md:40-41`] (타 저장소 github kuks2309/T-Robot_seer_gui — 본 저장소 `References/` 아님):
 - `steer_angles` = "The **current** steering angle of the multi-steering wheel robot … sorted according to the order in the model file, unit: rad" ⇒ 듀얼이면 **[front, rear]**
 - `r_steer_angles` = "Steering angles **received**" ⇒ 지령값(실측 아님)
 

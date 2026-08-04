@@ -166,7 +166,8 @@ def seer_poller(stop, sink, log, ip):
       102 샘플 전부 단일값이라 6-counts 디더를 **전혀 따라가지 않았다.**
       벤더 정의는 "The **current** steering angle of the multi-steering wheel robot, …
       sorted according to the order in the model file, unit: rad"
-      [references/seer/robokit-api/robot-status-api/005-query-robot-speed.md:40].
+      [T-Robot_seer_gui/references/seer/robokit-api/robot-status-api/005-query-robot-speed.md:40]
+      (타 저장소 github kuks2309/T-Robot_seer_gui — 본 저장소 References/ 아님).
       ⇒ 배열 순서는 모델 파일 순서 = 듀얼이면 `[front, rear]`.
 
     ## ⚠ 1005 에 대해 아직 모르는 것 (인용 시 반드시 병기)
