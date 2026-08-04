@@ -45,6 +45,33 @@
 
 ---
 
+## 2026-08-04
+
+### [Fix] 시험 GUI 원본 결함 11건 — 정착 신선도·USB 락·구동 재송신 외 8건
+
+- **문제**: `Tools/amr_test_gui/gui.py` 에 High 3 · Medium 5 · Low 3 이 남아 있었다.
+  특히 ① 폴링이 죽어도 마지막 실측이 남아 **정착 판정을 통과시키고 구동에 들어갔고**,
+  ② `heartbeat`(0xf3)만 `_can_lock` 밖이라 조그·호밍 스레드와 USB 핸들이 겹쳤으며,
+  ③ 구동 지령이 **단발 송신**이라 프레임 1장 유실이 곧 지령 소실이었다.
+- **원인**: ① `_wait_settle` 이 `self._meas_deg` 를 시각 없이 읽음(`gui.py:1007`)
+  ② `controlWrite(0xf3)` 가 `with self._can_lock:` 앞에 있었음(`gui.py:1026`)
+  ③ `_drive()` 가 1회 쓰고 끝, 재송신·워치독 코드 0건(`gui.py:851-854`).
+  나머지 8건은 `docs/code_review/amr-test-gui/2026-08-03.md` §평가 참조.
+- **해결**: ① `_set_meas` 단일 기록지점 + `MEAS_TTL_S` ② 심박을 락 안으로
+  ③ 폴 루프 주기 재송신(0 포함) + **응답 끊김** 워치독(`RX_TTL_S`) — 「지령 만료」 방식은
+  조그가 스스로 꺼지므로 쓰지 않았다 ④ `STEER_HOME` 을 정본 YAML 에서 런타임 로드
+  ⑤ `SEER_GUI_PATH` 환경변수 ⑥ 판다 2대 이상 차단 ⑦ 반환 시 정지 실패 고지
+  ⑧ 폴링 사망 시 제어권 표시 내림 ⑨ `RLock` 단일 임계구역 ⑩ `panda is None` 가드
+  ⑪ 로그 경로 단일화. 같은 수정을 `can_relay/ui/backend_direct.py` 에도 반영.
+- **검증**: 원본 시험 **88 → 111 passed**(신규 23건, High 3건은 **변이 주입으로 검출력 확인** —
+  수정을 되돌리면 각각 3·2·3건 실패). `can_relay` **342 passed** 무회귀,
+  `colcon build` 통과, 양쪽 백엔드 오프스크린 기동·SIGTERM 정상. **실기 검증 0.**
+- **파일**: `Tools/amr_test_gui/gui.py` · `test/{test_settle_freshness,test_usb_serialization,
+  test_drive_resend,test_medium_fixes}.py` · `src/Comm/CAN/can_relay/can_relay/ui/{backend_direct,app}.py` ·
+  `test/test_steer_home_sync.py`(사본 규칙을 fallback 기준으로 갱신) ·
+  `docs/code_review/amr-test-gui/2026-08-03.md`
+- **상태**: 완료
+
 ## 2026-08-03
 
 ### [Fix] can_relay 노드가 호밍 중 취소·정지를 못 받는다 + 심박이 USB 핸들을 경합한다 (High 2건)
