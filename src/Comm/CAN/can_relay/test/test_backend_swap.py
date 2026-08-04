@@ -214,3 +214,29 @@ def test_app_inner_thread_functions_have_distinct_names():
     src = inspect.getsource(A)
     assert src.count("def work(") == 0
     assert "def _op_work(" in src and "def _clearfatal_work(" in src
+
+
+def test_ui_layer_has_no_estop_wiring():
+    """UI 계층에 E-stop 배선이 **없어야** 한다(리뷰 Medium ③·④, 사용자 결정: 죽은 경로 삭제).
+
+    원본 `gui.py` 에 E-stop 이 없고 이 이식본의 계약은 「UI 100% 동일」이다. 배선만 남아 있으면
+    ① 아무도 호출하지 않는 죽은 코드이고 ② 누군가 버튼을 붙이면 ros2 는 되고 direct 는 죽었다.
+    드라이버의 `~/estop` 은 별개 계약이라 살아 있다 — `test_estop_latch_blocks_drive` 가 고정한다.
+    """
+    import inspect
+    from can_relay.ui import app as A, backend_base as B, backend_direct as D, backend_ros2 as R
+    for mod in (A, B, D, R):
+        code = "\n".join(l for l in inspect.getsource(mod).splitlines()
+                         if not l.lstrip().startswith("#"))
+        assert "estop" not in code.lower(), f"{mod.__name__} 에 E-stop 배선이 남아 있다"
+    for cls in (B.BackendBase, D.DirectBackend, R.Ros2Backend):
+        assert not hasattr(cls, "estop"), f"{cls.__name__}.estop 이 남아 있다"
+    assert not hasattr(B, "CAP_ESTOP")
+
+
+def test_driver_estop_contract_survives():
+    """UI 배선을 지워도 **드라이버의 E-stop 은 그대로**여야 한다(범위를 넘겨 지우지 않았는지)."""
+    from can_relay.backend import RelayBackend
+    from can_relay import driver_node as DN
+    assert hasattr(RelayBackend, "estop"), "드라이버 백엔드의 estop 을 잘못 지웠다"
+    assert hasattr(DN.CanRelayNode, "_on_estop"), "드라이버의 estop 구독 콜백을 잘못 지웠다"

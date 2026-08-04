@@ -334,10 +334,6 @@ class DirectBackend(BackendBase):
         return False, f"{HOMING_TIMEOUT_S:.0f}초 안에 완료 신호가 오지 않았습니다."
 
     # ── 조작: 즉시 반환 ───────────────────────────────────────────────
-    def estop(self, on: bool) -> None:
-        """원본에 E-stop 이 없다 — UI 도 노출하지 않으므로 호출되지 않는다."""
-        raise NotImplementedError("direct 백엔드에는 소프트 E-stop 이 없다(원본과 동일)")
-
     def steer_axis(self, node: int, deg: float) -> None:
         """한 축에만 0x607A + 0x6040=0x3F. 원본 `_steer_axis` 와 같은 2프레임."""
         _applied, counts = steer_counts(int(node), float(deg))

@@ -19,7 +19,7 @@ UI 가 2벌이면 실기에서 차이가 나와도 **백엔드 차이인지 UI �
 ## 스레드 규약
 
 `CAP_*` 조작 메서드 중 **`(bool, str)` 를 돌려주는 것은 블로킹**이다 — UI 스레드에서 부르지 말고
-작업 스레드에서 부른다. 나머지(`steer_*`·`drive`·`estop`)는 즉시 반환한다.
+작업 스레드에서 부른다. 나머지(`steer_*`·`drive`)는 즉시 반환한다.
 조회 메서드(`meas_angle`·`motor_rows`·`status`)는 **락 안에서 사본을 만들어** 돌려주므로
 어느 스레드에서 불러도 된다.
 """
@@ -31,7 +31,6 @@ from typing import Optional
 CAP_SCAN = "scan"               # 판다 열거 (CAN 프레임 없음)
 CAP_USB = "usb"                 # USB 개폐 (CAN 프레임 없음)
 CAP_ENGAGE = "engage"           # 제어권 획득/반환
-CAP_ESTOP = "estop"             # 소프트 E-stop 래치
 CAP_STOP = "stop"               # 정지
 CAP_HOME = "home"               # 조향 원점 복귀
 CAP_STEER_AXIS = "steer_axis"   # 축별 조향
@@ -97,9 +96,12 @@ class BackendBase:
         raise NotImplementedError
 
     # ── 조작: 즉시 반환 ───────────────────────────────────────────────
-    def estop(self, on: bool) -> None:
-        raise NotImplementedError
-
+    # ⚠ E-stop 은 **이 계층에 없다**. 원본 `Tools/amr_test_gui/gui.py` 에 E-stop 이 없고
+    #   이 이식본의 계약이 「UI 100% 동일」이므로 버튼이 없다. 예전에는 `CAP_ESTOP`·`estop`·
+    #   `pub_estop` 이 남아 **아무도 호출하지 않는 경로**가 됐다(2026-08-04 리뷰 Medium ③·④).
+    #   드라이버의 `~/estop` 구독은 **그대로 살아 있다** — 그것은 드라이버의 계약이고
+    #   `test_backend.py`·`test_gui_node.py` 가 고정한다. 여기서 지운 것은 GUI 측 배선뿐이다.
+    #   나중에 E-stop 을 노출한다면 원본과 이식본에 **함께** 넣어야 두 GUI 가 계속 같아진다.
     def steer_axis(self, node: int, deg: float) -> None:
         raise NotImplementedError
 

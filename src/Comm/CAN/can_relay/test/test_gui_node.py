@@ -18,9 +18,10 @@ rclpy = pytest.importorskip("rclpy", reason="ROS2 미소싱 환경 — GUI 계�
 
 from rclpy.executors import MultiThreadedExecutor      # noqa: E402
 from sensor_msgs.msg import JointState                 # noqa: E402
+from std_msgs.msg import Bool                          # noqa: E402
 from std_srvs.srv import SetBool, Trigger              # noqa: E402
 
-from can_relay.driver_node import CanRelayNode         # noqa: E402
+from can_relay.driver_node import CanRelayNode, LATCHED_QOS   # noqa: E402
 from can_relay.link import MockLink                    # noqa: E402
 from can_relay.ui.backend_base import BackendBase       # noqa: E402
 from can_relay.ui.backend_ros2 import RelayClient       # noqa: E402
@@ -166,9 +167,17 @@ def test_drive_and_stop_through_ros(rig):
 
 
 def test_estop_latch_blocks_drive(rig):
+    """드라이버의 `~/estop` 래치 회귀.
+
+    ⚠ 2026-08-04: GUI 쪽 E-stop 배선(`pub_estop`·`send_estop`)은 **삭제됐다** — 원본에 E-stop 이
+    없어 UI 에 버튼이 없고, 아무도 호출하지 않는 경로였다(리뷰 Medium ③·④). 그러나 **드라이버의
+    `estop` 구독은 계약이므로 살아 있고**, 이 시험이 계속 고정한다. GUI 를 거치지 않고 직접
+    발행한다 — 시험 대상이 드라이버이지 GUI 가 아니기 때문이다.
+    """
     driver, client = rig
     _engage(client)
-    client.send_estop(True)
+    pub = client.create_publisher(Bool, "/estop", LATCHED_QOS)
+    pub.publish(Bool(data=True))
     assert _wait(lambda: driver.backend.snapshot()["estop"] is True)
     client.send_drive(50.0)
     time.sleep(0.2)

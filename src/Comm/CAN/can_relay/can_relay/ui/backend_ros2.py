@@ -21,10 +21,8 @@ import rclpy
 from diagnostic_msgs.msg import DiagnosticArray
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile,
-                       ReliabilityPolicy)
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool, Float64, Float64MultiArray
+from std_msgs.msg import Float64, Float64MultiArray
 from std_srvs.srv import SetBool, Trigger
 
 from .backend_base import (CAP_DRIVE, CAP_ENGAGE, CAP_HOME, CAP_MOTOR_TABLE,
@@ -32,10 +30,6 @@ from .backend_base import (CAP_DRIVE, CAP_ENGAGE, CAP_HOME, CAP_MOTOR_TABLE,
 
 MEAS_TTL_S = 1.0
 
-LATCHED_QOS = QoSProfile(depth=1,
-                         history=HistoryPolicy.KEEP_LAST,
-                         reliability=ReliabilityPolicy.RELIABLE,
-                         durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 class RelayClient(Node):
@@ -71,7 +65,6 @@ class RelayClient(Node):
         self.pub_steer_axis = self.create_publisher(
             Float64MultiArray, f"{ns}/steer_axis_deg", 10)
         self.pub_drive = self.create_publisher(Float64, f"{ns}/drive_mmps", 10)
-        self.pub_estop = self.create_publisher(Bool, "/estop", LATCHED_QOS)
 
         self.create_subscription(JointState, "/joint_states", self._on_joints, 10)
         self.create_subscription(DiagnosticArray, "/diagnostics", self._on_diag, 10)
@@ -159,9 +152,6 @@ class RelayClient(Node):
 
     def send_drive(self, mmps: float):
         self.pub_drive.publish(Float64(data=float(mmps)))
-
-    def send_estop(self, engage: bool):
-        self.pub_estop.publish(Bool(data=bool(engage)))
 
     def call(self, client, request, timeout_s: float = 5.0, discovery_s: float = 5.0):
         """서비스 1회 호출. 반환 `(성공, 메시지)`. **블로킹** — 작업 스레드에서 부른다.
@@ -273,9 +263,6 @@ class Ros2Backend(BackendBase):
         return self.node.call(self.node.cli_home, Trigger.Request(), timeout_s=200.0)
 
     # ── 조작: 즉시 반환 ───────────────────────────────────────────────
-    def estop(self, on: bool) -> None:
-        self.node.send_estop(on)
-
     def steer_axis(self, node: int, deg: float) -> None:
         self.node.send_steer_axis(node, deg)
 
