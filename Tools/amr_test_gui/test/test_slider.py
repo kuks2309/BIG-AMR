@@ -47,7 +47,8 @@ def cmds(win, monkeypatch):
 def test_measurement_never_moves_the_slider(win, cmds):
     """실측이 흘러들어와도 사용자가 넣은 목표를 덮어쓰면 안 된다."""
     win.sld_front.setValue(30)
-    win._meas_deg = {3: 0.0, 4: 0.0}          # 실측은 아직 0°
+    for _n, _d in ((3, 0.0), (4, 0.0)):        # 실측은 아직 0°
+        win._set_meas(_n, _d)
     for _ in range(5):                         # 폴링이 여러 번 돌아도
         win._redraw_wheel()
     assert win.sld_front.value() == 30
@@ -57,7 +58,8 @@ def test_wheel_drawing_still_follows_measurement(win, cmds):
     """슬라이더는 목표를 지키되, 그림은 실측을 그려야 한다."""
     win.sld_front.setValue(30)
     win.sld_rear.setValue(30)
-    win._meas_deg = {3: 5.0, 4: -5.0}
+    for _n, _d in ((3, 5.0), (4, -5.0)):
+        win._set_meas(_n, _d)
     win._redraw_wheel()
     assert (win.wheel.front_deg, win.wheel.rear_deg) == (5.0, -5.0)
 
@@ -65,7 +67,7 @@ def test_wheel_drawing_still_follows_measurement(win, cmds):
 def test_preview_when_no_measurement(win, cmds):
     """실측이 없을 때만 슬라이더 값을 그림에 미리 보여준다."""
     win._run = False
-    win._meas_deg = {}
+    win._meas_deg = {}; win._meas_at = {}
     win._seer_deg = {}
     win.sld_front.setValue(20)
     win.sld_rear.setValue(-20)
@@ -111,7 +113,8 @@ def test_no_command_without_authority(win, cmds):
 # ── 라벨 ──────────────────────────────────────────────────────────────────
 def test_label_shows_target_and_measurement_side_by_side(win, cmds):
     """되먹임을 뺀 자리를 라벨이 메운다 — 목표와 실측을 나란히."""
-    win._meas_deg = {3: 12.34, 4: 0.0}
+    for _n, _d in ((3, 12.34), (4, 0.0)):
+        win._set_meas(_n, _d)
     win.sld_front.setValue(30)
     txt = win.lab_front.text()
     assert "+30°" in txt and "+12.3" in txt
@@ -119,7 +122,7 @@ def test_label_shows_target_and_measurement_side_by_side(win, cmds):
 
 def test_label_omits_measurement_when_absent(win, cmds):
     win._run = False
-    win._meas_deg = {}
+    win._meas_deg = {}; win._meas_at = {}
     win._seer_deg = {}
     win.sld_front.setValue(15)
     assert win.lab_front.text() == "+15°"

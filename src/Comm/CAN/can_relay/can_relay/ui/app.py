@@ -551,8 +551,12 @@ class MainWindow(QWidget):
                     f"N4 {self.be.meas_angle(4)}) — 구동 취소")
                 self.be.drive(0.0)
                 return
+            # 확인과 송신 사이의 창을 좁힌다 — 확인 직후 정지가 눌리면 정지(0)가 먼저 나가고
+            # 구동이 뒤에 나갈 수 있다(원본 Low ①과 같은 성질). 백엔드가 직렬화를 소유하므로
+            # 여기서는 **확인을 송신 직전으로 붙이고** 결과를 로그로 남긴다.
             if self._jog_stop:
                 self.be.drive(0.0)
+                self.log_line.emit("정지 요청이 먼저 들어와 구동을 내보내지 않았습니다")
                 return
             self.be.drive(sign * mmps)
             self.log_line.emit(f"조향 정착 — 구동 {sign * mmps:+.0f} mm/s")

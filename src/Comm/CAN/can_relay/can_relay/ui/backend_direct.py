@@ -3,20 +3,26 @@
 
 설계 근거: `docs/adr/2026-08-04-amr-test-gui-swappable-backend.md`.
 
-## 이식 원칙 — 고치지 않는다
+## 이식 원칙 — 고쳐진 원본을 그대로 옮긴다
 
 이 백엔드의 존재 이유는 **비교 기준**이다. 원본과 같은 프레임을 같은 순서로 내야 실기에서
-「UI 는 같은데 백엔드만 다르다」가 성립한다. 따라서 원본의 **알려진 결함까지 그대로 옮긴다**:
+「UI 는 같은데 백엔드만 다르다」가 성립한다.
 
-| 원본 High (`docs/code_review/amr-test-gui/2026-08-03.md`) | 여기서 |
-|---|---|
-| 정착 판정에 피드백 신선도 없음 | **그대로** — `_meas_deg` 를 TTL 없이 쓴다 |
-| 구동 지령이 단발 송신 · 워치독 없음 | **그대로** — `0x60FF` 를 한 번 보내고 끝 |
-| `heartbeat`(0xf3)가 `_can_lock` 밖 | **그대로** — 원본 `gui.py:1026` 과 같은 위치 |
-| 호밍 취소 없음 | **그대로**(ADR 2026-08-04 §② — 양쪽 다 노출 안 함) |
+⚠ **2026-08-04 갱신** — 원본의 결함 11건이 먼저 수정됐다(사용자 지시: 「먼저 원본을 고치고
+나서 ros2 backend 연결하는 것이 정석」). 이제 이 백엔드는 **고쳐진 원본**을 반영한다:
 
-⚠ **그래서 이 백엔드는 시험 전용이다.** 운용에는 `--backend ros2`(드라이버 경유)를 쓴다 —
-그쪽은 20 Hz 재송신·워치독·신선도 게이트·USB 락이 들어 있다.
+| 원본 결함 (`docs/code_review/amr-test-gui/2026-08-03.md`) | 원본 | 여기 |
+|---|---|---|
+| High ① 정착 판정에 피드백 신선도 없음 | 수정 — `_set_meas` + `MEAS_TTL_S` | 반영 |
+| High ② `heartbeat` 가 `_can_lock` 밖 | 수정 — 락 안으로 | 반영 |
+| High ③ 구동 단발 송신 · 워치독 없음 | 수정 — 주기 재송신 + 응답 끊김 워치독 | 반영 |
+| Medium ③ 판다 2대 이상 진행 가능 | 수정 — 차단 | 반영 |
+| Medium ④ 반환 시 정지 실패 무고지 | 수정 — 로그 | 반영 |
+| Low ① 정지↔구동 경합 창 | 수정 — RLock 단일 임계구역 | 반영 |
+| Low ② `panda is None` 미검사 | 수정 — 진입부 가드 | 반영 |
+
+`heartbeat` 락·신선도·재송신은 **CAN 프레임 바이트를 바꾸지 않는다**(타이밍·반복만 바뀐다) —
+따라서 `test_backend_swap.py` 의 바이트 동일성 회귀는 그대로 유효하다.
 
 바이트 조립은 `can_relay.protocol` 을 쓴다. 원본의 손조립과 **바이트 동일**함이 회귀로 고정돼 있다
 (`test/test_port_equivalence.py`, `test/test_master_frame_match.py`).
@@ -48,6 +54,8 @@ HOMING_SPEED = 2500         # 0x6099:00 — 0.1 r/min → 250 r/min
 HOMING_TIMEOUT_S = 90.0
 HOMING_START_S = 10.0
 BIT15 = 1 << 15
+MEAS_TTL_S = 1.0            # 이보다 오래된 실측은 없는 것으로 친다(원본 High ①)
+RX_TTL_S = 1.0              # 이보다 오래 응답이 없으면 구동을 0 으로(원본 High ③)
 
 # ⚠ 깊이를 세지 않는다. `dirname` 6회로 적었다가 `.../src/Tools/...` 를 가리켜
 #   `ModuleNotFoundError: No module named 'panda'` 가 났다(2026-08-04 오프스크린 스모크).
@@ -89,8 +97,13 @@ class DirectBackend(BackendBase):
         self._cls = None
         self._run = False
         self._th = None
-        self._can_lock = threading.Lock()   # 폴링·조그가 버스를 공유한다
-        self._meas_deg = {}                 # node -> 실측 조향각(°) — ⚠ TTL 없음(원본 그대로)
+        self._can_lock = threading.RLock()  # 폴링·조그가 버스를 공유한다
+        #   RLock 인 이유: 「정지 확인 → 구동 송신」을 한 임계구역에 넣어야 하는데 그 안에서
+        #   `drive()` → `_send()` 가 같은 락을 다시 잡는다(원본 Low ①과 동일 조치).
+        self._meas_deg = {}                 # node -> 실측 조향각(°)
+        self._meas_at = {}                  # node -> 그 각도를 받은 시각(신선도 판정용)
+        self._drive_units = 0               # 마지막 구동 지령(raw) — 폴 루프가 재송신한다
+        self._rx_at = 0.0                   # 마지막으로 드라이브 응답을 받은 시각
         self._status_word = {}              # node -> 0x6041
         self._rows = {}                     # node -> (deg, rpm, amp)
         self._serials = []
@@ -118,8 +131,20 @@ class DirectBackend(BackendBase):
 
     # ── 조회 ──────────────────────────────────────────────────────────
     def meas_angle(self, node: int) -> Optional[float]:
-        """⚠ **신선도 검사가 없다**(원본 그대로). 폴링이 멈춰도 마지막 값이 남는다."""
-        return self._meas_deg.get(int(node))
+        """**TTL 밖이면 None** — 폴링이 멈춘 뒤 남은 값을 실측인 척 쓰지 않는다(원본 High ①)."""
+        node = int(node)
+        deg = self._meas_deg.get(node)
+        if deg is None:
+            return None
+        at = self._meas_at.get(node)
+        if at is None or (time.monotonic() - at) > MEAS_TTL_S:
+            return None
+        return deg
+
+    def _set_meas(self, node: int, deg: float) -> None:
+        """실측 1건 반영 — **값과 시각을 함께** 남긴다(따로 쓸 수 있으면 언젠가 따로 쓰인다)."""
+        self._meas_deg[node] = deg
+        self._meas_at[node] = time.monotonic()
 
     def motor_rows(self) -> dict:
         return dict(self._rows)
@@ -142,8 +167,11 @@ class DirectBackend(BackendBase):
             return False, "판다 없음 — USB 연결·udev 규칙 확인"
         if len(self._serials) == 1:
             return True, f"판다 검출: {self._serials[0]}"
-        return True, (f"⚠ 판다 {len(self._serials)}대 검출({', '.join(self._serials)}) — "
-                      f"1 PC 1대 원칙 위반. 여는 것은 그중 1대뿐이다.")
+        # **차단한다** — 어느 장치에 지령이 갈지 모르는 채 진행할 수 없다(원본 Medium ③).
+        self._serials = []
+        return False, (f"⚠ 판다 {len(self._serials) or '여러'}대 검출 — 1 PC 1대 원칙 위반. "
+                       f"어느 장치에 지령이 갈지 알 수 없으므로 연결을 막습니다. "
+                       f"한 대만 남기고 다시 검색하세요.")
 
     def set_usb(self, on: bool) -> tuple:
         if on:
@@ -188,8 +216,11 @@ class DirectBackend(BackendBase):
                 return True, "제어권 획득 — 릴레이 intercept, Seer 에서 가져옴"
             try:
                 self.drive(0.0)                 # 반환 전 반드시 정지(원본과 같음)
-            except Exception:
-                pass
+            except Exception as exc:
+                # 삼키지 않는다 — 정지가 못 나간 채 auth·intercept 를 내리면 드라이브가
+                # 마지막 속도를 문 채 Seer 로 넘어간다(원본 Medium ④).
+                self._log(f"⚠ 제어권 반환 전 정지 송신 실패 — {type(exc).__name__}: {exc}. "
+                          f"드라이브가 마지막 지령을 유지할 수 있습니다. E-STOP 을 확인하세요.")
             self._run = False
             if self._th is not None:
                 self._th.join(timeout=1.0)
@@ -284,14 +315,15 @@ class DirectBackend(BackendBase):
             self.steer_axis(n, deg)
 
     def drive(self, mmps: float) -> None:
-        """구동 2축 0x60FF. ⚠ **단발 송신**이다(원본 그대로 — 재송신·워치독 없음)."""
+        """구동 2축 0x60FF. 지령을 **상태로 남겨** 폴 루프가 재송신한다(원본 High ③)."""
         units = drive_units(abs(float(mmps)), 1 if mmps >= 0 else -1)
+        self._drive_units = units
         self._send([P.drive_velocity_frame(n, units, MOTOR_BUS) for n in DRIVE_NODES])
 
     # ── 내부 ─────────────────────────────────────────────────────────
     def _send(self, frames) -> None:
         if self.panda is None:
-            raise RuntimeError("판다 미연결")
+            raise RuntimeError("판다 미연결 — USB 를 먼저 연결하세요")
         with self._can_lock:
             for f in frames:
                 self.panda.can_send(f.can_id, f.data[:8], f.bus)
@@ -299,14 +331,14 @@ class DirectBackend(BackendBase):
     def _loop(self) -> None:
         """폴링 스레드 — 원본 `gui.py:1014-1062` 과 같은 순서·같은 주기.
 
-        ⚠ heartbeat(0xf3)를 **`_can_lock` 밖**에서 보낸다 — 원본과 같은 위치다.
-        이것이 원본 리뷰의 High(race)이며, 여기서는 **의도적으로 고치지 않는다**(ADR §Consequences).
+        heartbeat(0xf3)는 **락 안에서** 보낸다 — 밖에 있으면 조그·호밍 스레드가 락을 쥐고
+        `can_send` 하는 동안 같은 USB 핸들에 심박이 겹친다(원본 High ②, 2026-08-04 수정).
         """
         P_ = self._cls
         while self._run:
             try:
-                self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xF3, 0, 0, b"")
                 with self._can_lock:
+                    self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xF3, 0, 0, b"")
                     for n in DRIVE_NODES + STEER_NODES:
                         for idx in (0x6064, 0x606C, 0x6078, 0x6041):
                             self.panda.can_send(
@@ -332,7 +364,20 @@ class DirectBackend(BackendBase):
                     else:
                         continue
                     out.setdefault(node, {})[idx] = val
+                if out:
+                    self._rx_at = time.monotonic()
                 self._absorb(out)
+
+                # ── 구동 재송신 + 응답 끊김 워치독 (원본 High ③과 같은 조치) ──
+                # 재송신: 프레임 1장 유실이 곧 지령 소실이던 것을 막는다. 0 도 재송신한다.
+                # 워치독: 응답이 RX_TTL_S 넘게 없으면 버스 상태를 모르는 것이므로 0 으로 간다.
+                if self._rx_at and (time.monotonic() - self._rx_at) > RX_TTL_S \
+                        and self._drive_units != 0:
+                    self._log(f"워치독 — {RX_TTL_S:.0f}초 넘게 드라이브 응답이 없어 구동을 0 으로")
+                    self.drive(0.0)
+                else:
+                    self._send([P.drive_velocity_frame(n, self._drive_units, MOTOR_BUS)
+                                for n in DRIVE_NODES])
             except Exception as exc:
                 self._run = False
                 self._log(f"폴링 중단: {type(exc).__name__}: {exc}")
@@ -348,7 +393,7 @@ class DirectBackend(BackendBase):
             # 호밍 중 0x6064 는 0 을 돌려주므로 그 구간은 각도를 갱신하지 않는다(원본과 동일).
             if 0x6064 in vals and node in STEER_HOME and not self._homing:
                 deg = (vals[0x6064] - STEER_HOME[node]) / COUNTS_PER_DEG
-                self._meas_deg[node] = deg
+                self._set_meas(node, deg)
             if 0x606C in vals:
                 rpm = vals[0x606C] / 10.0
             if 0x6078 in vals:

@@ -26,7 +26,9 @@ STEER_REQ = {0x603: 3, 0x604: 4}
 def _master_frames():
     """캡처에서 마스터가 조향 노드로 보낸 **쓰기 프레임 원본**을 (can_id, bytes) 로 모은다."""
     if not os.path.isfile(CAPTURE):
-        pytest.skip(f"캡처 없음: {CAPTURE}")
+        # 이 함수는 :44 에서 **모듈 최상위**로 호출되므로 `allow_module_level` 이 필요하다.
+        # 없으면 skip 이 아니라 수집 오류가 되어 같은 디렉터리의 다른 시험까지 함께 죽는다.
+        pytest.skip(f"캡처 없음: {CAPTURE}", allow_module_level=True)
     out = set()
     with open(CAPTURE, encoding="utf-8") as fh:
         for line in fh:
