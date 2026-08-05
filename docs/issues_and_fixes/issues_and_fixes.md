@@ -36,6 +36,51 @@
 
 ---
 
+## 2026-08-05
+
+### [Fix] flash_panda.py 성공 플래시가 실패처럼 읽혔다 — LIBUSB_ERROR_BUSY traceback + EXPECT 불일치 문구
+
+- **문제**: `python3 flash_panda.py` 로 CAN Relay 펌웨어를 정상 플래시했는데 출력이 실패로 읽혔다.
+  두 가지가 겹쳤다 — ① `usb1.USBErrorBusy: LIBUSB_ERROR_BUSY [-6]` **traceback 전문**이 찍히고,
+  ② 마지막 판정이 `=== 버전 문자열이 EXPECT(DEV-26524538-DEBUG)와 다름 ===` 이었다.
+  **실제로는 둘 다 정상이었고 플래시는 성공**이었다(장치 version `DEV-cc5e0491-DEBUG`).
+- **원인**:
+  - ① traceback 은 **벤더 라이브러리의 정상 재시도 경로**다. 플래시는 장치를 재열거시키므로 직후
+    첫 `claimInterface(0)` 이 BUSY 로 실패하는데, `Tools/docking_field_kit/panda/python/__init__.py:236-241`
+    의 `connect()` 는 `while 1` 안에서 **예외를 print 하고 재시도**하고
+    `panda/python/__init__.py:265-275` 의 `reconnect()` 가 최대 15초 재시도한다. 뒤에 `connected` 가
+    찍혔다면 성공이며, 진짜 실패는 `reconnect failed` 예외로 죽는 경우뿐이다.
+  - ② `Tools/docking_field_kit/flash_panda.py:109` 의 판정이 **고정 상수** `EXPECT`(2026-07-23 시점
+    git short hash)와 비교하고 있었다. 재빌드하면 이 문자열은 **정상적으로 달라지므로**
+    「다름」 문구가 매 정상 플래시마다 뜬다. 파일 안 주석(`flash_panda.py:37-40`)은 이미 그 사실을
+    적어 뒀으나 **출력 문구는 여전히 실패처럼 읽혔다** — 주석만으로는 오독을 막지 못했다.
+- **해결** (`flash_panda.py`, +38 / −3 줄):
+  - 플래시 직전 안내 2줄 출력 — BUSY traceback 은 정상 재시도이고 뒤의 `connected` 가 성공 신호임을 명시.
+  - 판정 기준을 고정 `EXPECT` 에서 **이미지 옆 `version` 사이드카**(`board/SConscript` 가 빌드마다 갱신)로
+    이전. 신설 `read_build_version(fw)` 가 `os.path.dirname(fw)/version` 을 읽고, 없으면 `None` 을
+    반환해 기존 `EXPECT` 분기로 graceful fallback 한다. 일치 시 `✅ 플래시 성공`, 불일치 시 재시도 안내.
+  - 어느 분기로 가든 **비트레이트는 별도 확인 대상**임을 1줄로 항상 출력(version 문자열은 그것을 증명하지 않음).
+  - **벤더 라이브러리(`panda/`)는 수정하지 않았다** — 상류 코드이고 재시도 동작 자체는 옳다.
+- **검증**:
+  - `python3 -m py_compile flash_panda.py` → 0 errors.
+  - `read_build_version()` 3케이스 — 실제 빌드 경로 → `'DEV-cc5e0491-DEBUG'`(플래시된 장치가 보고한 값과 일치),
+    없는 경로 → `None`, 디렉토리는 있고 사이드카 없음 → `None`(fallback 보존).
+  - 판정 로직 시뮬레이션 — 일치 `SUCCESS` / 불일치 `MISMATCH`.
+  - ⚠ **재플래시 end-to-end 는 실행하지 않았다** — 실기 쓰기 동작이라 요청 범위 밖이다. 다음 실제
+    플래시 때 새 문구가 나오는지 확인할 것.
+- **부수 확인 (같은 세션, 실기 판독)**: 플래시 결과를 독립 조회해 `can_rx_errs` 0 · `can_fwd_errs` 0 ·
+  `faults` 0, 3초간 9,542 프레임 수신(bus0 4,771 · bus2 4,771 동일 → 릴레이 통과 상태, §A-3 과 일치),
+  펌웨어 상수 `board/drivers/can_common.h:148-150` `can_speed = 2500U` ⇒ **250 kbps 정합 확인**.
+  한편 `can_send_errs` 가 ~3,200/s 로 계속 오르는데 **송신 실패가 아니다** — 이 값이 증가하는 지점은
+  전부 `can_push(&can_rx_q, …)` **실패**로(`board/drivers/can_common.h:222`, `board/drivers/bxcan.h:118,194`,
+  `board/drivers/fdcan.h:88,172`, 노출 `board/usb_comms.h:23`) **USB 로 보낼 수신 큐 오버플로**다.
+  증가율이 bus0+bus2 프레임률(1,590×2)과 일치하며, CAN 을 읽는 소비자가 없으면 정상적으로 쌓인다.
+  이름이 오해를 부르므로 **이 값만으로 이상 판정 금지** — 실제 신호는 `can_rx_errs`·`can_fwd_errs`·`faults`.
+- **파일**: `Tools/docking_field_kit/flash_panda.py`
+- **상태**: 완료
+
+---
+
 ## 2026-08-03
 
 ### [Fix] 「호밍이 안 된다」 진단이 10회 실측으로 반증 — 하루에 세운 원인 가설 3개가 전부 뒤집혔다
