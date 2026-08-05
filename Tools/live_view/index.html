@@ -488,7 +488,13 @@
       id: "AMR-" + i,
       x: -4.5 + (i - 1) * 2.2, y: -1.2,
       steer: 0, job: null, goal: null, speed: 1.05, dwellLeft: 0,
-      authority: "seer"      // "seer" transit | "jetson" precise approach
+      authority: "seer",     // "seer" transit | "jetson" precise approach
+      // Every robot has its own waiting bay. A free AMR does not stop dead
+      // wherever it finished — it clears the working area and parks somewhere
+      // known, which is what keeps the floor navigable and is where charging
+      // would happen. Distinct bays also stop idle robots drifting into a
+      // cluster and looking like a queue that is not there.
+      home: { x: -4.6 + (i - 1) * 2.3, y: -4.6 }
     });
   }
 
@@ -806,6 +812,28 @@
     }
 
     const src = STATIONS.find(s => s.id === job.from);
+
+    // Do not send a robot somewhere another robot is already going.
+    //
+    // The entry interlock only stops a SECOND robot crossing the threshold —
+    // it does nothing about the journey. Three robots could all be dispatched
+    // to the same place, all drive there, and all crowd the doorway while one
+    // went in. That is what "all the robots entering a single station" looked
+    // like, and it happens naturally at start-up because for a while the only
+    // servable job is store → first machine.
+    //
+    // Claiming the endpoints at ASSIGNMENT means the wasted journey never
+    // starts. The second job is told BUSY and waits, which is the same answer
+    // it would get for any other fleet constraint.
+    const claimed = new Set();
+    sim.robots.forEach(o => {
+      if (o.job) { claimed.add(o.job.from); claimed.add(o.job.to); }
+    });
+    if (claimed.has(job.from) || claimed.has(job.to)) {
+      return { result: "BUSY",
+               why: `${claimed.has(job.from) ? job.from : job.to} already in use` };
+    }
+
     // Nearest free robot. This is the decision the ACS really owns.
     free.sort((a, b) => Math.hypot(a.x - src.x, a.y - src.y) -
                         Math.hypot(b.x - src.x, b.y - src.y));
@@ -861,13 +889,30 @@
   function driveRobots(dt) {
     if (sim.robots.some(r => r.job)) wake("robot", "driving");
     sim.robots.forEach(r => {
-      if (!r.job || !r.goal) return;
+      // No job: return to this robot's own waiting bay and hold there.
+      if (!r.job) {
+        const hx = r.home.x - r.x, hy = r.home.y - r.y;
+        const d = Math.hypot(hx, hy);
+        if (d > 0.25) {
+          const rep = repulsion(r);
+          const vx = hx / d + rep.x, vy = hy / d + rep.y;
+          const n = Math.hypot(vx, vy) || 1;
+          const step = Math.min(r.speed * dt, d);
+          r.x += vx / n * step;
+          r.y += vy / n * step;
+          r.steer = Math.atan2(vy, vx);
+        }
+        return;
+      }
+      if (!r.goal) return;
 
       // Loading takes real time on a real line — stand still while it happens.
       if (r.dwellLeft > 0) {
         r.dwellLeft -= dt;
         if (r.dwellLeft <= 0) {
           r.dwellLeft = 0;
+          // Loading finished — only NOW is the robot out of the bay.
+          releaseEntry(STATIONS.find(s => s.id === r.job.from), r);
           const dst = STATIONS.find(s => s.id === r.job.to);
           r.goal = approachOf(dst);
           r.leg = "deliver";
@@ -916,7 +961,9 @@
           // that just gave up its roll now has none, which is what decides
           // whether its own next call is a load or a swap.
           if (src && src.kind === "machine") src.rollOn = false;
-          releaseEntry(src, r);
+          // NOT released here. The robot is still physically in the bay for
+          // the whole loading dwell — releasing on arrival would let the next
+          // robot in while this one is still sitting there.
           r.job.state = "RUNNING";
           r.dwellLeft = DWELL_SECONDS;      // stand still and load
           say("acs", `${r.id} at ${r.job.from} — loading ${DWELL_SECONDS}s ` +
