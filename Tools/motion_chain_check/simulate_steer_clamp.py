@@ -382,6 +382,55 @@ def report_flip_cost() -> None:
     print("     최소 변화면 0회다. 이것이 조향 이동량보다 큰 차이다.")
 
 
+
+# ── ⑦ 액션별 실제 지령: 경계를 지나는 것은 어느 것인가 ────────────────────
+
+CARRIER_AGV_GEOM = [(0.330, 0.135), (-0.330, -0.135)]   # 종전(대각) — 비교용
+
+
+def probe_turn_radius(wheels, radii=None) -> list:
+    """turn(R-turn) 은 `compute({v, 0, ω})`, `v = ω·R` 이다(turn_action_server.cpp:211-213).
+
+    따라서 조향각 = `atan2(x_i, R − y_i)` — **R 과 y_i 의 대소가 경계 교차를 정한다.**
+    `R < y_i` 이면 `vx_i` 부호가 뒤집혀 정규화 전 각이 90° 를 넘고, `normalizeAngle` 이
+    접으면서 **조향 ~174° 점프 + 구동 부호 반전**이 난다.
+    """
+    radii = radii or [5.0, 2.0, 1.0, 0.5, 0.2, 0.135, 0.1, 0.05, 0.0]
+    out = []
+    for R in radii:
+        w = 1.0
+        raws = [math.degrees(math.atan2(w * x, w * R - w * y)) for (x, y) in wheels]
+        norm = [a for a, _s, _d in dual_steer_ik(w * R, 0.0, w, wheels)]
+        out.append((R, norm, sum(1 for r in raws if abs(r) > 90.0)))
+    return out
+
+
+def report_action_boundaries(geom) -> None:
+    print("⑦ 액션별 실제 지령 — 경계(±90°)를 지나는 것은 어느 것인가")
+    print()
+    print("   spin  : computeSpin(ω) 뿐이라 **병진을 섞지 않는다**(spin_action_server.cpp:328).")
+    for wheels, lab in ((CARRIER_AGV_GEOM, "종전 대각"), (geom, "현행 inline")):
+        row = []
+        for w in (+0.3, -0.3):
+            o = dual_steer_ik(0.0, 0.0, w, wheels)
+            row.append(f"ω={w:+.1f}→[{o[0][0]:+7.2f}°,{o[1][0]:+7.2f}°] dir[{o[0][2]:+d},{o[1][2]:+d}]")
+        print(f"           {lab:<10} " + "  ".join(row))
+    print("           ω 부호가 바뀌면 **조향각은 그대로, 구동 방향만** 뒤집힌다 — 역방향 스핀에")
+    print("           물리적으로 필요한 동작이다(경계 문제가 아니다).")
+    print()
+    print("   turn  : v = ω·R 이라 조향각 = atan2(x_i, R − y_i). R 과 y_i 의 대소가 교차를 정한다.")
+    print("           R[m]  |   종전 대각 기하        |   현행 inline 기하")
+    for (R, n_old, c_old), (_R, n_new, c_new) in zip(
+            probe_turn_radius(CARRIER_AGV_GEOM), probe_turn_radius(geom)):
+        print(f"           {R:5.3f} | {n_old[0]:+7.2f}° {n_old[1]:+7.2f}° 교차{c_old} "
+              f"| {n_new[0]:+7.2f}° {n_new[1]:+7.2f}° 교차{c_new}")
+    print("           → 종전 대각 기하는 **R < y_1(0.135 m)** 에서 교차했다(조향 ~174° 점프 +")
+    print("             구동 부호 반전). 현행 inline(y≈0)은 R=0 까지 교차 0 — 기하 정정이")
+    print("             그 결함을 **없앴다**.")
+    print()
+    print("   crab  : 유일하게 90° 를 넘겨 요구한다(②③). 클램프를 여는 이유가 이것뿐이다.")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="조향 클램프 ±90° vs ±115° 시뮬레이션")
     ap.add_argument("--selftest", action="store_true")
@@ -439,6 +488,10 @@ def main() -> int:
 
     report_flip_cost()
     print()
+
+    if geom:
+        report_action_boundaries(geom)
+        print()
 
     p = probe_crab_phase0()
     print("③ 크랩 Phase 0 (미초기화, wrapSteer)")
