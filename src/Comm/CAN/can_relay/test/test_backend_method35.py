@@ -188,41 +188,50 @@ def test_method35_keeps_steering_locked_when_drive_rejects_rezero():
         be.shutdown()
 
 
-def test_method35_timeout_sends_steer_stop():
-    """도착하지 않으면 타임아웃에서 **조향을 세우고** 실패로 끝난다."""
+def test_method35_timeout_releases_our_steer_target():
+    """도착하지 않으면 타임아웃에서 **우리 조향 목표를 놓고** 실패로 끝난다.
+
+    ⚠ 2026-08-05 계약 변경 — 예전에는 실측 위치를 새 목표로 써 넣어 축을 세우려 했으나,
+    그 방식은 매뉴얼·상류·마스터 어디에도 없었다(`docs/claude-mistake/2026-08-05-001`).
+    """
     link, be = m35(homing_enabled=True, steer_home_offset={3: 1000, 4: 1000})
     be.start()
     try:
         for _ in range(2):
             for n in (3, 4):
-                feed(link, n, P.OBJ_POSITION_ACTUAL, 0)   # 범위 안 · 도착은 아님 · 정지 상태
-                feed(link, n, P.OBJ_STATUSWORD, 0x9450)   # 실기 폴링은 0x6041 도 읽는다(debt-040)
+                feed(link, n, P.OBJ_POSITION_ACTUAL, 0)
+                feed(link, n, P.OBJ_STATUSWORD, 0x9450)
             time.sleep(0.08)
         ok, why = be.home(poll_s=0.01, timeout_s=0.3)
         assert ok is False and "도착하지 못했다" in why
-        assert "조향 정지 송신" in why
+        assert be._steer_counts == {}, "우리 조향 목표가 남았다"
     finally:
         be.shutdown()
 
 
 # ── stop_all — `~/stop` 의 실제 경로 ─────────────────────────────────────
-def test_stop_all_stops_drive_and_steering():
+def test_stop_all_zeroes_drive_and_releases_steer_target():
+    """`~/stop` 은 **구동을 0 으로** 보내고 **우리 조향 목표를 놓는다**.
+
+    ⚠ 조향축에는 프레임을 보내지 않는다(2026-08-05). 드라이브가 이미 받은 목표까지는
+    못 세우며 그 축은 직전 목표까지 계속 회전한다 — 알려진 제약(사용자 확인 2026-08-04).
+    """
     link, be = make()
     be.start()
     try:
-        for _ in range(2):          # 표본 2개 = 정지 확인(캡처된 상황으로 제한)
+        for _ in range(2):
             for n in (3, 4):
                 feed(link, n, P.OBJ_POSITION_ACTUAL, 7_871_000)
-                # 실기 폴링은 0x6041 도 함께 읽는다. bit15=1 이어야 위치를 신뢰한다
-                # (debt-040: bit15=0 구간에서는 위치가 0 으로 고정된다)
                 feed(link, n, P.OBJ_STATUSWORD, 0x9450)
             time.sleep(0.08)
         be.set_drive_mmps(50.0)
+        be._steer_counts = {3: 7_871_000, 4: 7_840_000}
         n_before = len(writes_to(link, P.OBJ_TARGET_POSITION))
         assert be.stop_all("시험") is True
         assert be.snapshot()["drive_units"] == 0
-        assert len(writes_to(link, P.OBJ_TARGET_POSITION)) > n_before, \
-            "조향축에 정지(현재위치 유지) 프레임이 나가지 않았다"
+        assert be._steer_counts == {}, "우리 조향 목표가 남아 재송신된다"
+        assert len(writes_to(link, P.OBJ_TARGET_POSITION)) == n_before, \
+            "조향축에 프레임을 보냈다 — 이제 보내지 않는 계약이다"
     finally:
         be.shutdown()
 
@@ -489,47 +498,6 @@ def test_steer_axis_does_not_claim_single_target_angle():
 
 
 # ── 「캡처된 상황에서만」 제한 (2026-08-03 사용자 결정) ──────────────────
-def test_hold_steer_at_measured_refuses_while_axis_is_moving():
-    """움직이는 축에는 보내지 않는다 — 이동 중 사용은 마스터 캡처에 0건이다."""
-    link, be = make(steer_home={3: 0, 4: 0})
-    for n in (3, 4):                       # 두 표본이 크게 다르다 = 이동 중
-        feed(link, n, P.OBJ_POSITION_ACTUAL, 1_000_000)
-    be._drain()
-    for n in (3, 4):
-        feed(link, n, P.OBJ_POSITION_ACTUAL, 1_500_000)
-    be._drain()
-    n_before = len(writes_to(link, P.OBJ_TARGET_POSITION))
-    assert be.hold_steer_at_measured("이동 중") is False
-    assert len(writes_to(link, P.OBJ_TARGET_POSITION)) == n_before, \
-        "이동 중인데 조향 목표를 보냈다"
-
-
-def test_hold_steer_at_measured_refuses_with_single_sample():
-    """표본이 하나면 정지인지 **모른다** — 모르면 보내지 않는다."""
-    link, be = make(steer_home={3: 0, 4: 0})
-    for n in (3, 4):
-        feed(link, n, P.OBJ_POSITION_ACTUAL, 1_000_000)
-    be._drain()
-    n_before = len(writes_to(link, P.OBJ_TARGET_POSITION))
-    assert be.hold_steer_at_measured("표본 1개") is False
-    assert len(writes_to(link, P.OBJ_TARGET_POSITION)) == n_before
-
-
-def test_hold_steer_at_measured_sends_when_stationary_within_master_band():
-    """마스터가 실제로 쓰던 대역(|Δ| ≤ 200 c) 안이면 보낸다."""
-    link, be = make(steer_home={3: 0, 4: 0})
-    for n in (3, 4):
-        feed(link, n, P.OBJ_POSITION_ACTUAL, 1_000_000)
-        feed(link, n, P.OBJ_STATUSWORD, 0x9450)              # bit15=1 (debt-040 게이트)
-    be._drain()
-    for n in (3, 4):
-        feed(link, n, P.OBJ_POSITION_ACTUAL, 1_000_150)      # Δ=150 c < 200 c
-        feed(link, n, P.OBJ_STATUSWORD, 0x9450)
-    be._drain()
-    assert be.hold_steer_at_measured("정지") is True
-    assert {f.can_id - 0x600 for f in writes_to(link, P.OBJ_TARGET_POSITION)} == {3, 4}
-
-
 def test_stationary_band_matches_master_capture_constant():
     """임계 200 c 는 임의 값이 아니라 마스터 캡처에서 관측된 대역폭이다."""
     from can_relay.backend import RelayConfig
@@ -545,28 +513,3 @@ def _seed(be, node, pos, sw, prev=None):
     st.last_seen = time.monotonic()
 
 
-def test_hold_steer_refuses_when_bit15_is_clear():
-    """`0x6041` bit15=0 이면 위치가 0 으로 고정된다 — **그 값을 목표로 쓰지 않는다.**
-
-    ⚠ 2026-08-05 실기 재현(debt-040): engage 후 t=35 ms 판독이 pos=0(sw=0x1050)이었고
-    t=168 ms 에 참값 3,971,954(sw=0x9450)로 바뀌었다 — 차 **+69.3°**.
-    `stationary` 만으로는 못 막는다: bit15=0 구간이 132 ms, 폴링 10 Hz 라 **두 표본 모두 0**
-    이면 「정지」로 판정돼 0 이 조향 목표가 된다. 여기서는 그 상황을 그대로 만든다.
-    """
-    link, be = make(require_homed_for_steer=False)
-    for n in (3, 4):
-        _seed(be, n, 0, 0x1050)                 # 두 표본 모두 0 = stationary 로는 통과
-        assert be.nodes[n].stationary(be.cfg.stationary_tol_counts) is True
-    before = len(link.sent)
-    assert be.hold_steer_at_measured("bit15=0") is False, "무효 위치를 목표로 보냈다"
-    assert len(link.sent) == before, "프레임이 나갔다"
-    assert "믿을 수 없는" in be.halt_note(), be.halt_note()
-
-
-def test_hold_steer_sends_once_bit15_is_set():
-    """bit15=1 이 되면 정상적으로 잡는다 — 게이트를 막아 버린 것이 아니다."""
-    link, be = make(require_homed_for_steer=False)
-    for n in (3, 4):
-        _seed(be, n, 3_971_954 if n == 3 else 3_939_847, 0x9450)
-    assert be.hold_steer_at_measured("bit15=1") is True
-    assert link.sent, "프레임이 나가지 않았다"

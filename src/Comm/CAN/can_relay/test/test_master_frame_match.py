@@ -62,7 +62,10 @@ def test_capture_actually_loaded():
 def test_our_steer_target_frames_are_byte_identical_to_master(node, counts):
     """`steer_target_frames` 가 만드는 2프레임이 **캡처 원본과 바이트 동일**한가.
 
-    이것이 `hold_steer_at_measured`(2026-08-05 개명 전 `halt_steer`) 가 보내는 바로 그 프레임이다.
+    ⚠ 2026-08-05: 이 프레임을 **정지 경로에서는 더 이상 보내지 않는다**(옛 `halt_steer`/
+    `hold_steer_at_measured` 제거 — `docs/claude-mistake/2026-08-05-001`). 여기서 고정하는 것은
+    **조향 지령(`set_steer_deg`·`set_steer_axis_deg`)이 내는 프레임이 마스터와 같은가**이며,
+    그것은 여전히 유효하다 — 마스터도 조향 목표를 이 조합으로 낸다(캡처 12,928회).
     """
     ours = P.steer_target_frames(node, counts, bus=2)
     for f in ours:

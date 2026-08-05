@@ -769,38 +769,36 @@ def test_steer_blocked_until_homed():
     assert be.set_steer_deg(10.0) == 10.0        # 우리가 호밍하면 통과
 
 
-def test_m35_cancel_actually_sends_steer_hold_frames():
-    """⚠ 2026-08-01 실기 사고 — 예전엔 취소가 조향축에 **한 장도** 안 보냈다.
+def test_m35_cancel_releases_our_steer_target_without_sending():
+    """호밍 취소는 **우리 조향 목표를 놓는다** — 조향축에 프레임은 보내지 않는다.
 
-    `stop()` 은 drive_nodes 전용이라 진행 중 PP 이동이 그대로 남았다. 이제는
-    현재 실측 위치를 새 목표로 덮어써 실제로 세운다.
+    ⚠ 2026-08-05 계약 변경. 예전에는 현재 실측 위치를 새 목표로 써 넣어 축을 붙들었는데,
+    그 방식은 벤더 매뉴얼·상류 구현·마스터 캡처 **어디에도 없는 것**이었다
+    (`docs/claude-mistake/2026-08-05-001`). 이제 재송신만 멈춘다.
+    ⚠ 드라이브가 이미 받은 목표까지는 못 세운다 — 알려진 제약이다.
     """
     link, be = make(**M35)
     at(link, 3, 7_871_815); at(link, 4, 7_840_086); be._drain()
-    at(link, 3, 7_871_815); at(link, 4, 7_840_086); be._drain()   # 정지 확인용 2번째 표본
+    be._steer_counts = {3: 9_999_999, 4: 9_999_999}
     n_before = len(writes_to(link, P.OBJ_TARGET_POSITION))
     ok, why = be.cancel_home()
-    assert ok is True and "조향 정지 지령 송신" in why
-    sent = writes_to(link, P.OBJ_TARGET_POSITION)[n_before:]
-    assert {f.can_id - 0x600 for f in sent} == {3, 4}     # 조향 양축에 실제 송신
-    assert "homing_cancel" not in link.log                # 펌웨어 관여 없음
+    assert ok is True
+    assert len(writes_to(link, P.OBJ_TARGET_POSITION)) == n_before, \
+        "조향축에 프레임을 보냈다 — 이제 보내지 않는 계약이다"
+    assert be._steer_counts == {}, "우리 조향 목표가 남아 재송신된다"
+    assert "homing_cancel" not in link.log
 
 
-def test_cancel_reports_failure_when_position_unknown():
-    """실측 위치가 없으면 '멈췄다'고 말하지 않는다."""
-    link, be = make(**M35)
-    ok, why = be.cancel_home()
-    assert ok is False and "못 보냈다" in why
-
-
-def test_hold_steer_at_measured_overwrites_stale_target():
+def test_release_steer_target_stops_resending():
+    """놓으면 폴 루프가 우리 목표를 더 이상 재송신하지 않는다 — 이것이 실제 효과다."""
     link, be = make(**M35)
     be._steer_counts = {3: 9_999_999, 4: 9_999_999}
-    # 표본 **2개** — 정지 확인이 있어야 보낸다(2026-08-03: 캡처된 상황으로 제한).
-    at(link, 3, 7_871_815); at(link, 4, 7_840_086); be._drain()
-    at(link, 3, 7_871_815); at(link, 4, 7_840_086); be._drain()
-    assert be.hold_steer_at_measured("시험") is True
-    assert be._steer_counts == {3: 7_871_815, 4: 7_840_086}
+    n_before = len(writes_to(link, P.OBJ_TARGET_POSITION))
+    assert be.release_steer_target("시험") is True        # 놓을 목표가 있었다
+    assert be._steer_counts == {}
+    assert len(writes_to(link, P.OBJ_TARGET_POSITION)) == n_before, "프레임을 보냈다"
+    assert be.release_steer_target("두 번째") is False     # 이제 없다
+    assert "걸어 둔 조향 목표가 없었다" in be.halt_note()
 
 
 # ── E-stop 이 조향도 막는가 (H7) ─────────────────────────────────────────

@@ -99,7 +99,8 @@ class RelayConfig:
     home_search_range: tuple = (-10_000_000, 10_000_000)
     require_homed_for_steer: bool = True
     stationary_tol_counts: int = 200
-    #   `hold_steer_at_measured` 가 「정지 상태」로 인정하는 연속 두 표본의 차. 200 counts = 0.0035°.
+    #   `NodeState.stationary` 의 정지 판정 허용치. 200 counts = 0.0035°.
+    #   ⚠ 2026-08-05 이후 조향 정지 경로는 이 값을 쓰지 않는다(프레임을 안 보낸다).
     #   근거: 마스터(Seer) 캡처에서 `0x607A ≈ 현재 실측` 송신 12,396건이 전부 |Δ| ≤ 200 c 대역이다
     #   (`Log/homing_capture_220350.jsonl`, 재현 `Tools/docking_field_kit/master_command_census.py`).
     #   즉 **실측으로 확인된 사용 상황의 폭**을 그대로 임계로 쓴다 — 임의로 고른 수가 아니다.
@@ -179,7 +180,7 @@ class RelayBackend:
             return
         self.stop("shutdown")
         if self.link.engaged:
-            self.hold_steer_at_measured("shutdown")   # 조향 목표를 현재 위치로 덮고 나간다
+            self.release_steer_target("shutdown")   # 우리 조향 목표를 놓고 나간다
             try:
                 self._send(self._drive_frames(0))
             except Exception as exc:
@@ -455,89 +456,44 @@ class RelayBackend:
                 })
         return out
 
-    def hold_steer_at_measured(self, reason: str = "") -> bool:
-        """조향축을 **현재 실측 위치에 붙잡는다** — 정지 상태로 확인된 축에만.
+    def release_steer_target(self, reason: str = "") -> bool:
+        """**우리가 걸어 둔 조향 목표를 놓는다.** 조향축에 프레임은 보내지 않는다.
 
-        ⚠ 옛 이름은 `halt_steer` 였다(2026-08-05 개명, debt-041). 이 함수는 벤더가 정의한
-        **Halt(controlword bit8)를 쓰지 않는다** — 현재 실측 위치를 새 조향 목표로 써 넣어
-        축을 그 자리에 붙든다. 마스터(Seer)도 Halt 를 쓰지 않으므로 동작 선택 자체는 옳고
-        (캡처 12,928회 중 bit8 **0회**), 이름만 사실과 어긋나 오해를 불렀다.
-        과거 문서·실수 기록의 `halt_steer` 표기는 그 시점 사실이므로 고치지 않는다.
+        옛 이름 `hold_steer_at_measured` / `halt_steer`. 그 함수는 현재 실측 위치를 새 조향
+        목표(`0x607A`)로 써 넣어 축을 붙들었다. **2026-08-05 그 송신을 제거했다** — 근거:
 
-        ## 사용 범위를 실측이 확인한 만큼으로 제한한다 (2026-08-03 사용자 결정)
+        1. **어느 문서·구현에도 없는 방식이었다.** 벤더 Handbook V7.0 §위치 모드(PP) 절차는
+           정지를 `0x6040` 으로 낸다(`:8467-8469` — `0x03 Pause` · `0x0F Recovery` · `0x05 Stop`).
+           상류 `TR_Nav_ros2_ws` 도 그대로 쓴다(`can_open.hpp:36-37,468-469`).
+           마스터 Seer 는 정지 명령 없이 **목표를 28 ms 마다 연속 재송신**할 뿐이다
+           (캡처 253,510 프레임: `0x03`·`0x05` 0회).
+           경위는 `docs/claude-mistake/2026-08-05-001`.
+        2. **원래 목적을 수행하지 못했다.** 2026-08-04 에 「마스터가 이동 중엔 안 쓴다」를 근거로
+           정지 확인된 축에만 보내도록 제한했는데, 이 함수가 생긴 이유가 **움직이는 축을
+           세우는 것**이었다. 제한 뒤에는 **이미 멈춘 축에 「거기 있어라」** 를 보내는 것만 남았다.
+        3. **그 무의미한 쓰기가 유일한 위험 통로였다.** engage 직후 위치가 0 으로 고정 보고되는
+           구간(실측 132 ms)에 걸리면 목표가 0 이 되어 축을 **+69.3°** 돌린다(debt-040).
 
-        보내는 것은 `0x607A = 현재 실측 위치` + `0x6040 = 0x3F` 두 프레임이고, 이것은
-        **마스터(Seer)가 상시 쓰는 바로 그 조합**이다 — `Log/homing_capture_220350.jsonl`
-        에서 12,928회, 그중 **12,396회(95.9 %)가 「목표 ≈ 그 시점 실측」**(|Δ| ≤ 200 c).
-        재현: `Tools/docking_field_kit/master_command_census.py`.
+        ⚠ **`0x6040` 정지 명령 채택은 아직 보류다.** `0x03`(Quick Stop)의 실제 거동은
+        `0x605A`(quick_stop_option_code)가 정하는데, 실기 판독 결과 **4축 모두 0** 이고
+        매뉴얼은 그 값의 의미를 **정의하지 않는다**(PDF `-layout` 재추출로도 표 없음).
+        문서로 확정되기 전에는 넣지 않는다 — 같은 실수를 반복하지 않는다.
+        `0x05`(Disable Voltage = 서보 오프)는 쓰지 않는다(사용자 확인 2026-08-05).
 
-        ⚠ 그러나 같은 캡처에서 **이동 중 목표 변경은 0건**이다. 그래서 이 함수는
-        **정지 상태로 확인된 축에만** 보낸다(`NodeState.stationary`). 움직이는 축·판정 불가 축은
-        건너뛰고 사유를 로그로 남긴다 — 「캡처된 상황에서만 쓴다」가 규칙이다.
+        ⚠ **드라이브가 이미 받은 목표까지는 못 세운다.** 그 축은 직전 목표까지 계속 회전한다
+        (사용자 확인 2026-08-04). 급정지는 node guarding 폴 중단 또는 하드웨어 E-STOP 이다.
 
-        ⚠ **따라서 이 함수는 「움직이는 축을 세우는」 수단이 아니다.** 그 용도가 필요하면
-        호밍은 펌웨어 취소(`0x60FB:04=0`, `cancel_home`), 그 외는 심박 상실 fail-safe 를 쓴다.
-        (`docs/claude-mistake/2026-08-03-003` · debt-041)
-
-        ⚠ 도입 경위(2026-08-01): `stop()` 은 `drive_nodes` 에만 프레임을 보내므로
-        (`_drive_frames`) 호밍 타임아웃·취소 시 조향축에는 한 장도 나가지 않았고, 그것을
-        메우려고 이 함수가 추가됐다. **그때 실측 대조가 없었다** — 그 절차 위반은
-        `docs/claude-mistake/2026-08-03-003` 에 기록돼 있다.
-
-        반환: 실제로 프레임을 보냈으면 True. 정지 확인된 축이 하나도 없으면 False.
+        반환: 놓을 목표가 있었으면 True, 없었으면 False.
         """
-        now = time.monotonic()
         with self._lock:
-            # ① **내용 신선도** — `0x6041` bit15=0 구간에서 드라이브는 위치를 0 으로 고정해
-            #    보고한다. 시각 신선도(`fresh`)는 이것을 못 걸른다: 값은 방금 도착했고
-            #    **내용만 무효**이기 때문이다.
-            #    ⚠ 2026-08-05 실기 재현(debt-040): engage 후 t=35 ms 판독이 pos=0(sw=0x1050,
-            #      bit15=0)이었고 t=168 ms 에 참값 3,971,954(sw=0x9450)로 바뀌었다 — 차 **+69.3°**.
-            #      `stationary` 만으로는 못 막는다. bit15=0 구간이 132 ms 이고 폴링이 10 Hz 라
-            #      **두 표본 모두 0** 이면 「정지」로 판정돼 0 이 조향 목표가 된다.
-            untrusted = [n for n in self.cfg.steer_nodes
-                         if not S.position_trustworthy(self.nodes[n].statusword)]
-            pos = {n: self.nodes[n].position for n in self.cfg.steer_nodes
-                   if self.nodes[n].fresh(now, self.cfg.feedback_ttl_s)
-                   and S.position_trustworthy(self.nodes[n].statusword)
-                   and self.nodes[n].position is not None}
-            # ② **캡처된 상황에서만 쓴다** — 정지(또는 정지 판정 가능) 축에만 보낸다.
-            moving = {n: self.nodes[n].stationary(self.cfg.stationary_tol_counts)
-                      for n in pos}
-            pos = {n: c for n, c in pos.items() if moving[n] is True}
-            # 낡은 목표가 다음 틱에 되살아나지 않도록 함께 비운다.
-            self._steer_counts = dict(pos)
+            had = bool(self._steer_counts)
+            self._steer_counts = {}
             self._steer_target_deg = None
-        blocked = [n for n, ok in moving.items() if ok is not True]
-        self._halt_note = ""
-        if untrusted:
-            note = (f"위치를 믿을 수 없는 축 {sorted(untrusted)} 는 잡지 않았다 "
-                    f"— 0x6041 bit15=0(위치가 0 으로 고정되는 구간)")
-            self._halt_note = note
-            self._log(f"조향 정지 보류 — {note}. 그 값을 목표로 쓰면 축이 크게 돈다 "
-                      f"(debt-040 실측 +69.3°) ({reason})")
-        if blocked:
-            self._halt_note = (f"이동 중이거나 판정 불가한 축 {sorted(blocked)} 는 잡지 않았다 "
-                               f"— 그 축은 직전 목표까지 계속 회전한다")
-            self._log(
-                f"조향 정지 보류 — 노드 {sorted(blocked)} 는 정지 상태로 확인되지 않았다"
-                f"(연속 두 표본 차 > {self.cfg.stationary_tol_counts} c 이거나 표본 부족). "
-                f"이동 중 이 지령을 쓰는 것은 마스터 캡처에 **0건**이라 보내지 않는다 ({reason})")
-        if not pos:
-            if not self._halt_note:
-                self._halt_note = "실측 위치를 확보하지 못했다"
-            self._log(f"조향 유지 실패 — {self._halt_note} ({reason})")
-            return False
-        try:
-            frames = []
-            for n, c in pos.items():
-                frames.extend(P.steer_target_frames(n, int(c), self.cfg.bus))
-            self._send(frames)
-        except Exception as exc:
-            self._log(f"조향 정지 송신 실패: {type(exc).__name__}: {exc}")
-            return False
-        self._log(f"조향 정지 — 현재 위치 유지 {pos}" + (f" ({reason})" if reason else ""))
-        return True
+        self._halt_note = "" if had else "걸어 둔 조향 목표가 없었다"
+        self._log("조향 목표 해제 — 재송신 중단"
+                  + ("" if had else " (걸어 둔 목표 없음)")
+                  + (f" ({reason})" if reason else ""))
+        return had
 
     def stop(self, reason: str = ""):
         """구동 정지. **어떤 상태에서도 받아들인다.**
@@ -546,7 +502,7 @@ class RelayBackend:
         조향축에는 프레임이 한 장도 나가지 않고, 제어 루프가 직전 조향 목표를 계속
         재송신한다. 즉 "현 위치 유지"가 아니라 **"직전 목표까지 계속 회전"** 이다
         (2026-08-01 실기에서 이 오해로 사고가 났다).
-        조향까지 세우려면 `hold_steer_at_measured()` 또는 `stop_all()` 을 쓸 것.
+        우리 조향 목표를 놓으려면 `release_steer_target()` 또는 `stop_all()` 을 쓸 것.
         """
         with self._lock:
             self._drive_units = 0
@@ -566,7 +522,7 @@ class RelayBackend:
     def stop_all(self, reason: str = "") -> bool:
         """구동을 0 으로 하고, **정지 상태로 확인된 조향축은 현재 위치에 붙잡는다.**
 
-        ⚠ **이름과 달리 「조향을 세우는」 함수가 아니다.** `hold_steer_at_measured` 는 2026-08-03 결정으로
+        ⚠ **이름과 달리 「조향을 세우는」 함수가 아니다.** `release_steer_target` 은 2026-08-05 결정으로
         **정지 확인된 축에만** 지령을 보낸다(사용자 결정 「실제 캡처한 상황에서만 사용하게 할것」).
         따라서 **조향이 움직이는 중이면 이 함수는 그 축을 잡지 않으며, 축은 직전 PP 목표까지
         계속 회전한다.** 그것이 현재 확정된 동작이다(2026-08-04 사용자 결정 「현행 유지」).
@@ -578,7 +534,7 @@ class RelayBackend:
         구동 정지는 어떤 경우에도 수행된다(`stop()` 은 상태와 무관하게 받아들여진다).
         """
         self.stop(reason)
-        return self.hold_steer_at_measured(reason)
+        return self.release_steer_target(reason)
 
     def estop(self, engage: bool):
         """소프트 E-stop 래치. ⚠ 하드웨어 E-STOP 을 대체하지 않는다.
@@ -589,7 +545,7 @@ class RelayBackend:
         if engage:
             self.stop("estop")
             # 조향도 세운다 — 예전에는 구동만 세우고 조향 setpoint 를 계속 밀어넣었다.
-            self.hold_steer_at_measured("estop")
+            self.release_steer_target("estop")
         self._log(f"E-stop {'인가' if engage else '해제'}")
 
     # ── 호밍 (명시 요청 전용) ─────────────────────────────────────────
@@ -641,11 +597,11 @@ class RelayBackend:
             while len(reached) < len(cfg.steer_nodes):
                 if not self._running:
                     self.stop("호밍 중 백엔드 종료")
-                    self.hold_steer_at_measured("호밍 중 백엔드 종료")
+                    self.release_steer_target("호밍 중 백엔드 종료")
                     return False, "백엔드가 내려갔다 — 조향 정지 지령 송신"
                 if time.monotonic() - t0 > timeout_s:
                     self.stop("호밍 타임아웃")
-                    ok_h = self.hold_steer_at_measured("호밍 타임아웃")
+                    ok_h = self.release_steer_target("호밍 타임아웃")
                     with self._lock:
                         rem = {n: (None if self.nodes[n].position is None else
                                    self.nodes[n].position - int(cfg.steer_home_offset[n]))
@@ -684,13 +640,13 @@ class RelayBackend:
                            if self.nodes[n].aborts > before.get(n, 0)]
                 newpos = {n: self.nodes[n].position for n in cfg.steer_nodes}
             if aborted:
-                self.hold_steer_at_measured("0x6098 거부")
+                self.release_steer_target("0x6098 거부")
                 return False, (f"드라이브가 0x6098=35 를 거부했다 (노드 {aborted}) — "
                                f"홈 미설정. 조향 잠금 유지")
             far = {n: v for n, v in newpos.items()
                    if v is None or abs(v) > cfg.home_reach_tol_counts * 20}
             if far:
-                self.hold_steer_at_measured("재영점 미확인")
+                self.release_steer_target("재영점 미확인")
                 return False, (f"0x6098=35 후에도 0x6064 가 0 근처가 아니다 {far} — "
                                f"재영점 미확인. 조향 잠금 유지")
             self._homed = True
@@ -711,7 +667,7 @@ class RelayBackend:
             # 구동 0 + 조향 setpoint 중단으로 성립한다(펌웨어 관여 없음).
             self._homing = False
             self.stop("호밍 취소")
-            ok_h = self.hold_steer_at_measured("호밍 취소")
+            ok_h = self.release_steer_target("호밍 취소")
             self._log("호밍 취소 — method 35")
             return ok_h, ("취소 수리 — 조향 정지 지령 송신" if ok_h else
                           "⚠ 취소 요청했으나 조향 정지 지령을 못 보냈다(실측 위치 미확보)")
@@ -830,7 +786,7 @@ class RelayBackend:
             }
 
     def halt_note(self) -> str:
-        """직전 `hold_steer_at_measured` 가 조향을 못 잡았다면 그 사유. 잡았으면 빈 문자열."""
+        """직전 `release_steer_target` 이 놓을 목표가 없었다면 그 사유. 있었으면 빈 문자열."""
         return self._halt_note
 
     def bus_fault(self) -> Optional[str]:
