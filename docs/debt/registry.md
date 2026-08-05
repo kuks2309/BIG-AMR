@@ -60,7 +60,7 @@
 
 | debt-020 | 의도 | `docs/claude_guideline/code_review/review.md` (다중 에이전트 감사 절차) · 관련 `docs/claude-mistake/2026-07-29-003` §재발 방지 3 | **적대적 반대심문이 절차가 아니라 「사용자 지시」에 걸려 있다.** 2026-07-29 10인 병렬 감사에서 나온 결론 **5건이 반대심문 3인에게 뒤집혔다**(브링업 부재=거짓 / 조향 홈 기준계=논리 반증 / NaN 방향=미입증 / guard forward 조건=누락 / 「중복이니 확장」=반박). 그 라운드가 돈 이유는 사용자가 "적대적 토론 진행"을 명시 지시했기 때문이고, **지시가 없었으면 5건이 정본으로 남아 그 위에 코드를 지었을 것**이다. 특히 「중복이니 motor_control 을 확장하라」를 따랐다면 그 패키지의 유일한 문서보증 정지수단(guard RTR 중단)이 판다 경유에서 무력화된 코드가 나왔다. 같은 구멍이 `docs/claude-mistake/INDEX.md` §메타 패턴의 2026-07-28-011·012·013 에도 기록돼 있다 — 그때도 사용자 지시("10명이 재검토", "적대적 검증을 해야 합니다")가 결정적이었다. 2026-07-29 S6 lint 추가로 *부정형 단정* 쪽 구멍은 닫혔으나 **반대심문 자체의 기동 조건은 닫히지 않았다**(사용자가 이번엔 미채택 결정) | 2026-07-29 | 미해결(사용자 미채택 — 위험만 등록) | 채택 시: `review.md` 에 "다중 에이전트 감사는 반대심문 라운드를 거친다"를 명문화하고, 1차 결론 대비 뒤집힌 건수를 리뷰 산출물에 의무 기록(오늘 `docs/code_review/can_relay_ros2/2026-07-29.md` §적대적 반대심문… 절이 그 형식의 선례). 미채택 유지 시: 다중 에이전트 감사 결과를 **1차 결론 그대로 사용자에게 보고하지 말고** 최소한 「미심문」 라벨을 붙인다 |
 | debt-021 | 기술 | `src/Control/Motion_Control/{QD,2WS}` ↔ `src/Comm/CAN/can_relay` (체인 상류 2노드 부재) | **모션 스택과 모터 드라이버 사이의 중간 2노드가 저장소에 없다.** 상류 원본 `kuks2309/TR_Nav_ros2_ws`(HEAD `ad75209`, 2026-07-31 대조)의 체인은 `action server ─WheelSetArray→ trnav_motion_mux ─/motor/wheel_cmd→ amr_motor_cmd_translator ─MotorCmdArray→ amr_canopen_motor_driver` 인데, 본 저장소에는 **액션 서버(9종)와 can_relay 만 있고 mux·translator 가 없다**(확인: `find src -type d \( -iname '*mux*' -o -iname '*translator*' -o -iname '*canopen*' -o -iname '*arbitration*' \)` → 0건). 저장소의 `sil_*.launch.py` 들은 `trnav_motion_mux`·`trnav_motion_supervisor`·`translate_sim_odom` 을 참조하지만 그 패키지들이 트리에 없어 **현 상태로는 launch 가 성립하지 않는다.** 결과: can_relay 를 모터 계층으로 내려도(ADR `docs/adr/2026-07-31-can-relay-cpp-motor-layer.md`) `/motor/low_cmd` 를 발행하는 노드가 없어 체인이 이어지지 않는다 | 2026-07-31 | **해결(2026-07-31)** — 상환계획 (a) 채택. `trnav_motion_mux`·`amr_motor_cmd_translator` 를 TR_Nav(HEAD `ad75209`)에서 `src/Control/Motion_Control/Common/` 으로 이식. 리네임 0건(메시지 패키지 통합으로 사본 불요). ADR `docs/adr/2026-07-31-motion-motor-chain-mux-translator-port.md`. 검증: colcon 13/13 error 0·stderr 0, 두 노드 기동 후 `/motor/wheel_cmd` pub 1/sub 1 연결·`/motor/low_cmd` pub 1 확인, 이식본 회귀 12 tests 0 failures. **잔여**: `trnav_motion_supervisor`·`translate_sim_odom` 은 여전히 부재해 `sil_*.launch.py` 는 아직 성립하지 않음(→ debt-026). 실기 구동 0 | (해결됨) |
-| debt-022 | 이해 | `src/Comm/CAN/can_relay/can_relay/safety.py` `steer_deg_to_counts`·`DEFAULT_STEER_HOME` ↔ TR_Nav `amr_motor_cmd_translator` (환산 책임 경계) | **조향 환산 보정이 이중 적용될 수 있으나 책임 경계가 미확정이다.** 상류 `amr_motor_cmd_translator_qd.yaml` 은 이미 `direction_steer_front/rear: -1`, `steer_offset_front/rear_deg: -1.676`(2026-07-13 개루프 실측), `gear_steer: 265.5`, `pulses_per_rev: 65536` 을 적용해 raw pulse 를 만든다. 본 패키지의 `steer_home_counts`(`[7871815, 7840086]`)·`COUNTS_PER_DEG`(57344.0)가 같은 보정을 다시 걸면 **이중 적용**된다. 어느 계층이 환산을 소유하는지가 문서로 확정된 적이 없다. 값 자체도 부호·기준계가 다르다 — TR_Nav `amr_canopen_motor_driver.yaml` 의 `steer_home_offset_front/rear: -6500000` 대 본 패키지 `+7871815`/`+7840086`. 선행 부채와 얽힘: debt-007(호밍 후 영구 오프셋 미판정), debt-016(홈 상수 하드코딩 계승) → ⚠ **정정 2026-08-03 (인용값 상태 갱신 — 부채 자체는 미해결 유지)**: 본 행이 인용한 `steer_home_counts` `[7871815, 7840086]` 은 **2026-08-02 에 폐기 선언됐다가 2026-08-03 실측으로 정본으로 확정**됐다(실측 0° node3 7,871,816 / node4 7,840,087 대비 양 노드 1c 이내). 따라서 **본 행의 값 인용은 현재도 유효**하며, 2026-08-02~08-03 사이에 잠시 `[7871810, 7839894]` 이던 것으로 읽지 말 것. **「이중 적용 위험」 지적은 값의 옳고 그름과 무관하므로 그대로 유효하다** — 쟁점은 어느 계층이 환산을 소유하느냐이지 상수값이 아니다. 부호·기준계 상충(TR_Nav `steer_home_offset_front/rear: -6500000` 대 본 패키지 `+7871815`/`+7840086`)도 미해소 그대로다. 근거 `docs/homing/2026-08-03-can-relay-homing-assets.md` §10 | 2026-07-31 | 미해결 | ① 환산 소유 계층을 문서로 확정(권장: translator 가 SI→raw 를 단독 소유, can_relay 는 **안전 클램프 판정용으로만** counts↔deg 환산 — 지령 값을 재보정하지 않는다). ② 확정 후 잭업 상태에서 상류가 만든 raw 를 그대로 흘려 실측 조향각과 대조. ③ debt-007 상환계획 ③("실측 없이 값 변경 금지")을 그대로 적용 — 대조 전까지 어느 쪽 값도 바꾸지 않는다 |
+| debt-022 | 이해 | `src/Comm/CAN/can_relay/can_relay/safety.py` `steer_deg_to_counts`·`DEFAULT_STEER_HOME` ↔ TR_Nav `amr_motor_cmd_translator` (환산 책임 경계) | **조향 환산 보정이 이중 적용될 수 있으나 책임 경계가 미확정이다.** 상류 `amr_motor_cmd_translator_qd.yaml` 은 이미 `direction_steer_front/rear: -1`, `steer_offset_front/rear_deg: -1.676`(2026-07-13 개루프 실측), `gear_steer: 265.5`, `pulses_per_rev: 65536` 을 적용해 raw pulse 를 만든다. 본 패키지의 `steer_home_counts`(`[7871815, 7840086]`)·`COUNTS_PER_DEG`(57344.0)가 같은 보정을 다시 걸면 **이중 적용**된다. 어느 계층이 환산을 소유하는지가 문서로 확정된 적이 없다. 값 자체도 부호·기준계가 다르다 — TR_Nav `amr_canopen_motor_driver.yaml` 의 `steer_home_offset_front/rear: -6500000` 대 본 패키지 `+7871815`/`+7840086`. 선행 부채와 얽힘: debt-007(호밍 후 영구 오프셋 미판정), debt-016(홈 상수 하드코딩 계승) → ⚠ **정정 2026-08-03 (인용값 상태 갱신 — 부채 자체는 미해결 유지)**: 본 행이 인용한 `steer_home_counts` `[7871815, 7840086]` 은 **2026-08-02 에 폐기 선언됐다가 2026-08-03 실측으로 정본으로 확정**됐다(실측 0° node3 7,871,816 / node4 7,840,087 대비 양 노드 1c 이내). 따라서 **본 행의 값 인용은 현재도 유효**하며, 2026-08-02~08-03 사이에 잠시 `[7871810, 7839894]` 이던 것으로 읽지 말 것. **「이중 적용 위험」 지적은 값의 옳고 그름과 무관하므로 그대로 유효하다** — 쟁점은 어느 계층이 환산을 소유하느냐이지 상수값이 아니다. 부호·기준계 상충(TR_Nav `steer_home_offset_front/rear: -6500000` 대 본 패키지 `+7871815`/`+7840086`)도 미해소 그대로다. 근거 `docs/homing/2026-08-03-can-relay-homing-assets.md` §10 | 2026-07-31 | **부분 해결 (2026-08-05)** — ①(소유 계층) **확정**, ②(잭업 실측 대조) 미이행 → 항목 유지. 상세는 아래 「[2026-08-05 판정]」 절. ⚠ 아래 ① 의 「권장」은 **반대 방향으로 판정**됐다 — 그 문장을 근거로 코드를 되돌리지 말 것 | ① 환산 소유 계층을 문서로 확정(권장: translator 가 SI→raw 를 단독 소유, can_relay 는 **안전 클램프 판정용으로만** counts↔deg 환산 — 지령 값을 재보정하지 않는다). ② 확정 후 잭업 상태에서 상류가 만든 raw 를 그대로 흘려 실측 조향각과 대조. ③ debt-007 상환계획 ③("실측 없이 값 변경 금지")을 그대로 적용 — 대조 전까지 어느 쪽 값도 바꾸지 않는다 |
 | debt-027 | 기술 | `src/Comm/CAN/can_relay/can_relay/protocol.py` `drive_init_frames`·`steer_init_frames` (`allow_bringup` 기본 false) | **구동축 브링업 시퀀스에 실기 검증 이력이 0 이다.** 실기 구동이 확인된 유일한 코드 `Tools/amr_test_gui/gui.py` 에는 이 시퀀스가 **없다** — 그 코드는 `0x6060`·`0x100C`/`0x100D`·`0x6081/83/84` 를 한 번도 쓰지 않고, Seer 가 이미 브링업·enable 해 둔 축에 intercept 로 올라타 `0x60FF`/`0x607A` 만 덮어쓴다(확인: `grep -n "0x6060\|0x100C\|0x6081" Tools/amr_test_gui/gui.py` → 0건). 본 패키지의 브링업 프레임은 실측 캡처(Seer init, t=17.883~17.904 / t=49.012~49.133)와 **바이트 동일**함이 확인됐으나, 그것을 **우리가 보냈을 때** 드라이브가 어떻게 반응하는지는 미관측이다 | 2026-07-29 | 미해결 | 잭업(바퀴 공중) + 하드웨어 E-STOP 상비 상태에서 `allow_bringup: true` 로 1회 수행하고 `0x6041`·`0x603F`·SDO abort 를 전수 기록. abort 0건·상태 전이 정상 확인 후에만 지면 사용. 확인 전까지 기본값 false 유지 |
 | debt-028 | 기술 | `src/Comm/CAN/can_relay` ↔ `src/Actuators/motor_control` (배타 장치 부재) | **모터 구동 ROS2 패키지가 둘이고 동시 기동을 막는 장치가 없다.** 두 패키지는 전제가 배타적이다(can_relay=Seer 공존·판다 경유 / motor_control=Seer 분리·socketcan 직결). 동시에 뜨면 같은 드라이브에 서로 다른 안전 모델로 쓰기가 들어간다. 확인: `grep -rniE 'flock\|lockfile\|pidfile\|singleton' src/Comm/CAN/can_relay src/Actuators/motor_control --include=*.py` → 0건. 나아가 **어느 패키지도 타 마스터(Seer 포함) 트래픽을 검출하지 않는다** | 2026-07-29 | 미해결 | 최소안: 버스 배타 파일 락 + 브링업 전 수동 청취로 타 마스터 SDO(`0x600±`)·guard(`0x700±`) 검출 시 기동 거부. 정공법: `motor_control` 을 판다 게이트 뒤로 옮기거나 한쪽을 deprecate. 그 전까지 **운전자 수동 준수**(동시 launch 금지) |
 | debt-029 | 기술 | `Tools/amr_test_gui/gui.py` `_wait_settle`·`_meas_deg` (**타 세션 소유 — 본 세션은 진단만 등록**) | **피드백 신선도 게이트가 대체 없이 사라졌다.** 구 GUI 는 `FEEDBACK_STALE_S = 0.5` 로 오래된 실측을 무효화했고 그 주석이 "이 게이트가 없으면 램프가 영원히 SETTLED·구동 허용으로 남는다"고 적었다(`Tools/amr_test_gui/docs/sw_structure/amr-test-gui/2026-07-27.md:254-256`). 구 GUI 폐기(`docs/adr/2026-07-28-old-gui-removal.md`)로 삭제됐고 **그 ADR 의 「폐기 자산과 대체」 표에도 debt 에도 등록되지 않았다**. 현재 `gui.py` 에 신선도 판정이 없다(확인: `grep -c "stale\|last_seen" Tools/amr_test_gui/gui.py` → 0). 결과: RX 가 죽어도 `_wait_settle` 이 굳은 값으로 즉시 True 를 반환해, 조향이 실제로 안 돌아간 상태에서 crab 구동이 시작될 수 있다 | 2026-07-29 | 미해결 | 소유 세션이 상환: 실측에 수신 시각을 달고 TTL 초과 시 `None` 처리 → `_wait_settle` 은 결측을 정착으로 치지 않는다. 참고 구현 `src/Comm/CAN/can_relay/can_relay/backend.py` `NodeState.fresh()`·`steer_angles_deg()` (같은 문제를 TTL 로 해결, 회귀 시험 `test_backend.py::test_steer_angle_none_when_feedback_expired`) |
@@ -649,3 +649,62 @@ E7 의 **상수 적정성**(`SEER_HOME_ZERO_N3/N4` 가 옳은 목표인지) — 
   (휠 평면 직접 계측 0.052° / iAHRS yaw 0.012°)이 필요하다 — **그 조건에서만** 필요하다.
   (debt-004 · debt-022 와 인접)
 - **펌웨어 「이미 홈」 종료 조건의 필요성** — 미확인, 보험 존치 (debt-035)
+
+---
+
+## [2026-08-05 판정] debt-022 — 환산 소유 계층 확정 (① 종결, ② 잔존)
+
+> 사용자 지시로 확정했다: 「0도의 위치를 config 에서 저장하고 사용하지」·
+> 「조향 원점 부분은 전체 모션에서 중요한 수정할 것」. 반영 커밋 `3d53cfc`.
+
+### 확정된 경계
+
+| 항목 | 소유 계층 | 근거 |
+| --- | --- | --- |
+| 기계 **원점**(홈 counts) | **can_relay**(드라이버 계층) | 홈 정본이 `config/machine/<기체>.yaml` 하나다. 상류에 복제하면 정본이 둘이 된다 |
+| 스케일·부호·영점 미세보정 | **translator** | `gear_steer`·`pulses_per_rev`·`direction_steer_*`·`steer_offset_*_deg` |
+
+계약: `/motor/low_cmd` 의 `target_pos` 와 `/motor/low_state` 의 조향 `fb_pos` 는
+**홈 기준 상대 counts**. 절대 counts 변환은 can_relay 안에서만 일어난다.
+
+### ⚠ 상환계획 ① 의 「권장」과 반대 방향이다
+
+① 은 「can_relay 는 **안전 클램프 판정용으로만** 환산 — **지령 값을 재보정하지 않는다**」를
+권장했다. 확정은 그 반대다(can_relay 가 `home + tpos` 로 재보정한다). 뒤집은 근거:
+
+- **상류 선례가 드라이버 계층이다** — 본 행 본문이 인용한 TR_Nav
+  `amr_canopen_motor_driver.yaml` 의 `steer_home_offset_front/rear: -6500000` 은
+  translator 가 아니라 **드라이버** config 에 있다. ① 의 권장은 그 인용과 어긋나 있었다.
+- **실기 검증된 경로가 이미 그렇게 한다** — `set_steer_deg` → `steer_deg_to_counts`
+  (`safety.py:85` `home[node] + applied × counts_per_deg`). raw 경로만 그 원점을 지나지
+  않아 갈라져 있었다(진입점 2개, 한쪽만 검증됨).
+- **원점을 상류가 더하면 홈 정본이 둘이 된다** — 기체 교체 시 한쪽만 갱신되면 그 오차가
+  그대로 바퀴로 나간다.
+
+### 「이중 적용」 우려는 해소됐다
+
+본 행이 지적한 이중 적용은 **성립하지 않는다** — translator 의 `steer_offset_*_deg`(−1.676°,
+조향 영점 미세보정)와 can_relay 의 `steer_home_counts`(기계 원점)는 **다른 보정**이다.
+같은 보정을 두 번 거는 구조가 아니다.
+
+### 확정 전 상태가 실제로 무엇이었나 (반영 근거)
+
+원점을 아무도 더하지 않아 **0°(직진) 지령이 −81,005 counts 로 내려가 클램프 하한
+2,710,855c(홈−90°)로 잘린 채 지령**됐다. 피드백도 대칭으로 깨져 있었다 — 절대 counts 를
+그대로 올려 상류가 직진을 **137.27°** 로 읽었다.
+
+### 검증
+
+- 회귀 `src/Comm/CAN/can_relay/test/test_steer_origin.py` 19건.
+  기존 시험은 픽스처 홈이 0 이라 원점을 지워도 통과한다(`test_backend.py:496`) — 그 눈먼
+  구간을 실기 값 `[7871815, 7840086]` 으로 덮었다.
+- 돌연변이: 지령 원점 제거 → 11 failed · 피드백 원점 제거 → 3 failed · 복원 → 19 passed.
+- **Seer 독립 대조**(로봇 무동작, SILENT passthrough 캡처):
+  node3 차 `0.000016°` · node4 차 `0.000012°`. 원점·스케일(57,344)·조향 부호(−1)를
+  동시에 확인한다. 상설화: `Tools/motion_chain_check/check_chain_contract.py --seer-capture`.
+
+### 잔존 — ② 잭업 실측 대조
+
+확정한 것은 **정지 자세에서 보고각이 Seer 와 일치한다**까지다. **움직이는 지령을 실기에
+낸 적이 없다.** ② (잭업 상태에서 상류가 만든 raw 를 흘려 실측 조향각과 대조)는 그대로
+미이행이므로 본 항목은 닫지 않는다.
