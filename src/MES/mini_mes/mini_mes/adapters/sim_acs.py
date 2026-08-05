@@ -37,10 +37,12 @@ from .base import AcsAdapter, TransportResult
 #: Where the machines physically stand in warehouse.world. These are SOLID —
 #: the robot must never drive to these coordinates.
 STATION_POSES = {
-    "station_3": (3.0, -3.0),
-    "station_5": (-3.5, 1.5),
-    "station_9": (2.0, 3.5),
-    "station_out": (-3.0, 3.5),
+    # Customer naming: polarity + equipment type + number.
+    #   1 = anode      A = gravure   T = coating   L = cold press
+    "ASRS": (-3.5, 1.5),      # the automated store — supplies, never calls
+    "1A01": (3.0, -3.0),      # gravure
+    "1T01": (2.0, 3.5),       # coater
+    "1L01": (-3.0, 3.5),      # cold press
 }
 
 #: How far in front of a machine the robot parks to load or unload.

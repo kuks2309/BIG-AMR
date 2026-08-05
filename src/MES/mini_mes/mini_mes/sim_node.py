@@ -1,4 +1,4 @@
-"""sim_node - run the Mini MES against the Gazebo simulation.
+"""sim_node - run the CSM against the Gazebo simulation.
 
 The full loop, with no hardware and no CATL protocol:
 
@@ -41,15 +41,18 @@ from .adapters.mock import MockEquipment
 from .adapters.sim_acs import STATION_POSES, SimAcs
 from .runtime import FsmTask, build_mes
 
-#: Where each station's output goes next. A real line is a process route, not
-#: everything piling into one place: a part finishes at one machine and moves to
-#: the next operation. This is what makes the robot travel between different
-#: pairs of stations rather than shuttling to the same corner every time.
-ROUTE = {
-    "station_3": "station_5",
-    "station_5": "station_9",
-    "station_9": "station_out",     # finished goods leave here
+#: Who feeds whom, in the customer's naming — polarity + type + number, so
+#: 1A01 is "anode line, gravure machine 01".
+#:
+#: Note the direction. A machine CALLS for material to be brought to it, and
+#: the call never says where that material is. Answering that is the CSM's job,
+#: so what we hold is the reverse route: for each machine, who supplies it.
+FEEDS = {
+    "1A01": "ASRS",     # gravure is fed from the automated store
+    "1T01": "1A01",     # coater is fed by gravure
+    "1L01": "1T01",     # cold press is fed by the coater
 }
+STATIONS = ["ASRS"] + list(FEEDS)
 
 #: The job FSM thinks in jobs, which last minutes — a few hertz is ample.
 MES_RATE_HZ = 4.0
@@ -107,16 +110,16 @@ class DriveTask(FsmTask):
 class MesSimNode(Node):
 
     def __init__(self, batch_seconds, job_timeout):
-        super().__init__("mini_mes")
+        super().__init__("csm")
 
         # Every station the equipment layer knows about, INCLUDING the outbound
         # one — a delivery notification to a station that is not in this list is
         # refused, which is what produced the "did not accept 'delivered'"
         # warnings before.
         all_stations = list(STATION_POSES)
-        #: Only these produce work. station_out is a sink; it receives and
-        #: never finishes a batch of its own.
-        self._producers = [s for s in ROUTE]
+        #: The machines that can call for material. The store never calls —
+        #: it is a warehouse, it only supplies.
+        self._callers = list(FEEDS)
 
         self.equipment = MockEquipment(all_stations, time.monotonic,
                                        process_seconds=batch_seconds)
@@ -124,7 +127,7 @@ class MesSimNode(Node):
 
         self.app = build_mes(
             self.equipment, self.acs,
-            route=lambda sid: ROUTE.get(sid, "station_out"),
+            source_for=lambda sid: FEEDS.get(sid, "ASRS"),
             clock=time.monotonic,
             logger=lambda m: self.get_logger().info(m),
             job_timeout_s=job_timeout,
@@ -135,17 +138,26 @@ class MesSimNode(Node):
         self.create_timer(batch_seconds + 2.0, self._produce_batch)
         self._next_station = 0
 
-        routes = " · ".join(f"{a}→{b}" for a, b in ROUTE.items())
-        self.get_logger().info(f"Mini MES up — route: {routes}")
+        chain = " → ".join(["ASRS"] + list(FEEDS))
+        self.get_logger().info(f"CSM up — process route: {chain}")
         self.get_logger().info(f"job timeout {job_timeout:.0f}s")
         self.get_logger().info("waiting for /odom from the simulation...")
 
     def _produce_batch(self):
-        """The fake factory finishes a batch, round-robin across stations."""
-        station = self._producers[self._next_station % len(self._producers)]
+        """A machine calls for material — the way work actually starts.
+
+        Round-robin across the machines. The supply chain is kept stocked so
+        the calls can be served; the Gazebo world has one robot, so what this
+        node is for is watching a job go end to end, not watching a line fill.
+        """
+        from .adapters.base import TaskType
+
+        station = self._callers[self._next_station % len(self._callers)]
         self._next_station += 1
-        self.equipment.force_status(station, StationStatus.FINISHED)
-        self.get_logger().info(f"--- {station} finished a batch ---")
+        for sid in STATIONS:
+            self.equipment.force_status(sid, StationStatus.FINISHED)
+        self.equipment.raise_call(station, TaskType.LOAD, source="PDA")
+        self.get_logger().info(f"--- {station} called for material (PDA) ---")
 
 
 async def _run(node):
@@ -160,7 +172,7 @@ async def _run(node):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Mini MES against Gazebo")
+    parser = argparse.ArgumentParser(description="CSM against Gazebo")
     parser.add_argument("--batch-seconds", type=float, default=25.0,
                         help="how often the fake factory finishes a batch")
     parser.add_argument("--job-timeout", type=float, default=120.0,
