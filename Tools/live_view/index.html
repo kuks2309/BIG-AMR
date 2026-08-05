@@ -377,6 +377,13 @@
   // Compressed here: real durations are hours, which nobody will watch.
   const CURE_SECONDS = 18;
 
+  // How long a machine works on what it is given. A machine that has just been
+  // handed a raw roll has NOTHING to give — what the next machine collects is
+  // this machine's OUTPUT, and that does not exist until the work is done.
+  //
+  // Real cycle times on this line are 65 s, 130 s and 260 s. Compressed here.
+  const PROCESS_SECONDS = 12;
+
   // What the robot is carrying. A "roll" is material wound on a core; a
   // "bobbin" is the bare core. Machines consume one and emit the other, so a
   // transport job is usually a SWAP, not a delivery.
@@ -514,7 +521,7 @@
   function hasMaterial(st) {
     if (!st) return false;
     if (st.kind === "store") return true;
-    if (st.kind === "machine") return st.rollOn;
+    if (st.kind === "machine") return st.rollOn && sim.t >= (st.readyAt || 0);
     return st.slots.some(v => v && v.left <= 0);   // racks: only once cured
   }
 
@@ -813,9 +820,16 @@
 
   /** Everything solid on the floor: the machines are obstacles too, which is
    *  why the robot parks in front of them rather than at them. */
-  function solidThings() {
+  function solidThings(self) {
     return OBSTACLES.map(o => ({ x: o.x, y: o.y, r: Math.max(o.w, o.h) / 2 }))
-      .concat(STATIONS.map(st => ({ x: st.x, y: st.y, r: 0.6 })));
+      .concat(STATIONS.map(st => ({ x: st.x, y: st.y, r: 0.6 })))
+      // OTHER ROBOTS ARE SOLID TOO. Without this they drive straight through
+      // each other — the entry interlock keeps two robots out of one machine,
+      // but nothing stopped them sharing the same patch of floor on the way
+      // there, which looks wrong and is wrong.
+      .concat(sim.robots
+        .filter(o => o !== self)
+        .map(o => ({ x: o.x, y: o.y, r: BODY_W / 2 })));
   }
 
   /** Bounded push away from obstacles, mirroring sim_acs._repulsion().
@@ -825,7 +839,7 @@
    *  went wrong in the real simulator. */
   function repulsion(r) {
     let dx = 0, dy = 0, closest = Infinity;
-    for (const o of solidThings()) {
+    for (const o of solidThings(r)) {
       const ex = r.x - o.x, ey = r.y - o.y;
       const d = Math.max(0.15, Math.hypot(ex, ey) - o.r);
       if (d >= INFLUENCE_R) continue;
@@ -926,8 +940,17 @@
                             `(${CURE_SECONDS}s)`);
               }
             }
-            // A machine that received a roll now physically has one.
-            if (dst.kind === "machine") dst.rollOn = r.job.carry === CARRIER.ROLL;
+            // A machine that received a roll now physically has one — but it
+            // is RAW. The machine has to work on it before anything downstream
+            // can collect an output, so nothing here is available yet.
+            if (dst.kind === "machine") {
+              dst.rollOn = r.job.carry === CARRIER.ROLL;
+              if (dst.rollOn) {
+                dst.readyAt = sim.t + PROCESS_SECONDS;
+                say("mes", `${dst.id}: processing ${PROCESS_SECONDS}s — ` +
+                           `no output until it finishes`);
+              }
+            }
           }
           releaseEntry(dst, r);
           r.job.state = "DONE";
@@ -1081,6 +1104,13 @@
       if (calling) {
         ctx.fillStyle = css("--amber");
         ctx.fillText("CALLING · " + TASK_LABEL[s.taskType], sx, sy + size / 2 + 28);
+      } else if (s.kind === "machine" && s.rollOn && sim.t < (s.readyAt || 0)) {
+        ctx.fillStyle = css("--steel");
+        ctx.fillText(`processing · ${(s.readyAt - sim.t).toFixed(0)}s`,
+                     sx, sy + size / 2 + 28);
+      } else if (s.kind === "machine" && s.rollOn) {
+        ctx.fillStyle = css("--green");
+        ctx.fillText("output ready", sx, sy + size / 2 + 28);
       } else if (waiting) {
         ctx.fillStyle = css("--amber");
         ctx.fillText("waiting · " + s.waitingFor, sx, sy + size / 2 + 28);
