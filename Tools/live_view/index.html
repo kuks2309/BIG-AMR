@@ -397,6 +397,7 @@
   // frozen snapshot and believes the robot is parked. This is the point of the
   // whole project, so the animation has to show it.
   const HANDOVER_RANGE = 2.4;   // gate engages inside this distance of the goal
+  const ENTRY_REQUEST_RANGE = 1.5;  // the node before the machine — ask here
 
   // Same numbers the Gazebo ACS uses (sim_acs.py), so the two agree.
   const DWELL_SECONDS   = 3.0;   // loading time at the source
@@ -643,6 +644,50 @@
 
   // ---------------------------------------------------------------- ACS
   /* ---------------------------------------------------------------------
+     THE ENTRY INTERLOCK — one robot inside a docking axis, ever.
+
+     This is mutual exclusion BY CONSTRUCTION rather than by rule. The protocol
+     carries exactly one AGV_Entering bit per docking axis, so a second robot
+     has nowhere to report itself even if it wanted to. There is no version of
+     the message that describes two robots inside.
+
+     The sequence, and every step has a precondition:
+
+       AGV_Enter_Request    robot waits at the node BEFORE the machine
+       MC_Ready             the machine's mechanical conditions are met
+       MC_Enter_Permitted   granted — and only while nobody else is inside
+       AGV_Entering         robot is in. THE MACHINE MAY NOT MOVE.
+       AGV_Take_OK/Put_OK   transfer done
+       AGV_Exit             out. The axis is free again.
+
+     And it is a MUTUAL watchdog, not a pair of flags. The machine only decides
+     the robot has left after hearing nothing for longer than a set time, and
+     the robot only enters if it has been hearing permission continuously.
+     Silence never means "clear" — silence means "assume the robot is still in
+     there". Simplifying this into a plain boolean check removes the safety.
+     --------------------------------------------------------------------- */
+
+  /** Ask to enter. Returns true only if this robot now holds the axis. */
+  function requestEntry(st, r) {
+    if (!st) return true;
+    if (st.occupiedBy === r.id) return true;      // already inside
+    if (st.occupiedBy) return false;              // someone else is in there
+    if (st.kind === "machine" && !st.ready) return false;
+    st.occupiedBy = r.id;
+    say("dock", `${st.id}: MC_Enter_Permitted → ${r.id} — AGV_Entering=1, ` +
+                `machine movement blocked`);
+    return true;
+  }
+
+  /** Leave. The axis is only free once the robot is actually out. */
+  function releaseEntry(st, r) {
+    if (st && st.occupiedBy === r.id) {
+      st.occupiedBy = null;
+      say("dock", `${st.id}: AGV_Exit=1 from ${r.id} — axis free`);
+    }
+  }
+
+  /* ---------------------------------------------------------------------
      THE BOUNDARY. This is the split the whole project was reorganised around:
 
          CSM  decides WHICH JOB goes next          "whose turn is it"
@@ -783,6 +828,20 @@
       const ex = r.goal.x - r.x, ey = r.goal.y - r.y;
       const dist = Math.hypot(ex, ey);
 
+      // The node BEFORE the machine. A robot waits here until the axis is its
+      // own — it does not approach and then discover the bay is taken.
+      const target = STATIONS.find(s =>
+        s.id === (r.leg === "collect" ? r.job.from : r.job.to));
+      if (dist < ENTRY_REQUEST_RANGE && !requestEntry(target, r)) {
+        if (!r.notedHold) {
+          r.notedHold = true;
+          say("wait", `${r.id} holding outside ${target.id} — ` +
+                      `${target.occupiedBy} is inside`);
+        }
+        return;                                  // stand still. Do not creep in.
+      }
+      r.notedHold = false;
+
       // The gate switches on approach and back on departure.
       const want = dist < HANDOVER_RANGE ? "jetson" : "seer";
       if (want !== r.authority) {
@@ -801,6 +860,7 @@
           // stalls a line after two or three jobs.
           const src = STATIONS.find(s => s.id === r.job.from);
           if (src && r.job.srcPort != null) src.slots[r.job.srcPort] = null;
+          releaseEntry(src, r);
           r.job.state = "RUNNING";
           r.dwellLeft = DWELL_SECONDS;      // stand still and load
           say("acs", `${r.id} at ${r.job.from} — loading ${DWELL_SECONDS}s ` +
@@ -827,6 +887,7 @@
             // A machine that received a roll now physically has one.
             if (dst.kind === "machine") dst.rollOn = r.job.carry === CARRIER.ROLL;
           }
+          releaseEntry(dst, r);
           r.job.state = "DONE";
           wake("jobs", `${r.job.id} done`);
           sim.done++;
