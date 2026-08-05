@@ -349,7 +349,7 @@
   //
   // `ports` is why: a machine has several docking positions, and nothing below
   // the CSM decides between them. No optimisation is expected; taking the first
-  // empty one is explicitly acceptable, so that is what dispatch() does.
+  // empty one is explicitly acceptable, so that is what acsSubmit() does.
   // Machine numbering is the customer's scheme: polarity + type + number.
   //   1 = anode, 2 = cathode
   //   A = gravure, T = coating, L = cold press
@@ -642,51 +642,90 @@
   }
 
   // ---------------------------------------------------------------- ACS
-  function dispatch() {
-    // Jobs are taken oldest-first, so nothing starves while newer work jumps in.
-    const waiting = sim.jobs.filter(j => j.state === "WAITING");
-    if (!waiting.length) return;
+  /* ---------------------------------------------------------------------
+     THE BOUNDARY. This is the split the whole project was reorganised around:
 
-    for (const job of waiting) {
-      // One at a time until every robot has completed one job.
-      if (sim.warmup && sim.robots.some(r => r.job)) {
-        if (!job.notedWarm) {
-          job.notedWarm = true;
-          say("wait", `${job.id} held — warm-up: one robot at a time`);
-        }
-        return;
-      }
+         CSM  decides WHICH JOB goes next          "whose turn is it"
+         ACS  decides WHICH ROBOT takes it         "AGV scheduling only"
 
-      let free = sim.robots.filter(r => !r.job);
-      // In warm-up, give the turn to a robot that has not had one yet, so all
-      // three are seen rather than the nearest one taking every job.
-      if (sim.warmup) {
-        const fresh = free.filter(r => !r.doneOne);
-        if (fresh.length) free = fresh;
-      }
-      if (!free.length) {
-        // Every robot is carrying something. The job stays exactly where it is.
-        if (!job.notedWait) {
-          job.notedWait = true;
-          say("wait", `${job.id} queued — all ${sim.robots.length} robots busy`);
-        }
-        continue;
-      }
-      const src = STATIONS.find(s => s.id === job.from);
-      // Nearest free robot, which is the one decision an ACS really owns.
-      free.sort((a, b) => Math.hypot(a.x - src.x, a.y - src.y) -
-                          Math.hypot(b.x - src.x, b.y - src.y));
-      const r = free[0];
+     They are separate systems. The CSM cannot see inside the fleet and must
+     not try to — asking how many robots are free needs an interface the ACS
+     may not have. So it offers ONE job and lets the answer mean something:
 
-      wake("dispatcher", `${job.id} → ${r.id}`);
-      job.state = "ASSIGNED"; job.robot = r.id;
-      job.srcPort = firstFreePort(src);
-      r.job = job; r.goal = approachOf(src); r.leg = "collect";
+         ACCEPTED   a robot is on it
+         BUSY       valid job, no robot right now — wait and re-offer
+         REJECTED   the job itself is wrong and never will work
 
-      pulse("link1", "--amber");
-      say("acs", `${job.id} → ${r.id}, collecting from ${job.from}`);
+     Collapsing BUSY into REJECTED is the mistake worth naming: with a single
+     robot, every job raised while another was travelling got destroyed. The
+     line produced work and the software threw it away.
+     --------------------------------------------------------------------- */
+
+  const BACKOFF_S = 2.5;   // spacing between re-offers of the same job
+
+  /** CSM side. One outstanding offer at a time — that is what makes this a
+   *  queue rather than a crowd, and it needs no knowledge of fleet size. */
+  function csmDispatch() {
+    const ready = sim.jobs.filter(j => j.state === "WAITING" &&
+                                       sim.t >= (j.retryAt || 0));
+    if (!ready.length) return;
+
+    // Highest priority, then oldest. Age breaks the tie so nothing starves.
+    ready.sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.born - b.born);
+    const job = ready[0];
+
+    wake("dispatcher", `offering ${job.id}`);
+    pulse("link1", "--amber");
+
+    const answer = acsSubmit(job);
+
+    if (answer.result === "ACCEPTED") {
+      job.state = "ASSIGNED";
+      job.robot = answer.robot;
+      say("mes", `${job.id} → ACS: accepted, ${answer.robot} assigned`);
       setTimeout(() => pulse("link2", "--steel"), 260);
+    } else {
+      // Wait its turn. The job keeps its identity, its history and its place
+      // in the queue — it simply has not started yet.
+      job.retryAt = sim.t + BACKOFF_S;
+      if (!job.notedWait) {
+        job.notedWait = true;
+        say("wait", `${job.id} → ACS: BUSY (${answer.why}) — waiting, not failed`);
+      }
     }
+  }
+
+  /** ACS side — a DIFFERENT SYSTEM. It owns the fleet: which robot, which
+   *  route, traffic, deadlock, charging. The CSM never sees any of this. */
+  function acsSubmit(job) {
+    // The warm-up rule lives here, not in the CSM, because it is a statement
+    // about robots and robots are the ACS's business.
+    if (sim.warmup && sim.robots.some(r => r.job)) {
+      return { result: "BUSY", why: "warm-up: one robot at a time" };
+    }
+
+    let free = sim.robots.filter(r => !r.job);
+    if (sim.warmup) {
+      // Give the turn to a robot that has not had one yet, so all three are
+      // seen rather than the nearest taking every job.
+      const fresh = free.filter(r => !r.doneOne);
+      if (fresh.length) free = fresh;
+    }
+    if (!free.length) {
+      return { result: "BUSY", why: `all ${sim.robots.length} robots carrying` };
+    }
+
+    const src = STATIONS.find(s => s.id === job.from);
+    // Nearest free robot. This is the decision the ACS really owns.
+    free.sort((a, b) => Math.hypot(a.x - src.x, a.y - src.y) -
+                        Math.hypot(b.x - src.x, b.y - src.y));
+    const r = free[0];
+
+    job.srcPort = firstFreePort(src);
+    r.job = job; r.goal = approachOf(src); r.leg = "collect";
+    wake("robot", `${r.id} ← ${job.id}`);
+    say("acs", `${r.id} assigned ${job.id} — collecting from ${job.from}`);
+    return { result: "ACCEPTED", robot: r.id };
   }
 
   /** Everything solid on the floor: the machines are obstacles too, which is
@@ -1127,7 +1166,7 @@
         operatorCall(dt);   // equipment / operator raises a call
         readStations(dt);   // the CSM's scan catches it
         tickCuring(dt);     // material resting in the rack
-        dispatch();         // whose turn, and which port
+        csmDispatch();      // CSM: whose turn — then the ACS answers
         driveRobots(dt);
       } catch (err) {
         if (!sim.faulted) {
