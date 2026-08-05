@@ -1,12 +1,14 @@
-# Big-AMR — the whole project, explained simply
+# Big-AMR — project overview
 
-**Start here if you are new.** This document assumes you know nothing about the project.
-It uses short sentences and plain words. Every technical term is explained the first
-time it appears.
+**Orientation for anyone joining this project.** Two systems are being built here and
+they are routinely confused with each other. This document separates them, explains why
+each exists, and states plainly what works today and what does not.
 
-Read this first. Then read [`ARCHITECTURE.md`](ARCHITECTURE.md) for the plant design,
-[`ARCHITECTURE-ROBOT.md`](ARCHITECTURE-ROBOT.md) for what runs on the robot, and
-[`GLOSSARY.md`](GLOSSARY.md) when you meet a word you do not know.
+Written to be read once, in order, with no prior knowledge assumed — so that a new
+engineer, a manager, or a partner can all take the same picture away from it. For depth:
+[`ARCHITECTURE.md`](ARCHITECTURE.md) covers the plant design,
+[`ARCHITECTURE-ROBOT.md`](ARCHITECTURE-ROBOT.md) the on-board stack, and
+[`GLOSSARY.md`](GLOSSARY.md) the vocabulary.
 
 > ⚠ **This repository is public.** Customer protocol documents, PLC signal maps and
 > network plans are **not** stored here. They live outside the repository. This document
