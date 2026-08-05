@@ -1,8 +1,8 @@
-# Verification — Mini MES on the Supervisor, against Gazebo
+# Verification — CSM on the Supervisor, against Gazebo
 
-**2026-08-03 · `src/MES/mini_mes` · verified by running, not by inspection**
+**2026-08-03 · `src/MES/csm` · verified by running, not by inspection**
 
-The Mini MES had two halves that never met: `MainCycle`, which worked and drove the
+The CSM had two halves that never met: `MainCycle`, which worked and drove the
 simulation, and `runtime/`, which had the shape Dr. Shim drew on the whiteboard but only
 ever ran a toy Producer/Consumer demo. This records the evidence that the merged system
 does what the old one did.
@@ -12,9 +12,9 @@ does what the old one did.
 ## What was run
 
 ```bash
-colcon build --packages-select mini_mes --symlink-install
+colcon build --packages-select csm --symlink-install
 bash src/Sim/trnav_2ws_gazebo/scripts/start_sim.sh    # Gazebo, warehouse.world
-ros2 run mini_mes sim_node                            # the supervised MES
+ros2 run csm sim_node                            # the supervised MES
 ```
 
 Gazebo confirmed up before starting the MES — `gzserver` running on `warehouse.world`,
@@ -123,5 +123,5 @@ same results — the claim of the merge, checked rather than asserted.
 | | |
 |---|---|
 | [`ARCHITECTURE.md` §5](../../ARCHITECTURE.md) | the design this implements |
-| [`src/MES/mini_mes/README.md`](../../src/MES/mini_mes/README.md) | the two drivers and why both exist |
+| [`src/MES/csm/README.md`](../../src/MES/csm/README.md) | the two drivers and why both exist |
 | [`docs/audit/`](../audit/) | known gaps between design and code |

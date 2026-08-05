@@ -3,7 +3,7 @@
 **The autonomy stack as built on the machine.**
 
 This is the companion to [`ARCHITECTURE.md`](ARCHITECTURE.md), which describes the
-plant-level design — Mini MES, ACS, and the flow of orders. This document
+plant-level design — CSM, ACS, and the flow of orders. This document
 describes what actually runs **on the robot**: perception, localisation, motion
 control, and the two different ways commands reach the motors.
 
@@ -235,7 +235,7 @@ src/
   Control/Motion_Control/
     QD/                  6 packages (Carrier AGV geometry)
     2WS/                 6 packages (Foil_A082 geometry)
-  MES/                   mini_mes                        ← plant layer
+  MES/                   csm                        ← plant layer
   Navigation/            mcl2d_ros2 · icp_odometry_bringup
                          (+ mcl2d_core, mcl2d_map — plain CMake, not packages)
   Sensors/
@@ -566,7 +566,7 @@ parked while it is in fact driving.
 
 | Document | Contents |
 |---|---|
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Plant level: Mini MES, ACS, the order flow |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Plant level: CSM, ACS, the order flow |
 | [`WORKFLOW.md`](WORKFLOW.md) | One order followed end to end |
 | [`docs/audit/`](docs/audit/) | Known gaps between design and code |
 | [`docs/adr/`](docs/adr/) | Decision records, including the reverse-engineering ones |

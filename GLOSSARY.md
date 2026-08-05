@@ -74,7 +74,7 @@ Nobody outside will know these. Everybody inside will assume you do.
 | **`.smap`** | Seer's map file format |
 | **mcl2d** | our re-implementation of Seer's localiser, reverse-engineered from `libMCLoc.so` |
 | **the mux** | the component that would route motion commands into the motor driver. **Does not exist yet** — it is the missing link in the whole stack |
-| **Mini MES** | the layer above the ACS that we are building |
+| **CSM** | the layer above the ACS that we are building |
 | **CATL** | the customer. We are waiting on them for the equipment protocol |
 
 **Two names people confuse, and it matters:**
@@ -112,7 +112,7 @@ L0  the physical process itself
 | **throughput / takt time** | units per hour / the time budget per unit to hit demand |
 | **WIP** | Work In Progress — material on the floor that is started but not finished |
 
-**Why the Mini MES sits above the ACS.** The ACS knows about *robots*. It does not know
+**Why the CSM sits above the ACS.** The ACS knows about *robots*. It does not know
 why anything is being moved. The MES knows about *work* — that a batch finished at
 station 3 and must reach station 5 before the next operation. Someone has to hold that
 knowledge, and it is not the fleet controller's job.
@@ -173,7 +173,7 @@ The framework. If you know these ten, you can read almost any ROS 2 codebase.
 
 | Term | Meaning |
 |---|---|
-| **node** | one program that does one thing. `mini_mes` is a node |
+| **node** | one program that does one thing. `csm` is a node |
 | **topic** | a named broadcast channel. Anyone can publish, anyone can subscribe, nobody waits. `/scan`, `/odom` |
 | **message** | the typed data on a topic. `sensor_msgs/LaserScan` |
 | **service** | a question with an immediate answer. Blocking, quick |
@@ -364,6 +364,6 @@ Small things that make you sound like you have been here a while.
 
 | Document | Contents |
 |---|---|
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | The plant level — Mini MES, ACS, order flow |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | The plant level — CSM, ACS, order flow |
 | [`ARCHITECTURE-ROBOT.md`](ARCHITECTURE-ROBOT.md) | The robot stack, and §10 explains every component |
 | [`WORKFLOW.md`](WORKFLOW.md) | One order followed end to end |

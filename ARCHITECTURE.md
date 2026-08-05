@@ -16,7 +16,7 @@ alongside the plain ones.
 2. [The full architecture](#2-the-full-architecture)
 3. [Every layer, one at a time](#3-every-layer-one-at-a-time)
 4. [The trick that makes this project work](#4-the-trick-that-makes-this-project-work)
-5. [Inside the Mini MES — runtime architecture and state machines](#5-inside-the-mini-mes--runtime-architecture-and-state-machines)
+5. [Inside the CSM — runtime architecture and state machines](#5-inside-the-mini-mes--runtime-architecture-and-state-machines)
 6. [One job, from beginning to end](#6-one-job-from-beginning-to-end)
 7. [The arrows — what travels between the boxes](#7-the-arrows--what-travels-between-the-boxes)
 8. [What is real today, and what is not](#8-what-is-real-today-and-what-is-not)
@@ -25,7 +25,7 @@ alongside the plain ones.
 
 ---
 
-> **Naming — read this once.** This document calls our layer the **Mini MES**. As of
+> **Naming — read this once.** This document calls our layer the **CSM**. As of
 > 2026-08-04 it has an official name: **CSM**, *Central System Management*. The term was
 > coined by T-Robotics and exists nowhere else in the industry. The customer's own MES
 > exists but does not contact us, which is why "MES" was always the wrong word for what
@@ -38,7 +38,7 @@ A factory has robot carts that move heavy things around. A system called **Seer*
 already drives them, and we are not allowed to change it. But we want the carts to do
 smarter, more precise things than Seer knows how to do. So we add our own brain — and
 a small box in the middle that chooses which brain is holding the steering wheel.
-Above everything, a new program called **Mini MES** decides what work needs doing in
+Above everything, a new program called **CSM** decides what work needs doing in
 the first place.
 
 That is the entire project. Everything below is detail hanging off those five sentences.
@@ -54,11 +54,11 @@ That is the entire project. Everything below is detail hanging off those five se
 | 🔵 **Blue** | **Already exists** — the factory's own equipment. We must not modify it. |
 | 🟠 **Amber** | **We build this** — the new parts we are adding. |
 
-### 2.1 The plant level — one Mini MES, many robots
+### 2.1 The plant level — one CSM, many robots
 
 ```mermaid
 flowchart TB
-    MES["<b>Mini MES</b><br/>decides what work exists<br/>and keeps track of it"]
+    MES["<b>CSM</b><br/>decides what work exists<br/>and keeps track of it"]
     ACS["<b>ACS</b><br/>picks which robot goes<br/>and what path it takes"]
     EQ["<b>Equipment</b><br/>machines that process<br/>material at stations"]
     BUS(["Wi-Fi network"])
@@ -82,7 +82,7 @@ flowchart TB
     class BUS net
 ```
 
-One Mini MES serves the whole floor. It **creates jobs and hands them to the ACS** — it
+One CSM serves the whole floor. It **creates jobs and hands them to the ACS** — it
 does not command robots, and does not know which robot took which job. Choosing the
 robot and the route is the ACS's job (§3, layer 2).
 
@@ -93,7 +93,7 @@ a batch is finished, and only then is there anything to carry.
 Dr. Shim. Not doors, lifts or conveyors. Two things about that link are **not** settled:
 
 - **Direction.** Reading status is certain. The received specification also defines
-  command-direction signals, so the Mini MES is not read-only. Exactly which commands we
+  command-direction signals, so the CSM is not read-only. Exactly which commands we
   are permitted to send still needs confirming in writing; see
   [§10](#10-open-questions).
 - **Protocol.** ✅ **Answered 2026-08-04.** The specification has been received. The
@@ -139,7 +139,7 @@ Each layer has **exactly one job**. If a layer needed the word "and" to describe
 it would really be two layers. Each one only talks to its neighbours, never skipping
 past one.
 
-### Layer 1 — Mini MES 🟠
+### Layer 1 — CSM 🟠
 
 **One job: decides what work exists.**
 
@@ -231,7 +231,7 @@ So when the Jetson takes over, the Panda gate does **three things at once**:
 ### The price of the trick
 
 > ⚠️ During a takeover, **every layer above is blind.** If the Jetson crashes mid-move,
-> Seer still reports "all fine", the ACS reports "all fine", and the Mini MES job sits
+> Seer still reports "all fine", the ACS reports "all fine", and the CSM job sits
 > at *in progress* forever.
 
 This is why every waiting state in the design must have a timeout — see section 5.
@@ -250,9 +250,9 @@ gate is literally lying to Seer about a state machine's state.
 
 ---
 
-## 5. Inside the Mini MES — runtime architecture and state machines
+## 5. Inside the CSM — runtime architecture and state machines
 
-The Mini MES is **not one state machine**. It is a small supervisor holding **several
+The CSM is **not one state machine**. It is a small supervisor holding **several
 independent state machines**, each responsible for one part of the system, each woken by
 events rather than polled.
 
@@ -314,7 +314,7 @@ usually causes more trouble than it solves. See the open language question in §
 ### 5.3 Which FSMs — three built, the fourth still open
 
 The whiteboard shows four. Three are implemented and running
-(`src/MES/mini_mes/mini_mes/runtime/tasks/`); the fourth is the one that cannot be
+(`src/MES/csm/csm/runtime/tasks/`); the fourth is the one that cannot be
 written until the ACS interface is decided.
 
 | FSM | Owns | Status |
@@ -469,14 +469,14 @@ Three details that matter:
 
 There is not one FSM in this system. There are several, nested inside each other.
 
-⚠ Only the **Mini MES**, **Panda gate** and **Jetson** rows below are taken from code in
+⚠ Only the **CSM**, **Panda gate** and **Jetson** rows below are taken from code in
 this repository. The **ACS** and **Seer** rows are illustrative — those are vendor
 systems whose internal states we do not have. The nesting and the timescales are the
 point; do not quote those two state names as fact.
 
 | Layer | State machine | Timescale |
 |---|---|---|
-| Mini MES | job: `IDLE → ASSIGNED → RUNNING → DONE/FAILED` | minutes |
+| CSM | job: `IDLE → ASSIGNED → RUNNING → DONE/FAILED` | minutes |
 | ACS | mission: `IDLE → ASSIGNED → MOVING → ARRIVED` | ~30 s |
 | Seer | navigation: `NAVIGATING → RE-HOMING → ERROR` | seconds |
 | Panda gate | authority: `PASSTHROUGH → COVER → PC_AUTHORITY` | 300 ms |
@@ -503,7 +503,7 @@ Time flows downward. This is the normal, everything-works case.
 
 ```mermaid
 sequenceDiagram
-    participant M as Mini MES
+    participant M as CSM
     participant A as ACS
     participant S as Seer
     participant G as Panda gate
@@ -530,8 +530,8 @@ sequenceDiagram
 The two `Note` lines are the interesting part: between **engage** and **release**, Seer
 and the ACS have no idea what happened. They were told nothing, and they saw nothing.
 
-⚠ **Two arrows here are assumptions, not confirmed design.** `Mini MES → gate (engage)`
-and `Jetson → Mini MES (docking complete)` were not on Dr. Shim's whiteboard — the gate
+⚠ **Two arrows here are assumptions, not confirmed design.** `CSM → gate (engage)`
+and `Jetson → CSM (docking complete)` were not on Dr. Shim's whiteboard — the gate
 may instead be commanded by the ACS, or triggered automatically on arrival. See
 [§10 open question 1](#10-open-questions). The rest of the sequence is as designed.
 
@@ -544,9 +544,9 @@ with" is worthless; an arrow that names its data is an architecture.
 
 | From → To | Carries | Data | Reply |
 |---|---|---|---|
-| **Mini MES → ACS** | a transport job | `{job_id, from, to, priority}` | accepted / **busy** / rejected / arrived / failed |
-| **Mini MES → Equipment** | station status **and** commands | `{station_id}` — **OPC-UA** (machine tools) / **S7** (pack line) | inventory state + task type; richer than our four-value enum |
-| **Mini MES → Panda gate** | authority switch | `engage` / `release` | gate state confirmed |
+| **CSM → ACS** | a transport job | `{job_id, from, to, priority}` | accepted / **busy** / rejected / arrived / failed |
+| **CSM → Equipment** | station status **and** commands | `{station_id}` — **OPC-UA** (machine tools) / **S7** (pack line) | inventory state + task type; richer than our four-value enum |
+| **CSM → Panda gate** | authority switch | `engage` / `release` | gate state confirmed |
 | **ACS → Seer** | a path to follow | path legs (JSON) | arrived / blocked / error |
 | **Seer → Motors** | motor commands | CANopen SDO — `0x607A` position, `0x60FF` speed | position `0x6064`, status `0x6041` |
 | **Jetson → Motors** ❌ | wheel commands | `WheelSetArray` — per wheel: speed + steering angle | joint states, odometry |
@@ -587,7 +587,7 @@ An architecture that only shows the plan is a sales drawing. This is the honest 
 | **Simulation** | ✅ working | Full robot in Gazebo with a control panel |
 | **Jetson motion software** | 🟠 partly | Maths verified correct, but loaded with the wrong robot's dimensions |
 | **Link: motion → motors** | ❌ missing | The mux that routes commands into the motor driver does not exist |
-| **Mini MES** | 🟠 prototyped | Three supervised FSMs (§5.3) plus a per-job FSM, 76 tests. Drives the simulation end to end. The fourth FSM — a robot handler — waits on the ACS interface |
+| **CSM** | 🟠 prototyped | Three supervised FSMs (§5.3) plus a per-job FSM, 76 tests. Drives the simulation end to end. The fourth FSM — a robot handler — waits on the ACS interface |
 | **Camera** | ✅ exists | `src/Sensors/Camera/USB/` arrived 2026-07-28. Since 2026-08-03 also 6× Orbbec depth — see [`ARCHITECTURE-ROBOT.md`](ARCHITECTURE-ROBOT.md) |
 
 > ⚠️ **Fix this before anything else.** The nine settings files in
@@ -630,7 +630,7 @@ Things this document assumes but has not confirmed. **Resolve these before build
 | Question | Answer |
 |---|---|
 | What is Equipment? | **Production machines / process stations.** Not doors, lifts or conveyors. |
-| Does Mini MES only read status, or also command? | **Command as well** — the received specification defines command-direction signals. *Which* commands we are permitted to send is still not formally agreed. |
+| Does CSM only read status, or also command? | **Command as well** — the received specification defines command-direction signals. *Which* commands we are permitted to send is still not formally agreed. |
 | Which protocol? | ✅ **Answered 2026-08-04 — no longer blocked.** See below. |
 | Is a camera needed? | **Moot — one now exists.** `src/Sensors/Camera/USB/` with a `vision_guard` viewer landed 2026-07-28. Whether marker docking is a goal is still unstated. |
 
@@ -644,7 +644,7 @@ Things this document assumes but has not confirmed. **Resolve these before build
 | Station naming? | Defined by the customer as a structured code. Our invented `station_3` / `station_out` names are superseded |
 | Docking handshake? | **Fully specified** — a mutual-heartbeat interlock with a defined signal order. Neither side may proceed unless it has been hearing the other continuously, and silence is treated as "robot still inside", never as "safe" |
 | Job outcome reporting? | Richer than our `TransportResult` — the specification distinguishes several distinct failure and wait conditions that we currently collapse into one |
-| What is this layer called? | **CSM** — *Central System Management*. A name T-Robotics coined; it exists nowhere else. "Mini MES" was our working name. The customer's own MES exists but does not contact us |
+| What is this layer called? | **CSM** — *Central System Management*. A name T-Robotics coined; it exists nowhere else. "CSM" was our working name. The customer's own MES exists but does not contact us |
 
 ⚠ **The signal tables, addresses, machine-numbering scheme and network plans are customer
 confidential.** They are **not** in this public repository and must not be added. See the
@@ -674,26 +674,26 @@ not the state machines. Keep it that way:
    `get_station_status(id)` / `send_station_command(id, cmd)`, plus whatever push path
    the edge-trigger problem requires.
 2. **The scope is larger than status monitoring.** The specification confirms the link
-   carries commands, so the Mini MES can affect production machinery. That is a wider
+   carries commands, so the CSM can affect production machinery. That is a wider
    safety and validation burden than read-only monitoring. **Which** commands we are
    permitted to send should be agreed in writing before implementation.
 
 ### Still open
 
-1. **Who commands the Panda gate?** This document draws `Mini MES → Panda gate`. The
+1. **Who commands the Panda gate?** This document draws `CSM → Panda gate`. The
    original whiteboard sketch did not show this link. It may belong lower down — with
    the ACS, or triggered automatically on arrival.
-2. **How does the Mini MES hand a job to the ACS?** The ACS today runs path legs from
+2. **How does the CSM hand a job to the ACS?** The ACS today runs path legs from
    JSON files (`ACS Run All test7.json L4`). Options: generate JSON files, add an API to
    the ACS, or bypass the ACS and talk to Seer's Navigation API directly. Depends on
    whether the ACS is modifiable — the Seer is not.
-3. **What are the real Mini MES states?** Section 5 uses a plausible job lifecycle. The
+3. **What are the real CSM states?** Section 5 uses a plausible job lifecycle. The
    actual states (`A`, `B`, `C`, `D` on the whiteboard) were not labelled.
 4. **The unlabelled box** beside "Equip" on the original sketch — a second machine, a
    station, or something else?
-5. **What language should the Mini MES be?** The motion stack is C++ (50 files, 22k
+5. **What language should the CSM be?** The motion stack is C++ (50 files, 22k
    lines); the tooling is Python. The prototype is Python. The `waitForEvent` / `reset`
-   structure on the whiteboard is a C++ idiom, so the sketch may assume C++. The Mini MES
+   structure on the whiteboard is a C++ idiom, so the sketch may assume C++. The CSM
    is not real-time — it thinks in jobs lasting minutes — which argues for Python, but
    this should be settled **before** more code, since porting later gets expensive.
 
@@ -701,7 +701,7 @@ not the state machines. Keep it that way:
    their own state machine or become data passed between subsystem FSMs — the single
    most structural open item.
 
-7. **Does the ACS handle the fleet, or does the Mini MES?** The whiteboard shows one ACS
+7. **Does the ACS handle the fleet, or does the CSM?** The whiteboard shows one ACS
    serving many robots. The prototype's `SimAcs` drives one robot and answers `BUSY` when
    asked for a second. Real traffic management and deadlock avoidance are assumed to be
    the ACS's, not ours — worth confirming.

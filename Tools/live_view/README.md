@@ -1,7 +1,7 @@
 # live_view — animated system explainer
 
 A single self-contained HTML page showing how work flows through the whole
-system: a machine finishes a batch, the Mini MES creates a job, the ACS assigns
+system: a machine finishes a batch, the CSM creates a job, the ACS assigns
 a robot, the robot crosses the floor, the job completes — and when every robot
 is busy, new jobs visibly queue.
 
@@ -23,12 +23,12 @@ Or drag the file into a browser. That is the whole procedure — it is one file.
 | Top strip | The four layers. Each travelling dot is one message: a finished batch reported, a job handed to the ACS, a robot given a destination |
 | Inside a robot | Which brain holds the wheel. Seer for the transit; the gate engages and the Jetson takes over for the precise approach |
 | Centre canvas | The 12 × 12 m hall, same stations and obstacles as `warehouse.world` |
-| Job board | The Mini MES's view — every job and its FSM state |
+| Job board | The CSM's view — every job and its FSM state |
 | Fleet panel | The ACS's view — which robot holds which job |
 | Event log | Colour-coded by which layer spoke |
 
 Job states use the same names as the real FSM in
-[`src/MES/mini_mes/mini_mes/job_fsm.py`](../../src/MES/mini_mes/mini_mes/job_fsm.py):
+[`src/MES/csm/csm/job_fsm.py`](../../src/MES/csm/csm/job_fsm.py):
 `WAITING → ASSIGNED → RUNNING → DONE`.
 
 **Waiting is the point.** Stations deliberately produce faster than three robots
@@ -62,7 +62,7 @@ Simplified:
 - three robots, because queueing is the thing worth showing; the Gazebo
   simulation currently has one
 - the gate handover is triggered purely by distance to the goal; on the real
-  robot the Mini MES commands it (and who commands it is still an open
+  robot the CSM commands it (and who commands it is still an open
   question — see ARCHITECTURE.md §10)
 
 ## Changing it

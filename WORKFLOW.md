@@ -83,7 +83,7 @@ flowchart BT
 
 **Three things about this direction are worth knowing.**
 
-**It is a pull, not a push.** The Mini MES asks the ACS "is `job_0007` finished?" four
+**It is a pull, not a push.** The CSM asks the ACS "is `job_0007` finished?" four
 times a second (`job_fsm.py:103`, `Running.execute`). The ACS never calls us. That is
 forced by the interface rather than chosen — `AcsAdapter.get_job_result` is
 request/response because the real MES → ACS interface is still undecided (§9) and may be
@@ -101,7 +101,7 @@ job. (Compare Seer's own alarm `52954`: a re-homing state that timed out after 2
 minutes.)
 
 **ERP reporting does not exist.** There is no ERP adapter in the code — `grep -i erp`
-returns nothing. Jobs complete and the Mini MES tells the two stations, but nothing
+returns nothing. Jobs complete and the CSM tells the two stations, but nothing
 travels back up to the order system. It is drawn here because the design calls for it,
 greyed because it is not built.
 
@@ -140,13 +140,13 @@ greyed because it is not built.
 └───────────────────────────────────────────────────────────────┘
 ```
 
-The three FSMs inside the Mini MES are independent state machines held by a
+The three FSMs inside the CSM are independent state machines held by a
 supervisor, each woken by an event rather than polled —
 [`ARCHITECTURE.md` §5](ARCHITECTURE.md).
 
 **If no robot is free**, the ACS answers `BUSY` and the job returns to `IDLE` to
 wait its turn. It is *not* failed — a busy fleet means wait, not give up. This
-is also how battery reaches the Mini MES: a charging robot and a working robot
+is also how battery reaches the CSM: a charging robot and a working robot
 look identical from up there, and both simply mean less capacity.
 
 ---
@@ -182,7 +182,7 @@ This is the heart of the retrofit.
         robot reaches the approach point beside the machine
                             │
                             ▼
-        Mini MES ──────► GATE: ENGAGE
+        CSM ──────► GATE: ENGAGE
                             │
         ┌───────────────────┴────────────────────┐
         │  gate blocks Seer's commands           │
@@ -221,10 +221,10 @@ Two details that make the deception hold:
 ```
         docked
           │
-          ├─► Mini MES ──► Equipment:  "collect"      source freed
+          ├─► CSM ──► Equipment:  "collect"      source freed
           │                             material transfers
           │
-          ├─► Mini MES ──► GATE: RELEASE      Seer resumes
+          ├─► CSM ──► GATE: RELEASE      Seer resumes
           │
           └─► ACS ──► Seer: navigate to DESTINATION
                         │
@@ -235,7 +235,7 @@ Two details that make the deception hold:
               arrive → GATE ENGAGE → Jetson docks
                         │
                         ▼
-              unload → Mini MES ──► Equipment: "delivered"
+              unload → CSM ──► Equipment: "delivered"
                         │
                         ▼
                   GATE RELEASE
@@ -255,7 +255,7 @@ quietly stops after a few jobs.
 ```
         Job Tracker FSM:  RUNNING ──► DONE
                     │
-                    ├─► Mini MES ──► ERP:  order complete
+                    ├─► CSM ──► ERP:  order complete
                     │
                     └─► robot released back to the ACS
                              │
@@ -275,7 +275,7 @@ quietly stops after a few jobs.
 
 ```
    ┌──────────────────────────────────────────┐
-   │  Mini MES → ACS → Seer → gate → motors   │
+   │  CSM → ACS → Seer → gate → motors   │
    └──────────────────────────────────────────┘
                       ▲
               ┌───────┴────────┐
@@ -308,7 +308,7 @@ can hang for ever.
 
 | | Runs on | Talks over |
 |---|---|---|
-| ERP, Mini MES, ACS | servers in the building | plant network |
+| ERP, CSM, ACS | servers in the building | plant network |
 | Seer, gate, Jetson, motors, sensors | **on the robot** | CAN wire inside the chassis |
 | Between them | — | **WiFi — the only wireless hop** |
 
@@ -329,17 +329,17 @@ steered robot would drive into a wall the first time the signal stuttered
 mid-corner.
 
 It is also why the gate works. The deception happens on a wire sealed inside the
-chassis, and the Mini MES and ACS are in another building — they can only hear
+chassis, and the CSM and ACS are in another building — they can only hear
 what Seer chooses to radio out.
 
 ### Multiplying it
 
 | | How many |
 |---|---|
-| ERP, Mini MES, ACS | **one** for the whole plant |
+| ERP, CSM, ACS | **one** for the whole plant |
 | Seer + gate + Jetson + 4 motors + sensors | **one set per robot** |
 
-Ten robots means ten of the second group. Not another Mini MES.
+Ten robots means ten of the second group. Not another CSM.
 
 ---
 
@@ -349,13 +349,13 @@ Marked so nobody mistakes them for settled design.
 
 | Assumption | Status |
 |---|---|
-| **Mini MES commands the gate** (engage / release) | ⚠️ Not on Dr. Shim's whiteboard. It could belong to the ACS, or trigger automatically on arrival. [`ARCHITECTURE.md` §10 Q1](ARCHITECTURE.md) |
-| **The Jetson reports completion to the Mini MES** | ⚠️ Follows from the above; same open question |
-| **Mini MES → ACS interface** | ⚠️ Undecided — JSON path files, a new API, or Seer's own API |
+| **CSM commands the gate** (engage / release) | ⚠️ Not on Dr. Shim's whiteboard. It could belong to the ACS, or trigger automatically on arrival. [`ARCHITECTURE.md` §10 Q1](ARCHITECTURE.md) |
+| **The Jetson reports completion to the CSM** | ⚠️ Follows from the above; same open question |
+| **CSM → ACS interface** | ⚠️ Undecided — JSON path files, a new API, or Seer's own API |
 | **Equipment protocol** | ✅ **Answered 2026-08-04** — OPC-UA for the machine tools, Siemens S7 for the pack line. Specification received; details held outside this public repository |
-| **Mini MES may command equipment**, not only read it | ⚠️ "I think so" from Dr. Shim, not confirmed |
+| **CSM may command equipment**, not only read it | ⚠️ "I think so" from Dr. Shim, not confirmed |
 | **The ACS handles battery and charging** | ⚠️ Standard fleet-manager behaviour, not verified for this ACS |
-| **Station names** (`station_3`, `outbound`) | ⚠️ Invented. The real ids live in Seer's map — read them with `ros2 run mini_mes seer_client` |
+| **Station names** (`station_3`, `outbound`) | ⚠️ Invented. The real ids live in Seer's map — read them with `ros2 run csm seer_client` |
 
 Everything else describes the system as designed.
 

@@ -225,7 +225,7 @@ Different companies use different names for these layers. In this project:
 | **CSM** | *Central System Management*. Watches the machines, decides that material must move, creates jobs, and hands them down to the ACS |
 
 **CSM is the part we are building.** Earlier documents in this repository call it the
-"Mini MES" — that was our working name before the official one existed.
+"CSM" — that was our working name before the official one existed.
 
 ### Why CSM has to exist
 
@@ -560,7 +560,7 @@ of changes rather than asking repeatedly, which is the proper answer.
 
 ```
 src/
-  MES/mini_mes/        CSM — the job layer we are building
+  MES/csm/        CSM — the job layer we are building
   Navigation/          localisation and odometry
   Control/             the motion maths — nine kinds of movement
   Sensors/             lasers, IMU, depth cameras, ordinary cameras
@@ -575,17 +575,17 @@ docs/                  decisions, audits, debt, verification records
 
 ```bash
 # the job layer against a fake factory — instant, no hardware
-python3 -m mini_mes.demo --jobs 5
+python3 -m csm.demo --jobs 5
 
 # the same, under the real supervisor, on real timers
-python3 -m mini_mes.supervised_demo --seconds 20
+python3 -m csm.supervised_demo --seconds 20
 
 # the simulated robot in a warehouse
 bash src/Sim/trnav_2ws_gazebo/scripts/start_sim.sh
-ros2 run mini_mes sim_node
+ros2 run csm sim_node
 
 # all the tests
-cd src/MES/mini_mes && python3 -m pytest test/ -q
+cd src/MES/csm && python3 -m pytest test/ -q
 ```
 
 ---
