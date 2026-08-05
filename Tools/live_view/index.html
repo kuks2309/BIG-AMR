@@ -241,6 +241,7 @@
       <div class="kpi k-run"><b id="kRun">0</b><span>in transit</span></div>
       <div class="kpi k-wait"><b id="kWait">0</b><span>waiting</span></div>
       <div class="kpi"><b id="kClock">00:00</b><span>elapsed</span></div>
+      <div class="kpi" id="kPhase"><b id="kPhaseV">warm-up</b><span>floor</span></div>
     </div>
   </div>
 
@@ -459,7 +460,19 @@
     // because it is the one number nobody has measured yet: the maximum safe
     // value is set by how long the equipment holds a call signal, and until
     // that is known from the vendor, any value here is a guess.
-    pollPeriod: 1.0, pollAge: 0, polls: 0, missed: 0
+    pollPeriod: 1.0, pollAge: 0, polls: 0, missed: 0,
+
+    // WARM-UP. For the first round the floor runs strictly one robot at a
+    // time: robot 1 does a whole job start to finish, then robot 2, then robot
+    // 3. Only once each has completed one does the floor open up and jobs run
+    // concurrently.
+    //
+    // This is for the viewer, not the model. Three robots moving at once is
+    // what the system really does, but it is impossible to follow the first
+    // time you see it — you cannot tell which dot belongs to which job. One
+    // complete journey, uninterrupted, teaches the whole cycle; after that the
+    // busy floor reads as busy rather than as noise.
+    warmup: true
   };
 
   for (let i = 1; i <= 3; i++) {
@@ -635,7 +648,22 @@
     if (!waiting.length) return;
 
     for (const job of waiting) {
-      const free = sim.robots.filter(r => !r.job);
+      // One at a time until every robot has completed one job.
+      if (sim.warmup && sim.robots.some(r => r.job)) {
+        if (!job.notedWarm) {
+          job.notedWarm = true;
+          say("wait", `${job.id} held — warm-up: one robot at a time`);
+        }
+        return;
+      }
+
+      let free = sim.robots.filter(r => !r.job);
+      // In warm-up, give the turn to a robot that has not had one yet, so all
+      // three are seen rather than the nearest one taking every job.
+      if (sim.warmup) {
+        const fresh = free.filter(r => !r.doneOne);
+        if (fresh.length) free = fresh;
+      }
       if (!free.length) {
         // Every robot is carrying something. The job stays exactly where it is.
         if (!job.notedWait) {
@@ -763,6 +791,12 @@
           r.job.state = "DONE";
           wake("jobs", `${r.job.id} done`);
           sim.done++;
+          r.doneOne = true;
+          if (sim.warmup && sim.robots.every(x => x.doneOne)) {
+            sim.warmup = false;
+            say("done", `warm-up complete — all ${sim.robots.length} robots have ` +
+                        `run a job. Floor now runs concurrently.`);
+          }
           say("done", `${r.job.id} complete — ${r.job.carry} delivered to ` +
                       `${r.job.to} by ${r.id}`);
           r.job = null; r.goal = null; r.leg = null; r.dwellLeft = 0;
@@ -974,6 +1008,24 @@
 
   // ---------------------------------------------------------------- panels
   const $auth = document.getElementById("authority");
+  const $phase = document.getElementById("kPhaseV");
+  const $phaseBox = document.getElementById("kPhase");
+  function drawPhase() {
+    if (!$phase) return;
+    if (sim.warmup) {
+      const n = sim.robots.filter(r => r.doneOne).length;
+      $phase.textContent = `warm-up ${n}/${sim.robots.length}`;
+      $phase.style.color = "var(--steel)";
+      $phaseBox.title = "One robot at a time until each has completed a job, "
+                      + "so a whole journey can be followed before the floor "
+                      + "gets busy.";
+    } else {
+      $phase.textContent = "concurrent";
+      $phase.style.color = "var(--green)";
+      $phaseBox.title = "All robots working at once — the real behaviour.";
+    }
+  }
+
   const $fsms = document.getElementById("fsms");
   const $jobs = document.getElementById("jobs");
   const $fleet = document.getElementById("fleet");
@@ -982,6 +1034,7 @@
   function panels() {
     // An FSM is dark while it sleeps and lights when its event fires. That
     // contrast IS the architecture: nothing is polled, everything waits.
+    drawPhase();
     $fsms.innerHTML = FSMS.map(f => {
       const a = f.lit;
       const bar = a > 0.02
