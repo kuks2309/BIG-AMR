@@ -108,34 +108,45 @@ void TranslateSimOdomNode::integrateAndPublish()
         received = cmd_received_;
     }
 
-    // 2-wheel kinematic body velocity (QD diagonal, wheels[0]=w1, wheels[1]=w2)
-    //   v_i = velocity_i (signed)
-    //   vx_i = v_i * cos(steering_i)
-    //   vy_i = v_i * sin(steering_i)
-    //   IK forward eq: vx_i = vx - omega * y_i,  vy_i = vy + omega * x_i
-    //   Solve from wheel 0/1:
-    //     omega = (vx_1 - vx_2) / (y_2 - y_1)
-    //     vx_body = vx_1 + omega * y_1
-    //     vy_body = vy_1 - omega * x_1
+    // 2-wheel 정기구학 역산 (wheels[0]=w1, wheels[1]=w2)
+    //   v_i = velocity_i (signed) · vx_i = v_i cos(θ_i) · vy_i = v_i sin(θ_i)
+    //   IK forward eq: vx_i = vx - ω·y_i ,  vy_i = vy + ω·x_i
+    //
+    // 미지수 3(vx, vy, ω)에 식 4 — **과결정**이라 ω 를 어느 쌍에서 뽑을지 골라야 한다.
+    //   x 성분 쌍:  vx_1 - vx_2 = ω(y_2 - y_1)  →  분모 = 두 바퀴의 **y 간격**
+    //   y 성분 쌍:  vy_1 - vy_2 = ω(x_1 - x_2)  →  분모 = 두 바퀴의 **x 간격**
+    //
+    // ⚠ 2026-08-05 정정 — 종전 코드는 x 성분 쌍만 썼다. **QD(대각 배치)에서는 문제가 없다**
+    //   — y 간격이 0.27 m 라 잘 조건화된다. 이 코드는 원래 QD 용으로 쓰였다.
+    //   그런데 **inline(2WS)은 y_1 = y_2 라 분모가 0** 이고, 그때 가드가 else 로 빠져
+    //   **ω 를 0 으로 강제**했다 — 상위가 어떤 각속도를 지령해도 플랜트가 조용히 버린다.
+    //   그 결과 spin·turn 이 SIL 에서 재현되지 않고, 크랩의 yaw 유지 루프도 검증되지
+    //   않았다(yaw 가 변할 수 없으므로 heading error 가 항상 0 으로 나온다).
+    //   ⇒ **분모가 큰 쪽**을 고른다. inline 은 x 간격이 휠베이스(1.200 m)라 잘 조건화된다.
+    //     대각 배치에서는 둘 다 유효하며 큰 쪽을 고르므로 QD 거동은 바뀌지 않는다.
     double vx_body = 0.0, vy_body = 0.0, omega = 0.0;
     if (received)
     {
-        double vx_1 = v0 * std::cos(s0);
-        double vy_1 = v0 * std::sin(s0);
-        double vx_2 = v1 * std::cos(s1);
-        double dy = w2_y_ - w1_y_;
-        if (std::fabs(dy) > 1e-6)
+        const double vx_1 = v0 * std::cos(s0);
+        const double vy_1 = v0 * std::sin(s0);
+        const double vx_2 = v1 * std::cos(s1);
+        const double vy_2 = v1 * std::sin(s1);
+        const double dy = w2_y_ - w1_y_;   // x 성분 쌍의 분모
+        const double dx = w1_x_ - w2_x_;   // y 성분 쌍의 분모
+        if (std::fabs(dx) >= std::fabs(dy) && std::fabs(dx) > 1e-6)
+        {
+            omega = (vy_1 - vy_2) / dx;
+        }
+        else if (std::fabs(dy) > 1e-6)
         {
             omega = (vx_1 - vx_2) / dy;
-            vx_body = vx_1 + omega * w1_y_;
-            vy_body = vy_1 - omega * w1_x_;
         }
         else
         {
-            omega = 0.0;
-            vx_body = (vx_1 + vx_2) / 2.0;
-            vy_body = vy_1;
+            omega = 0.0;   // 두 바퀴가 같은 점 — 회전을 정할 수 없다
         }
+        vx_body = vx_1 + omega * w1_y_;
+        vy_body = vy_1 - omega * w1_x_;
     }
 
     // Euler integration in map frame

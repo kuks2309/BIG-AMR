@@ -1,6 +1,0 @@
-# Request: activate specific motion source by id (from motion_mux.yaml)
-uint8 source_id
----
-# Response
-bool success
-string message   # 사유 (unknown id, already active 등)
