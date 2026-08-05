@@ -15,9 +15,18 @@ sampler misses any change that reverts between two samples, while the machine
 believes the call succeeded — a silently dropped job, which is the worst failure
 mode this layer has.
 
-Polling faster narrows the window without closing it. The interface needs a push
-path; OPC-UA subscriptions are the intended mechanism. Until then this task is
-known-incomplete against the real protocol, and correct only against the mock.
+**Correction, 2026-08-04.** An earlier version of this note said subscriptions
+were the fix. They are not. Asked directly in the system review, the answer was
+that the equipment interface is *not* event-driven at all — both sides call each
+other by raising bits, and CSM is expected to scan continuously at a fixed
+interval. So polling is the specified design, not a shortcut.
+
+What remains wrong is the **interval**, and it is now the entire safety margin:
+a request is a transition, and the machine clears it once it believes it was
+heard. 1 Hz here is an unjustified default. The number that decides it is the
+equipment's minimum signal hold time, which nobody has yet — until we do, treat
+this task as correct against the mock and unproven against the real protocol.
+See debt-033.
 
 One second is not a considered number so much as an obviously-safe one: a
 station takes minutes to finish a batch, so a second of latency is invisible,
