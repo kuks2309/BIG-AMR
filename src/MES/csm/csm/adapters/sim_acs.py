@@ -77,7 +77,8 @@ APPROACH_POSES = {name: _approach_point(x, y)
 class SimAcs(AcsAdapter):
 
     def __init__(self, node, arrive_tolerance=0.35, max_speed=0.6,
-                 stations=None, influence_radius=1.9, repel_gain=1.4,
+                 stations=None, influence_radius=1.4, repel_gain=1.4,
+                 turn_gain=1.6, max_turn=0.9, crab_window=0.5,
                  stall_seconds=8.0, stall_distance=0.12, dwell_seconds=3.0,
                  dock_fade_m=2.2, max_repulsion=0.85, critical_distance=0.7):
         """
@@ -102,6 +103,12 @@ class SimAcs(AcsAdapter):
         self.max_speed = max_speed
         self.stations = dict(stations or APPROACH_POSES)
         self.influence_radius = influence_radius
+        #: Heading control. turn_gain/max_turn rotate the body toward the goal;
+        #: crab_window is how far off-heading the robot may be before it stops
+        #: trying to crab and turns instead (radians — about 29°).
+        self.turn_gain = turn_gain
+        self.max_turn = max_turn
+        self.crab_window = crab_window
         self.repel_gain = repel_gain
         self.stall_seconds = stall_seconds
         self.stall_distance = stall_distance
@@ -298,10 +305,35 @@ class SimAcs(AcsAdapter):
         # instead of overshooting and hunting.
         speed = min(self.max_speed, 0.8 * distance)
         mag = math.hypot(vx, vy) or 1.0
+        vx, vy = vx / mag, vy / mag
 
+        # TURN TOWARD THE GOAL rather than crabbing everywhere.
+        #
+        # This used to command linear x and y only, so the robot never rotated —
+        # it slid sideways and backwards to reach anything. That puts the
+        # required wheel angle on the ±90° fold boundary, where the inverse
+        # kinematics has two equally valid answers: point at +89° and drive
+        # forward, or point at −89° and drive back. It flipped between them
+        # every cycle, and the robot juddered forward-backward on the spot
+        # without getting anywhere.
+        #
+        # Driving mostly forwards keeps the solution well away from that
+        # boundary. Crab is still available and still used for the last stretch,
+        # where the offset is small and the angle is nowhere near ±90°.
+        heading_err = math.atan2(vy, vx)
         cmd = Twist()
-        cmd.linear.x = vx / mag * speed
-        cmd.linear.y = vy / mag * speed
+        cmd.angular.z = max(-self.max_turn, min(self.max_turn,
+                                                self.turn_gain * heading_err))
+
+        # Slow down while badly misaligned — turning on the spot beats driving
+        # confidently in the wrong direction, and it stops the robot arcing
+        # wide around every goal.
+        align = max(0.0, math.cos(heading_err))
+        if abs(heading_err) > self.crab_window:
+            speed *= align
+
+        cmd.linear.x = vx * speed
+        cmd.linear.y = vy * speed
         self.pub_cmd.publish(cmd)
 
     def _on_arrival(self, distance):

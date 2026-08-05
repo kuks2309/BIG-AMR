@@ -89,7 +89,7 @@
     <!-- ===== 파렛트 (라이다 표적 / 회피 대상) ===== -->
     <model name="pallet_a">
       <static>true</static>
-      <pose>3.0 1.5 0.4 0 0 0</pose>
+      <pose>2.0 -2.0 0.4 0 0 0</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>1.2 0.8 0.8</size></box></geometry></collision>
         <visual name="v">
@@ -101,7 +101,7 @@
 
     <model name="pallet_b">
       <static>true</static>
-      <pose>-2.5 -2.0 0.4 0 0 0.6</pose>
+      <pose>-2.0 2.0 0.4 0 0 0.6</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>1.2 0.8 0.8</size></box></geometry></collision>
         <visual name="v">
@@ -113,7 +113,7 @@
 
     <model name="pillar">
       <static>true</static>
-      <pose>0 5.5 1.25 0 0 0</pose>
+      <pose>0 2.0 1.25 0 0 0</pose>
       <link name="link">
         <collision name="c"><geometry><cylinder><radius>0.25</radius><length>2.5</length></cylinder></geometry></collision>
         <visual name="v">
