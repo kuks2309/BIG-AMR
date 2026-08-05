@@ -43,6 +43,10 @@ class MockEquipment(EquipmentAdapter):
         self._calls = []
         self.acknowledged = []      # recorded for assertions in tests
 
+        #: Stations that are warehouses rather than machines. A store always
+        #: has something to give and never needs to process.
+        self._store_ids = set()
+
     # -- EquipmentAdapter ------------------------------------------------
 
     def get_station_status(self, station_id):
@@ -66,12 +70,25 @@ class MockEquipment(EquipmentAdapter):
             self._status[station_id] = StationStatus.BUSY
             self._busy_until[station_id] = self._clock() + self._process_seconds
             return True
-        if command in ("collected", "delivered"):
-            # "collected" frees a source station so it can produce again;
-            # "delivered" acknowledges arrival at a destination. Both leave the
-            # station idle in this mock.
+        if command == "collected":
+            # The source handed its material over, so it now has nothing.
             self._status[station_id] = StationStatus.IDLE
             self._busy_until.pop(station_id, None)
+            return True
+
+        if command == "delivered":
+            # Material ARRIVED here — which means the machine now has work to
+            # do, not something to give away. It goes BUSY and only becomes
+            # collectable once processing finishes.
+            #
+            # This is what makes a line FILL rather than being fully stocked
+            # from the first tick: the store feeds machine 1, machine 1 works,
+            # and only then can machine 2 be fed. A store is the exception —
+            # it is a warehouse, so it is always ready.
+            if self._store_ids and station_id in self._store_ids:
+                self._status[station_id] = StationStatus.FINISHED
+            else:
+                self.start_processing(station_id)
             return True
         return False
 
@@ -94,6 +111,12 @@ class MockEquipment(EquipmentAdapter):
         """Put a station into any state directly, including FAULT."""
         self._status[station_id] = status
         self._busy_until.pop(station_id, None)
+
+    def mark_store(self, *station_ids):
+        """Declare these to be warehouses: always supplied, never processing."""
+        self._store_ids.update(station_ids)
+        for sid in station_ids:
+            self._status[sid] = StationStatus.FINISHED
 
     def raise_call(self, station_id, task_type=TaskType.LOAD, source="machine"):
         """A machine asks for a robot — the way work actually starts.

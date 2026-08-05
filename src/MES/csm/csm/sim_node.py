@@ -109,7 +109,7 @@ class DriveTask(FsmTask):
 
 class MesSimNode(Node):
 
-    def __init__(self, batch_seconds, job_timeout):
+    def __init__(self, batch_seconds, job_timeout, process_seconds):
         super().__init__("csm")
 
         # Every station the equipment layer knows about, INCLUDING the outbound
@@ -122,7 +122,10 @@ class MesSimNode(Node):
         self._callers = list(FEEDS)
 
         self.equipment = MockEquipment(all_stations, time.monotonic,
-                                       process_seconds=batch_seconds)
+                                       process_seconds=process_seconds)
+        # The store is a warehouse: always supplied, never processing. It is
+        # the only thing that starts with something to give.
+        self.equipment.mark_store("ASRS")
         self.acs = SimAcs(self)
 
         self.app = build_mes(
@@ -154,9 +157,17 @@ class MesSimNode(Node):
 
         station = self._callers[self._next_station % len(self._callers)]
         self._next_station += 1
-        for sid in STATIONS:
-            self.equipment.force_status(sid, StationStatus.FINISHED)
         self.equipment.raise_call(station, TaskType.LOAD, source="PDA")
+
+        # No force-stocking. Only the store is permanently supplied; every
+        # machine has to be FED, then PROCESS, before anything downstream can
+        # collect from it. So the line fills:
+        #
+        #     ASRS -> 1A01,  1A01 processes,  then 1T01 can be fed, ...
+        #
+        # A call that cannot be served yet stays outstanding rather than being
+        # dropped, which is exactly the behaviour worth watching — the machine
+        # keeps asking and is served the moment its supplier has output.
         self.get_logger().info(f"--- {station} called for material (PDA) ---")
 
 
@@ -175,12 +186,15 @@ def main():
     parser = argparse.ArgumentParser(description="CSM against Gazebo")
     parser.add_argument("--batch-seconds", type=float, default=25.0,
                         help="how often the fake factory finishes a batch")
+    parser.add_argument("--process-seconds", type=float, default=12.0,
+                        help="how long a machine works before it has output")
     parser.add_argument("--job-timeout", type=float, default=120.0,
                         help="seconds a job may spend in one state before t5")
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
-    node = MesSimNode(args.batch_seconds, args.job_timeout)
+    node = MesSimNode(args.batch_seconds, args.job_timeout,
+                      args.process_seconds)
     try:
         asyncio.run(_run(node))
     except KeyboardInterrupt:

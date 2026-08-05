@@ -39,10 +39,14 @@ from .base import AcsAdapter, TransportResult
 STATION_POSES = {
     # Customer naming: polarity + equipment type + number.
     #   1 = anode      A = gravure   T = coating   L = cold press
-    "ASRS": (-3.5, 1.5),      # the automated store — supplies, never calls
-    "1A01": (3.0, -3.0),      # gravure
-    "1T01": (2.0, 3.5),       # coater
-    "1L01": (-3.0, 3.5),      # cold press
+    #
+    # One station per corner of the 20 x 20 m hall. Spread deliberately: with
+    # several robots the approach points must not overlap, and a robot held
+    # outside a busy machine must not block the route to a different one.
+    "ASRS": (-6.0, -6.0),     # the automated store — supplies, never calls
+    "1A01": (6.0, -6.0),      # gravure
+    "1T01": (6.0, 6.0),       # coater
+    "1L01": (-6.0, 6.0),      # cold press
 }
 
 #: How far in front of a machine the robot parks to load or unload.

@@ -40,11 +40,11 @@
     <!-- ===== 벽 (12 m × 12 m 홀) ===== -->
     <model name="wall_north">
       <static>true</static>
-      <pose>0 6 1 0 0 0</pose>
+      <pose>0 10 1 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>12 0.2 2</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>20 0.2 2</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>12 0.2 2</size></box></geometry>
+          <geometry><box><size>20 0.2 2</size></box></geometry>
           <material><ambient>0.7 0.7 0.72 1</ambient><diffuse>0.8 0.8 0.82 1</diffuse></material>
         </visual>
       </link>
@@ -52,11 +52,11 @@
 
     <model name="wall_south">
       <static>true</static>
-      <pose>0 -6 1 0 0 0</pose>
+      <pose>0 -10 1 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>12 0.2 2</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>20 0.2 2</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>12 0.2 2</size></box></geometry>
+          <geometry><box><size>20 0.2 2</size></box></geometry>
           <material><ambient>0.7 0.7 0.72 1</ambient><diffuse>0.8 0.8 0.82 1</diffuse></material>
         </visual>
       </link>
@@ -64,11 +64,11 @@
 
     <model name="wall_east">
       <static>true</static>
-      <pose>6 0 1 0 0 0</pose>
+      <pose>10 0 1 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>0.2 12 2</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>0.2 20 2</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>0.2 12 2</size></box></geometry>
+          <geometry><box><size>0.2 20 2</size></box></geometry>
           <material><ambient>0.7 0.7 0.72 1</ambient><diffuse>0.8 0.8 0.82 1</diffuse></material>
         </visual>
       </link>
@@ -76,11 +76,11 @@
 
     <model name="wall_west">
       <static>true</static>
-      <pose>-6 0 1 0 0 0</pose>
+      <pose>-10 0 1 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>0.2 12 2</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>0.2 20 2</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>0.2 12 2</size></box></geometry>
+          <geometry><box><size>0.2 20 2</size></box></geometry>
           <material><ambient>0.7 0.7 0.72 1</ambient><diffuse>0.8 0.8 0.82 1</diffuse></material>
         </visual>
       </link>
@@ -89,7 +89,7 @@
     <!-- ===== 파렛트 (라이다 표적 / 회피 대상) ===== -->
     <model name="pallet_a">
       <static>true</static>
-      <pose>3.5 2.5 0.4 0 0 0</pose>
+      <pose>3.0 1.5 0.4 0 0 0</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>1.2 0.8 0.8</size></box></geometry></collision>
         <visual name="v">
@@ -101,7 +101,7 @@
 
     <model name="pallet_b">
       <static>true</static>
-      <pose>-3.0 -3.0 0.4 0 0 0.6</pose>
+      <pose>-2.5 -2.0 0.4 0 0 0.6</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>1.2 0.8 0.8</size></box></geometry></collision>
         <visual name="v">
@@ -113,7 +113,7 @@
 
     <model name="pillar">
       <static>true</static>
-      <pose>0 4.0 1.25 0 0 0</pose>
+      <pose>0 5.5 1.25 0 0 0</pose>
       <link name="link">
         <collision name="c"><geometry><cylinder><radius>0.25</radius><length>2.5</length></cylinder></geometry></collision>
         <visual name="v">
@@ -129,7 +129,7 @@
          floor where you drive up beside a machine, not into it. -->
     <model name="station_3">
       <static>true</static>
-      <pose>3.0 -3.0 0 0 0 0</pose>
+      <pose>6.0 -6.0 0 0 0 0</pose>
       <link name="link">
         <!-- table top -->
         <collision name="top_c">
@@ -170,7 +170,7 @@
          floor where you drive up beside a machine, not into it. -->
     <model name="station_5">
       <static>true</static>
-      <pose>-3.5 1.5 0 0 0 0</pose>
+      <pose>-6.0 -6.0 0 0 0 0</pose>
       <link name="link">
         <!-- table top -->
         <collision name="top_c">
@@ -211,7 +211,7 @@
          floor where you drive up beside a machine, not into it. -->
     <model name="station_9">
       <static>true</static>
-      <pose>2.0 3.5 0 0 0 0</pose>
+      <pose>6.0 6.0 0 0 0 0</pose>
       <link name="link">
         <!-- table top -->
         <collision name="top_c">
@@ -252,7 +252,7 @@
          floor where you drive up beside a machine, not into it. -->
     <model name="station_out">
       <static>true</static>
-      <pose>-3.0 3.5 0 0 0 0</pose>
+      <pose>-6.0 6.0 0 0 0 0</pose>
       <link name="link">
         <!-- table top -->
         <collision name="top_c">
