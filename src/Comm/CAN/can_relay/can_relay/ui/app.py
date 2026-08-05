@@ -33,6 +33,7 @@ import time
 from PyQt5.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPolygonF
 from PyQt5.QtWidgets import (QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout,
+                             QTabWidget,
                              QHeaderView, QLabel, QMessageBox, QPlainTextEdit,
                              QPushButton, QSlider, QSpinBox, QTableWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget)
@@ -178,6 +179,7 @@ class MainWindow(QWidget):
         self.be = backend
         self._seer_ip = seer_ip
         self._seer_gui_path = seer_gui_path
+        self._seer_enabled = bool(seer_enabled)
         self._seer_run = bool(seer_enabled)
         self._seer_deg = {}
         self._seer_at_take = {}   # 제어권 잡기 직전 Seer 조향각(반환 시 복원 기준)
@@ -855,6 +857,27 @@ class MainWindow(QWidget):
         QTimer.singleShot(1500, lambda: self.btn_clear_fatal.setEnabled(True))
 
     # ── 종료 ──────────────────────────────────────────────────────────
+    def set_seer_polling(self, on: bool) -> None:
+        """Seer 폴링을 켜고 끈다 — **탭 구성에서 하나만 돌게** 하려고 둔다.
+
+        Seer API 를 두 창에서 동시에 두드릴 이유가 없고, 표는 **보이는 탭**만 필요하다.
+        `seer_enabled=False` 로 만든 창은 이 호출로도 켜지지 않는다.
+        """
+        on = bool(on) and self._seer_enabled
+        if on == self._seer_run:
+            return
+        self._seer_run = on
+        if on:
+            threading.Thread(target=self._seer_loop, daemon=True, name="seer").start()
+
+    def holds_hardware(self) -> bool:
+        """이 창이 **판다를 붙들고 있는가**(USB 개방 또는 제어권 보유).
+
+        탭 구성에서 다른 탭을 잠그는 판정에 쓴다 — 판다는 한 곳만 열 수 있고,
+        두 곳에서 열면 USB 가 연속 실패한다(2026-08-05 실측 36회).
+        """
+        return bool(self.btn_usb.isChecked() or self.btn_take.isChecked())
+
     def safe_release(self, reason: str = "") -> None:
         """모든 종료 경로가 공유하는 멱등 해제 — 백엔드에 위임한다."""
         if self._released:
@@ -866,6 +889,72 @@ class MainWindow(QWidget):
             self.be.shutdown(reason)
         except Exception as exc:
             print(f"[gui] ⚠ 종료 중 예외: {type(exc).__name__}: {exc}", flush=True)
+
+    def closeEvent(self, ev):
+        self.safe_release("창 닫기")
+        ev.accept()
+
+
+class RelayTabs(QWidget):
+    """**한 프로그램에 탭 2개** — ROS2(운용) · 판다 직결(시험).
+
+    사용자 요청(2026-08-05): 「지우지 말고 새로 만들면 되잖아... 탭을 2개로 해서」.
+    원본 `Tools/amr_test_gui/gui.py` 를 지우면 `test_port_equivalence`(44건)가 비교 대상을
+    잃으므로, 지우는 대신 **두 경로를 한 창에 담는다.**
+
+    ⚠ **판다는 한 곳만 열 수 있다.** ros2 탭은 드라이버가, direct 탭은 GUI 가 직접 연다.
+      두 곳이 동시에 잡으면 USB 가 연속 실패한다(2026-08-05 실측 36회 연속 timeout).
+      그래서 한 탭이 하드웨어를 붙들고 있으면 **다른 탭을 잠근다.**
+    ⚠ Seer 폴링은 **보이는 탭만** 돈다 — API 를 두 곳에서 두드릴 이유가 없다.
+    """
+
+    LOCK_NOTE = "다른 탭이 판다를 붙들고 있습니다 — 그 탭에서 제어권·USB 를 먼저 해제하세요"
+
+    def __init__(self, panels: dict):
+        super().__init__()
+        self.setWindowTitle("Tongyi 4축 AMR 구동 테스트 GUI [탭: ros2 · direct]")
+        self.resize(1240, 840)
+        self._panels = panels                      # {탭이름: MainWindow}
+        self.tabs = QTabWidget(self)
+        for name, panel in panels.items():
+            self.tabs.addTab(panel, name)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.tabs)
+
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        self._guard = QTimer(self)
+        self._guard.timeout.connect(self._apply_exclusive_lock)
+        self._guard.start(200)
+        self._on_tab_changed(self.tabs.currentIndex())
+
+    # ── 탭 전환 ───────────────────────────────────────────────────────
+    def _on_tab_changed(self, idx: int):
+        for i, panel in enumerate(self._panels.values()):
+            panel.set_seer_polling(i == idx)       # 보이는 탭만 Seer 를 본다
+        self._apply_exclusive_lock()
+
+    # ── 배타 잠금 ─────────────────────────────────────────────────────
+    def _apply_exclusive_lock(self):
+        """하드웨어를 붙든 탭이 있으면 **나머지 탭을 잠근다.**"""
+        holder = None
+        for i, panel in enumerate(self._panels.values()):
+            if panel.holds_hardware():
+                holder = i
+                break
+        for i, panel in enumerate(self._panels.values()):
+            locked = holder is not None and i != holder
+            if self.tabs.isTabEnabled(i) == (not locked):
+                continue
+            self.tabs.setTabEnabled(i, not locked)
+            if locked:
+                panel.log(f"⚠ 탭 잠금 — {self.LOCK_NOTE}")
+
+    # ── 종료 ─────────────────────────────────────────────────────────
+    def safe_release(self, reason: str = "") -> None:
+        """양쪽 패널을 모두 해제한다 — 종료 경로는 하나로 모은다."""
+        for panel in self._panels.values():
+            panel.safe_release(reason)
 
     def closeEvent(self, ev):
         self.safe_release("창 닫기")

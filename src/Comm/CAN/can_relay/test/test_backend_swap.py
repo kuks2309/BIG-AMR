@@ -403,3 +403,73 @@ def test_status_bar_shows_the_link():
     assert "_refresh_link" in inspect.getsource(A.MainWindow._refresh), \
         "주기 갱신이 연결 표시를 갱신하지 않는다"
     assert "link_status" in inspect.getsource(A.MainWindow._refresh_link)
+
+
+# ── 탭 2개 구성 (2026-08-05 사용자 요청) ─────────────────────────────────
+@pytest.fixture(scope="module")
+def qapp():
+    """위젯을 만들려면 QApplication 이 **먼저** 있어야 한다 — 없으면 프로세스가 죽는다."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    QtWidgets = pytest.importorskip("PyQt5.QtWidgets")
+    yield QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+
+def _fake_panel(holds=False, seer_enabled=True):
+    """MainWindow 대신 쓰는 최소 대역 — 탭 컨테이너의 규칙만 본다."""
+    from PyQt5.QtWidgets import QWidget
+
+    class _P(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.seer_on = None
+            self.released = []
+            self._holds = holds
+        def set_seer_polling(self, on): self.seer_on = bool(on)
+        def holds_hardware(self): return self._holds
+        def log(self, msg): pass
+        def safe_release(self, reason=""): self.released.append(reason)
+    return _P()
+
+
+def test_tabs_poll_seer_only_on_the_visible_tab(qapp):
+    """Seer API 를 두 곳에서 두드리지 않는다 — **보이는 탭만** 폴링한다."""
+    from can_relay.ui.app import RelayTabs
+    a, b = _fake_panel(), _fake_panel()
+    tabs = RelayTabs({"A": a, "B": b})
+    assert (a.seer_on, b.seer_on) == (True, False), (a.seer_on, b.seer_on)
+    tabs.tabs.setCurrentIndex(1)
+    assert (a.seer_on, b.seer_on) == (False, True), (a.seer_on, b.seer_on)
+
+
+def test_tabs_lock_the_other_tab_while_one_holds_the_panda(qapp):
+    """**판다는 한 곳만 열 수 있다.** 한 탭이 붙들면 다른 탭을 잠근다.
+
+    ⚠ 근거: 2026-08-05 실기에서 다른 제어 주체와 겹쳐 USB 송신이 **36회 연속 실패**했다.
+    """
+    from can_relay.ui.app import RelayTabs
+    a, b = _fake_panel(holds=True), _fake_panel()
+    tabs = RelayTabs({"A": a, "B": b})
+    tabs._apply_exclusive_lock()
+    assert tabs.tabs.isTabEnabled(0) is True, "붙든 탭이 잠겼다"
+    assert tabs.tabs.isTabEnabled(1) is False, "다른 탭이 잠기지 않았다"
+    a._holds = False                                   # 해제하면 풀린다
+    tabs._apply_exclusive_lock()
+    assert tabs.tabs.isTabEnabled(1) is True
+
+
+def test_tabs_release_both_panels(qapp):
+    """종료는 한 곳으로 모으고 **양쪽을 다** 해제한다."""
+    from can_relay.ui.app import RelayTabs
+    a, b = _fake_panel(), _fake_panel()
+    RelayTabs({"A": a, "B": b}).safe_release("시험")
+    assert a.released == ["시험"] and b.released == ["시험"]
+
+
+def test_entry_point_defaults_to_two_tabs():
+    """진입점 기본이 탭 2개여야 한다(배선)."""
+    import inspect
+    from can_relay.ui import gui_node
+    src = inspect.getsource(gui_node.main)
+    assert 'default="both"' in inspect.getsource(gui_node) or '"both"' in src
+    assert "RelayTabs" in src, "진입점이 탭 컨테이너를 쓰지 않는다"

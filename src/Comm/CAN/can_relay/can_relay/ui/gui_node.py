@@ -35,7 +35,7 @@ import sys
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QApplication
 
-from .app import MainWindow
+from .app import MainWindow, RelayTabs
 
 SIGNAL_PUMP_MS = 50
 
@@ -53,27 +53,53 @@ def _make_backend(name: str, log, ros_args):
 
 def main(args=None) -> int:
     ap = argparse.ArgumentParser(add_help=False)
-    ap.add_argument("--backend", choices=("ros2", "direct"), default="ros2",
-                    help="ros2=드라이버 경유(운용) · direct=판다 직결(시험 전용)")
+    ap.add_argument("--backend", choices=("both", "ros2", "direct"), default="both",
+                    help="both=탭 2개(기본) · ros2=드라이버 경유(운용) · direct=판다 직결(시험 전용)")
     known, rest = ap.parse_known_args(args if args is not None else sys.argv[1:])
 
     pending = []
-    backend = _make_backend(known.backend, pending.append, rest)
 
-    seer = getattr(backend, "cfg", {}) or {}
-    win_kwargs = {}
-    if seer:
-        win_kwargs = dict(seer_ip=str(seer.get("seer_ip", "192.168.44.82")),
-                          seer_gui_path=str(seer.get("seer_gui_path",
-                                                     "/home/nvidia/T-Robot_seer_gui")),
-                          seer_enabled=bool(seer.get("seer_enabled", True)))
+    def _seer_kwargs(be):
+        cfg = getattr(be, "cfg", {}) or {}
+        if not cfg:
+            return {}
+        return dict(seer_ip=str(cfg.get("seer_ip", "192.168.44.82")),
+                    seer_gui_path=str(cfg.get("seer_gui_path",
+                                              "/home/nvidia/T-Robot_seer_gui")),
+                    seer_enabled=bool(cfg.get("seer_enabled", True)))
 
-    backend.start()
     app = QApplication(sys.argv[:1])
-    win = MainWindow(backend, **win_kwargs)
-    for m in pending:                       # 백엔드 생성 중 쌓인 로그를 화면에 옮긴다
-        win.log(m)
-    backend._log = win.log_line.emit        # 이후 로그는 시그널로(스레드 안전)
+
+    if known.backend == "both":
+        # ⚠ **판다는 한 곳만 열 수 있다.** 탭을 만드는 것만으로는 열리지 않는다
+        #   (`BackendBase.start()` 는 하드웨어를 열지 않는다 — USB 버튼으로만 연다).
+        #   동시 점유는 `RelayTabs` 가 탭 잠금으로 막는다.
+        panels, made = {}, []
+        for label, name in (("ROS2 (운용)", "ros2"), ("판다 직결 (시험)", "direct")):
+            try:
+                be = _make_backend(name, pending.append, rest)
+            except Exception as exc:        # 한쪽이 없어도 나머지는 띄운다
+                pending.append(f"⚠ '{name}' 백엔드를 만들지 못했습니다: "
+                               f"{type(exc).__name__}: {exc}")
+                continue
+            be.start()
+            made.append(be)
+            panels[label] = MainWindow(be, **_seer_kwargs(be))
+        if not panels:
+            raise SystemExit("백엔드를 하나도 만들지 못했습니다")
+        win = RelayTabs(panels)
+        first = next(iter(panels.values()))
+        for m in pending:
+            first.log(m)
+        for be, panel in zip(made, panels.values()):
+            be._log = panel.log_line.emit
+    else:
+        backend = _make_backend(known.backend, pending.append, rest)
+        backend.start()
+        win = MainWindow(backend, **_seer_kwargs(backend))
+        for m in pending:                   # 백엔드 생성 중 쌓인 로그를 화면에 옮긴다
+            win.log(m)
+        backend._log = win.log_line.emit    # 이후 로그는 시그널로(스레드 안전)
 
     def _on_stop_signal(signum, _frame):
         print(f"[gui] 정지 신호({signal.Signals(signum).name}) 수신 — 해제 후 종료합니다.",
