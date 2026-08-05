@@ -138,8 +138,15 @@ def check_motor_ids(tr: dict, relay: dict) -> Result:
 def check_steer_limits(relay_limit: float, twows_limits: dict, wrap_margin_deg) -> Result:
     """can_relay 클램프 한계와 2WS 상한이 같은 값인지.
 
-    크랩은 별도다 — `wrapSteer` 가 ±(90°+WRAP_MARGIN) 까지 wrap 하지 않으므로 그 사이 각도가
-    하류로 나가고 can_relay 가 잘라낸다. 값 비교가 아니라 구조 문제라 WARN 으로 알린다.
+    ±90° 는 하드웨어 한계가 아니라 **유일해(canonical) 구속**이다 — 독립조향 바퀴는
+    `(θ,+v) ≡ (θ∓180°,−v)` 로 항상 등가해가 2개라, 반원(180° 폭)으로 정규화해야 지령이
+    비결정·chattering 을 일으키지 않는다(ADR `docs/adr/2026-07-26-qd-ik-pm90-unique-solution.md`,
+    `config/machine/foil_a082.yaml:162-166` 「±90° 로 묶어 이중해를 없앤다(합의)」).
+
+    크랩 `wrapSteer` 의 `WRAP_MARGIN`(25°)은 결함이 아니라 **경계 chattering 회피 히스테리시스**다.
+    그 주석 자체가 「motor saturate 로 robot 진행은 거의 정확」이라 적어 **하류 포화를 전제**한다
+    (`qd_crab_inverse_kinematics.cpp:20-35`). 즉 can_relay 의 ±90° 클램프는 크랩 설계가
+    가정하는 동작이므로 **경고 대상이 아니다** — 마진 값만 정보로 표시한다.
     """
     mismatched = {name: v for name, v in twows_limits.items() if not close(v, relay_limit)}
     lines = [f"can_relay steer_limit_deg = {relay_limit}  vs  2WS <action>_params {len(twows_limits)}개"]
@@ -149,12 +156,11 @@ def check_steer_limits(relay_limit: float, twows_limits: dict, wrap_margin_deg) 
     else:
         lines.append(f"         전부 일치 ({relay_limit})")
     if wrap_margin_deg is not None:
-        effective = 90.0 + wrap_margin_deg
-        if effective > relay_limit + 1e-9:
-            lines.append(f"         ⚠ 크랩 wrapSteer 실효 상한 {effective:.0f}° > can_relay {relay_limit:.0f}° "
-                         f"— 그 사이 각도는 잘린 채 지령된다(WRAP_MARGIN={wrap_margin_deg:.0f}°)")
+        lines.append(f"         (참고) 크랩 wrapSteer 히스테리시스 마진 {wrap_margin_deg:.0f}° "
+                     f"→ wrap 임계 {90.0 + wrap_margin_deg:.0f}°. 경계 chattering 회피용이며 "
+                     f"하류 ±{relay_limit:.0f}° 포화를 전제한 설계다(결함 아님)")
     else:
-        lines.append("         ⚠ WRAP_MARGIN 을 소스에서 읽지 못했다 — 크랩 상한 미판정")
+        lines.append("         (참고) WRAP_MARGIN 을 소스에서 읽지 못했다 — 마진 값 미표시")
     return Result("C4", "조향 한계", not mismatched, "\n".join(lines))
 
 
@@ -257,10 +263,10 @@ def selftest() -> int:
                   _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, {"a.yaml": 130.0}, 0.0)["C4"].ok is False))
 
     r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0)["C4"]
-    cases.append(("WRAP_MARGIN 25° → C4 경고문 포함", "실효 상한 115" in r.detail))
+    cases.append(("WRAP_MARGIN 25° → C4 마진 정보 표시", "wrap 임계 115" in r.detail))
 
     r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, None)["C4"]
-    cases.append(("WRAP_MARGIN 미검출 → 미판정 고지", "미판정" in r.detail))
+    cases.append(("WRAP_MARGIN 미검출 → 미표시 고지", "미표시" in r.detail))
 
     print("=== selftest (검출력 회귀) ===")
     bad = 0
