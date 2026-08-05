@@ -4,6 +4,9 @@
 
 [English](#english) · [한국어](#한국어)
 
+🌱 **[PROJECT-SUMMARY.md](PROJECT-SUMMARY.md)** — **new here? start with this.** The whole
+project explained in plain words, assuming no prior knowledge.
+
 📐 **[ARCHITECTURE.md](ARCHITECTURE.md)** — full system architecture with diagrams,
 from job planning down to the wheels. Start there if you are new to the project.
 
