@@ -25,6 +25,13 @@ alongside the plain ones.
 
 ---
 
+> **Naming — read this once.** This document calls our layer the **Mini MES**. As of
+> 2026-08-04 it has an official name: **CSM**, *Central System Management*. The term was
+> coined by T-Robotics and exists nowhere else in the industry. The customer's own MES
+> exists but does not contact us, which is why "MES" was always the wrong word for what
+> we are building. The two names mean the same thing throughout this repository; the
+> rename is not yet done.
+
 ## 1. Start here — the whole thing in five sentences
 
 A factory has robot carts that move heavy things around. A system called **Seer**
@@ -85,10 +92,17 @@ a batch is finished, and only then is there anything to carry.
 **Equipment** means **production machines / process stations** — confirmed 2026-07-28 by
 Dr. Shim. Not doors, lifts or conveyors. Two things about that link are **not** settled:
 
-- **Direction.** Reading status is certain. Whether the Mini MES may also *command*
-  equipment — start a machine, load a recipe — was answered "I think so", not confirmed.
-  That distinction decides the safety scope; see [§10](#10-open-questions).
-- **Protocol.** Unknown, and blocked on CATL supplying the specification.
+- **Direction.** Reading status is certain. The received specification also defines
+  command-direction signals, so the Mini MES is not read-only. Exactly which commands we
+  are permitted to send still needs confirming in writing; see
+  [§10](#10-open-questions).
+- **Protocol.** ✅ **Answered 2026-08-04.** The specification has been received. The
+  machine-tool link is **OPC-UA**; a separate part of the line uses **Siemens S7** over a
+  PLC data block. Two adapter implementations, one interface.
+
+  ⚠ The signal tables, addresses and machine-numbering scheme are **customer
+  confidential and are not stored in this public repository.** They are held outside it —
+  see the note at the end of [`PROJECT-SUMMARY.md`](PROJECT-SUMMARY.md).
 
 ### 2.2 Inside any one AMR — two brains, one gate
 
@@ -531,7 +545,7 @@ with" is worthless; an arrow that names its data is an architecture.
 | From → To | Carries | Data | Reply |
 |---|---|---|---|
 | **Mini MES → ACS** | a transport job | `{job_id, from, to, priority}` | accepted / **busy** / rejected / arrived / failed |
-| **Mini MES → Equipment** | station status, and probably commands | `{station_id}` — **protocol TBD, blocked on CATL** | idle / busy / finished / fault |
+| **Mini MES → Equipment** | station status **and** commands | `{station_id}` — **OPC-UA** (machine tools) / **S7** (pack line) | inventory state + task type; richer than our four-value enum |
 | **Mini MES → Panda gate** | authority switch | `engage` / `release` | gate state confirmed |
 | **ACS → Seer** | a path to follow | path legs (JSON) | arrived / blocked / error |
 | **Seer → Motors** | motor commands | CANopen SDO — `0x607A` position, `0x60FF` speed | position `0x6064`, status `0x6041` |
@@ -616,24 +630,53 @@ Things this document assumes but has not confirmed. **Resolve these before build
 | Question | Answer |
 |---|---|
 | What is Equipment? | **Production machines / process stations.** Not doors, lifts or conveyors. |
-| Does Mini MES only read status, or also command? | **Likely command as well** — but *not yet formally defined*. Treat as provisional. |
-| Which protocol? | **Unknown.** T-Robotics has asked **CATL** to share the equipment communication protocols; no answer yet. |
+| Does Mini MES only read status, or also command? | **Command as well** — the received specification defines command-direction signals. *Which* commands we are permitted to send is still not formally agreed. |
+| Which protocol? | ✅ **Answered 2026-08-04 — no longer blocked.** See below. |
 | Is a camera needed? | **Moot — one now exists.** `src/Sensors/Camera/USB/` with a `vision_guard` viewer landed 2026-07-28. Whether marker docking is a goal is still unstated. |
 
-**⚠️ Open risk — the Mini MES ↔ Equipment interface is blocked on an external party.**
-Nothing about this link can be finalised until CATL supplies the protocol
-specification. Two consequences:
+### Answered — 2026-08-04, kickoff material
 
-1. **Do not let this block the build.** Put the equipment link behind a narrow
-   adapter interface — something like `get_station_status(id)` and
-   `send_station_command(id, cmd)` — with a mock implementation behind it. The
-   Mini MES main cycle and job FSM can then be written, run and tested today
-   against the mock, and only the adapter changes when CATL answers. If instead
-   the protocol is allowed to leak into the FSM, the whole Mini MES waits on CATL.
-2. **The scope is larger than status monitoring.** If the answer to question 2
-   stays "command", the Mini MES can start and stop production machines. That
-   carries a different safety and validation burden than read-only monitoring,
-   and should be confirmed in writing before implementation.
+**✅ The equipment interface is no longer blocked.** The specification has been received.
+
+| Question | Answer |
+|---|---|
+| Protocol? | **OPC-UA** for the machine tools; **Siemens S7** over a PLC data block for a separate part of the line. Two adapter implementations, one interface |
+| Station naming? | Defined by the customer as a structured code. Our invented `station_3` / `station_out` names are superseded |
+| Docking handshake? | **Fully specified** — a mutual-heartbeat interlock with a defined signal order. Neither side may proceed unless it has been hearing the other continuously, and silence is treated as "robot still inside", never as "safe" |
+| Job outcome reporting? | Richer than our `TransportResult` — the specification distinguishes several distinct failure and wait conditions that we currently collapse into one |
+| What is this layer called? | **CSM** — *Central System Management*. A name T-Robotics coined; it exists nowhere else. "Mini MES" was our working name. The customer's own MES exists but does not contact us |
+
+⚠ **The signal tables, addresses, machine-numbering scheme and network plans are customer
+confidential.** They are **not** in this public repository and must not be added. See the
+closing note in [`PROJECT-SUMMARY.md`](PROJECT-SUMMARY.md).
+
+> **⚠️ New risk this creates — our monitor polls, the specification is edge-triggered.**
+>
+> The specification says a machine requests a robot by **changing** a value; the request
+> *is* the moment of change, and the machine clears the signal once it believes it has
+> been heard.
+>
+> `EquipmentMonitorTask` **samples** at 1 Hz and reads a level. A change that occurs and
+> reverts between two samples is missed entirely — and the machine will believe the call
+> succeeded.
+>
+> This is a design decision, not a parameter change. OPC-UA supports **subscriptions**,
+> which is the correct answer: be notified on change instead of asking repeatedly. Our
+> `EquipmentAdapter` interface is currently poll-shaped (`get_station_status`) and will
+> need a push path. Registered as a debt item.
+
+**The adapter bet paid off.** The protocol was unknown for months, and because it was
+kept behind `EquipmentAdapter` the whole job layer was written, tested and run against a
+mock in the meantime. Now that the specification exists, what changes is one new class —
+not the state machines. Keep it that way:
+
+1. **Never let protocol details reach the FSMs.** The interface stays
+   `get_station_status(id)` / `send_station_command(id, cmd)`, plus whatever push path
+   the edge-trigger problem requires.
+2. **The scope is larger than status monitoring.** The specification confirms the link
+   carries commands, so the Mini MES can affect production machinery. That is a wider
+   safety and validation burden than read-only monitoring. **Which** commands we are
+   permitted to send should be agreed in writing before implementation.
 
 ### Still open
 

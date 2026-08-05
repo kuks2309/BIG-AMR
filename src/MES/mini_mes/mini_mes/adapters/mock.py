@@ -2,7 +2,7 @@
 
 These stand in for the two things that are not available:
 
-  * the equipment protocol, which is blocked on CATL
+  * the equipment protocol (spec received 2026-08-04; no adapter written yet)
   * the ACS interface, which is undecided
 
 Both are driven by an injected clock rather than wall time, so tests can advance

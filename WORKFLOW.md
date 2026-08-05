@@ -352,7 +352,7 @@ Marked so nobody mistakes them for settled design.
 | **Mini MES commands the gate** (engage / release) | ⚠️ Not on Dr. Shim's whiteboard. It could belong to the ACS, or trigger automatically on arrival. [`ARCHITECTURE.md` §10 Q1](ARCHITECTURE.md) |
 | **The Jetson reports completion to the Mini MES** | ⚠️ Follows from the above; same open question |
 | **Mini MES → ACS interface** | ⚠️ Undecided — JSON path files, a new API, or Seer's own API |
-| **Equipment protocol** (OPC-UA / Modbus / MQTT) | ⚠️ Unknown, blocked on CATL |
+| **Equipment protocol** | ✅ **Answered 2026-08-04** — OPC-UA for the machine tools, Siemens S7 for the pack line. Specification received; details held outside this public repository |
 | **Mini MES may command equipment**, not only read it | ⚠️ "I think so" from Dr. Shim, not confirmed |
 | **The ACS handles battery and charging** | ⚠️ Standard fleet-manager behaviour, not verified for this ACS |
 | **Station names** (`station_3`, `outbound`) | ⚠️ Invented. The real ids live in Seer's map — read them with `ros2 run mini_mes seer_client` |

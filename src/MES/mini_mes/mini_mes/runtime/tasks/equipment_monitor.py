@@ -5,10 +5,19 @@ finished batches into transport jobs. It decides nothing about robots, routes or
 timing; it only notices that work exists.
 
 Polling rather than waiting on an event, deliberately. The equipment protocol is
-still unknown (blocked on CATL), and a poll is the one interaction every
-industrial protocol supports — Modbus has no notion of a subscription at all. If
-the real protocol turns out to push, the adapter can absorb that and this task
-keeps its shape.
+unknown when this was written, and a poll is the one interaction every
+industrial protocol supports — Modbus has no notion of a subscription at all.
+
+⚠ **The specification arrived on 2026-08-04 and polling is not sufficient.** A
+machine requests a robot by *changing* a value: the request is the transition
+itself, and the machine clears the signal once it believes it was heard. A
+sampler misses any change that reverts between two samples, while the machine
+believes the call succeeded — a silently dropped job, which is the worst failure
+mode this layer has.
+
+Polling faster narrows the window without closing it. The interface needs a push
+path; OPC-UA subscriptions are the intended mechanism. Until then this task is
+known-incomplete against the real protocol, and correct only against the mock.
 
 One second is not a considered number so much as an obviously-safe one: a
 station takes minutes to finish a batch, so a second of latency is invisible,

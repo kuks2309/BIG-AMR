@@ -3,11 +3,23 @@
 Everything the Mini MES talks to sits behind one of these. The main cycle and the
 job FSM depend on the interface only, never on a protocol.
 
-That is not decoration. As of 2026-07-28 the equipment protocol is **unknown** —
-T-Robotics has asked CATL for the specification and has no answer. If protocol
-details were allowed to reach the FSM, the entire Mini MES would be blocked
-waiting for a third party. Behind an adapter, the FSM is written and tested today
-against a mock, and when CATL answers only one new class is written.
+That is not decoration, and it has now been proven rather than argued. From
+2026-07-28 to 2026-08-04 the equipment protocol was **unknown** — the
+specification had been requested and not received. Had protocol details been
+allowed to reach the FSM, the whole job layer would have sat waiting on a third
+party. Behind this interface it was written, tested and run against a mock
+instead.
+
+The specification arrived on 2026-08-04: OPC-UA for the machine tools, Siemens S7
+over a PLC data block for the pack line. Two implementations, this one interface,
+and not a line of the state machines changes.
+
+⚠ One thing the specification changes about this interface. A machine requests a
+robot by *changing* a value — the request is the transition, and the machine
+clears the signal once it believes it was heard. `get_station_status` is a poll,
+so a change that reverts between two samples is missed while the machine believes
+the call succeeded. A push path is needed here; OPC-UA subscriptions are the
+intended mechanism. Do not paper over it by polling faster.
 
 The same reasoning applies to the ACS. Its interface is undecided — it may end up
 being generated JSON path files, a new API, or Seer's own TCP API. The FSM should

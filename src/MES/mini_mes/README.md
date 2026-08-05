@@ -84,7 +84,8 @@ mini_mes/
 
 The two things this package talks to are both unavailable:
 
-- the **equipment protocol** is unknown, blocked on CATL
+- the **equipment protocol** was unknown for months (✅ answered 2026-08-04 — OPC-UA
+  and S7; two adapters, one interface)
 - the **MES → ACS interface** is undecided — it may be JSON path files, a new
   API, or Seer's own
 
