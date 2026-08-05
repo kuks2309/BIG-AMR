@@ -21,10 +21,8 @@ import rclpy
 from diagnostic_msgs.msg import DiagnosticArray
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile,
-                       ReliabilityPolicy)
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool, Float64, Float64MultiArray
+from std_msgs.msg import Float64, Float64MultiArray
 from std_srvs.srv import SetBool, Trigger
 
 from .backend_base import (CAP_DRIVE, CAP_ENGAGE, CAP_HOME, CAP_MOTOR_TABLE,
@@ -32,10 +30,14 @@ from .backend_base import (CAP_DRIVE, CAP_ENGAGE, CAP_HOME, CAP_MOTOR_TABLE,
 
 MEAS_TTL_S = 1.0
 
-LATCHED_QOS = QoSProfile(depth=1,
-                         history=HistoryPolicy.KEEP_LAST,
-                         reliability=ReliabilityPolicy.RELIABLE,
-                         durability=DurabilityPolicy.TRANSIENT_LOCAL)
+# 구동 지령 재발행 주기(Hz). 드라이버의 `cmd_timeout_s`(기본 0.3 s) 안에 갱신이 없으면
+# 백엔드가 속도를 0 으로 수렴시킨다 — 그것은 드라이버의 **의도된 안전장치**다
+# (`backend.py` 규칙 2: 「지령원이 사라져도 드라이브가 마지막 값을 물고 가지 못하게」).
+# 따라서 지령을 유지하려는 쪽이 계속 발행해야 한다. 드라이버 기본 `cmd_hz` 와 같은 20 Hz.
+DRIVE_REPUBLISH_HZ = 20.0
+# 정지(0) 를 반복 발행하는 시간. 워치독 주기보다 넉넉하면 한 프레임 유실에도 정지가 닿는다.
+ZERO_HOLD_S = 0.5
+
 
 
 class RelayClient(Node):
@@ -71,7 +73,21 @@ class RelayClient(Node):
         self.pub_steer_axis = self.create_publisher(
             Float64MultiArray, f"{ns}/steer_axis_deg", 10)
         self.pub_drive = self.create_publisher(Float64, f"{ns}/drive_mmps", 10)
-        self.pub_estop = self.create_publisher(Bool, "/estop", LATCHED_QOS)
+
+        # ⚠ 구동 지령은 **주기 재발행**한다. 단발 발행이면 드라이버 워치독(0.3 s)이 만료시켜
+        #   조그가 **스스로 꺼진다** — 원본 `gui.py` 는 폴 루프가 매 주기 재송신하므로 유지되고,
+        #   `--backend direct` 도 그렇다. 재발행이 없으면 같은 UI 가 백엔드에 따라 다르게 움직인다.
+        #   2026-08-04 실기 실측: 단발 발행 시 실속도가 −1172 까지 올라갔다가 **0.75 초경 0 으로**
+        #   떨어졌다(`Log/field_2026-08-04/wd_singleshot.csv`).
+        #   ⚠ 다만 **유휴 상태에서까지 0 을 계속 내지는 않는다.** 그러면 이 GUI 가 토픽을
+        #     영구 점유해 다른 지령자(`ros2 topic pub`·상위 노드)의 지령을 즉시 덮어쓴다
+        #     (2026-08-04 실측: 외부에서 넣은 50 이 우리 0 에 지워져 드라이버에 도달조차 못 했다).
+        #     정지 직후 `ZERO_HOLD_S` 동안만 0 을 반복해 **정지가 확실히 닿게** 한 뒤 조용해진다.
+        #     조그 중 GUI 가 죽으면 재발행이 끊겨 드라이버 워치독이 0.3 s 안에 0 으로 만든다 —
+        #     즉 「지령원이 죽으면 멈춘다」는 보호는 그대로 살아 있다.
+        self._drive_mmps = 0.0
+        self._zero_until = 0.0
+        self.create_timer(1.0 / DRIVE_REPUBLISH_HZ, self._republish_drive)
 
         self.create_subscription(JointState, "/joint_states", self._on_joints, 10)
         self.create_subscription(DiagnosticArray, "/diagnostics", self._on_diag, 10)
@@ -158,10 +174,21 @@ class RelayClient(Node):
         self.pub_steer_axis.publish(Float64MultiArray(data=[float(node), float(deg)]))
 
     def send_drive(self, mmps: float):
-        self.pub_drive.publish(Float64(data=float(mmps)))
+        """구동 지령. 즉시 1회 발행하고 **재발행 타이머가 값을 유지**한다."""
+        mmps = float(mmps)
+        with self._lock:
+            self._drive_mmps = mmps
+            if mmps == 0.0:
+                self._zero_until = time.monotonic() + ZERO_HOLD_S
+        self.pub_drive.publish(Float64(data=mmps))
 
-    def send_estop(self, engage: bool):
-        self.pub_estop.publish(Bool(data=bool(engage)))
+    def _republish_drive(self):
+        """지령을 유지한다. 비영이면 계속, 0 이면 `ZERO_HOLD_S` 동안만, 그 뒤에는 조용히."""
+        with self._lock:
+            mmps = self._drive_mmps
+            if mmps == 0.0 and time.monotonic() >= self._zero_until:
+                return
+        self.pub_drive.publish(Float64(data=float(mmps)))
 
     def call(self, client, request, timeout_s: float = 5.0, discovery_s: float = 5.0):
         """서비스 1회 호출. 반환 `(성공, 메시지)`. **블로킹** — 작업 스레드에서 부른다.
@@ -250,6 +277,13 @@ class Ros2Backend(BackendBase):
                 rows[node] = (self.node.meas_angle(node), None, None)
         return rows
 
+    def link_status(self) -> tuple:
+        """드라이버와 말이 통하는가 — 진단 신선도로 판정한다."""
+        _level, _msg, fresh, _kv = self.node.diagnostics()
+        ns = str(self.node.cfg["driver_ns"]).rstrip("/")
+        return (fresh, f"can_relay {ns} · 연결됨" if fresh
+                else f"can_relay {ns} · ⚠ 끊김 — 드라이버 응답 없음")
+
     def status(self) -> tuple:
         level, message, fresh, kv = self.node.diagnostics()
         if not fresh:
@@ -267,15 +301,19 @@ class Ros2Backend(BackendBase):
         return self.node.call(self.node.cli_engage, SetBool.Request(data=bool(on)))
 
     def stop(self) -> tuple:
+        """정지. **유지값을 먼저 0 으로 내린 뒤** 서비스를 부른다.
+
+        ⚠ 순서가 중요하다. `send_drive(0.0)` 을 먼저 하지 않으면 재발행 타이머가
+        정지 직후 마지막 비영 지령을 다시 내보내 **정지를 무효화한다** —
+        `test_drive_and_stop_through_ros` 가 이 순서를 고정한다(2026-08-04 실측 회귀).
+        """
+        self.node.send_drive(0.0)
         return self.node.call(self.node.cli_stop, Trigger.Request())
 
     def home(self) -> tuple:
         return self.node.call(self.node.cli_home, Trigger.Request(), timeout_s=200.0)
 
     # ── 조작: 즉시 반환 ───────────────────────────────────────────────
-    def estop(self, on: bool) -> None:
-        self.node.send_estop(on)
-
     def steer_axis(self, node: int, deg: float) -> None:
         self.node.send_steer_axis(node, deg)
 

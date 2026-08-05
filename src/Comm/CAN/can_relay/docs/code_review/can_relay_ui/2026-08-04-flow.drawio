@@ -1,0 +1,105 @@
+<mxfile host="code-review-sop" modified="2026-08-04" agent="can_relay/ui 전체 구조 리뷰">
+  <diagram id="can_relay_ui_2026_08_04" name="ui 전체 흐름">
+    <mxGraphModel dx="1800" dy="1200" grid="1" gridSize="10" guides="1" tooltips="1" connect="1"
+                  arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1400"
+                  math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="E1" value="main --backend ros2|direct" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="E2" value="_make_backend — 여기서만 백엔드를 안다" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="130" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="B1" value="Ros2Backend + RelayClient(rclpy Node)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;" vertex="1" parent="1">
+          <mxGeometry x="-320" y="230" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="B2" value="DirectBackend (panda USB)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;" vertex="1" parent="1">
+          <mxGeometry x="400" y="230" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="S1" value="backend.start — MultiThreadedExecutor spin 스레드" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-320" y="330" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="S2" value="start 없음 — set_engaged 시 poll 스레드" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="330" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="A1" value="MainWindow(backend) — 위젯 트리는 원본과 동일" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="230" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="A2" value="_apply_capabilities — 못 하는 버튼은 비활성+툴팁" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="330" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="A3" value="_ui_timer 100ms → _refresh" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="430" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="A4" value="be.motor_rows / be.status → 표·상태·제어권 토글" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-320" y="520" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="A5" value="_redraw_wheel — 실측 우선, 없으면 슬라이더 미리보기" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="520" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="U1" value="조그 버튼 _jog" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="40" width="280" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="U2" value="jog 스레드 _jog_run" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="130" width="280" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="U3" value="be.drive(0) → be.steer_all → be.settled 대기 → be.drive" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="220" width="320" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="U4" value="슬라이더 _send_steer" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="40" width="280" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="U5" value="be.steer_axis(node, deg)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="130" width="280" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="U6" value="호밍 _homing_clicked" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="330" width="280" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="U7" value="_run_op → be.home (블로킹, 작업 스레드)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="420" width="320" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="U8" value="제어권/USB/검색" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="330" width="280" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="U9" value="_run_op → be.set_engaged / set_usb / scan" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="420" width="320" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="Q1" value="Seer 스레드 _seer_loop — 백엔드 무관(네트워크)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-320" y="640" width="320" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="Q2" value="seer_data/seer_status/alarm_counts 시그널" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-320" y="740" width="320" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="X1" value="종료 4경로 — closeEvent·SIGINT/SIGTERM·exec_ 반환·atexit" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;" vertex="1" parent="1">
+          <mxGeometry x="400" y="640" width="360" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="X2" value="safe_release → be.shutdown" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;" vertex="1" parent="1">
+          <mxGeometry x="400" y="740" width="360" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="E1x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="E1" target="E2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E2x" value="ros2" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="E2" target="B1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E3x" value="direct" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="E2" target="B2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E4x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="B1" target="S1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E5x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="B2" target="S2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E6x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="E2" target="A1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E7x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A1" target="A2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E8x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A1" target="A3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E9x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A3" target="A4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E10x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="A3" target="A5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E11x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U1" target="U2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E12x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U2" target="U3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E13x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U4" target="U5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E14x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U6" target="U7"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E15x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U8" target="U9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E16x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U3" target="B1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E17x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U3" target="B2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E18x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U5" target="B1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E19x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U5" target="B2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E20x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="Q1" target="Q2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E21x" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="X1" target="X2"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

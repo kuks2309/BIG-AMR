@@ -1,17 +1,26 @@
 # 이슈 및 수정 기록 (Issues and Fixes)
 
-> ⚠ **조향 홈 관련 서술은 2026-08-02 종결 판정으로 갱신됐다. 아래 원문은 이력으로 보존한다.**
-> 정본: `docs/verified_facts/2026-08-02-steer-home-closed.md`
+> ⚠ **조향 홈 관련 서술 정정 — 정본은 아래 한 곳이다. 원문은 이력으로 보존한다.**
+> **정본: `docs/homing/2026-08-03-can-relay-homing-assets.md` §0** (호밍 **10회 연속 실측**, 2026-08-03 15:33~15:40)
 > (값 정본은 `src/Comm/CAN/can_relay/config/machine/foil_a082.yaml` 의 `steer_home_counts`)
 >
-> - 홈(0°) = **`[7871810, 7839894]`** — 직진 자세 실측(A무리). 세 경로 교차확인.
-> - 구값 `7871815 / 7840086` 은 **틀린 값이 아니라 출처 없는 값**이었다 —
->   실측과 5c(**0.00009°**) / 192c(**0.0033°**) 차이로 거동상 동일하다.
-> - **`7882020 / 7859062` 는 홈이 아니다** — 「**호밍 후 정착값**」(B무리)이며 0° 에서
->   **+0.178° / +0.332°** 벗어나 있다. **호밍은 조향을 0° 에 정확히 놓지 않는다.**
->   이 둘을 모두 "조향 홈"이라 부른 것이 4주간 재실험 반복의 원인이었다.
-> - `debt-007` 은 **종결**(2026-08-02). 「미판정 · 값 변경 금지」 서술은 더 이상 유효하지 않다.
-> - Seer 각도와 CAN counts 는 **음의 상관** — 0° 역산은 `CAN + Seer° × 57344`.
+> - 조향 0° = **`[7871815, 7840086]`** — ⚠ **Seer 좌표계 기준**이며 **물리적 직진은 미확인**이다.
+> - **`7882020 / 7859062` 는 0° 가 아니다** — 「**호밍 후 정착값**」이며 0° 에서
+>   **+0.178° / +0.331°** 벗어나 있다. 호밍 10회 실측 정착값은 node3 **7,882,021**(σ≈2.8c) ·
+>   node4 **7,859,065**(σ≈3.2c) 로 σ≈3 counts 에 재현된다 ⇒ **결함이 아니라 설계 동작**이다.
+> - `counts/°` = **57,344**(지령각→CAN 기울기 실측 1.000000) · `0x6098` 호밍 방식 = **1**(−리밋) ·
+>   리밋 스위치 **실재** · 호밍 성공률 **10/10**, 소요 **35.0 s**.
+>
+> **❌ 2026-08-02 판정(`docs/verified_facts/2026-08-02-steer-home-closed.md`)은 폐기됐다 — 인용 금지:**
+> - ~~홈 = `[7871810, 7839894]`~~ → **틀렸다.** node4 가 193c 어긋난 raw 판독값이었다.
+> - ~~구값 `7871815 / 7840086` 은 「출처 없는 값」~~ → **반증됐다.** 출처는 **Seer 가 실시간으로 내는
+>   `0x607A` 조향 목표**이며, 그 값이 1 count 이내로 맞았다.
+> - ~~「CAN ↔ Seer 독립 교차확인」~~ → **성립하지 않는다.** Seer 1040 은 판다가 엿듣는 **바로 그
+>   `0x6064` 의 아핀 변환**이다(기울기 ×57,344 = **1.000001**). 같은 프레임을 두 번 읽은 것이라
+>   역산 `0° = CAN + Seer°×57344` 는 **항등식**이고 자세와 무관하게 같은 값을 낸다.
+>   그 측정이 확정한 것은 **Seer 내부 조향 영점**이지 물리적 0° 가 아니다.
+> - `debt-007` 은 종결이나, **홈 상수 부채 id 는 계보마다 다르다** — `origin/main` 이 정본:
+>   홈 상수 하드코딩 = **debt-026** · can_relay 이름 충돌 = **debt-025** · 구동축 브링업 = **debt-027**.
 
 > ❌ **정정 2026-08-03: 위 배너의 값·판정 2건이 실측으로 뒤집혔다.** 원문은 이력으로 보존한다.
 > 정본: `docs/homing/2026-08-03-can-relay-homing-assets.md` §10 (실측 2026-08-03 11:44)
@@ -81,7 +90,60 @@
 
 ---
 
+## 2026-08-04
+
+### [Fix] 시험 GUI 원본 결함 11건 — 정착 신선도·USB 락·구동 재송신 외 8건
+
+- **문제**: `Tools/amr_test_gui/gui.py` 에 High 3 · Medium 5 · Low 3 이 남아 있었다.
+  특히 ① 폴링이 죽어도 마지막 실측이 남아 **정착 판정을 통과시키고 구동에 들어갔고**,
+  ② `heartbeat`(0xf3)만 `_can_lock` 밖이라 조그·호밍 스레드와 USB 핸들이 겹쳤으며,
+  ③ 구동 지령이 **단발 송신**이라 프레임 1장 유실이 곧 지령 소실이었다.
+- **원인**: ① `_wait_settle` 이 `self._meas_deg` 를 시각 없이 읽음(`gui.py:1007`)
+  ② `controlWrite(0xf3)` 가 `with self._can_lock:` 앞에 있었음(`gui.py:1026`)
+  ③ `_drive()` 가 1회 쓰고 끝, 재송신·워치독 코드 0건(`gui.py:851-854`).
+  나머지 8건은 `docs/code_review/amr-test-gui/2026-08-03.md` §평가 참조.
+- **해결**: ① `_set_meas` 단일 기록지점 + `MEAS_TTL_S` ② 심박을 락 안으로
+  ③ 폴 루프 주기 재송신(0 포함) + **응답 끊김** 워치독(`RX_TTL_S`) — 「지령 만료」 방식은
+  조그가 스스로 꺼지므로 쓰지 않았다 ④ `STEER_HOME` 을 정본 YAML 에서 런타임 로드
+  ⑤ `SEER_GUI_PATH` 환경변수 ⑥ 판다 2대 이상 차단 ⑦ 반환 시 정지 실패 고지
+  ⑧ 폴링 사망 시 제어권 표시 내림 ⑨ `RLock` 단일 임계구역 ⑩ `panda is None` 가드
+  ⑪ 로그 경로 단일화. 같은 수정을 `can_relay/ui/backend_direct.py` 에도 반영.
+- **검증**: 원본 시험 **88 → 111 passed**(신규 23건, High 3건은 **변이 주입으로 검출력 확인** —
+  수정을 되돌리면 각각 3·2·3건 실패). `can_relay` **342 passed** 무회귀,
+  `colcon build` 통과, 양쪽 백엔드 오프스크린 기동·SIGTERM 정상. **실기 검증 0.**
+- **파일**: `Tools/amr_test_gui/gui.py` · `test/{test_settle_freshness,test_usb_serialization,
+  test_drive_resend,test_medium_fixes}.py` · `src/Comm/CAN/can_relay/can_relay/ui/{backend_direct,app}.py` ·
+  `test/test_steer_home_sync.py`(사본 규칙을 fallback 기준으로 갱신) ·
+  `docs/code_review/amr-test-gui/2026-08-03.md`
+- **상태**: 완료
+
 ## 2026-08-03
+
+### [Fix] can_relay 노드가 호밍 중 취소·정지를 못 받는다 + 심박이 USB 핸들을 경합한다 (High 2건)
+
+- **문제**: ① `~/home` 이 도는 동안(최대 180 s) `~/home_cancel`·`~/stop`·`estop` 이 **하나도 처리되지 않았다.**
+  「진행 중 취소는 `~/home_cancel` 로 한다」는 계약이 정작 **호밍 중에만** 성립하지 않았다.
+  ② 제어 스레드의 심박(`0xf3`)과 서비스 스레드의 호밍 조회(`0xeb`)·명령(`0xea`)이 **같은 USB 핸들에서 겹칠 수 있었다.**
+  심박 실패는 펌웨어 fail-safe(구동 0 + 릴레이 개방)를 부르므로 주행 중 예고 없는 정지로 이어진다.
+- **원인**: ① `driver_node.py:414` 가 `rclpy.spin(node)`(단일 스레드 실행기)이고 콜백 그룹 지정이 0건이라
+  4개 서비스가 전부 같은 상호배타 그룹이었다. `~/home` 콜백은 `backend.py:570-588` 폴링 루프에서
+  terminal 이나 `timeout_s`(기본 180.0, `backend.py:528`)까지 반환하지 않는다.
+  ② `link.py:428-432` `heartbeat` 만 `self._lock` 밖이었다. `send`(`:443`)·`recv`(`:450`)·`can_health`(`:467`)·
+  `_homing_cmd`(`:502`)·`homing_status`(`:511`)는 락 안이었다. 호밍 시퀀서 도입 전에는 USB 접근이
+  제어 스레드 하나뿐이라 문제가 되지 않았고(`link.py:32-33` 이 그 전제를 적어 둠), 그 전제가 깨진 것을
+  놓쳤다.
+- **해결**: 콜백 그룹 3분리(`_cbg_home` / `_cbg_safety` / `_cbg_engage`) + `main()` 을 `MultiThreadedExecutor`
+  로 교체(둘이 한 쌍 — 하나만으로는 안 막힌다). `PandaLink._ctrl()` 이 락을 직접 잡도록 하고 `Lock`→`RLock`
+  (heartbeat 한 곳만 감싸지 않은 이유: `acquire`/`release`/`_rollback` 도 같은 핸들을 쓴다).
+  덧붙여 심박 중단 카운터를 송신 전용으로 좁혔다(`_tx_fail_streak` ↔ 신규 `_loop_fail_streak`) — 수신 쪽
+  일시 오류가 로봇을 세우면서 원인은 "송신 실패"로 표시되던 것. 4파일 소수 라인 + 신규 회귀 3파일.
+- **검증**: **수정 전 재현 6건 실패**(취소 서비스 5 s 무응답 · 같은 핸들 동시 전송 2건 관측, 실패 경로 187 s).
+  수정 후 `230 passed`(ROS2 소싱, 노드 회귀 3건 포함) / `227 passed, 1 skipped`(미소싱) /
+  `colcon build --packages-select can_relay` Finished 3.01s. 실기 검증 0(장치 접속·플래시·실모터 구동 없음).
+- **파일**: `src/Comm/CAN/can_relay/can_relay/driver_node.py` · `.../link.py` · `.../backend.py` ·
+  `.../protocol.py`(존치 근거 주석) · 신규 `test/test_node_concurrency.py` · `test/test_link_concurrency.py` ·
+  `test/test_backend_method35.py` · `docs/adr/2026-08-03-can-relay-node-concurrency.md`
+- **상태**: 완료
 
 ### [Fix] 「호밍이 안 된다」 진단이 10회 실측으로 반증 — 하루에 세운 원인 가설 3개가 전부 뒤집혔다
 

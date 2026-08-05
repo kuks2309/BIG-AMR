@@ -46,8 +46,15 @@ COPIES = [
      r"^\s*steer_home_counts:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]"),
     ("src/Actuators/motor_control/motor_control/driver_node.py",
      r'^\s*\("steer_home_counts",\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]\)'),
+    # ⚠ 2026-08-04: `backend_direct.py` 도 정본을 런타임에 읽는다. 남은 리터럴은 fallback 이며
+    #   정본과 같아야 한다 — 다르면 `--backend direct` 만 옛 값으로 굴러간다(리뷰 Medium ②).
+    ("src/Comm/CAN/can_relay/can_relay/ui/backend_direct.py",
+     r"^_STEER_HOME_FALLBACK\s*=\s*\{\s*3:\s*(\d+)\s*,\s*4:\s*(\d+)\s*\}"),
+    # ⚠ 2026-08-04: gui.py 는 이제 **정본 YAML 을 런타임에 읽는다**(`_load_steer_home`).
+    #   남은 리터럴은 YAML 을 못 읽을 때만 쓰는 **fallback** 이며, 그것도 정본과 같아야 한다
+    #   — 다르면 정본 로드가 실패하는 환경에서 조향이 조용히 어긋난다.
     ("Tools/amr_test_gui/gui.py",
-     r"^STEER_HOME\s*=\s*\{\s*3:\s*(\d+)\s*,\s*4:\s*(\d+)\s*\}"),
+     r"^_STEER_HOME_FALLBACK\s*=\s*\{\s*3:\s*(\d+)\s*,\s*4:\s*(\d+)\s*\}"),
     ("Tools/Kinematics/chassis_kinematics.py",
      r"^STEER_HOME\s*=\s*\{\s*3:\s*(\d+)\s*,\s*4:\s*(\d+)\s*\}"),
     ("Tools/docking_field_kit/docking_drive.py",

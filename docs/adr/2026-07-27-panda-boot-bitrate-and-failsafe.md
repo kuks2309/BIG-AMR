@@ -53,7 +53,7 @@ Status: ~~Proposed~~ → **Accepted — 소스 반영·플래시 완료(2026-07-
 
 ### 왜 지금까지 드러나지 않았나
 
-모든 호스트 도구가 제어권 획득 시퀀스에서 `set_can_speed_kbps(bus, 250)` 을 호출한다(`docking_drive.py:75-76`, `Tools/amr_test_gui/amr_test_gui/panda_can_bus.py:_take`). 즉 **PC 소프트웨어가 붙어야만 버스가 성립하는 구조**였고, 로봇 단독 전원 인가로는 정상 동작할 수 없었다.
+모든 호스트 도구가 제어권 획득 시퀀스에서 `set_can_speed_kbps(bus, 250)` 을 호출한다(`docking_drive.py:75-76`, `Tools/amr_test_gui/amr_test_gui/panda_can_bus.py:_take` — ⚠ 후자는 2026-07-28 삭제, docs/adr/2026-07-28-old-gui-removal.md). 즉 **PC 소프트웨어가 붙어야만 버스가 성립하는 구조**였고, 로봇 단독 전원 인가로는 정상 동작할 수 없었다.
 
 ### 검증 (제안 전 실증)
 
@@ -136,7 +136,7 @@ Status: ~~Proposed~~ → **Accepted — 소스 반영·플래시 완료(2026-07-
    > 서술만 범위 한정하고 gap 을 기록한다. 부채 등록 대상(`docs/debt/registry.md`).
 3. **freeze 집합 실측 정정** — `seer_is_motion_obj()` 에 `0x6041` 을 추가한다. `0x606C` 는 현재 Seer 가 폴하지 않음이 실측됐으나 모션 노출 객체가 맞으므로 유지하고, 폴 미관측 사실을 주석에 근거와 함께 남긴다.
 4. **펌웨어 소스를 git 에 커밋** — `board/safety/safety_seer_gate.h` 등 현재 미추적(`??`) 파일을 추적으로 전환한다. 플래시된 바이너리의 소스가 버전관리 밖에 있는 상태를 끝낸다(이번 세션에 실제로 "소스가 git 에 없다"는 혼란을 유발했다).
-5. **잘못된 문서 서술 정정** — "heartbeat 소실 시 판다가 fail-safe passthrough 로 복귀" 라는 서술은 사실과 다르다. 실제 코드는 `SAFETY_SILENT` 로 되돌린다. 다만 **릴레이가 물리 통과이므로 버스 자체는 유지**된다는 점이 본 조사로 밝혀졌다. 이 서술이 들어간 `Tools/amr_test_gui/amr_test_gui/panda_can_bus.py` docstring 과 `docs/adr/2026-07-27-amr-test-gui.md` 를 정정한다.
+5. **잘못된 문서 서술 정정** — "heartbeat 소실 시 판다가 fail-safe passthrough 로 복귀" 라는 서술은 사실과 다르다. 실제 코드는 `SAFETY_SILENT` 로 되돌린다. 다만 **릴레이가 물리 통과이므로 버스 자체는 유지**된다는 점이 본 조사로 밝혀졌다. 이 서술이 들어간 `Tools/amr_test_gui/amr_test_gui/panda_can_bus.py` docstring 과 `docs/adr/2026-07-27-amr-test-gui.md` 를 정정한다. ⚠ **2026-07-28** — 전자는 구 GUI 폐기로 삭제됐다(docs/adr/2026-07-28-old-gui-removal.md); 신 `Tools/amr_test_gui/gui.py` 에는 해당 오서술이 없다.
 
 ## Safety (안전)
 

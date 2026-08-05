@@ -47,7 +47,8 @@ from dataclasses import dataclass
 #       반증 주석이다). 실제 위치는 **chassis_kinematics.py:56** —
 #       `STEER_LIMIT_RAD = 2.443         # 조향 한계 ±140° (live_models.hpp:86)`.
 #       인용 내용('실측' 라벨 없이 live_models.hpp:86 만 적음)은 :56 에서 그대로 확인된다.
-#   · 반대 기록: Tools/amr_test_gui/amr_test_gui/ramp.py:17-19 "기구 한계는 ±140°이나 실측 검증된
+#   · 반대 기록: Tools/amr_test_gui/gui.py:36 `STEER_LIMIT_DEG = 90.0` "기구 한계는 ±140°이나 실측 검증된
+#     (⚠ 2026-07-28: 원 인용 amr_test_gui/amr_test_gui/ramp.py:17-19 은 구 GUI 폐기로 삭제 — docs/adr/2026-07-28-old-gui-removal.md)
 #     범위가 ±90°(홈↔90° = 5,160,960 counts)"; docs/claude-mistake/2026-07-27-002...md:17-18
 #     node4 가 137°(정상 ±90° 범위 밖)로 밀려 물리적으로 갇힘(직결 호밍 복구 필요);
 #     ⚠ 인용 좌표 정정 (2026-07-28 재대조) — 바로 위 두 좌표가 모두 틀렸다(인용 문구 자체는 실재).

@@ -1,0 +1,134 @@
+<mxfile host="code-review-sop" modified="2026-08-03" agent="amr_test_gui 전체 구조 리뷰">
+  <diagram id="amr_test_gui_2026_08_03" name="gui.py 전체 흐름">
+    <mxGraphModel dx="1600" dy="1100" grid="1" gridSize="10" guides="1" tooltips="1" connect="1"
+                  arrows="1" fold="1" page="1" pageScale="1" pageWidth="2000" pageHeight="1400"
+                  math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- 조그 경로 -->
+        <mxCell id="U1" value="사용자: 조그 버튼 #45 _jog" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="U2" value="제어권·호밍·조그중 검사" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="130" width="300" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="U3" value="#38 log — 사유 1줄" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;" vertex="1" parent="1">
+          <mxGeometry x="400" y="145" width="260" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="U4" value="jog 스레드 #46 _jog_run" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="250" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="U5" value="#43 _drive(0) — 조향 전 구동 0" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="340" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="U6" value="#44 _steer_to → #18 _steer_axis → #1 steer_counts" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="430" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="U7" value="#50 _wait_settle — _meas_deg 로 정착 판정" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;" vertex="1" parent="1">
+          <mxGeometry x="40" y="530" width="300" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="U8" value="#2 drive_units → #43 _drive(units)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="660" width="300" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- 호밍 경로 -->
+        <mxCell id="H1" value="사용자: 호밍 버튼 #47 _homing_clicked" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="40" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="H2" value="QMessageBox 확인" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="130" width="300" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="H3" value="homing 스레드 #48 _homing_run" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="250" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="H4" value="0x6040=0x86 · 0x6099=2500 · 0x60FB:04=1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;" vertex="1" parent="1">
+          <mxGeometry x="720" y="340" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="H5" value="#49 _wait_homed — bit15 0→1 2상 판정" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="440" width="300" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- 공유 송신 경로 -->
+        <mxCell id="S1" value="#42 _sdo_write — _can_lock 직렬화" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;" vertex="1" parent="1">
+          <mxGeometry x="400" y="780" width="320" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="S2" value="panda.can_send → CAN bus2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;" vertex="1" parent="1">
+          <mxGeometry x="400" y="880" width="320" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- 폴링 스레드 -->
+        <mxCell id="P1" value="poll 스레드 #51 _loop" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="250" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="P2" value="heartbeat 0xf3 — _can_lock 밖" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;" vertex="1" parent="1">
+          <mxGeometry x="1460" y="250" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="P3" value="0x6064·0x606C·0x6078·0x6041 요청" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="340" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="P4" value="can_recv 파싱 → motor_data 시그널" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="430" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="P5" value="#52 _on_motor_data — 표·_meas_deg·_status 갱신" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="520" width="300" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="P6" value="#31 _redraw_wheel → WheelView #6 set_angles" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="620" width="300" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- Seer 스레드 -->
+        <mxCell id="Q1" value="Seer 스레드 #28 _seer_loop" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1460" y="430" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="Q2" value="1040 모터 · 1050 알람" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1460" y="520" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="Q3" value="#29 _on_seer_data → _seer_deg → #31" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1460" y="610" width="300" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- 종료 경로 -->
+        <mxCell id="X1" value="종료 4경로: closeEvent · SIGINT/SIGTERM · exec_ 반환 · atexit" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="1000" width="360" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="X2" value="#11 safe_release (멱등)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;" vertex="1" parent="1">
+          <mxGeometry x="720" y="1090" width="360" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="X3" value="#41 _on_take(False) → auth·intercept 해제 → USB close" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;" vertex="1" parent="1">
+          <mxGeometry x="720" y="1180" width="360" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- 엣지 27 -->
+        <mxCell id="E1" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U1" target="U2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E2" value="거부" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U2" target="U3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E3" value="통과" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U2" target="U4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E4" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U4" target="U5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E5" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U5" target="U6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E6" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U6" target="U7"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E7" value="실패" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U7" target="U5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E8" value="정착" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U7" target="U8"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E9" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="H1" target="H2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E10" value="아니오" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="H2" target="U3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E11" value="예" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="H2" target="H3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E12" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="H3" target="H4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E13" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="H4" target="H5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E14" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="S1" target="S2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E15" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;dashed=1;strokeColor=#b85450;" edge="1" parent="1" source="P1" target="P2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E16" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="P1" target="P3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E17" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="P3" target="P4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E18" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="P4" target="P5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E19" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="P5" target="P6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E20" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="Q1" target="Q2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E21" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="Q2" target="Q3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E22" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="X1" target="X2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E23" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="X2" target="X3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E24" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U6" target="S1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E25" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="U8" target="S1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E26" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="H4" target="S1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="E27" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=classic;" edge="1" parent="1" source="P3" target="S1"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

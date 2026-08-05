@@ -18,9 +18,10 @@ rclpy = pytest.importorskip("rclpy", reason="ROS2 미소싱 환경 — GUI 계�
 
 from rclpy.executors import MultiThreadedExecutor      # noqa: E402
 from sensor_msgs.msg import JointState                 # noqa: E402
+from std_msgs.msg import Bool, Float64                 # noqa: E402
 from std_srvs.srv import SetBool, Trigger              # noqa: E402
 
-from can_relay.driver_node import CanRelayNode         # noqa: E402
+from can_relay.driver_node import CanRelayNode, LATCHED_QOS   # noqa: E402
 from can_relay.link import MockLink                    # noqa: E402
 from can_relay.ui.backend_base import BackendBase       # noqa: E402
 from can_relay.ui.backend_ros2 import RelayClient       # noqa: E402
@@ -155,20 +156,52 @@ def test_steer_all_axes_topic(rig):
 
 # ── 구동 · 정지 ───────────────────────────────────────────────────────────
 def test_drive_and_stop_through_ros(rig):
+    """드라이버의 `~/stop` 은 요청 즉시 구동을 0 으로 만든다.
+
+    ⚠ 2026-08-04: `RelayClient.send_drive` 는 이제 **주기 재발행**한다 — UI 가 연속 지령자여야
+    드라이버 워치독(`cmd_timeout_s`=0.3 s)이라는 안전장치를 살린 채 조그가 유지된다
+    (사용자 결정: 「ros2 설계는 맞고 UI 에서 계속 명령을 내는 것이 맞다」).
+    따라서 여기서는 재발행이 섞이지 않도록 **생 퍼블리셔**로 한 번만 지령해 드라이버만 본다.
+    UI 경로의 정지는 `test_stop_wins_over_republish` 가 따로 고정한다(유지값을 먼저 0 으로 내림).
+    """
     driver, client = rig
     _engage(client)
-    client.send_drive(50.0)
-    assert _wait(lambda: driver.backend.snapshot()["drive_units"] != 0)
+    ns = str(client.cfg["driver_ns"]).rstrip("/")
+    pub = client.create_publisher(Float64, f"{ns}/drive_mmps", 10)
+    try:
+        # 새 퍼블리셔는 디스커버리가 끝나야 도달한다. 연결을 **먼저 기다린 뒤 딱 한 번** 보낸다 —
+        # 반복 발행하면 큐에 쌓인 지령이 `~/stop` **이후에** 도착해 정지를 덮어쓴다(2026-08-04 실측).
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and pub.get_subscription_count() < 1:
+            time.sleep(0.05)
+        assert pub.get_subscription_count() >= 1, "드라이버가 구독을 열지 않았다"
+        # GUI 가 유휴 상태에서 조용해질 때까지 기다린다(정지 0 반복 구간 ZERO_HOLD_S).
+        # 이 대기가 없으면 우리 0 이 외부 지령을 즉시 덮어써 드라이버에 도달조차 못 한다.
+        from can_relay.ui.backend_ros2 import ZERO_HOLD_S
+        time.sleep(ZERO_HOLD_S + 0.2)
+        pub.publish(Float64(data=50.0))
+        assert _wait(lambda: driver.backend.snapshot()["drive_units"] != 0), \
+            "지령이 드라이버에 도달하지 않았다"
 
-    ok, _why = client.call(client.cli_stop, Trigger.Request())
-    assert ok
-    assert driver.backend.snapshot()["drive_units"] == 0
+        ok, _why = client.call(client.cli_stop, Trigger.Request())
+        assert ok
+        assert driver.backend.snapshot()["drive_units"] == 0
+    finally:
+        client.destroy_publisher(pub)
 
 
 def test_estop_latch_blocks_drive(rig):
+    """드라이버의 `~/estop` 래치 회귀.
+
+    ⚠ 2026-08-04: GUI 쪽 E-stop 배선(`pub_estop`·`send_estop`)은 **삭제됐다** — 원본에 E-stop 이
+    없어 UI 에 버튼이 없고, 아무도 호출하지 않는 경로였다(리뷰 Medium ③·④). 그러나 **드라이버의
+    `estop` 구독은 계약이므로 살아 있고**, 이 시험이 계속 고정한다. GUI 를 거치지 않고 직접
+    발행한다 — 시험 대상이 드라이버이지 GUI 가 아니기 때문이다.
+    """
     driver, client = rig
     _engage(client)
-    client.send_estop(True)
+    pub = client.create_publisher(Bool, "/estop", LATCHED_QOS)
+    pub.publish(Bool(data=True))
     assert _wait(lambda: driver.backend.snapshot()["estop"] is True)
     client.send_drive(50.0)
     time.sleep(0.2)
@@ -244,3 +277,105 @@ def test_home_and_cancel_through_ros(rig):
     th.join(timeout=WAIT_S)
     assert "home" in result, "취소 후에도 ~/home 이 반환하지 않았다"
     assert driver.backend.snapshot()["homing"] is False
+
+
+# ── 구동 지령 유지 (2026-08-04 실기에서 확정된 결함) ──────────────────────
+def test_drive_command_is_republished_so_watchdog_does_not_kill_the_jog(rig):
+    """`Ros2Backend` 는 구동 지령을 **주기 재발행**해야 한다.
+
+    ⚠ 2026-08-04 실기 실측: 단발 발행이면 드라이버 워치독(`cmd_timeout_s`=0.3 s)이 만료시켜
+    실속도가 −1172 까지 올라갔다가 **0.75 초경 스스로 0** 이 됐다. 같은 UI 인데
+    `--backend direct` 는 유지되고 `--backend ros2` 만 꺼지면 「UI 100% 동일」이 깨진다.
+    원본 `gui.py` 도 폴 루프가 매 주기 재송신한다(리뷰 High ③).
+    """
+    driver, client = rig
+    _engage(client)
+    client.send_drive(50.0)                      # **한 번만** 부른다
+    assert _wait(lambda: driver.backend.snapshot()["drive_units"] != 0), "지령이 도달하지 않았다"
+
+    # 워치독 만료보다 넉넉히 오래 기다린다 — 재발행이 있으면 지령이 살아 있어야 한다.
+    #
+    # ⚠ 판정은 **두 가지**를 본다. 이 rig 는 드라이버와 클라이언트를 한 실행기에 올리므로,
+    #   전체 시험을 함께 돌리면 타이머가 밀려 드라이버 쪽 상태만으로는 간헐 실패가 난다
+    #   (2026-08-04 실측). 그래서 **우리가 통제하는 발행 횟수**를 주 판정으로 삼고,
+    #   드라이버 상태는 잠깐의 스케줄링 지연을 흡수하도록 재시도한다.
+    #   재발행이 아예 없으면(원래 결함) 발행은 1건뿐이고 드라이버 상태도 0 으로 남아 둘 다 깨진다.
+    ns = str(client.cfg["driver_ns"]).rstrip("/")
+    seen = []
+    sub = client.create_subscription(Float64, f"{ns}/drive_mmps",
+                                     lambda m: seen.append(m.data), 20)
+    timeout_s = driver.backend.cfg.cmd_timeout_s
+    window = timeout_s * 4
+    time.sleep(0.2)                       # 구독 연결
+    seen.clear()
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < window:
+        time.sleep(0.05)
+    client.destroy_subscription(sub)
+
+    assert len(seen) >= 5, (
+        f"{window:.1f}s 동안 구동 지령 발행이 {len(seen)}건뿐 — 재발행이 없다")
+    assert all(v == 50.0 for v in seen), f"재발행 값이 지령과 다르다: {set(seen)}"
+    for _ in range(20):                   # 스케줄링 지연 흡수(재발행이 있으면 곧 복구된다)
+        if driver.backend.snapshot()["drive_units"] != 0:
+            break
+        time.sleep(0.05)
+    assert driver.backend.snapshot()["drive_units"] != 0, (
+        f"발행은 {len(seen)}건 있었는데 드라이버 지령이 0 이다 — 전달 경로를 확인할 것")
+
+    client.send_drive(0.0)
+    assert _wait(lambda: driver.backend.snapshot()["drive_units"] == 0)
+
+
+def test_zero_is_repeated_briefly_then_goes_quiet(rig):
+    """정지 0 은 **잠깐 반복**하고(유실 방지) 그 뒤에는 **조용해진다**(토픽 점유 금지).
+
+    ⚠ 2026-08-04: 처음에는 0 도 무기한 재발행했는데, 그러면 이 GUI 가 유휴 상태에서도
+    `~/drive_mmps` 를 영구 점유해 **다른 지령자의 지령을 즉시 덮어썼다** — 외부에서 넣은 50 이
+    드라이버에 도달조차 못 했다(`test_drive_and_stop_through_ros` 가 이를 잡았다).
+    """
+    from can_relay.ui.backend_ros2 import ZERO_HOLD_S
+    driver, client = rig
+    _engage(client)
+    ns = str(client.cfg["driver_ns"]).rstrip("/")
+    got = []
+    sub = client.create_subscription(Float64, f"{ns}/drive_mmps",
+                                     lambda m: got.append((time.monotonic(), m.data)), 10)
+    time.sleep(0.3)                       # 구독 연결
+    got.clear()
+    client.send_drive(0.0)
+    t_cmd = time.monotonic()
+    # ⚠ 판정 창을 넉넉히 잡는다. 짧은 창에서 발행 횟수를 세면 전체 시험을 함께 돌릴 때
+    #   실행기가 밀려 간헐 실패한다(2026-08-04 실측). 검출력은 그대로다 —
+    #   재발행이 없으면 보유 구간 수신이 1건뿐이고, 침묵이 없으면 이후 구간에 계속 잡힌다.
+    time.sleep(ZERO_HOLD_S + 0.3)
+    during = len([1 for t, _ in got if t <= t_cmd + ZERO_HOLD_S])
+    time.sleep(1.5)                       # 침묵 판정 여유
+    after = len([1 for t, _ in got if t > t_cmd + ZERO_HOLD_S + 0.5])
+    client.destroy_subscription(sub)
+    assert during >= 2, f"정지 0 이 반복되지 않는다(보유 구간 수신 {during}건)"
+    assert all(v == 0.0 for _, v in got), got
+    assert after == 0, f"보유 시간이 지나도 계속 발행한다({after}건) — 토픽을 점유한다"
+
+
+def test_stop_wins_over_republish(rig):
+    """정지가 재발행보다 **세다** — 유지값을 내리지 않으면 정지가 무효화된다.
+
+    2026-08-04: 재발행 타이머를 넣자마자 `~/stop` 직후 마지막 비영 지령이 다시 나가
+    구동이 되살아났다. 기존 회귀 `test_drive_and_stop_through_ros` 가 이를 잡았고,
+    여기서는 **정지 후 충분히 오래** 지켜봐 되살아나지 않음을 고정한다.
+    """
+    from can_relay.ui.backend_ros2 import Ros2Backend
+    driver, client = rig
+    _engage(client)
+    be = Ros2Backend.__new__(Ros2Backend)      # 노드는 rig 것을 쓴다(스핀 중)
+    be.node = client
+    client.send_drive(50.0)
+    assert _wait(lambda: driver.backend.snapshot()["drive_units"] != 0)
+
+    ok, _why = be.stop()
+    assert ok
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < driver.backend.cfg.cmd_timeout_s * 3:
+        assert driver.backend.snapshot()["drive_units"] == 0, "정지 후 구동이 되살아났다"
+        time.sleep(0.05)
