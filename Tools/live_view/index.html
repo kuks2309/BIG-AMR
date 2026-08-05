@@ -609,10 +609,14 @@
     STATIONS.forEach(s => {
       if (!s.taskType) return;
       // AGV_Task_Recive = 1 — the call landed, so the machine stops calling.
+      // The CALL is an instant; the WAIT that follows lasts until a robot has
+      // actually been. Drawing only the instant made the machine look like it
+      // flickered and did nothing, which is the opposite of what happens.
       const t = s.taskType;
       s.taskType = 0;
+      s.flash = 1;                       // decaying afterglow, so the edge is visible
       say("mes", `${s.id}: AGV_Task_Recive=1 → MC_Task_Type back to 0`);
-      createJob(s, t);
+      s.waitingFor = createJob(s, t).id; // the long state starts here
     });
   }
 
@@ -640,6 +644,7 @@
 
       wake("dispatcher", `${job.id} → ${r.id}`);
       job.state = "ASSIGNED"; job.robot = r.id;
+      job.srcPort = firstFreePort(src);
       r.job = job; r.goal = approachOf(src); r.leg = "collect";
 
       pulse("link1", "--amber");
@@ -716,18 +721,42 @@
 
       if (dist < 0.28) {
         if (r.leg === "collect") {
-          // Picked up. The source station is freed, so it can produce again —
-          // forgetting this is what silently stalls a production line.
+          // Collected. Free the port we took it from, so that machine can be
+          // served again — forgetting to release the source is what silently
+          // stalls a line after two or three jobs.
           const src = STATIONS.find(s => s.id === r.job.from);
-          if (src) src.ready = false;
+          if (src && r.job.srcPort != null) src.slots[r.job.srcPort] = null;
           r.job.state = "RUNNING";
           r.dwellLeft = DWELL_SECONDS;      // stand still and load
-          say("acs", `${r.id} at ${r.job.from} — loading ${DWELL_SECONDS}s`);
+          say("acs", `${r.id} at ${r.job.from} — loading ${DWELL_SECONDS}s ` +
+                     `(${r.job.carry})`);
         } else {
+          const dst = STATIONS.find(s => s.id === r.job.to);
+          if (dst) {
+            // The machine's wait ends here — this is what it called for.
+            if (dst.waitingFor === r.job.id) dst.waitingFor = null;
+            // Whatever we brought now occupies a port. In a rack it starts
+            // curing; anywhere else it is simply present.
+            const port = firstFreePort(dst);
+            if (port != null) {
+              dst.slots[port] = {
+                carry: r.job.carry,
+                left: dst.kind === "rack" ? CURE_SECONDS : 0,
+                doneNoted: dst.kind !== "rack"
+              };
+              if (dst.kind === "rack") {
+                say("cure", `${dst.id} port ${port}: curing started ` +
+                            `(${CURE_SECONDS}s)`);
+              }
+            }
+            // A machine that received a roll now physically has one.
+            if (dst.kind === "machine") dst.rollOn = r.job.carry === CARRIER.ROLL;
+          }
           r.job.state = "DONE";
           wake("jobs", `${r.job.id} done`);
           sim.done++;
-          say("done", `${r.job.id} complete — delivered by ${r.id}`);
+          say("done", `${r.job.id} complete — ${r.job.carry} delivered to ` +
+                      `${r.job.to} by ${r.id}`);
           r.job = null; r.goal = null; r.leg = null; r.dwellLeft = 0;
           r.authority = "seer";
         }
@@ -834,14 +863,27 @@
     STATIONS.forEach(s => {
       const [sx, sy] = px(s.x, s.y);
       const size = 0.62 * sc;
-      // Amber only while a call is outstanding — that is the one machine state
-      // the CSM is obliged to act on. Storage and racks are passive, so they
-      // stay grey and never claim attention they have not earned.
+      // A machine has four states and they last wildly different times:
+      //
+      //   idle       nothing wanted
+      //   CALLING    the edge — raised until the scan catches it (< 1 poll)
+      //   WAITING    call heard, robot not yet arrived (the long one)
+      //   served     job complete
+      //
+      // Drawing only CALLING made the machine appear to flicker. The wait is
+      // what an operator on the floor actually experiences, so it gets the
+      // steady colour and the call gets a decaying flash.
       const passive = s.kind !== "machine";
       const calling = !!s.taskType;
+      const waiting = !!s.waitingFor;
+      const glow    = s.flash || 0;
       const col = passive ? css("--ink-mid")
-                          : (calling ? css("--amber") : css("--steel"));
-      ctx.fillStyle = col; ctx.globalAlpha = calling ? 0.34 : 0.16;
+                : (calling || waiting || glow) ? css("--amber") : css("--steel");
+      ctx.fillStyle = col;
+      ctx.globalAlpha = calling ? 0.42
+                      : glow    ? 0.16 + 0.26 * glow
+                      : waiting ? 0.26
+                      : 0.16;
       ctx.fillRect(sx - size / 2, sy - size / 2, size, size);
       ctx.globalAlpha = 1;
       ctx.strokeStyle = col; ctx.lineWidth = 2;
@@ -855,6 +897,9 @@
       if (calling) {
         ctx.fillStyle = css("--amber");
         ctx.fillText("CALLING · " + TASK_LABEL[s.taskType], sx, sy + size / 2 + 28);
+      } else if (waiting) {
+        ctx.fillStyle = css("--amber");
+        ctx.fillText("waiting · " + s.waitingFor, sx, sy + size / 2 + 28);
       } else if (s.kind === "rack") {
         // Curing racks show what is resting and how much longer.
         const busy = s.slots.filter(Boolean);
@@ -1031,6 +1076,9 @@
       }
       // Decay the wake flash so an idle machine visibly goes dark again.
       FSMS.forEach(f => { f.lit = Math.max(0, f.lit - dt * 1.6); });
+      STATIONS.forEach(s => {
+        if (s.flash) s.flash = Math.max(0, s.flash - dt * 0.9);
+      });
       // Retire completed jobs after a beat so they are visible on the board.
       sim.jobs = sim.jobs.filter(j => j.state !== "DONE" || sim.t - j.born < 900);
     }
