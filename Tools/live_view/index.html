@@ -1102,12 +1102,30 @@
 
   // One place decides a robot's colour, so the floor, the fleet panel and the
   // legend can never disagree about what a robot is doing.
-  const robotToken = r => !r.job ? "--r-idle"
+  const robotToken = r => r.charging || r.goingToCharge ? "--green"
+                        : !r.job ? "--r-idle"
                         : r.leg === "collect" ? "--r-collect"
                         : "--r-deliver";
-  const robotLabel = r => !r.job ? "available"
-                        : r.dwellLeft > 0 ? "loading"
-                        : r.leg === "collect" ? "collecting" : "delivering";
+
+  /** What the robot is doing, said accurately.
+   *
+   *  The dwell used to read "loading" on both legs, so a robot handing material
+   *  OVER said it was picking it up. Same pause, opposite operation — the leg
+   *  is what distinguishes them, and it was being ignored.
+   *
+   *  The phases are the flowchart's, so the label tracks the real sequence
+   *  rather than summarising it: a robot held outside a busy machine reads
+   *  "waiting outside", not "delivering", because it is not delivering. */
+  const robotLabel = r => {
+    if (r.charging)      return "charging";
+    if (r.goingToCharge) return "to charger";
+    if (!r.job)          return "available";
+    if (r.dwellLeft > 0) return r.leg === "collect" ? "loading" : "unloading";
+    if (r.phase === "exit")   return "reversing out";
+    if (r.phase === "dock")   return "entering";
+    if (r.phase === "approach" && r.notedHold) return "waiting outside";
+    return r.leg === "collect" ? "collecting" : "delivering";
+  };
 
   function fit() {
     const rect = cv.getBoundingClientRect();
