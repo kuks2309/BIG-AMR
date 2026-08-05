@@ -1,0 +1,35 @@
+amr_safety_watchdog:
+  ros__parameters:
+    output_topic: "/safe_to_move"
+    publish_rate_hz: 10.0          # 100ms 주기
+    failsafe_on_boot: true          # 로깅 전용 — 실제 초기값은 항상 unsafe
+
+    source_names: ["emergency_stop", "lidar_safety", "bumper", "localization_health"]
+
+    emergency_stop:
+      topic: "/safety/estop"
+      type: "bool"
+      enabled: true
+      invert: false              # false = safe
+      timeout_ms: 500
+
+    lidar_safety:
+      topic: "/safety/lidar"
+      type: "safety_status"
+      enabled: true
+      invert: false
+      timeout_ms: 300
+
+    bumper:
+      topic: "/safety/bumper"
+      type: "bool"
+      enabled: false             # 하드웨어 미장착, off
+      invert: false
+      timeout_ms: 500
+
+    localization_health:         # localization 死 → 모션 정지 (Phase 2, 2026-06-18, issues_fixes [06-18 14:00])
+      topic: "/localization/healthy"   # fused 발행 10Hz Bool (true=loc 신선)
+      type: "bool"
+      enabled: true              # 의존: fused 노드가 /localization/healthy 발행해야 함 (코어 stack 상시). loc 死/fused死 → unsafe
+      invert: true               # healthy=true → safe (estop convention 반대). false/발행정지 → unsafe
+      timeout_ms: 1000           # fused 자체 死(발행정지) failsafe (정상 loc死 는 fused 가 false 발행 → 100ms 내 감지)

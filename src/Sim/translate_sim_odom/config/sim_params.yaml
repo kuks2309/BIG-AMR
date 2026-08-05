@@ -1,0 +1,23 @@
+/translate_sim_odom_node:
+  ros__parameters:
+    # ── QD diagonal wheel positions ──
+    w1_x:  0.330
+    w1_y:  0.135
+    w2_x: -0.330
+    w2_y: -0.135
+
+    # ── Initial pose (map frame) ──
+    # 2026-05-14 SIL 검증 시나리오: kkw1.json N17(4.952,-2.327) + yaw=0 (+X east)
+    # L3 reverse (N17→N2): edge_dir ≈ +180° (west), 차량 yaw=0° → 정합 180° → reverse OK
+    initial_x:   4.952
+    initial_y:   -2.327
+    initial_yaw: 0.0   # rad
+
+    # ── Integration ──
+    integrate_rate_hz: 50.0
+
+    # ── IMU yaw offset (S7 calibration test scenario) ──
+    # imu_published_yaw = ground_truth_yaw + imu_yaw_offset_deg.
+    # Default 0 = legacy behavior (IMU == map yaw).
+    # Used only by yaw_control SIL S7 to verify yaw_offset = wrap(start_yaw_map - start_yaw_imu).
+    imu_yaw_offset_deg: 0.0

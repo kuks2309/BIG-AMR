@@ -1,0 +1,28 @@
+# crab_linear SIL 전용 sim params.
+# translate_sim_odom/config/sim_params.yaml (kkw1.json N17 용, initial 4.952/-2.327) 와 별도.
+# 시나리오 start (0,0) 기준 — initial pose 만 변경, 나머지 파라미터는 원본 그대로 복제.
+/translate_sim_odom_node:
+  ros__parameters:
+    # ── 휠 위치 — Foil_A082 (inline dual-steer) ──────────────────────────
+    # ⚠ 이식 시점 원본은 Carrier AGV 대각값(0.330/0.135)이었다. **플랜트가 컨트롤러와 다른
+    #   기하를 쓰면 SIL 이 검증하는 것이 없다** — 컨트롤러 오차와 플랜트 오차가 상쇄돼
+    #   "맞는 것처럼" 보일 수 있다. 정본과 같은 값으로 맞춘다.
+    # 정본: trnav_2ws_core/config/robot_geometry_2ws.yaml (검사기 C6 이 상시 대조)
+    w1_x:  0.6039
+    w1_y: -0.0014
+    w2_x: -0.5961
+    w2_y: -0.0014
+
+    # ── Initial pose (map frame) ──
+    # crab_linear SIL: 시나리오 start (0,0,0) 기준
+    initial_x:   0.0
+    initial_y:   0.0
+    initial_yaw: 0.0   # rad
+
+    # ── Integration ──
+    integrate_rate_hz: 50.0
+
+    # ── IMU yaw offset ──
+    # imu_published_yaw = ground_truth_yaw + imu_yaw_offset_deg.
+    # Default 0 = legacy behavior (IMU == map yaw).
+    imu_yaw_offset_deg: 0.0

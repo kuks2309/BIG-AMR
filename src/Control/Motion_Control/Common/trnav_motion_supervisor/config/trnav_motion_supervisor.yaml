@@ -1,0 +1,6 @@
+trnav_motion_supervisor:
+  ros__parameters:
+    target_source_id: 1
+    target_service: "/select_motion_source"
+    call_retry_count: 3
+    call_retry_interval_ms: 1000

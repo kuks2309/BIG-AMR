@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>trnav_motion_supervisor</name>
+  <version>0.1.0</version>
+  <description>
+    Motion source activator for trnav_motion_mux.
+    Publishes SelectMotionSource service request at boot to activate
+    the configured default motion source.
+
+    NOT a safety watchdog. /safe_to_move is published by the separate
+    package src/Safety/amr_safety_watchdog/.
+  </description>
+  <maintainer email="team@trobotics.com">T-Robotics</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>trnav_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
