@@ -1,10 +1,13 @@
 /translate_sim_odom_node:
   ros__parameters:
     # ── QD diagonal wheel positions ──
-    w1_x:  0.330
-    w1_y:  0.135
-    w2_x: -0.330
-    w2_y: -0.135
+    # ⚠ 2026-08-05 — Carrier AGV 대각값(0.330/0.135)에서 Foil_A082 inline 값으로.
+    #   플랜트가 컨트롤러와 다른 기하를 쓰면 SIL 이 검증하는 것이 없다.
+    #   정본: trnav_2ws_core/config/robot_geometry_2ws.yaml (검사기 C6 이 상시 대조)
+    w1_x:  0.6039
+    w1_y: -0.0014
+    w2_x: -0.5961
+    w2_y: -0.0014
 
     # ── Initial pose (map frame) ──
     # 2026-05-14 SIL 검증 시나리오: kkw1.json N17(4.952,-2.327) + yaw=0 (+X east)
