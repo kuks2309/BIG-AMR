@@ -15,7 +15,10 @@
     # 코드에도 기본값이 없다(`safety.DEFAULT_STEER_HOME = {}`) — 없으면 조향 거부.
     # (2026-08-02 사용자 지시: "모터 홈은 중요하니 config 에서 설정하는 것이 맞다")
 
-    steer_limit_deg: 90.0         # 실측 검증 범위. 기구 한계(±140°)가 아니다
+    # ⚠ **실효값은 여기가 아니다** — launch 가 machine_file 을 나중에 로드하므로
+    #   `config/machine/<기체>.yaml` 의 값이 이긴다(can_relay.launch.py:41-42).
+    #   기체 고유값이라 그쪽이 정본이다. 여기 값은 machine_file 미지정 시의 보수적 기본값.
+    steer_limit_deg: 90.0
     vel_max_units: 4889           # ≈0.2 m/s. 실측이 아니라 config 환산 + 계승 상한
     cmd_timeout_s: 0.3            # 워치독. 갱신 없으면 속도 0 으로 수렴
     cmd_hz: 20.0                  # 지령 재송신 주기(단발 송신 금지)

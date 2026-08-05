@@ -53,6 +53,7 @@ MACHINE_YAML = REPO / "src/Comm/CAN/can_relay/config/machine/foil_a082.yaml"
 TWOWS_PARAMS_DIR = REPO / "src/Control/Motion_Control/2WS/trnav_2ws_action_server/config"
 CRAB_SRC = REPO / "src/Control/Motion_Control/2WS/trnav_2ws_kinematics/src/qd_crab_inverse_kinematics.cpp"
 GEOMETRY_CANONICAL = REPO / "src/Control/Motion_Control/2WS/trnav_2ws_core/config/robot_geometry_2ws.yaml"
+SEER_GATE_SRC = REPO / "Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h"
 
 # 허용오차는 **대조 대상이 config 에 적힌 정밀도**로 정한다.
 #   C1 조향: 양쪽 다 정수로 떨어진다(57,344.0) → 사실상 완전일치를 요구한다.
@@ -136,40 +137,61 @@ def check_motor_ids(tr: dict, relay: dict) -> Result:
     return Result("C3", "배선(motor_id)", ok, detail)
 
 
-def check_steer_limits(relay_limit: float, twows_limits: dict, wrap_margin_deg) -> Result:
-    """can_relay 클램프가 **IK 반원 정규화(±90°)** 와 같은 값인지.
+def read_mech_limit_deg(counts_per_deg: float):
+    """호밍이 실측하는 **기구 −리밋**을 펌웨어 상수에서 되도출한다.
 
-    ±90° 는 하드웨어 한계가 아니라 **유일해(canonical) 구속**이다 — 독립조향 바퀴는
-    `(θ,+v) ≡ (θ∓180°,−v)` 로 등가해가 항상 2개라, 반원(180° 폭)으로 정규화해야 지령이
-    비결정·chattering 을 일으키지 않는다(ADR(Architecture Decision Record)
-    `docs/adr/2026-07-26-qd-ik-pm90-unique-solution.md`,
-    `config/machine/foil_a082.yaml:162-166` 「±90° 로 묶어 이중해를 없앤다(합의)」).
-    IK 쪽 임계는 `qd_inverse_kinematics.cpp` `normalizeAngle` 의 `M_PI/2` 로 **코드에 박혀 있어**
-    config 로 바뀌지 않는다. 따라서 can_relay 가 90 이 아니면 두 계층이 어긋난다.
-
-    ⚠ 2WS `<action>_params.yaml` 의 `steer_limit_deg` 는 **어떤 2WS 코드도 읽지 않는다**
-    (`grep steer_limit src/Control/Motion_Control/2WS --include=*.cpp --include=*.hpp` → 0건).
-    그래서 대조 대상에서 뺀다 — 살아 있는 값과 죽은 값을 비교하면 통과가 아무것도 보장하지 않는다.
-
-    크랩 `wrapSteer` 의 `WRAP_MARGIN`(25°)은 결함이 아니라 경계 chattering 회피 히스테리시스이며,
-    그 주석 자체가 「motor saturate 로 robot 진행은 거의 정확」이라 적어 **하류 포화를 전제**한다
-    (`qd_crab_inverse_kinematics.cpp:20-35`). 정보로만 표시한다.
+    호밍 방식은 Home 1(−리밋 탐색, `0x6098`=1 실기 판독)이라 매 호밍이 기계 한계를 때린다.
+    리밋에서 위치가 0 으로 리셋되고, 그 뒤 0° 로 복귀하는 거리가 `SEER_HOME_ZERO_N*` 다.
+    즉 그 상수 자체가 「−리밋 ↔ 직진」 거리이며 counts/도로 나누면 각도가 된다.
+    근거: `docs/homing/2026-08-03-can-relay-homing-assets.md` §리밋 도달(10/10, DI bit3).
     """
-    IK_HALF_PLANE = 90.0
-    ok = close(relay_limit, IK_HALF_PLANE)
-    lines = [f"can_relay steer_limit_deg = {relay_limit}  vs  IK 반원 정규화 {IK_HALF_PLANE}"]
-    if not ok:
-        lines.append(f"         ⚠ 두 계층이 어긋난다 — IK 는 여전히 ±{IK_HALF_PLANE:.0f}° 로 정규화하므로 "
-                     f"{min(relay_limit, IK_HALF_PLANE):.0f}~{max(relay_limit, IK_HALF_PLANE):.0f}° 구간에서 "
-                     f"등가해 2개가 공존한다. 바꾸려면 ADR 을 함께 갱신할 것")
+    if not SEER_GATE_SRC.exists():
+        return None, "펌웨어 헤더 없음"
+    txt = SEER_GATE_SRC.read_text(encoding="utf-8", errors="replace")
+    vals = [int(m) for m in re.findall(r"#define\s+SEER_HOME_ZERO_N\d+\s+(\d+)", txt)]
+    if not vals:
+        return None, "SEER_HOME_ZERO_N* 미검출"
+    return min(vals) / counts_per_deg, f"SEER_HOME_ZERO min={min(vals):,}"
+
+
+def check_steer_limits(clamp_deg: float, wrap_margin_deg, mech_limit_deg,
+                       mech_note: str, twows_limits: dict) -> Result:
+    """하류 클램프가 **상류 요구치 이상, 기구 한계 이하**인가.
+
+        90° + WRAP_MARGIN  ≤  can_relay steer_limit_deg  ≤  기구 −리밋
+
+    ±90° 는 여전히 **유일해 구속의 기준**이다(ADR(Architecture Decision Record)
+    `docs/adr/2026-07-26-qd-ik-pm90-unique-solution.md`) — IK 정규화는 `normalizeAngle` 의
+    `M_PI/2` 로 코드에 박혀 있고 본 검사는 그것을 바꾸지 않는다. 여기서 보는 것은 **클램프**다.
+
+    하한 근거: 크랩은 90° 자세에서 path follow 여유가 필요해 `WRAP_MARGIN`(25°)까지 접지
+    않는다(`qd_crab_inverse_kinematics.cpp:35`). 클램프가 그보다 작으면 그 여유를 잘라내고,
+    잘리면 대안 해로 넘어가 **구동 부호 반전**(0.2 m/s·50 Hz 에서 2.0 g 계단)이 요구된다.
+    상한 근거: 호밍이 매번 때리는 −리밋(`read_mech_limit_deg`).
+
+    ⚠ 2WS `<action>_params.yaml` 의 같은 키는 **2WS 코드가 읽지 않아** 판정에 쓰지 않는다.
+    """
+    lower = 90.0 + (wrap_margin_deg if wrap_margin_deg is not None else 0.0)
+    lines = [f"can_relay(실효) steer_limit_deg = {clamp_deg}"]
+    ok = True
+    if clamp_deg + 1e-9 < lower:
+        ok = False
+        lines.append(f"         ⚠ 하한 미달 — 크랩이 요구하는 {lower:.0f}° 보다 작다. "
+                     f"보정 여유가 최대 {lower - clamp_deg:.0f}° 잘리고, 잘리면 구동 부호 반전이 걸린다")
+    else:
+        lines.append(f"         하한 {lower:.0f}° (90° + WRAP_MARGIN) 충족 — 크랩 보정 여유 보존")
+    if mech_limit_deg is None:
+        lines.append(f"         ⚠ 기구 −리밋 미판정 ({mech_note}) — 상한 확인 불가")
+    elif clamp_deg > mech_limit_deg + 1e-9:
+        ok = False
+        lines.append(f"         ⚠ 상한 초과 — 기구 −리밋 {mech_limit_deg:.1f}° 를 넘는다 ({mech_note})")
+    else:
+        lines.append(f"         상한 {mech_limit_deg:.1f}° (호밍 실측 −리밋, {mech_note}) 이내 "
+                     f"— 여유 {mech_limit_deg - clamp_deg:.1f}°")
     if twows_limits:
-        vals = sorted(set(twows_limits.values()))
-        lines.append(f"         (참고) 2WS <action>_params {len(twows_limits)}개의 steer_limit_deg={vals} "
-                     f"— 2WS 코드가 읽지 않는 키라 판정에 쓰지 않는다")
-    if wrap_margin_deg is not None:
-        lines.append(f"         (참고) 크랩 wrapSteer 히스테리시스 마진 {wrap_margin_deg:.0f}° "
-                     f"→ wrap 임계 {90.0 + wrap_margin_deg:.0f}°. 하류 포화를 전제한 설계다(결함 아님)")
-    return Result("C4", "조향 한계", ok, "\n".join(lines))
+        lines.append(f"         (참고) 2WS <action>_params {len(twows_limits)}개 = "
+                     f"{sorted(set(twows_limits.values()))} — 2WS 코드가 읽지 않는 키")
+    return Result("C4", "조향 클램프 범위", ok, "\n".join(lines))
 
 
 def check_2ws_geometry(canonical: dict, twows: dict, tol: float = 1e-9) -> list:
@@ -226,12 +248,16 @@ def run_checks() -> list:
     relay = load_ros_params(CAN_RELAY_YAML)
     machine = load_ros_params(MACHINE_YAML)
     twows = collect_twows_params()
+    # 실효 클램프는 machine_file 이다 — launch 가 나중에 로드해 can_relay.yaml 을 덮는다
+    # (`can_relay.launch.py:41-42`). fallback 값을 보면 죽은 값을 검사하게 된다.
+    effective_clamp = float(machine.get("steer_limit_deg", relay["steer_limit_deg"]))
+    mech_limit, mech_note = read_mech_limit_deg(float(machine["steer_counts_per_deg"]))
     out = [
         check_steer_scale(tr, machine),
         check_drive_scale(tr, machine),
         check_motor_ids(tr, relay),
-        check_steer_limits(float(relay["steer_limit_deg"]), collect_twows_limits(twows),
-                           read_wrap_margin_deg(CRAB_SRC)),
+        check_steer_limits(effective_clamp, read_wrap_margin_deg(CRAB_SRC),
+                           mech_limit, mech_note, collect_twows_limits(twows)),
     ]
     try:
         canonical = load_ros_params(GEOMETRY_CANONICAL)
@@ -273,10 +299,11 @@ _BASE_GEOM = {"w1_x": 0.6039, "w1_y": -0.0014, "w2_x": -0.5961, "w2_y": -0.0014,
               "wheel_radius": 0.125, "gear_walk": 32.0}
 
 
-def _all(tr, machine, relay, limits, margin):
+def _all(tr, machine, relay, limits, margin, clamp=115.0, mech=137.1):
     return {r.cid: r for r in [
         check_steer_scale(tr, machine), check_drive_scale(tr, machine),
-        check_motor_ids(tr, relay), check_steer_limits(relay["steer_limit_deg"], limits, margin),
+        check_motor_ids(tr, relay),
+        check_steer_limits(clamp, margin, mech, "시험", limits),
     ]}
 
 
@@ -307,21 +334,23 @@ def selftest() -> int:
     mut = dict(_BASE_TR, motor_id_steer_front=4, motor_id_steer_rear=3)
     cases.append(("steer id 뒤바뀜 → C3 FAIL", _all(mut, _BASE_MACHINE, _BASE_RELAY, limits, 0.0)["C3"].ok is False))
 
-    # C4 는 **IK 반원 90°** 와만 대조한다. 2WS params 의 같은 키는 코드가 읽지 않으므로
-    # 그 값이 뭐든 판정이 흔들리면 안 된다 — 죽은 값에 반응하던 옛 회귀를 여기서 뒤집는다.
+    # C4 는 **범위 불변식**이다: 90°+WRAP_MARGIN ≤ clamp ≤ 기구 −리밋.
+    # 2WS params 의 같은 키는 코드가 읽지 않으므로 그 값이 뭐든 판정이 흔들리면 안 된다.
     cases.append(("2WS 한계 130° 여도 → C4 PASS (죽은 키)",
-                  _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, {"a.yaml": 130.0}, 0.0)["C4"].ok is True))
+                  _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, {"a.yaml": 130.0}, 25.0)["C4"].ok is True))
 
-    relay115 = dict(_BASE_RELAY, steer_limit_deg=115.0)
-    r = _all(_BASE_TR, _BASE_MACHINE, relay115, limits, 0.0)["C4"]
-    cases.append(("can_relay 115° → C4 FAIL", r.ok is False))
-    cases.append(("C4 실패 시 ADR 갱신 안내 포함", "ADR" in r.detail))
+    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0, clamp=115.0)["C4"]
+    cases.append(("clamp 115 · margin 25 · 리밋 137 → C4 PASS", r.ok is True))
 
-    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0)["C4"]
-    cases.append(("WRAP_MARGIN 25° → C4 마진 정보 표시", "wrap 임계 115" in r.detail))
+    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0, clamp=90.0)["C4"]
+    cases.append(("clamp 90 (크랩 여유 잘림) → C4 FAIL", r.ok is False))
+    cases.append(("하한 미달 시 부호반전 경고 포함", "부호 반전" in r.detail))
 
-    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, None)["C4"]
-    cases.append(("WRAP_MARGIN 미검출 → 마진 줄 없음", "wrap 임계" not in r.detail))
+    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0, clamp=140.0)["C4"]
+    cases.append(("clamp 140 (기구 −리밋 초과) → C4 FAIL", r.ok is False))
+
+    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0, clamp=115.0, mech=None)["C4"]
+    cases.append(("기구 −리밋 미검출 → 상한 미판정 고지", "미판정" in r.detail))
 
     # C6 — 2WS 기하 ↔ 정본
     ok6 = check_2ws_geometry(_BASE_GEOM, {"a_params.yaml": dict(_BASE_GEOM)})
