@@ -74,9 +74,9 @@ APPROACH_POSES = {name: _approach_point(x, y)
                   for name, (x, y) in STATION_POSES.items()}
 
 
-class SimAcs(AcsAdapter):
+class SimRobot:
 
-    def __init__(self, node, arrive_tolerance=0.35, max_speed=0.6,
+    def __init__(self, node, name="", arrive_tolerance=0.35, max_speed=0.6,
                  stations=None, influence_radius=1.4, repel_gain=1.4,
                  turn_gain=1.6, max_turn=0.9, crab_window=0.5,
                  stall_seconds=8.0, stall_distance=0.12, dwell_seconds=3.0,
@@ -99,6 +99,8 @@ class SimAcs(AcsAdapter):
                                  max_repulsion
         """
         self.node = node
+        #: Topic namespace and log identity. "" means the single-robot world.
+        self.name = name
         self.tolerance = arrive_tolerance
         self.max_speed = max_speed
         self.stations = dict(stations or APPROACH_POSES)
@@ -117,10 +119,14 @@ class SimAcs(AcsAdapter):
         self.max_repulsion = max_repulsion
         self.critical_distance = critical_distance
 
-        self.pub_cmd = node.create_publisher(Twist, "/cmd_vel", 10)
-        node.create_subscription(Odometry, "/odom_truth", self._on_truth, 10)
-        node.create_subscription(LaserScan, "/scan_front", self._on_front, 10)
-        node.create_subscription(LaserScan, "/scan_rear", self._on_rear, 10)
+        # Namespaced so several robots can share one Gazebo world. Empty
+        # namespace keeps the single-robot topics exactly as they were, which
+        # is what the current world publishes.
+        ns = f"/{self.name}" if self.name else ""
+        self.pub_cmd = node.create_publisher(Twist, f"{ns}/cmd_vel", 10)
+        node.create_subscription(Odometry, f"{ns}/odom_truth", self._on_truth, 10)
+        node.create_subscription(LaserScan, f"{ns}/scan_front", self._on_front, 10)
+        node.create_subscription(LaserScan, f"{ns}/scan_rear", self._on_rear, 10)
 
         self.pose = None            # (x, y, yaw) ground truth
         self._front = None
@@ -128,7 +134,8 @@ class SimAcs(AcsAdapter):
 
         self._active_job = None
         self._goal = None
-        self._results = {}
+        #: Called with (job_id, result) when a job ends, however it ends.
+        self.on_finished = None
 
         # A job is two journeys: collect at the source, then carry to the
         # destination, with a loading pause between them.
@@ -212,44 +219,31 @@ class SimAcs(AcsAdapter):
 
     # ----------------------------------------------------------- AcsAdapter
 
-    def submit_job(self, job):
-        if job.to_station not in self.stations:
-            self.node.get_logger().warn(f"unknown destination {job.to_station}")
-            return TransportResult.REJECTED
-        if self._active_job is not None:
-            # BUSY, not REJECTED. The job is perfectly valid, there is simply no
-            # free robot — it must wait its turn, not be thrown away. A real ACS
-            # with a fleet would answer this from a different robot.
-            return TransportResult.BUSY
+    @property
+    def busy(self):
+        return self._active_job is not None
 
-        if job.from_station not in self.stations:
-            self.node.get_logger().warn(f"unknown source {job.from_station}")
-            return TransportResult.REJECTED
+    def accept(self, job):
+        """Take this job. The FLEET decides whether to offer it; this only
+        knows how to carry one.
 
-        # A transport job is TWO journeys, not one. Going straight to the
-        # destination would report the load delivered without the robot ever
-        # having visited the source to pick it up — the job would be fiction.
+        A transport job is TWO journeys, not one. Going straight to the
+        destination would report the load delivered without the robot ever
+        having visited the source — the job would be fiction.
+        """
         self._active_job = job.job_id
         self._leg = "collect"
         self._from = job.from_station
         self._to = job.to_station
         self._goal = self.stations[job.from_station]
         self._dwell_until = None
-        self._results[job.job_id] = TransportResult.IN_PROGRESS
         self._reset_stall()
         self.node.get_logger().info(
-            f"{job.job_id}: leg 1/2 — collecting from {job.from_station} "
-            f"{self._goal}")
-        return TransportResult.ACCEPTED
+            f"{self._tag()}{job.job_id}: leg 1/2 — collecting from "
+            f"{job.from_station} {self._goal}")
 
-    def get_job_result(self, job_id):
-        return self._results.get(job_id, TransportResult.UNKNOWN)
-
-    def cancel_job(self, job_id):
-        if self._active_job == job_id:
-            self._finish(job_id, TransportResult.FAILED)
-        self._results[job_id] = TransportResult.FAILED
-        return True
+    def _tag(self):
+        return f"[{self.name}] " if self.name else ""
 
     # -------------------------------------------------------------- driving
 
@@ -400,7 +394,11 @@ class SimAcs(AcsAdapter):
         return False
 
     def _finish(self, job_id, result):
-        self._results[job_id] = result
+        # Reported upward. The fleet owns the job -> result table, because a
+        # caller asking "is job_7 done?" must get an answer whichever robot
+        # happened to carry it — and after the robot has moved on to the next.
+        if self.on_finished:
+            self.on_finished(job_id, result)
         self._active_job = None
         self._goal = None
         self._leg = None
@@ -413,3 +411,99 @@ class SimAcs(AcsAdapter):
 
     def _stop(self):
         self.pub_cmd.publish(Twist())
+
+
+
+class SimAcs(AcsAdapter):
+    """The fleet controller — one or more robots, and the choice between them.
+
+    This is the boundary the project was reorganised around. The CSM decides
+    WHICH JOB goes next; the ACS decides WHICH ROBOT takes it. Until now this
+    class was a single robot wearing an AcsAdapter interface, so the second
+    decision did not exist — there was only ever one candidate.
+
+    What it owns that a robot cannot:
+
+      * the choice of robot, which no robot can make for itself
+      * the job -> result table, because a caller asking "is job_7 done?" must
+        get an answer whichever robot carried it, and after that robot has
+        moved on to something else
+      * BUSY, which means "valid job, no robot free" — not "bad job". With one
+        robot every job raised during a transit used to be destroyed by the
+        code that conflated the two.
+    """
+
+    def __init__(self, node, robot_names=None, **robot_kwargs):
+        """
+        :param robot_names: namespaces, e.g. ["amr1", "amr2"]. The default is a
+            single unnamed robot on the global topics, which is what a
+            one-robot Gazebo world publishes.
+        """
+        self.node = node
+        names = robot_names if robot_names is not None else [""]
+        self.robots = [SimRobot(node, name=n, **robot_kwargs) for n in names]
+        for r in self.robots:
+            r.on_finished = self._on_robot_finished
+        self._results = {}
+        self.stations = self.robots[0].stations
+        node.get_logger().info(
+            f"ACS: fleet of {len(self.robots)} "
+            f"({', '.join(n or 'default' for n in names)})")
+
+    # -------------------------------------------------------- AcsAdapter
+
+    def submit_job(self, job):
+        if job.from_station not in self.stations:
+            self.node.get_logger().warn(f"unknown source {job.from_station}")
+            return TransportResult.REJECTED
+        if job.to_station not in self.stations:
+            self.node.get_logger().warn(f"unknown destination {job.to_station}")
+            return TransportResult.REJECTED
+
+        free = [r for r in self.robots if not r.busy]
+        if not free:
+            # BUSY, not REJECTED. The job is perfectly valid; there is simply no
+            # robot free. It waits its turn rather than being thrown away.
+            return TransportResult.BUSY
+
+        # Nearest free robot to the pickup. This is the decision the ACS really
+        # owns, and the only one it makes that the CSM could not.
+        sx, sy = self.stations[job.from_station]
+        # A robot that has not reported odometry yet sorts last rather than
+        # crashing the sort. It is a real state — the node can be offered work
+        # in the moment between starting and its first /odom_truth message.
+        def distance_to_pickup(r):
+            if r.pose is None:
+                return float("inf")
+            return math.hypot(r.pose[0] - sx, r.pose[1] - sy)
+
+        free.sort(key=distance_to_pickup)
+        robot = free[0]
+
+        self._results[job.job_id] = TransportResult.IN_PROGRESS
+        robot.accept(job)
+        return TransportResult.ACCEPTED
+
+    def get_job_result(self, job_id):
+        return self._results.get(job_id, TransportResult.UNKNOWN)
+
+    def cancel_job(self, job_id):
+        for r in self.robots:
+            if r._active_job == job_id:
+                r._finish(job_id, TransportResult.FAILED)
+        self._results[job_id] = TransportResult.FAILED
+        return True
+
+    # ------------------------------------------------------------ driving
+
+    def drive(self):
+        """One control cycle for every robot."""
+        for r in self.robots:
+            r.drive()
+
+    def _stop(self):
+        for r in self.robots:
+            r._stop()
+
+    def _on_robot_finished(self, job_id, result):
+        self._results[job_id] = result

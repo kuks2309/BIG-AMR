@@ -1,3 +1,9 @@
+# NAMESPACE WILDCARD (2026-08-05). Keys are written /**/<node> rather than
+# <node> so one file serves both the single-robot world, where the manager is
+# /controller_manager, and a fleet, where each robot has its own
+# /amrN/controller_manager. Without the wildcard the fleet managers match
+# nothing and fail with "controller manager doesn't have an update_rate
+# parameter" — the controllers never load and the robot spawns but cannot move.
 # ros2_control configuration - stands in for the real robot's CANopen SDO layer.
 #
 #   Real robot: motor_control -> SDO 0x607A (target position, steering)
@@ -7,7 +13,7 @@
 # Joint order is fixed as W1 (Front) then W2 (Rear), matching WheelSetArray.wheels[]
 # (wheels[0] = W1 Front, wheels[1] = W2 Rear - see robot_geometry_2ws.yaml).
 
-controller_manager:
+/**/controller_manager:
   ros__parameters:
     update_rate: 100  # Hz
 
@@ -20,13 +26,13 @@ controller_manager:
     drive_velocity_controller:
       type: velocity_controllers/JointGroupVelocityController
 
-steer_position_controller:
+/**/steer_position_controller:
   ros__parameters:
     joints:
       - w1_steer_joint
       - w2_steer_joint
 
-drive_velocity_controller:
+/**/drive_velocity_controller:
   ros__parameters:
     joints:
       - w1_wheel_joint

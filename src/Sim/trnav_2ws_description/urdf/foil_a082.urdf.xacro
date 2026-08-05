@@ -21,6 +21,15 @@
 -->
 <robot name="foil_a082" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+  <!-- Namespace for multi-robot worlds. Empty means the single-robot topics
+       (/cmd_vel, /odom_truth, /scan_front) exactly as before, so nothing that
+       already works has to change. Set it and every plugin, topic and TF frame
+       moves under that prefix, which is what lets several robots share one
+       Gazebo world without shouting over each other. -->
+  <xacro:arg name="ns" default=""/>
+  <xacro:property name="NS" value="$(arg ns)"/>
+  <xacro:property name="PFX" value="${NS + '/' if NS else ''}"/>
+
   <!-- ===================== parameters ===================== -->
   <!-- Measured (robot_geometry_2ws.yaml) -->
   <xacro:property name="W1_X" value="0.6039"/>
@@ -289,9 +298,9 @@
         <range><min>0.05</min><max>25.0</max><resolution>0.01</resolution></range>
         <noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
       </ray>
-      <plugin name="scan_front_plugin" filename="libgazebo_ros_ray_sensor.so">
+      <plugin name="${NS + '_' if NS else ''}scan_front_plugin" filename="libgazebo_ros_ray_sensor.so">
         <ros>
-          <namespace>/</namespace>
+          <namespace>/${NS}</namespace>
           <remapping>~/out:=scan_front</remapping>
         </ros>
         <output_type>sensor_msgs/LaserScan</output_type>
@@ -317,9 +326,9 @@
         <range><min>0.05</min><max>25.0</max><resolution>0.01</resolution></range>
         <noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
       </ray>
-      <plugin name="scan_rear_plugin" filename="libgazebo_ros_ray_sensor.so">
+      <plugin name="${NS + '_' if NS else ''}scan_rear_plugin" filename="libgazebo_ros_ray_sensor.so">
         <ros>
-          <namespace>/</namespace>
+          <namespace>/${NS}</namespace>
           <remapping>~/out:=scan_rear</remapping>
         </ros>
         <output_type>sensor_msgs/LaserScan</output_type>
@@ -333,9 +342,9 @@
       <always_on>true</always_on>
       <!-- Same topic the real iahrs_driver publishes on -->
       <update_rate>100</update_rate>
-      <plugin name="imu_plugin" filename="libgazebo_ros_imu_sensor.so">
+      <plugin name="${NS + '_' if NS else ''}imu_plugin" filename="libgazebo_ros_imu_sensor.so">
         <ros>
-          <namespace>/</namespace>
+          <namespace>/${NS}</namespace>
           <remapping>~/out:=imu/data</remapping>
         </ros>
         <frame_name>imu_link</frame_name>
@@ -353,9 +362,9 @@
        compared. On the real robot the equivalent would come from Seer's own
        localisation or SLAM; nothing here should assume /odom_truth exists. -->
   <gazebo>
-    <plugin name="ground_truth" filename="libgazebo_ros_p3d.so">
+    <plugin name="${NS + '_' if NS else ''}ground_truth" filename="libgazebo_ros_p3d.so">
       <ros>
-        <namespace>/</namespace>
+        <namespace>/${NS}</namespace>
         <remapping>odom:=odom_truth</remapping>
       </ros>
       <frame_name>world</frame_name>
@@ -363,7 +372,12 @@
            joints into their parent, so base_link is absorbed and only the root
            survives as a body. Naming base_link here fails with
            "body_name: base_link does not exist". -->
-      <body_name>base_footprint</body_name>
+      <!-- Scoped to THIS model. Gazebo resolves body_name across the whole
+           world, so with several robots an unscoped "base_footprint" binds
+           every p3d plugin to whichever model loaded first: one robot's topic
+           carries another's pose, and a third publishes nothing at all.
+           The model name is the namespace (see fleet.launch.py -entity). -->
+      <body_name>${NS + '::' if NS else ''}base_footprint</body_name>
       <update_rate>30.0</update_rate>
       <gaussian_noise>0.0</gaussian_noise>
     </plugin>
@@ -415,8 +429,14 @@
   </ros2_control>
 
   <gazebo>
-    <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so">
+    <plugin name="${NS + '_' if NS else ''}gazebo_ros2_control" filename="libgazebo_ros2_control.so">
       <parameters>$(find trnav_2ws_gazebo)/config/controllers.yaml</parameters>
+      <!-- One controller_manager PER ROBOT. Without this every robot loads its
+           controllers into the same manager, and the second spawn fails with a
+           name clash — or worse, succeeds and drives the wrong wheels. -->
+      <ros>
+        <namespace>/${NS}</namespace>
+      </ros>
     </plugin>
   </gazebo>
 
