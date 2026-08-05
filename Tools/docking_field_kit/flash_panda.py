@@ -63,6 +63,21 @@ def pick_fw(argv) -> str:
     return FW
 
 
+def read_build_version(fw: str):
+    """플래시 대상 이미지 옆의 `version` 사이드카를 읽는다 (없으면 None).
+
+    `board/SConscript` 가 빌드 때마다 `obj/version`(과 `obj/gitversion.h`)을 갱신하므로,
+    이 파일은 **그 이미지에 실제로 박힌 문자열**이다 — 고정 상수 EXPECT 와 달리 재빌드를 따라간다.
+    동봉본처럼 사이드카가 없는 경우도 있어 None 을 정상 반환값으로 둔다(호출부가 fallback).
+    """
+    path = os.path.join(os.path.dirname(fw), "version")
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
 def main():
     if "--recover" in sys.argv:
         print("DFU 복구 시도...")
@@ -85,6 +100,13 @@ def main():
     before = p.get_version()
     print("플래시 전 version:", before)
     print(f"펌웨어 플래시: {fw}")
+    # 재연결 중 벤더 라이브러리가 traceback 을 찍는 것은 정상이다 — 미리 알린다.
+    #   플래시는 장치를 재열거시키므로 첫 claimInterface(0) 가 LIBUSB_ERROR_BUSY 로 실패할 수 있다.
+    #   panda/python/__init__.py:236-241 의 connect() 는 예외를 **찍고 재시도**하는 while 루프이고,
+    #   :265-275 reconnect() 가 최대 15초 재시도한다 → 뒤에 "connected" 가 찍히면 성공이다.
+    #   진짜 실패는 "reconnect failed" 예외로 죽는 것뿐. 벤더 라이브러리는 수정하지 않는다.
+    print("  ℹ 재연결 중 'LIBUSB_ERROR_BUSY' traceback 이 보일 수 있다 — 실패가 아니라 정상 재시도다.")
+    print("    뒤에 'connected' 가 찍히면 성공. 진짜 실패는 'reconnect failed' 로 죽는 경우뿐.")
     p.flash(fw)
     print("플래시 완료, 재연결...")
     time.sleep(2.5)
@@ -106,7 +128,18 @@ def main():
     p2.close()
     # 정정 2026-07-27 — 원 문구: ("OK: 우리 펌웨어 적용됨" if EXPECT in str(after) else "⚠ 예상과 다름")
     #   버전 문자열 일치는 "2026-07-23 빌드가 올라갔다"는 뜻일 뿐 "최신 정정본"을 뜻하지 않는다(EXPECT 주석 참조).
-    if EXPECT in str(after):
+    #
+    # 정정 2026-08-05 — 판정 기준을 고정 EXPECT 에서 **방금 플래시한 이미지의 version 사이드카**로 옮긴다.
+    #   종전에는 EXPECT(2026-07-23 고정 해시)와 다르면 "=== 버전 문자열이 EXPECT 와 다름 ===" 을 찍었는데,
+    #   재빌드하면 달라지는 것이 정상이라 **성공한 플래시가 실패처럼 읽혔다**(2026-08-05 실사용에서 실제 오독 유발).
+    #   이제는 `<fw 경로>/../version`(SConscript 가 빌드마다 갱신)과 대조해 일치 = 성공으로 단정한다.
+    expected = read_build_version(fw)
+    if expected and expected == str(after).strip():
+        print(f"=== ✅ 플래시 성공 — 장치 version 이 빌드 사이드카와 일치: {expected} ===")
+    elif expected:
+        print(f"=== ⚠ 불일치 — 빌드 사이드카 {expected} vs 장치 {after} ===")
+        print("  플래시가 실제로 반영되지 않았을 수 있다. 재시도하거나 --recover 후 다시 플래시할 것.")
+    elif EXPECT in str(after):
         print("=== 플래시된 이미지 = 동봉 2026-07-23 빌드(DEV-26524538-DEBUG) ===")
         print("⚠ 이 이미지에는 2026-07-27 정정(부팅 250 kbps · heartbeat 상실 시 릴레이 해제)이 없다.")
         print("  → 부팅 기본 500 kbps 결함이 되돌아간 상태다. 최신 빌드로 다시 플래시할 것:")
@@ -114,9 +147,11 @@ def main():
         print("    근거: docs/adr/2026-07-27-panda-boot-bitrate-and-failsafe.md ·"
               " docs/verified_facts/2026-07-27.md §A-1/§A-5")
     else:
-        print(f"=== 버전 문자열이 EXPECT({EXPECT})와 다름 ===")
+        print(f"=== version={after} (빌드 사이드카 없음 — 자동 대조 불가) ===")
         print("  EXPECT 는 2026-07-23 시점 git hash 고정값이므로 재빌드 시 달라지는 것이 정상이다.")
-        print("  실제 확인 대상: 부팅 기본 CAN 비트레이트가 250 kbps 인지(verified_facts §A-1 재현 절차).")
+    # 어느 경로로 오든 비트레이트는 별도 확인 대상이다 — version 문자열은 그것을 증명하지 않는다.
+    print("  ※ 부팅 기본 CAN 비트레이트 250 kbps 여부는 별도 확인할 것"
+          " (verified_facts 2026-07-27 §A-1 재현 절차: 수 초 수신 후 can_rx_errs 가 0 이면 정합).")
 
 
 if __name__ == "__main__":
