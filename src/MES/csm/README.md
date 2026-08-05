@@ -28,8 +28,20 @@ ros2 run csm seer_client --host 192.168.44.82
 ```
 
 ```bash
-python3 -m pytest test/ -q          # 76 tests, ~2 s
+python3 -m pytest test/ -q          # 81 tests, ~2 s
 ```
+
+> ⚠ **Run exactly one `sim_node`.** Every instance publishes to `/cmd_vel`, so two
+> of them fight over the same robot and it judders on the spot without going
+> anywhere — a symptom that looks exactly like a navigation bug and is not one.
+>
+> The trap is that `pkill -f "ros2 run csm"` can exit non-zero without having
+> killed anything, so a restart quietly stacks another node on top. Seven
+> accumulated once before anybody noticed. Check before starting:
+>
+> ```bash
+> ps -eo pid,cmd | grep "[l]ib/csm/sim_node"     # expect one line, or none
+> ```
 
 ---
 
