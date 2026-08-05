@@ -32,3 +32,11 @@ Tools/Can_Relay/panda-firmware/**/*.elf
 src/**/build/
 src/**/install/
 src/**/log/
+
+# Customer / vendor confidential — meeting material, protocol specs, line topology.
+# This repository is PUBLIC (kuks2309/BIG-AMR). CATL protocol tables, Ford system
+# diagrams, PLC signal maps and whole-line IP plans must not be published here.
+# Store under References/local/ or a private repo. See docs/claude_guideline/
+# external_reference/handling.md §5 (licence / external disclosure).
+meeting_files/
+References/local/
