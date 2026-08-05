@@ -14,7 +14,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(trnav_2ws_interfaces REQUIRED)
-find_package(trnav_2ws_msgs REQUIRED)
+find_package(trnav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -40,7 +40,7 @@ ament_target_dependencies(amr_spin_node
   rclcpp
   rclcpp_action
   trnav_2ws_interfaces
-  trnav_2ws_msgs
+  trnav_msgs
   sensor_msgs
   std_msgs
   tf2
@@ -69,7 +69,7 @@ ament_target_dependencies(amr_translate_forward_node
   rclcpp
   rclcpp_action
   trnav_2ws_interfaces
-  trnav_2ws_msgs
+  trnav_msgs
   sensor_msgs
   std_msgs
   geometry_msgs
@@ -105,7 +105,7 @@ ament_target_dependencies(amr_translate_reverse_node
   rclcpp
   rclcpp_action
   trnav_2ws_interfaces
-  trnav_2ws_msgs
+  trnav_msgs
   sensor_msgs
   std_msgs
   geometry_msgs
@@ -142,7 +142,7 @@ ament_target_dependencies(amr_crab_linear_node
   rclcpp
   rclcpp_action
   trnav_2ws_interfaces
-  trnav_2ws_msgs
+  trnav_msgs
   sensor_msgs
   std_msgs
   geometry_msgs
@@ -178,7 +178,7 @@ ament_target_dependencies(amr_turn_node
   rclcpp
   rclcpp_action
   trnav_2ws_interfaces
-  trnav_2ws_msgs
+  trnav_msgs
   sensor_msgs
   std_msgs
   tf2
@@ -207,7 +207,7 @@ ament_target_dependencies(amr_yaw_control_node
   rclcpp
   rclcpp_action
   trnav_2ws_interfaces
-  trnav_2ws_msgs
+  trnav_msgs
   sensor_msgs
   std_msgs
   geometry_msgs
@@ -242,7 +242,7 @@ ament_target_dependencies(amr_mpc_node
   rclcpp
   rclcpp_action
   trnav_2ws_interfaces
-  trnav_2ws_msgs
+  trnav_msgs
   sensor_msgs
   std_msgs
   geometry_msgs
@@ -279,7 +279,7 @@ ament_target_dependencies(amr_yaw_control_reverse_node
   rclcpp
   rclcpp_action
   trnav_2ws_interfaces
-  trnav_2ws_msgs
+  trnav_msgs
   sensor_msgs
   std_msgs
   geometry_msgs
@@ -316,7 +316,7 @@ ament_target_dependencies(amr_mpc_reverse_node
   rclcpp
   rclcpp_action
   trnav_2ws_interfaces
-  trnav_2ws_msgs
+  trnav_msgs
   sensor_msgs
   std_msgs
   geometry_msgs

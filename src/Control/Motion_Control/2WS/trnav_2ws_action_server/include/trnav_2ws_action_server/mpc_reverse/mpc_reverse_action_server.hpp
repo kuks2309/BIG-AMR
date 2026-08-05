@@ -7,8 +7,8 @@
 #include <mutex>
 
 #include "trnav_2ws_interfaces/action/amr_motion_mpc_reverse.hpp"
-#include "trnav_2ws_msgs/msg/wheel_motor.hpp"
-#include "trnav_2ws_msgs/srv/select_motion_source.hpp"
+#include "trnav_msgs/msg/wheel_motor.hpp"
+#include "trnav_msgs/srv/select_motion_source.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -44,7 +44,7 @@ class MpcReverseActionServer
     bool validateGoal(std::shared_ptr<const MpcReverse::Goal> goal) override;
     void execute(std::shared_ptr<GoalHandle> goal_handle) override;
 
-    void wheelStateCallback(const trnav_2ws_msgs::msg::WheelMotor::SharedPtr msg) override;
+    void wheelStateCallback(const trnav_msgs::msg::WheelMotor::SharedPtr msg) override;
 
   private:
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_viz_pub_;
@@ -62,7 +62,7 @@ class MpcReverseActionServer
     std::atomic<double> max_cmd_speed_{0.0};
 
     // mux active source 전환 — execute() 진입 시 호출. action server 가 자기 source_id 책임 (정공법).
-    rclcpp::Client<trnav_2ws_msgs::srv::SelectMotionSource>::SharedPtr select_source_client_;
+    rclcpp::Client<trnav_msgs::srv::SelectMotionSource>::SharedPtr select_source_client_;
     int motion_source_id_{9};  // mpc_reverse = 9 (2026-05-16 10→9, docs/abstraction/motion_source_id_contract.md)
 
     double lookahead_distance_{0.6};

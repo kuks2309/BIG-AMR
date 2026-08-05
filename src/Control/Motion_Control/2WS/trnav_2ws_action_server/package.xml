@@ -3,7 +3,7 @@
 <package format="3">
   <name>trnav_2ws_action_server</name>
   <version>0.1.0</version>
-  <description>AMR Motion Action Server — per-action pilot nodes (spin, translate, …) built on trnav_2ws_core. Publishes trnav_2ws_msgs/WheelSetArray on trnav_motion_mux topics.</description>
+  <description>AMR Motion Action Server — per-action pilot nodes (spin, translate, …) built on trnav_2ws_core. Publishes trnav_msgs/WheelSetArray on trnav_motion_mux topics.</description>
   <maintainer email="amap@t-robotics.com">amap</maintainer>
   <license>Apache-2.0</license>
 
@@ -12,7 +12,7 @@
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
   <depend>trnav_2ws_interfaces</depend>
-  <depend>trnav_2ws_msgs</depend>
+  <depend>trnav_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>

@@ -13,7 +13,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
-find_package(trnav_2ws_msgs REQUIRED)
+find_package(trnav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -89,7 +89,7 @@ ament_export_targets(trnav_2ws_core_targets HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   rclcpp
   rclcpp_action
-  trnav_2ws_msgs
+  trnav_msgs
   sensor_msgs
   std_msgs
   geometry_msgs

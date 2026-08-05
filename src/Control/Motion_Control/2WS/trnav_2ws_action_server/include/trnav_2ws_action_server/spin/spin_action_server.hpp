@@ -2,7 +2,7 @@
 #define AMR_MOTION_ACTION_SERVER__SPIN__SPIN_ACTION_SERVER_HPP_
 
 #include "trnav_2ws_interfaces/action/amr_motion_spin.hpp"
-#include "trnav_2ws_msgs/srv/select_motion_source.hpp"
+#include "trnav_msgs/srv/select_motion_source.hpp"
 #include "trnav_2ws_core/action_mutex.hpp"
 #include "trnav_2ws_motion/qd_action_server_base.hpp"
 #include "trnav_2ws_core/motion_profile.hpp"
@@ -26,7 +26,7 @@ class SpinActionServer : public trnav::motion::two_ws::TwoWsActionServerBase<trn
 
   private:
     // mux active source 전환 — execute() 진입 시 호출. action server 가 자기 source_id 책임 (정공법).
-    rclcpp::Client<trnav_2ws_msgs::srv::SelectMotionSource>::SharedPtr select_source_client_;
+    rclcpp::Client<trnav_msgs::srv::SelectMotionSource>::SharedPtr select_source_client_;
     int motion_source_id_{3};  // spin = 3
 
     // Spin precision parameters (from YAML)

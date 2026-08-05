@@ -39,7 +39,7 @@ TranslateReverseActionServer::TranslateReverseActionServer(rclcpp::Node::SharedP
     // mux active source — 부팅 시 supervisor 가 forward(=1) 로만 set. reverse 진입 시 자체 전환 필수.
     // execute() 진입부에 select_motion_source service 호출 (정공법: action server 책임 — 어디서 호출하든 일관).
     motion_source_id_ = safeParam("motion_source_id", 2);
-    select_source_client_ = node_->create_client<trnav_2ws_msgs::srv::SelectMotionSource>("/select_motion_source");
+    select_source_client_ = node_->create_client<trnav_msgs::srv::SelectMotionSource>("/select_motion_source");
 
     // ── Translate-specific parameters (same yaml keys as forward) ──
     // 5 게인은 멤버 캐시 — params 콜백 핫리로드 시 사용.
@@ -205,7 +205,7 @@ TranslateReverseActionServer::TranslateReverseActionServer(rclcpp::Node::SharedP
 //  wheelStateCallback override
 // ════════════════════════════════════════════════════════
 
-void TranslateReverseActionServer::wheelStateCallback(const trnav_2ws_msgs::msg::WheelMotor::SharedPtr msg)
+void TranslateReverseActionServer::wheelStateCallback(const trnav_msgs::msg::WheelMotor::SharedPtr msg)
 {
     trnav::motion::two_ws::TwoWsActionServerBase<Translate>::wheelStateCallback(msg);
     wheel_state_received_.store(true);
@@ -276,7 +276,7 @@ void TranslateReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
     // 가 호출하든 일관성 보장.
     if (select_source_client_ && select_source_client_->service_is_ready())
     {
-        auto req = std::make_shared<trnav_2ws_msgs::srv::SelectMotionSource::Request>();
+        auto req = std::make_shared<trnav_msgs::srv::SelectMotionSource::Request>();
         req->source_id = static_cast<uint8_t>(motion_source_id_);
         auto future = select_source_client_->async_send_request(req);
         if (future.wait_for(std::chrono::milliseconds(500)) == std::future_status::ready)

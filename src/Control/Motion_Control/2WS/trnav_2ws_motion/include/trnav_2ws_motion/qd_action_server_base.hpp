@@ -7,9 +7,9 @@
 #include "trnav_2ws_kinematics/qd_inverse_kinematics.hpp"
 #include "trnav_2ws_motion/qd_wheel_set_packer.hpp"
 
-#include "trnav_2ws_msgs/msg/motor_status.hpp"
-#include "trnav_2ws_msgs/msg/wheel_motor.hpp" // state feedback only (wheel_motor_state)
-#include "trnav_2ws_msgs/msg/wheel_set_array.hpp"
+#include "trnav_msgs/msg/motor_status.hpp"
+#include "trnav_msgs/msg/wheel_motor.hpp" // state feedback only (wheel_motor_state)
+#include "trnav_msgs/msg/wheel_set_array.hpp"
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -27,8 +27,8 @@ namespace trnav::motion::two_ws
 
 // Base class for QD platform action servers that publish motion commands via
 // the trnav_motion_mux contract.
-// Publishes trnav_2ws_msgs/WheelSetArray on the configured topic (RELIABLE, KeepLast(10)).
-// The legacy trnav_2ws_msgs/WheelMotor subscription is retained only for state feedback
+// Publishes trnav_msgs/WheelSetArray on the configured topic (RELIABLE, KeepLast(10)).
+// The legacy trnav_msgs/WheelMotor subscription is retained only for state feedback
 // (wheel_motor_state); the command path is fully WheelSetArray.
 //
 // QD-specific: instantiates TwoWsDualSteerIK + TwoWsWheelSetPacker as members. DD or other
@@ -63,7 +63,7 @@ template <typename ActionT> class TwoWsActionServerBase
 
         // Publishers — trnav_motion_mux contract
         wheel_cmd_pub_ =
-            node_->create_publisher<trnav_2ws_msgs::msg::WheelSetArray>(publish_topic, rclcpp::QoS(10).reliable());
+            node_->create_publisher<trnav_msgs::msg::WheelSetArray>(publish_topic, rclcpp::QoS(10).reliable());
 
         // Result status reporter — abort/cancel/success 코드를 토픽으로 발행(bag 기록용).
         // action result(get_result 서비스)는 rosbag2(Humble) 미기록 → "<server>:<code>" 문자열 토픽으로 보강.
@@ -72,12 +72,12 @@ template <typename ActionT> class TwoWsActionServerBase
             node_->create_publisher<std_msgs::msg::String>("/motion/last_result", rclcpp::QoS(10).reliable());
 
         // Subscribers — state feedback (legacy WheelMotor still valid for this path)
-        wheel_state_sub_ = node_->create_subscription<trnav_2ws_msgs::msg::WheelMotor>(
+        wheel_state_sub_ = node_->create_subscription<trnav_msgs::msg::WheelMotor>(
             "wheel_motor_state", rclcpp::QoS(10),
-            [this](const trnav_2ws_msgs::msg::WheelMotor::SharedPtr msg) { wheelStateCallback(msg); });
+            [this](const trnav_msgs::msg::WheelMotor::SharedPtr msg) { wheelStateCallback(msg); });
 
-        motor_status_sub_ = node_->create_subscription<trnav_2ws_msgs::msg::MotorStatus>(
-            "motor_status", rclcpp::QoS(10), [this](const trnav_2ws_msgs::msg::MotorStatus::SharedPtr /*msg*/) {});
+        motor_status_sub_ = node_->create_subscription<trnav_msgs::msg::MotorStatus>(
+            "motor_status", rclcpp::QoS(10), [this](const trnav_msgs::msg::MotorStatus::SharedPtr /*msg*/) {});
 
         imu_sub_ = node_->create_subscription<sensor_msgs::msg::Imu>(
             "imu/data", rclcpp::SensorDataQoS(),
@@ -135,7 +135,7 @@ template <typename ActionT> class TwoWsActionServerBase
 
     // Members accessible to derived classes
     rclcpp::Node::SharedPtr node_;
-    rclcpp::Publisher<trnav_2ws_msgs::msg::WheelSetArray>::SharedPtr wheel_cmd_pub_;
+    rclcpp::Publisher<trnav_msgs::msg::WheelSetArray>::SharedPtr wheel_cmd_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr result_status_pub_;
     std::string action_name_;
     std::unique_ptr<TwoWsDualSteerIK> ik_;
@@ -153,7 +153,7 @@ template <typename ActionT> class TwoWsActionServerBase
 
   protected:
     // wheelStateCallback is virtual so Translate can override with timestamp tracking
-    virtual void wheelStateCallback(const trnav_2ws_msgs::msg::WheelMotor::SharedPtr msg)
+    virtual void wheelStateCallback(const trnav_msgs::msg::WheelMotor::SharedPtr msg)
     {
         last_angle_front_.store(msg->angle_front);
         last_angle_rear_.store(msg->angle_rear);
@@ -233,8 +233,8 @@ template <typename ActionT> class TwoWsActionServerBase
     }
 
     // Subscriptions (prevent dangling)
-    rclcpp::Subscription<trnav_2ws_msgs::msg::WheelMotor>::SharedPtr wheel_state_sub_;
-    rclcpp::Subscription<trnav_2ws_msgs::msg::MotorStatus>::SharedPtr motor_status_sub_;
+    rclcpp::Subscription<trnav_msgs::msg::WheelMotor>::SharedPtr wheel_state_sub_;
+    rclcpp::Subscription<trnav_msgs::msg::MotorStatus>::SharedPtr motor_status_sub_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
     typename rclcpp_action::Server<ActionT>::SharedPtr action_server_;
 

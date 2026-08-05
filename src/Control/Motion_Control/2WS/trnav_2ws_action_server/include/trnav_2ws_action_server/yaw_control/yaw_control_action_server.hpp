@@ -5,7 +5,7 @@
 #include <memory>
 
 #include "trnav_2ws_interfaces/action/amr_motion_yaw_control.hpp"
-#include "trnav_2ws_msgs/srv/select_motion_source.hpp"
+#include "trnav_msgs/srv/select_motion_source.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 
@@ -37,7 +37,7 @@ class YawControlActionServer
     std::unique_ptr<trnav_2ws_core::LocalizationMonitor> loc_monitor_;
 
     // mux active source 전환 — execute() 진입 시 호출. action server 가 자기 source_id 책임 (정공법).
-    rclcpp::Client<trnav_2ws_msgs::srv::SelectMotionSource>::SharedPtr select_source_client_;
+    rclcpp::Client<trnav_msgs::srv::SelectMotionSource>::SharedPtr select_source_client_;
     int motion_source_id_{6};  // yaw_control = 6
 
     // Control parameters (from YAML)

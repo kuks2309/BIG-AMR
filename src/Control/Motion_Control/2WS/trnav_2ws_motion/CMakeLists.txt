@@ -13,7 +13,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(trnav_2ws_kinematics REQUIRED)
 find_package(trnav_2ws_core REQUIRED)
-find_package(trnav_2ws_msgs REQUIRED)
+find_package(trnav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -37,7 +37,7 @@ ament_target_dependencies(qd_path_controller
 )
 set_target_properties(qd_path_controller PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# ── Wheel-Set Packer (depends on trnav_2ws_msgs) ──
+# ── Wheel-Set Packer (depends on trnav_msgs) ──
 add_library(qd_wheel_set_packer STATIC
   src/qd_wheel_set_packer.cpp
 )
@@ -46,7 +46,7 @@ target_include_directories(qd_wheel_set_packer PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 ament_target_dependencies(qd_wheel_set_packer
-  trnav_2ws_msgs
+  trnav_msgs
   trnav_2ws_core
 )
 set_target_properties(qd_wheel_set_packer PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -86,7 +86,7 @@ ament_export_targets(trnav_2ws_motion_targets HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   trnav_2ws_kinematics
   trnav_2ws_core
-  trnav_2ws_msgs
+  trnav_msgs
   rclcpp
   geometry_msgs
   sensor_msgs

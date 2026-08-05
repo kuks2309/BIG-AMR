@@ -7,10 +7,10 @@ TwoWsWheelSetPacker::TwoWsWheelSetPacker(const trnav_2ws_core::RobotGeometry &ge
 {
 }
 
-trnav_2ws_msgs::msg::WheelSetArray TwoWsWheelSetPacker::pack(double velocity_front, double angle_front,
+trnav_msgs::msg::WheelSetArray TwoWsWheelSetPacker::pack(double velocity_front, double angle_front,
                                                      double velocity_rear, double angle_rear) const
 {
-    trnav_2ws_msgs::msg::WheelSetArray msg;
+    trnav_msgs::msg::WheelSetArray msg;
 
     switch (geom_.platform)
     {

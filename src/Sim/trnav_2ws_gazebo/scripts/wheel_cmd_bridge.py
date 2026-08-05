@@ -13,7 +13,7 @@ wheel_cmd_bridge — 시뮬레이션에서 실 로봇의 "모터 계층"을 대�
        실 motor_control 이 구독하는 경로. 여기서 2WS dual-steer IK 를 돌려
        바퀴별 (조향각, 속도) 로 변환한다. teleop 으로 바로 몰아볼 수 있다.
 
-  2) /motion/wheel_cmd/<action> (trnav_2ws_msgs/WheelSetArray)
+  2) /motion/wheel_cmd/<action> (trnav_msgs/WheelSetArray)
        trnav 액션서버 9종이 발행하는 경로. 이미 IK 가 끝난 바퀴 명령이므로
        그대로 조인트로 내린다. (in-repo mux 부재 → 이 노드가 그 자리를 메운다)
 
@@ -36,9 +36,9 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Bool, Float64MultiArray
 
-# trnav_2ws_msgs 가 아직 빌드 전이어도 /cmd_vel 경로만으로 동작하도록 선택적 import.
+# trnav_msgs 가 아직 빌드 전이어도 /cmd_vel 경로만으로 동작하도록 선택적 import.
 try:
-    from trnav_2ws_msgs.msg import WheelSetArray
+    from trnav_msgs.msg import WheelSetArray
     HAVE_WHEELSET = True
 except ImportError:  # pragma: no cover
     WheelSetArray = None
@@ -127,7 +127,7 @@ class WheelCmdBridge(Node):
                     lambda msg, t=topic: self.on_wheel_cmd(msg, t), 10)
             wheel_state = f'{len(WHEEL_CMD_TOPICS)} wheel_cmd topics'
         else:
-            wheel_state = 'wheel_cmd DISABLED (trnav_2ws_msgs not built)'
+            wheel_state = 'wheel_cmd DISABLED (trnav_msgs not built)'
 
         self.create_timer(1.0 / rate_hz, self.tick)
 

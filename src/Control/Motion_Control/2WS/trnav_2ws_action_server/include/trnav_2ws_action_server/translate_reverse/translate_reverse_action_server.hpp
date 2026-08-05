@@ -7,8 +7,8 @@
 #include <mutex>
 
 #include "trnav_2ws_interfaces/action/amr_motion_translate_reverse.hpp"
-#include "trnav_2ws_msgs/msg/wheel_motor.hpp"
-#include "trnav_2ws_msgs/srv/select_motion_source.hpp"
+#include "trnav_msgs/msg/wheel_motor.hpp"
+#include "trnav_msgs/srv/select_motion_source.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -43,7 +43,7 @@ class TranslateReverseActionServer
     bool validateGoal(std::shared_ptr<const Translate::Goal> goal) override;
     void execute(std::shared_ptr<GoalHandle> goal_handle) override;
 
-    void wheelStateCallback(const trnav_2ws_msgs::msg::WheelMotor::SharedPtr msg) override;
+    void wheelStateCallback(const trnav_msgs::msg::WheelMotor::SharedPtr msg) override;
 
   private:
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_viz_pub_;
@@ -62,7 +62,7 @@ class TranslateReverseActionServer
 
     // mux active source 전환 — execute() 진입 시 호출. action server 가 자기 source_id 책임 (정공법).
     // 부팅 시 supervisor 가 forward 로만 set 하므로, reverse 진입 시 자체 전환 안 하면 mux 가 drop.
-    rclcpp::Client<trnav_2ws_msgs::srv::SelectMotionSource>::SharedPtr select_source_client_;
+    rclcpp::Client<trnav_msgs::srv::SelectMotionSource>::SharedPtr select_source_client_;
     int motion_source_id_{2};  // translate_reverse = 2 (trnav_motion_mux.yaml source_2)
 
     // Control parameters (yaml — translate_reverse_*)

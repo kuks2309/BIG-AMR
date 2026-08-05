@@ -1,6 +1,6 @@
 #include "trnav_2ws_action_server/turn/turn_action_server.hpp"
 #include "trnav_2ws_core/math_utils.hpp"  // normalizeAngleDeg — target_angle 입력 정규화
-#include "trnav_2ws_msgs/srv/select_motion_source.hpp"
+#include "trnav_msgs/srv/select_motion_source.hpp"
 
 #include <chrono>
 #include <thread>
@@ -23,7 +23,7 @@ TurnActionServer::TurnActionServer(rclcpp::Node::SharedPtr node, trnav_2ws_core:
 
     // mux active source — execute() 진입부에 select_motion_source service 호출 (정공법: action server 책임).
     motion_source_id_ = safeParam("motion_source_id", 5);
-    select_source_client_ = node_->create_client<trnav_2ws_msgs::srv::SelectMotionSource>("/select_motion_source");
+    select_source_client_ = node_->create_client<trnav_msgs::srv::SelectMotionSource>("/select_motion_source");
 
     RCLCPP_INFO(node_->get_logger(), "TurnActionServer initialized");
 }
@@ -67,7 +67,7 @@ void TurnActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     // ── mux active source 전환 (정공법: action server 자체 책임) ──
     if (select_source_client_ && select_source_client_->service_is_ready())
     {
-        auto req = std::make_shared<trnav_2ws_msgs::srv::SelectMotionSource::Request>();
+        auto req = std::make_shared<trnav_msgs::srv::SelectMotionSource::Request>();
         req->source_id = static_cast<uint8_t>(motion_source_id_);
         auto future = select_source_client_->async_send_request(req);
         if (future.wait_for(std::chrono::milliseconds(500)) == std::future_status::ready)

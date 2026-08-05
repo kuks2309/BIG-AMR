@@ -11,7 +11,7 @@
 
   <depend>trnav_2ws_kinematics</depend>
   <depend>trnav_2ws_core</depend>
-  <depend>trnav_2ws_msgs</depend>
+  <depend>trnav_msgs</depend>
   <depend>rclcpp</depend>
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>

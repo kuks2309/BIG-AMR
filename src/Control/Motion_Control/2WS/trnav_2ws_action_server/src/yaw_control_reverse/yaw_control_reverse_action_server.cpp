@@ -63,7 +63,7 @@ YawControlReverseActionServer::YawControlReverseActionServer(rclcpp::Node::Share
 
     // mux active source — execute() 진입부에 select_motion_source service 호출 (정공법: action server 책임).
     motion_source_id_ = safeParam("motion_source_id", 7);
-    select_source_client_ = node_->create_client<trnav_2ws_msgs::srv::SelectMotionSource>("/select_motion_source");
+    select_source_client_ = node_->create_client<trnav_msgs::srv::SelectMotionSource>("/select_motion_source");
 
     RCLCPP_INFO(node_->get_logger(), "YawControlReverseActionServer initialized (REVERSE direction only)");
 }
@@ -105,7 +105,7 @@ void YawControlReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_han
     // ── mux active source 전환 (정공법: action server 자체 책임) ──
     if (select_source_client_ && select_source_client_->service_is_ready())
     {
-        auto req = std::make_shared<trnav_2ws_msgs::srv::SelectMotionSource::Request>();
+        auto req = std::make_shared<trnav_msgs::srv::SelectMotionSource::Request>();
         req->source_id = static_cast<uint8_t>(motion_source_id_);
         auto future = select_source_client_->async_send_request(req);
         if (future.wait_for(std::chrono::milliseconds(500)) == std::future_status::ready)

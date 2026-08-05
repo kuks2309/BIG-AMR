@@ -77,7 +77,10 @@ def generate_launch_description():
     )
     dummy_lidar = ExecuteProcess(
         cmd=['ros2', 'topic', 'pub', '/safety/lidar',
-             'trnav_2ws_msgs/msg/SafetyStatus',
+             # ⚠ 2026-08-05 정정: 워치독은 trnav_msgs::msg::SafetyStatus 를 구독한다
+             #   (amr_safety_watchdog_node.cpp:144). 이식 시점 런치는 폐기된
+             #   trnav_msgs 를 발행해 **타입 불일치로 워치독이 못 받았다**.
+             'trnav_msgs/msg/SafetyStatus',
              '{raw_data_safety_st: 0, field_data_safety_st: 0}',
              '--rate', '5'],
         output='screen',

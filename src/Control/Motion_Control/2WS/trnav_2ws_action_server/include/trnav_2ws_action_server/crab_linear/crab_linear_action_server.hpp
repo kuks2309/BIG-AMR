@@ -7,8 +7,8 @@
 #include <mutex>
 
 #include "trnav_2ws_interfaces/action/amr_motion_crab_linear.hpp"
-#include "trnav_2ws_msgs/msg/wheel_motor.hpp"
-#include "trnav_2ws_msgs/srv/select_motion_source.hpp"
+#include "trnav_msgs/msg/wheel_motor.hpp"
+#include "trnav_msgs/srv/select_motion_source.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -38,7 +38,7 @@ class CrabLinearActionServer
     void execute(std::shared_ptr<GoalHandle> goal_handle) override;
 
     // Override: wheel-state timestamp tracking (actual-steer-based speed)
-    void wheelStateCallback(const trnav_2ws_msgs::msg::WheelMotor::SharedPtr msg) override;
+    void wheelStateCallback(const trnav_msgs::msg::WheelMotor::SharedPtr msg) override;
 
   private:
     // Extra publishers (path viz, debug array)
@@ -60,7 +60,7 @@ class CrabLinearActionServer
     std::atomic<double> max_cmd_speed_{0.0};
 
     // mux active source — execute() 진입 시 호출. action server 가 자기 source_id 책임 (정공법).
-    rclcpp::Client<trnav_2ws_msgs::srv::SelectMotionSource>::SharedPtr select_source_client_;
+    rclcpp::Client<trnav_msgs::srv::SelectMotionSource>::SharedPtr select_source_client_;
     int motion_source_id_{4};  // crab_linear = 4 (기존 crab 슬롯 재사용)
 
     // PathController gains (PD heading + Stanley, projection/CTE 측정용)

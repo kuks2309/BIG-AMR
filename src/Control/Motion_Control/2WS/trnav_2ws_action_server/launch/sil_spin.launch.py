@@ -64,7 +64,7 @@ def generate_launch_description():
     )
     dummy_lidar = ExecuteProcess(
         cmd=['ros2', 'topic', 'pub', '/safety/lidar',
-             'trnav_2ws_msgs/msg/SafetyStatus',
+             'trnav_msgs/msg/SafetyStatus',
              '{raw_data_safety_st: 0, field_data_safety_st: 0}',
              '--rate', '5'],
         output='screen',
