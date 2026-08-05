@@ -488,10 +488,20 @@ class RelayBackend:
         """
         now = time.monotonic()
         with self._lock:
+            # ① **내용 신선도** — `0x6041` bit15=0 구간에서 드라이브는 위치를 0 으로 고정해
+            #    보고한다. 시각 신선도(`fresh`)는 이것을 못 걸른다: 값은 방금 도착했고
+            #    **내용만 무효**이기 때문이다.
+            #    ⚠ 2026-08-05 실기 재현(debt-040): engage 후 t=35 ms 판독이 pos=0(sw=0x1050,
+            #      bit15=0)이었고 t=168 ms 에 참값 3,971,954(sw=0x9450)로 바뀌었다 — 차 **+69.3°**.
+            #      `stationary` 만으로는 못 막는다. bit15=0 구간이 132 ms 이고 폴링이 10 Hz 라
+            #      **두 표본 모두 0** 이면 「정지」로 판정돼 0 이 조향 목표가 된다.
+            untrusted = [n for n in self.cfg.steer_nodes
+                         if not S.position_trustworthy(self.nodes[n].statusword)]
             pos = {n: self.nodes[n].position for n in self.cfg.steer_nodes
                    if self.nodes[n].fresh(now, self.cfg.feedback_ttl_s)
+                   and S.position_trustworthy(self.nodes[n].statusword)
                    and self.nodes[n].position is not None}
-            # **캡처된 상황에서만 쓴다** — 정지(또는 정지 판정 가능) 축에만 보낸다.
+            # ② **캡처된 상황에서만 쓴다** — 정지(또는 정지 판정 가능) 축에만 보낸다.
             moving = {n: self.nodes[n].stationary(self.cfg.stationary_tol_counts)
                       for n in pos}
             pos = {n: c for n, c in pos.items() if moving[n] is True}
@@ -500,6 +510,12 @@ class RelayBackend:
             self._steer_target_deg = None
         blocked = [n for n, ok in moving.items() if ok is not True]
         self._halt_note = ""
+        if untrusted:
+            note = (f"위치를 믿을 수 없는 축 {sorted(untrusted)} 는 잡지 않았다 "
+                    f"— 0x6041 bit15=0(위치가 0 으로 고정되는 구간)")
+            self._halt_note = note
+            self._log(f"조향 정지 보류 — {note}. 그 값을 목표로 쓰면 축이 크게 돈다 "
+                      f"(debt-040 실측 +69.3°) ({reason})")
         if blocked:
             self._halt_note = (f"이동 중이거나 판정 불가한 축 {sorted(blocked)} 는 잡지 않았다 "
                                f"— 그 축은 직전 목표까지 계속 회전한다")

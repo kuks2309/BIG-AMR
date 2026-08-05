@@ -196,6 +196,7 @@ def test_method35_timeout_sends_steer_stop():
         for _ in range(2):
             for n in (3, 4):
                 feed(link, n, P.OBJ_POSITION_ACTUAL, 0)   # 범위 안 · 도착은 아님 · 정지 상태
+                feed(link, n, P.OBJ_STATUSWORD, 0x9450)   # 실기 폴링은 0x6041 도 읽는다(debt-040)
             time.sleep(0.08)
         ok, why = be.home(poll_s=0.01, timeout_s=0.3)
         assert ok is False and "도착하지 못했다" in why
@@ -212,6 +213,9 @@ def test_stop_all_stops_drive_and_steering():
         for _ in range(2):          # 표본 2개 = 정지 확인(캡처된 상황으로 제한)
             for n in (3, 4):
                 feed(link, n, P.OBJ_POSITION_ACTUAL, 7_871_000)
+                # 실기 폴링은 0x6041 도 함께 읽는다. bit15=1 이어야 위치를 신뢰한다
+                # (debt-040: bit15=0 구간에서는 위치가 0 으로 고정된다)
+                feed(link, n, P.OBJ_STATUSWORD, 0x9450)
             time.sleep(0.08)
         be.set_drive_mmps(50.0)
         n_before = len(writes_to(link, P.OBJ_TARGET_POSITION))
@@ -516,9 +520,11 @@ def test_hold_steer_at_measured_sends_when_stationary_within_master_band():
     link, be = make(steer_home={3: 0, 4: 0})
     for n in (3, 4):
         feed(link, n, P.OBJ_POSITION_ACTUAL, 1_000_000)
+        feed(link, n, P.OBJ_STATUSWORD, 0x9450)              # bit15=1 (debt-040 게이트)
     be._drain()
     for n in (3, 4):
         feed(link, n, P.OBJ_POSITION_ACTUAL, 1_000_150)      # Δ=150 c < 200 c
+        feed(link, n, P.OBJ_STATUSWORD, 0x9450)
     be._drain()
     assert be.hold_steer_at_measured("정지") is True
     assert {f.can_id - 0x600 for f in writes_to(link, P.OBJ_TARGET_POSITION)} == {3, 4}
@@ -528,3 +534,39 @@ def test_stationary_band_matches_master_capture_constant():
     """임계 200 c 는 임의 값이 아니라 마스터 캡처에서 관측된 대역폭이다."""
     from can_relay.backend import RelayConfig
     assert RelayConfig().stationary_tol_counts == 200
+
+
+# ── debt-040: bit15=0 구간의 무효 위치를 조향 목표로 쓰지 않는다 ──────────
+def _seed(be, node, pos, sw, prev=None):
+    st = be.nodes[node]
+    st.position_prev = pos if prev is None else prev
+    st.position = pos
+    st.statusword = sw
+    st.last_seen = time.monotonic()
+
+
+def test_hold_steer_refuses_when_bit15_is_clear():
+    """`0x6041` bit15=0 이면 위치가 0 으로 고정된다 — **그 값을 목표로 쓰지 않는다.**
+
+    ⚠ 2026-08-05 실기 재현(debt-040): engage 후 t=35 ms 판독이 pos=0(sw=0x1050)이었고
+    t=168 ms 에 참값 3,971,954(sw=0x9450)로 바뀌었다 — 차 **+69.3°**.
+    `stationary` 만으로는 못 막는다: bit15=0 구간이 132 ms, 폴링 10 Hz 라 **두 표본 모두 0**
+    이면 「정지」로 판정돼 0 이 조향 목표가 된다. 여기서는 그 상황을 그대로 만든다.
+    """
+    link, be = make(require_homed_for_steer=False)
+    for n in (3, 4):
+        _seed(be, n, 0, 0x1050)                 # 두 표본 모두 0 = stationary 로는 통과
+        assert be.nodes[n].stationary(be.cfg.stationary_tol_counts) is True
+    before = len(link.sent)
+    assert be.hold_steer_at_measured("bit15=0") is False, "무효 위치를 목표로 보냈다"
+    assert len(link.sent) == before, "프레임이 나갔다"
+    assert "믿을 수 없는" in be.halt_note(), be.halt_note()
+
+
+def test_hold_steer_sends_once_bit15_is_set():
+    """bit15=1 이 되면 정상적으로 잡는다 — 게이트를 막아 버린 것이 아니다."""
+    link, be = make(require_homed_for_steer=False)
+    for n in (3, 4):
+        _seed(be, n, 3_971_954 if n == 3 else 3_939_847, 0x9450)
+    assert be.hold_steer_at_measured("bit15=1") is True
+    assert link.sent, "프레임이 나가지 않았다"

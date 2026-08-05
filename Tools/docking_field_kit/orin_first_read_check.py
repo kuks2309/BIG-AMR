@@ -42,6 +42,14 @@ def main():
     be = RelayBackend(link, cfg, log=lambda m: print(f"  [be] {m}", flush=True))
 
     rows = []
+    tx_fail = {"n": 0}
+
+    def _watch(msg):                       # ⚠ 송신 실패가 보이면 즉시 중단한다.
+        print(f"  [be] {msg}", flush=True)  #   2026-08-05 1차 시도는 다른 제어 주체와 경합해
+        if "송신 연속" in msg:               #   USB 가 36회 연속 실패했고, 그 판독은 무효였다.
+            tx_fail["n"] += 1
+    be._log = _watch
+
     try:
         link.open()
         link.acquire()
@@ -49,6 +57,10 @@ def main():
         be.start()
         last = {}
         while time.monotonic() - t0 < args.secs:
+            if tx_fail["n"]:
+                raise SystemExit(
+                    "⚠ 중단 — USB 송신 실패가 관측됐다(다른 제어 주체 경합 가능). "
+                    "판독을 채택하지 않는다. 로봇이 비어 있는지 확인하고 다시 실행할 것.")
             snap = be.snapshot()
             for n in (3, 4):
                 p = snap["nodes"][n]["position"]

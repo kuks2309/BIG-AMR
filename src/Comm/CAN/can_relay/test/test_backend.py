@@ -594,7 +594,14 @@ M35 = dict(homing_method="35", homing_enabled=True,
            home_search_range=(-10_000_000, 10_000_000))
 
 
-def at(link, node, pos, sw=P.STATUSWORD_TARGET_REACHED):
+# 실기 실측 상태워드는 조향축 정지 시 **0x9450** 이다(bit15·12·10·6·4).
+# ⚠ 기본값에 **bit15 를 반드시 넣는다.** 예전 기본값은 bit10 만이라 `position_trustworthy` 가
+#   False 를 냈고, debt-040 게이트를 넣자 「위치를 믿을 수 없다」로 걸렸다 — 픽스처가 실기와
+#   달랐던 것이지 코드가 틀린 게 아니었다(2026-08-05).
+STATUSWORD_STEER_IDLE = 0x9450
+
+
+def at(link, node, pos, sw=STATUSWORD_STEER_IDLE):
     feed(link, node, P.OBJ_POSITION_ACTUAL, pos)
     feed(link, node, P.OBJ_STATUSWORD, sw, size=2)
 
