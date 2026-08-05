@@ -425,11 +425,19 @@
   //
   // NAMES ARE PROVISIONAL. Which four machines the system needs is still open
   // (§5.3). The structure is what this panel shows; the labels will change.
+  // Listed in the order work moves through them, because that is the only
+  // order a reader can follow. A job must EXIST before anyone can assign it,
+  // so the tracker sits above the dispatcher, not below it.
+  //
+  //   equipment monitor  notices the call
+  //   job tracker        creates the job and owns it for its whole life
+  //   dispatcher         decides whose turn it is to ask for transport
+  //   robot handler      one per robot — drives it, collects its reports
   const FSMS = [
-    { id: "equipment",  label: "Equipment monitor", note: "watches the machines",  ticks: 0, lit: 0, why: "" },
-    { id: "dispatcher", label: "Dispatcher",        note: "assigns a robot",       ticks: 0, lit: 0, why: "" },
-    { id: "robot",      label: "Robot handler",     note: "drives and reports",    ticks: 0, lit: 0, why: "" },
-    { id: "jobs",       label: "Job tracker",       note: "job records + states",  ticks: 0, lit: 0, why: "" }
+    { id: "equipment",  label: "Equipment monitor", note: "notices the call",       ticks: 0, lit: 0, why: "" },
+    { id: "jobs",       label: "Job tracker",       note: "creates + owns the job", ticks: 0, lit: 0, why: "" },
+    { id: "dispatcher", label: "Dispatcher",        note: "whose turn is it",       ticks: 0, lit: 0, why: "" },
+    { id: "robot",      label: "Robot handler",     note: "drives · NOT BUILT",     ticks: 0, lit: 0, why: "", unbuilt: true }
   ];
   const fsmById = Object.fromEntries(FSMS.map(f => [f.id, f]));
 
@@ -982,9 +990,16 @@
       const bg = a > 0.02
         ? `background: color-mix(in srgb, var(--amber) ${(9 * a).toFixed(0)}%, transparent);`
         : "";
-      const state = a > 0.02 ? f.why : "asleep";
-      return `<div class="fsm" style="${bg}">
-        <span class="fsm-bar" style="${bar}"></span>
+      // An unbuilt machine must not look like a working one. It shows its role
+      // and stays dim — the robot handler does not exist in the real code
+      // (debt-032), because it needs to address robots individually and the
+      // CSM→ACS interface is still undecided.
+      const state = f.unbuilt ? "not implemented"
+                  : a > 0.02  ? f.why
+                              : "asleep";
+      const dim = f.unbuilt ? "opacity:.45;" : "";
+      return `<div class="fsm" style="${bg}${dim}">
+        <span class="fsm-bar" style="${f.unbuilt ? 'background:var(--rule);' : bar}"></span>
         <span>
           <span class="fsm-name">${f.label}</span><br>
           <span class="fsm-note">${state}</span>
