@@ -197,3 +197,60 @@ def test_drive_axis_unaffected_by_origin():
     notes = be.set_motor_cmds([(1, P.MODE_VELOCITY, 1234, 0, 0)])
     assert notes == []
     assert be._drive_units_by_node[1] == 1234
+
+
+# ── 경로별 조향 한계 분리 (2026-08-05) ─────────────────────────────────────
+# can_relay 는 `/motor/low_cmd` 로 raw counts 만 받아 **지령 출처를 모른다** — 「크랩일 때만
+# 열기」를 판정할 수 없다. 대신 **경로**로 나눈다: 모션 체인은 크랩 여유(115°)를 쓰고,
+# 사람이 손으로 넣는 벤치 경로(`~/steer_deg`·`~/steer_axis_deg`)는 90° 가드를 유지한다.
+
+CHAIN_LIMIT = 115.0
+BENCH_LIMIT = 90.0
+
+
+def split_limits(**kw):
+    kw.setdefault("steer_limit_deg", CHAIN_LIMIT)
+    kw.setdefault("steer_limit_bench_deg", BENCH_LIMIT)
+    return homed_real(**kw)
+
+
+def test_bench_path_clamps_at_bench_limit():
+    """벤치 직접 지령은 체인 상한이 열려 있어도 90° 에서 잘린다."""
+    _, be = split_limits()
+    applied = be.set_steer_deg(110.0)
+    assert applied == pytest.approx(BENCH_LIMIT)
+    assert be._steer_counts[3] == HOME[3] + int(round(BENCH_LIMIT * COUNTS_PER_DEG))
+
+
+def test_bench_axis_path_clamps_at_bench_limit():
+    _, be = split_limits()
+    applied = be.set_steer_axis_deg(3, -110.0)
+    assert applied == pytest.approx(-BENCH_LIMIT)
+    assert be._steer_counts[3] == HOME[3] - int(round(BENCH_LIMIT * COUNTS_PER_DEG))
+
+
+@pytest.mark.parametrize("deg", [95.0, 110.0, 115.0])
+def test_chain_path_allows_up_to_chain_limit(deg):
+    """저수준 체인은 크랩이 요구하는 115° 까지 통과시킨다 — 잘리면 보정 여유를 잃는다."""
+    _, be = split_limits()
+    rel = int(round(deg * COUNTS_PER_DEG))
+    notes = be.set_motor_cmds([mc(3, tpos=rel)])
+    assert notes == [], f"체인 지령 {deg}° 가 잘렸다: {notes}"
+    assert be._steer_counts[3] == HOME[3] + rel
+
+
+def test_chain_path_still_clamps_beyond_chain_limit():
+    """체인도 무제한이 아니다 — 115° 를 넘으면 잘린다."""
+    _, be = split_limits()
+    notes = be.set_motor_cmds([mc(3, tpos=int(round(130.0 * COUNTS_PER_DEG)))])
+    assert any("클램프" in n for n in notes)
+    assert be._steer_counts[3] == HOME[3] + int(round(CHAIN_LIMIT * COUNTS_PER_DEG))
+
+
+def test_two_limits_are_independent():
+    """벤치 상한을 바꿔도 체인 상한이 따라오지 않는다(그 반대도)."""
+    _, be = split_limits(steer_limit_bench_deg=45.0)
+    assert be.set_steer_deg(80.0) == pytest.approx(45.0)
+    rel = int(round(100.0 * COUNTS_PER_DEG))
+    assert be.set_motor_cmds([mc(3, tpos=rel)]) == []
+    assert be._steer_counts[3] == HOME[3] + rel

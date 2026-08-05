@@ -68,6 +68,9 @@ class CanRelayNode(Node):
             ("drive_nodes", [1, 2]),
             ("steer_nodes", [3, 4]),
             ("steer_limit_deg", S.STEER_LIMIT_DEG),
+            # 벤치 직접 지령(`~/steer_deg`·`~/steer_axis_deg`) 전용 상한. 체인 상한과
+            # 분리한다 — 사람이 손으로 넣는 경로는 넓히지 않는다(2026-08-05).
+            ("steer_limit_bench_deg", S.STEER_LIMIT_DEG),
             ("vel_max_units", S.VEL_MAX_UNITS),
             ("cmd_timeout_s", 0.3),
             ("cmd_hz", 20.0),
@@ -133,6 +136,7 @@ class CanRelayNode(Node):
             poll_hz=float(g["poll_hz"]),
             cmd_timeout_s=float(g["cmd_timeout_s"]),
             steer_limit_deg=float(g["steer_limit_deg"]),
+            steer_limit_bench_deg=float(g["steer_limit_bench_deg"]),
             # 캘리브레이션의 drive_max_units 가 있으면 그것이 이긴다(기체 고유값이므로).
             vel_max_units=int(g["drive_max_units"] or g["vel_max_units"]),
             steer_counts_per_deg=float(g["steer_counts_per_deg"]),
@@ -152,7 +156,8 @@ class CanRelayNode(Node):
         self._cfg = cfg
         self.get_logger().info(
             f"기체 '{g['machine_name']}' · 호밍 {method} "
-            f"(활성={g['homing_enabled']}) · 조향 한계 ±{g['steer_limit_deg']}°")
+            f"(활성={g['homing_enabled']}) · 조향 한계 체인 ±{g['steer_limit_deg']}° "
+            f"/ 벤치 ±{g['steer_limit_bench_deg']}°")
         if not g["homing_enabled"]:
             self.get_logger().warn(
                 "호밍 비활성 — steer_home_offset 이 실측 확정되지 않았습니다. "

@@ -154,8 +154,8 @@ def read_mech_limit_deg(counts_per_deg: float):
     return min(vals) / counts_per_deg, f"SEER_HOME_ZERO min={min(vals):,}"
 
 
-def check_steer_limits(clamp_deg: float, wrap_margin_deg, mech_limit_deg,
-                       mech_note: str, twows_limits: dict) -> Result:
+def check_steer_limits(clamp_deg: float, bench_deg: float, wrap_margin_deg,
+                       mech_limit_deg, mech_note: str, twows_limits: dict) -> Result:
     """하류 클램프가 **상류 요구치 이상, 기구 한계 이하**인가.
 
         90° + WRAP_MARGIN  ≤  can_relay steer_limit_deg  ≤  기구 −리밋
@@ -172,7 +172,7 @@ def check_steer_limits(clamp_deg: float, wrap_margin_deg, mech_limit_deg,
     ⚠ 2WS `<action>_params.yaml` 의 같은 키는 **2WS 코드가 읽지 않아** 판정에 쓰지 않는다.
     """
     lower = 90.0 + (wrap_margin_deg if wrap_margin_deg is not None else 0.0)
-    lines = [f"can_relay(실효) steer_limit_deg = {clamp_deg}"]
+    lines = [f"체인 {clamp_deg}° / 벤치 {bench_deg}°  (can_relay 실효값)"]
     ok = True
     if clamp_deg + 1e-9 < lower:
         ok = False
@@ -188,6 +188,13 @@ def check_steer_limits(clamp_deg: float, wrap_margin_deg, mech_limit_deg,
     else:
         lines.append(f"         상한 {mech_limit_deg:.1f}° (호밍 실측 −리밋, {mech_note}) 이내 "
                      f"— 여유 {mech_limit_deg - clamp_deg:.1f}°")
+    # 벤치(사람이 손으로 넣는 경로)는 체인보다 넓으면 가드 의미가 없다.
+    if bench_deg > clamp_deg + 1e-9:
+        ok = False
+        lines.append(f"         ⚠ 벤치 상한 {bench_deg}° 가 체인 {clamp_deg}° 보다 넓다 — "
+                     f"사람이 넣는 경로가 더 열려 있으면 분리한 의미가 없다")
+    else:
+        lines.append(f"         벤치 {bench_deg}° ≤ 체인 {clamp_deg}° — 직접 지령 가드 유지")
     if twows_limits:
         lines.append(f"         (참고) 2WS <action>_params {len(twows_limits)}개 = "
                      f"{sorted(set(twows_limits.values()))} — 2WS 코드가 읽지 않는 키")
@@ -251,12 +258,14 @@ def run_checks() -> list:
     # 실효 클램프는 machine_file 이다 — launch 가 나중에 로드해 can_relay.yaml 을 덮는다
     # (`can_relay.launch.py:41-42`). fallback 값을 보면 죽은 값을 검사하게 된다.
     effective_clamp = float(machine.get("steer_limit_deg", relay["steer_limit_deg"]))
+    effective_bench = float(machine.get("steer_limit_bench_deg",
+                                        relay.get("steer_limit_bench_deg", effective_clamp)))
     mech_limit, mech_note = read_mech_limit_deg(float(machine["steer_counts_per_deg"]))
     out = [
         check_steer_scale(tr, machine),
         check_drive_scale(tr, machine),
         check_motor_ids(tr, relay),
-        check_steer_limits(effective_clamp, read_wrap_margin_deg(CRAB_SRC),
+        check_steer_limits(effective_clamp, effective_bench, read_wrap_margin_deg(CRAB_SRC),
                            mech_limit, mech_note, collect_twows_limits(twows)),
     ]
     try:
@@ -299,11 +308,11 @@ _BASE_GEOM = {"w1_x": 0.6039, "w1_y": -0.0014, "w2_x": -0.5961, "w2_y": -0.0014,
               "wheel_radius": 0.125, "gear_walk": 32.0}
 
 
-def _all(tr, machine, relay, limits, margin, clamp=115.0, mech=137.1):
+def _all(tr, machine, relay, limits, margin, clamp=115.0, mech=137.1, bench=90.0):
     return {r.cid: r for r in [
         check_steer_scale(tr, machine), check_drive_scale(tr, machine),
         check_motor_ids(tr, relay),
-        check_steer_limits(clamp, margin, mech, "시험", limits),
+        check_steer_limits(clamp, bench, margin, mech, "시험", limits),
     ]}
 
 
@@ -351,6 +360,11 @@ def selftest() -> int:
 
     r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0, clamp=115.0, mech=None)["C4"]
     cases.append(("기구 −리밋 미검출 → 상한 미판정 고지", "미판정" in r.detail))
+
+    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0, clamp=115.0, bench=90.0)["C4"]
+    cases.append(("벤치 90 ≤ 체인 115 → C4 PASS", r.ok is True))
+    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0, clamp=115.0, bench=130.0)["C4"]
+    cases.append(("벤치가 체인보다 넓으면 → C4 FAIL", r.ok is False))
 
     # C6 — 2WS 기하 ↔ 정본
     ok6 = check_2ws_geometry(_BASE_GEOM, {"a_params.yaml": dict(_BASE_GEOM)})

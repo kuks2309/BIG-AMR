@@ -76,6 +76,13 @@ class RelayConfig:
     feedback_ttl_s: float = 1.0     # 이보다 오래된 피드백은 없는 것으로 친다
     health_hz: float = 1.0          # per-bus CAN 에러 상태(0xc3) 폴링 주기
     steer_limit_deg: float = S.STEER_LIMIT_DEG
+    #   저수준 체인(`/motor/low_cmd`)용 상한. 크랩이 90° 자세에서 path follow 여유로
+    #   ±115° 까지 요구하므로 그만큼 열어 둔다(2026-08-05, foil_a082.yaml 근거 주석 참조).
+    steer_limit_bench_deg: float = S.STEER_LIMIT_DEG
+    #   **벤치 직접 지령**(`~/steer_deg`·`~/steer_axis_deg`)용 상한. 사람이 손으로 넣는
+    #   값이라 넓힐 이유가 없어 90° 를 유지한다. 체인 상한을 열어도 이쪽은 따라 열리지 않는다
+    #   — can_relay 는 지령 출처를 모르므로(raw counts 만 받는다) 「크랩일 때만」을 판정할
+    #   수 없고, 대신 **경로**로 나눈다. 그 결과 사람이 넣는 경로에는 90° 가드가 남는다.
     vel_max_units: int = S.VEL_MAX_UNITS
     # 스케일도 기체마다 다르다 — 캘리브레이션 YAML 이 준다.
     # ⚠ 상류 QD(Carrier AGV)는 48,332.8 counts/도로 우리(57,344)와 다르다.
@@ -266,7 +273,7 @@ class RelayBackend:
         counts = {}
         for n in self.cfg.steer_nodes:
             applied, c = S.steer_deg_to_counts(n, deg, self.cfg.steer_home,
-                                               self.cfg.steer_limit_deg,
+                                               self.cfg.steer_limit_bench_deg,
                                                self.cfg.steer_counts_per_deg)
             counts[n] = c
         with self._lock:
@@ -274,7 +281,7 @@ class RelayBackend:
             self._steer_target_deg = applied
             self._last_cmd_time = time.monotonic()
         if applied is not None and abs(applied - float(deg)) > 1e-9:
-            self._log(f"조향 지령 {deg:+.1f}° → ±{self.cfg.steer_limit_deg:.0f}° "
+            self._log(f"조향 지령 {deg:+.1f}° → ±{self.cfg.steer_limit_bench_deg:.0f}° "
                       f"클램프 적용 {applied:+.1f}°")
         return applied
 
@@ -305,7 +312,7 @@ class RelayBackend:
                 f"node{node} 는 조향축이 아니다 — 조향 노드는 "
                 f"{list(self.cfg.steer_nodes)} 뿐이다")
         applied, counts = S.steer_deg_to_counts(node, deg, self.cfg.steer_home,
-                                                self.cfg.steer_limit_deg,
+                                                self.cfg.steer_limit_bench_deg,
                                                 self.cfg.steer_counts_per_deg)
         with self._lock:
             self._steer_counts = dict(self._steer_counts)
@@ -313,7 +320,7 @@ class RelayBackend:
             self._steer_target_deg = None       # 축별 경로에서는 각도를 주장하지 않는다
             self._last_cmd_time = time.monotonic()
         if abs(applied - float(deg)) > 1e-9:
-            self._log(f"조향 지령 N{node} {deg:+.1f}° → ±{self.cfg.steer_limit_deg:.0f}° "
+            self._log(f"조향 지령 N{node} {deg:+.1f}° → ±{self.cfg.steer_limit_bench_deg:.0f}° "
                       f"클램프 적용 {applied:+.1f}°")
         return applied
 
