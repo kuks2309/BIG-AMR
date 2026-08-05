@@ -35,7 +35,8 @@ QD(Carrier AGV) 스택에서 2WS 로 이식할 때 상류 값이 그대로 남�
 | C1 | `ppr × gear_steer / 360` ↔ `steer_counts_per_deg` | 불일치 시 FAIL (필요한 `gear_steer` 를 함께 출력) |
 | C2 | `60×gear_walk×10 / (2π×r) / 1000` ↔ `drive_units_per_mmps` | 불일치 시 FAIL (허용 ±0.01% — config 표기 반올림 흡수) |
 | C3 | translator `motor_id_*` ↔ can_relay `drive_nodes`/`steer_nodes` | 불일치 시 FAIL |
-| C4 | can_relay `steer_limit_deg` ↔ 2WS `<action>_params` 9종 | 불일치 시 FAIL. 크랩 `wrapSteer` 실효 상한(90°+`WRAP_MARGIN`)이 넘으면 **WARN** |
+| C4 | can_relay `steer_limit_deg` ↔ **IK 반원 정규화 90°** | 불일치 시 FAIL. ±90° 는 하드웨어 한계가 아니라 **유일해 구속**이다(ADR `2026-07-26-qd-ik-pm90-unique-solution.md`) — IK 임계는 `normalizeAngle` 의 `M_PI/2` 로 코드에 박혀 config 로 안 바뀐다. 2WS params 의 같은 키는 **2WS 코드가 읽지 않아** 대조에서 뺀다 |
+| C6 | 2WS `<action>_params` 9종 기하 ↔ 정본 `robot_geometry_2ws.yaml` | 파일별 FAIL. 실행 시 로드되는 것은 params 쪽이고 정본은 **어떤 launch 도 읽지 않아** 갈라질 수 있다 |
 | C5 | **Seer 실측 캡처** ↔ can_relay 가 상류로 올릴 보고각 (`--seer-capture` 지정 시) | 차 > ±0.01° 면 FAIL |
 
 C5 는 `Tools/docking_field_kit/orin_steer_crosscheck.py` 캡처를 쓴다 — 판다 SAFETY_SILENT
@@ -60,6 +61,8 @@ WARN 은 exit 코드에 영향을 주지 않는다.
 - 조향 **원점**(홈 counts)은 검사 대상이 아니다. translator 는 원점을 더하지 않고 can_relay 가
   클램프 경계로만 쓰는 상태이며, 그 설계 결정은 별도 ADR 소관이다
   (`docs/code_review/motion-canrelay-chain/2026-08-05.md` Critical 항목).
-- 2WS `<action>_params.yaml` 의 `wheel_radius`·`gear_walk` 는 C1/C2 대조에 넣지 않았다 —
-  2WS 안에서 그 값은 `drive_rpm` 표시에만 쓰이고 발행되는 `WheelSet.velocity`(m/s)에는
-  들어가지 않기 때문이다. 기하 미정합(휠베이스 0.660 m)은 별건이다.
+- 2WS `<action>_params.yaml` 의 `wheel_radius`·`gear_walk` 는 **C1/C2 가 아니라 C6** 이 본다 —
+  그 값은 translator 의 SI→raw 환산에 들어가지 않고(2WS 안에서 `drive_rpm` 표시용), 대신
+  **정본과 갈라졌는지**가 쟁점이기 때문이다. 실제로 Carrier AGV 값이 남아 휠베이스가
+  0.660 m(실측 1.200 m)로 들어가 있었고, 2026-08-05 에 정본 값으로 맞췄다.
+- C6 은 **값이 정본과 같은지**만 본다. 정본 자체가 맞는지는 실측의 몫이다.

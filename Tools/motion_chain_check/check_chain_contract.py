@@ -52,6 +52,7 @@ CAN_RELAY_YAML = REPO / "src/Comm/CAN/can_relay/config/can_relay.yaml"
 MACHINE_YAML = REPO / "src/Comm/CAN/can_relay/config/machine/foil_a082.yaml"
 TWOWS_PARAMS_DIR = REPO / "src/Control/Motion_Control/2WS/trnav_2ws_action_server/config"
 CRAB_SRC = REPO / "src/Control/Motion_Control/2WS/trnav_2ws_kinematics/src/qd_crab_inverse_kinematics.cpp"
+GEOMETRY_CANONICAL = REPO / "src/Control/Motion_Control/2WS/trnav_2ws_core/config/robot_geometry_2ws.yaml"
 
 # 허용오차는 **대조 대상이 config 에 적힌 정밀도**로 정한다.
 #   C1 조향: 양쪽 다 정수로 떨어진다(57,344.0) → 사실상 완전일치를 요구한다.
@@ -136,32 +137,65 @@ def check_motor_ids(tr: dict, relay: dict) -> Result:
 
 
 def check_steer_limits(relay_limit: float, twows_limits: dict, wrap_margin_deg) -> Result:
-    """can_relay 클램프 한계와 2WS 상한이 같은 값인지.
+    """can_relay 클램프가 **IK 반원 정규화(±90°)** 와 같은 값인지.
 
     ±90° 는 하드웨어 한계가 아니라 **유일해(canonical) 구속**이다 — 독립조향 바퀴는
-    `(θ,+v) ≡ (θ∓180°,−v)` 로 항상 등가해가 2개라, 반원(180° 폭)으로 정규화해야 지령이
-    비결정·chattering 을 일으키지 않는다(ADR `docs/adr/2026-07-26-qd-ik-pm90-unique-solution.md`,
+    `(θ,+v) ≡ (θ∓180°,−v)` 로 등가해가 항상 2개라, 반원(180° 폭)으로 정규화해야 지령이
+    비결정·chattering 을 일으키지 않는다(ADR(Architecture Decision Record)
+    `docs/adr/2026-07-26-qd-ik-pm90-unique-solution.md`,
     `config/machine/foil_a082.yaml:162-166` 「±90° 로 묶어 이중해를 없앤다(합의)」).
+    IK 쪽 임계는 `qd_inverse_kinematics.cpp` `normalizeAngle` 의 `M_PI/2` 로 **코드에 박혀 있어**
+    config 로 바뀌지 않는다. 따라서 can_relay 가 90 이 아니면 두 계층이 어긋난다.
 
-    크랩 `wrapSteer` 의 `WRAP_MARGIN`(25°)은 결함이 아니라 **경계 chattering 회피 히스테리시스**다.
+    ⚠ 2WS `<action>_params.yaml` 의 `steer_limit_deg` 는 **어떤 2WS 코드도 읽지 않는다**
+    (`grep steer_limit src/Control/Motion_Control/2WS --include=*.cpp --include=*.hpp` → 0건).
+    그래서 대조 대상에서 뺀다 — 살아 있는 값과 죽은 값을 비교하면 통과가 아무것도 보장하지 않는다.
+
+    크랩 `wrapSteer` 의 `WRAP_MARGIN`(25°)은 결함이 아니라 경계 chattering 회피 히스테리시스이며,
     그 주석 자체가 「motor saturate 로 robot 진행은 거의 정확」이라 적어 **하류 포화를 전제**한다
-    (`qd_crab_inverse_kinematics.cpp:20-35`). 즉 can_relay 의 ±90° 클램프는 크랩 설계가
-    가정하는 동작이므로 **경고 대상이 아니다** — 마진 값만 정보로 표시한다.
+    (`qd_crab_inverse_kinematics.cpp:20-35`). 정보로만 표시한다.
     """
-    mismatched = {name: v for name, v in twows_limits.items() if not close(v, relay_limit)}
-    lines = [f"can_relay steer_limit_deg = {relay_limit}  vs  2WS <action>_params {len(twows_limits)}개"]
-    if mismatched:
-        for name, v in sorted(mismatched.items()):
-            lines.append(f"         불일치 {name}: {v}")
-    else:
-        lines.append(f"         전부 일치 ({relay_limit})")
+    IK_HALF_PLANE = 90.0
+    ok = close(relay_limit, IK_HALF_PLANE)
+    lines = [f"can_relay steer_limit_deg = {relay_limit}  vs  IK 반원 정규화 {IK_HALF_PLANE}"]
+    if not ok:
+        lines.append(f"         ⚠ 두 계층이 어긋난다 — IK 는 여전히 ±{IK_HALF_PLANE:.0f}° 로 정규화하므로 "
+                     f"{min(relay_limit, IK_HALF_PLANE):.0f}~{max(relay_limit, IK_HALF_PLANE):.0f}° 구간에서 "
+                     f"등가해 2개가 공존한다. 바꾸려면 ADR 을 함께 갱신할 것")
+    if twows_limits:
+        vals = sorted(set(twows_limits.values()))
+        lines.append(f"         (참고) 2WS <action>_params {len(twows_limits)}개의 steer_limit_deg={vals} "
+                     f"— 2WS 코드가 읽지 않는 키라 판정에 쓰지 않는다")
     if wrap_margin_deg is not None:
         lines.append(f"         (참고) 크랩 wrapSteer 히스테리시스 마진 {wrap_margin_deg:.0f}° "
-                     f"→ wrap 임계 {90.0 + wrap_margin_deg:.0f}°. 경계 chattering 회피용이며 "
-                     f"하류 ±{relay_limit:.0f}° 포화를 전제한 설계다(결함 아님)")
-    else:
-        lines.append("         (참고) WRAP_MARGIN 을 소스에서 읽지 못했다 — 마진 값 미표시")
-    return Result("C4", "조향 한계", not mismatched, "\n".join(lines))
+                     f"→ wrap 임계 {90.0 + wrap_margin_deg:.0f}°. 하류 포화를 전제한 설계다(결함 아님)")
+    return Result("C4", "조향 한계", ok, "\n".join(lines))
+
+
+def check_2ws_geometry(canonical: dict, twows: dict, tol: float = 1e-9) -> list:
+    """2WS `<action>_params.yaml` 9종의 기하가 **정본과 같은가**.
+
+    실행 시 실제로 로드되는 것은 `<action>_params.yaml` 이고
+    `trnav_2ws_core/config/robot_geometry_2ws.yaml`(정본)은 **어떤 launch 도 읽지 않는다**.
+    그래서 값이 9곳에 복제된 채 정본과 갈라질 수 있다 — 실제로 Carrier AGV 값이 그렇게 남아
+    휠베이스가 0.660 m(실측 1.200 m)로 들어가 있었다. 매 실행마다 다시 대조한다.
+    """
+    keys = ("w1_x", "w1_y", "w2_x", "w2_y", "wheel_radius", "gear_walk")
+    results = []
+    for name in sorted(twows):
+        params = twows[name]
+        bad = []
+        for k in keys:
+            if k not in params:
+                bad.append(f"{k} 없음")
+                continue
+            if not close(float(params[k]), float(canonical[k]), tol) and \
+                    abs(float(params[k]) - float(canonical[k])) > 1e-9:
+                bad.append(f"{k} {params[k]} != {canonical[k]}")
+        wb = abs(float(params.get("w1_x", 0)) - float(params.get("w2_x", 0)))
+        detail = f"휠베이스 {wb:.3f} m" + ("  불일치: " + ", ".join(bad) if bad else "  정본 일치")
+        results.append(Result(f"C6-{name.replace('_params.yaml','')}", "2WS 기하", not bad, detail))
+    return results
 
 
 def read_wrap_margin_deg(src: Path):
@@ -172,29 +206,39 @@ def read_wrap_margin_deg(src: Path):
     return float(m.group(1)) if m else None
 
 
-def collect_twows_limits() -> dict:
+def collect_twows_params() -> dict:
+    """`<action>_params.yaml` 전부의 `ros__parameters` 를 파일명으로 키잉해 돌려준다."""
     out = {}
     for path in sorted(TWOWS_PARAMS_DIR.glob("*_params.yaml")):
         try:
-            params = load_ros_params(path)
+            out[path.name] = load_ros_params(path)
         except ValueError:
             continue
-        if "steer_limit_deg" in params:
-            out[path.name] = float(params["steer_limit_deg"])
     return out
+
+
+def collect_twows_limits(twows: dict) -> dict:
+    return {n: float(p["steer_limit_deg"]) for n, p in twows.items() if "steer_limit_deg" in p}
 
 
 def run_checks() -> list:
     tr = load_ros_params(TRANSLATOR_YAML)
     relay = load_ros_params(CAN_RELAY_YAML)
     machine = load_ros_params(MACHINE_YAML)
-    return [
+    twows = collect_twows_params()
+    out = [
         check_steer_scale(tr, machine),
         check_drive_scale(tr, machine),
         check_motor_ids(tr, relay),
-        check_steer_limits(float(relay["steer_limit_deg"]), collect_twows_limits(),
+        check_steer_limits(float(relay["steer_limit_deg"]), collect_twows_limits(twows),
                            read_wrap_margin_deg(CRAB_SRC)),
     ]
+    try:
+        canonical = load_ros_params(GEOMETRY_CANONICAL)
+        out += check_2ws_geometry(canonical, twows)
+    except (OSError, ValueError) as exc:
+        out.append(Result("C6", "2WS 기하", None, f"정본을 읽지 못했다 ({exc}) — 미판정"))
+    return out
 
 
 def report(results: list) -> int:
@@ -223,6 +267,10 @@ _BASE_TR = {
 # 실제 config 와 같은 **반올림 표기**를 쓴다 — 그래야 selftest 가 허용오차까지 함께 지킨다.
 _BASE_MACHINE = {"steer_counts_per_deg": 57344.0, "drive_units_per_mmps": 24.447}
 _BASE_RELAY = {"drive_nodes": [1, 2], "steer_nodes": [3, 4], "steer_limit_deg": 90.0}
+
+
+_BASE_GEOM = {"w1_x": 0.6039, "w1_y": -0.0014, "w2_x": -0.5961, "w2_y": -0.0014,
+              "wheel_radius": 0.125, "gear_walk": 32.0}
 
 
 def _all(tr, machine, relay, limits, margin):
@@ -259,14 +307,36 @@ def selftest() -> int:
     mut = dict(_BASE_TR, motor_id_steer_front=4, motor_id_steer_rear=3)
     cases.append(("steer id 뒤바뀜 → C3 FAIL", _all(mut, _BASE_MACHINE, _BASE_RELAY, limits, 0.0)["C3"].ok is False))
 
-    cases.append(("2WS 한계 130° → C4 FAIL",
-                  _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, {"a.yaml": 130.0}, 0.0)["C4"].ok is False))
+    # C4 는 **IK 반원 90°** 와만 대조한다. 2WS params 의 같은 키는 코드가 읽지 않으므로
+    # 그 값이 뭐든 판정이 흔들리면 안 된다 — 죽은 값에 반응하던 옛 회귀를 여기서 뒤집는다.
+    cases.append(("2WS 한계 130° 여도 → C4 PASS (죽은 키)",
+                  _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, {"a.yaml": 130.0}, 0.0)["C4"].ok is True))
+
+    relay115 = dict(_BASE_RELAY, steer_limit_deg=115.0)
+    r = _all(_BASE_TR, _BASE_MACHINE, relay115, limits, 0.0)["C4"]
+    cases.append(("can_relay 115° → C4 FAIL", r.ok is False))
+    cases.append(("C4 실패 시 ADR 갱신 안내 포함", "ADR" in r.detail))
 
     r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0)["C4"]
     cases.append(("WRAP_MARGIN 25° → C4 마진 정보 표시", "wrap 임계 115" in r.detail))
 
     r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, None)["C4"]
-    cases.append(("WRAP_MARGIN 미검출 → 미표시 고지", "미표시" in r.detail))
+    cases.append(("WRAP_MARGIN 미검출 → 마진 줄 없음", "wrap 임계" not in r.detail))
+
+    # C6 — 2WS 기하 ↔ 정본
+    ok6 = check_2ws_geometry(_BASE_GEOM, {"a_params.yaml": dict(_BASE_GEOM)})
+    cases.append(("정본과 같으면 → C6 PASS", ok6[0].ok is True))
+
+    bad6 = check_2ws_geometry(_BASE_GEOM, {"a_params.yaml": dict(_BASE_GEOM, w1_x=0.330)})
+    cases.append(("w1_x 0.330(Carrier AGV) → C6 FAIL", bad6[0].ok is False))
+    cases.append(("C6 실패 시 휠베이스 표시", "휠베이스" in bad6[0].detail))
+
+    r6 = check_2ws_geometry(_BASE_GEOM, {"a_params.yaml": dict(_BASE_GEOM, wheel_radius=0.080)})
+    cases.append(("wheel_radius 0.080 → C6 FAIL", r6[0].ok is False))
+
+    miss = dict(_BASE_GEOM); miss.pop("gear_walk")
+    cases.append(("키 누락 → C6 FAIL",
+                  check_2ws_geometry(_BASE_GEOM, {"a_params.yaml": miss})[0].ok is False))
 
     print("=== selftest (검출력 회귀) ===")
     bad = 0

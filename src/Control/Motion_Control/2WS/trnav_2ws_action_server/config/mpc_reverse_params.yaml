@@ -6,13 +6,13 @@
     # ── 로봇 기하 ──
     body_length: 1.1974
     body_width: 0.648
-    w1_x: 0.330
-    w1_y: 0.135
-    w2_x: -0.330
-    w2_y: -0.135
-    wheel_radius: 0.080
+    w1_x: 0.6039
+    w1_y: -0.0014
+    w2_x: -0.5961
+    w2_y: -0.0014
+    wheel_radius: 0.125
     steer_limit_deg: 90.0
-    gear_walk: 20.0
+    gear_walk: 32.0
 
     # ── ActionServerBase 공통 ──
     control_rate_hz: 50.0
