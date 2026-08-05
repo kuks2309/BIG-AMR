@@ -234,7 +234,7 @@
   <div class="head">
     <div>
       <div class="title">Big-AMR — Live Operations</div>
-      <div class="sub">Foil_A082 fleet · Mini MES → ACS → robots</div>
+      <div class="sub">Foil_A082 fleet · operator → CSM → ACS → robots</div>
     </div>
     <div class="kpis">
       <div class="kpi k-done"><b id="kDone">0</b><span>completed</span></div>
@@ -251,9 +251,9 @@
         <div class="stage-name">Equipment</div>
         <div class="stage-desc">The machines. A finished batch is where every job comes from.</div>
       </div>
-      <div class="link" id="link0"><span class="link-label">batch done</span></div>
+      <div class="link" id="link0"><span class="link-label">call</span></div>
       <div class="stage s-mes">
-        <div class="stage-name">Mini MES</div>
+        <div class="stage-name">CSM</div>
         <div class="stage-desc">Watches the machines. Decides what needs moving, and tracks every job to completion.</div>
       </div>
       <div class="link" id="link1"><span class="link-label">job</span></div>
@@ -288,7 +288,7 @@
     <div class="rail">
       <div class="card">
         <div class="card-head">
-          <h2>Mini MES runtime</h2><span class="note">supervisor</span>
+          <h2>CSM runtime</h2><span class="note">supervisor</span>
         </div>
         <div class="core">core loop &middot; holds the list, watches the exit flag</div>
         <div id="fsms"></div>
@@ -297,7 +297,7 @@
 
       <div class="card">
         <div class="card-head">
-          <h2>Job board</h2><span class="note">Mini MES</span>
+          <h2>Job board</h2><span class="note">CSM</span>
         </div>
         <div class="jobs" id="jobs"></div>
       </div>
@@ -343,20 +343,47 @@
   // 12 x 12 m hall, matching warehouse.world in the simulation.
   const W = 12, H = 12;
 
+  // The process line. Order is fixed — store → print → coat → press — but WHICH
+  // machine and WHICH port is the CSM's choice, not the equipment's.
+  //
+  // `ports` is why: a machine has several docking positions, and nothing below
+  // the CSM decides between them. No optimisation is expected; taking the first
+  // empty one is explicitly acceptable, so that is what dispatch() does.
+  // Machine numbering is the customer's scheme: polarity + type + number.
+  //   1 = anode, 2 = cathode
+  //   A = gravure, T = coating, L = cold press
+  // So 1A01 is "anode line, gravure machine 01".
   const STATIONS = [
-    { id: "station_3", x:  3.0, y: -3.0, kind: "source" },
-    { id: "station_5", x: -3.5, y:  1.5, kind: "source" },
-    { id: "station_9", x:  2.0, y:  3.5, kind: "source" },
-    { id: "outbound",  x: -3.0, y:  3.5, kind: "sink"   }
+    { id: "ASRS",  x: -3.5, y:  1.5, kind: "store",   ports: 2, label: "Automated store" },
+    { id: "1A01",  x:  3.0, y: -3.0, kind: "machine", ports: 2, label: "Gravure" },
+    { id: "1T01",  x:  2.0, y:  3.5, kind: "machine", ports: 2, label: "Coater" },
+    { id: "1L01",  x: -3.0, y:  3.5, kind: "machine", ports: 1, label: "Cold press" },
+    { id: "WIP-1", x:  0.0, y: -1.2, kind: "rack",    ports: 4, label: "WIP / curing rack" }
   ];
 
-  // Where a finished batch goes next. A real line is a process route, not
-  // everything piling into one corner — the part moves to the next operation.
+  // The fixed process order. A part leaves one operation and enters the next.
   const ROUTE = {
-    station_3: "station_5",
-    station_5: "station_9",
-    station_9: "outbound"
+    ASRS:   "1A01",
+    "1A01": "1T01",
+    "1T01": "1L01",
+    "1L01": "WIP-1"
   };
+
+  // Material curing. Some product must simply REST for a fixed time before the
+  // next operation will accept it. The rack holds it and the CSM tracks the
+  // elapsed time — release early and the product is scrap.
+  //
+  // Compressed here: real durations are hours, which nobody will watch.
+  const CURE_SECONDS = 18;
+
+  // What the robot is carrying. A "roll" is material wound on a core; a
+  // "bobbin" is the bare core. Machines consume one and emit the other, so a
+  // transport job is usually a SWAP, not a delivery.
+  const CARRIER = { ROLL: "roll", BOBBIN: "bobbin" };
+
+  // Task types, as the equipment issues them.
+  const TASK = { LOAD: 1, UNLOAD: 2, SWAP: 3 };
+  const TASK_LABEL = { 1: "load", 2: "unload", 3: "swap" };
 
   // The robot parks IN FRONT of a machine, never at it: station half-depth +
   // robot half-length + clearance. Driving to a machine's own coordinates
@@ -393,7 +420,7 @@
   const BODY_L = 1.6, BODY_W = 0.9, WHEEL_X = 0.6;
 
   // ------------------------------------------------------- runtime (FSMs)
-  // The Mini MES is a supervisor holding independent state machines, each
+  // The CSM is a supervisor holding independent state machines, each
   // asleep until an event wakes it (ARCHITECTURE.md §5, whiteboard 2026-07-29).
   //
   // NAMES ARE PROVISIONAL. Which four machines the system needs is still open
@@ -419,7 +446,12 @@
   const sim = {
     t: 0, running: true, speed: 1, faulted: false,
     jobs: [], robots: [], log: [],
-    seq: 0, done: 0
+    seq: 0, done: 0,
+    // The CSM's scan. pollPeriod is deliberately adjustable on this page,
+    // because it is the one number nobody has measured yet: the maximum safe
+    // value is set by how long the equipment holds a call signal, and until
+    // that is known from the vendor, any value here is a guess.
+    pollPeriod: 1.0, pollAge: 0, polls: 0, missed: 0
   };
 
   for (let i = 1; i <= 3; i++) {
@@ -434,11 +466,41 @@
   // Each station finishes a batch on its own rhythm. Deliberately faster in
   // total than three robots can clear, so the queue builds and the waiting
   // state is visible rather than theoretical.
-  STATIONS.filter(s => s.kind === "source").forEach((s, i) => {
-    s.ready = false;
-    s.timer = 3 + i * 3.5;
-    s.period = 11 + i * 2;
+  STATIONS.forEach((s, i) => {
+    s.slots = Array.from({ length: s.ports }, () => null);   // per-port contents
+    if (s.kind === "machine") {
+      s.taskType = 0;                 // 0 = no outstanding call
+      s.rollOn = i % 2 === 0;         // is a roll physically on the machine
+      s.timer = 4 + i * 3.5;
+      s.period = 13 + i * 2;
+      s.ready = true;                 // MC_Ready — the six mechanical conditions
+      s.auto = true;                  // MC_Auto
+    }
   });
+
+  /** First empty port. No optimisation is expected of the CSM here — taking
+   *  the first free one is explicitly acceptable, and a full MES would be the
+   *  thing that optimises. */
+  function firstFreePort(st) {
+    const i = st.slots.findIndex(v => v === null);
+    return i < 0 ? null : i;
+  }
+
+  /** Curing. Material that must simply rest before the next operation will
+   *  take it. The CSM owns the elapsed time, and releasing early is scrap. */
+  function tickCuring(dt) {
+    STATIONS.filter(s => s.kind === "rack").forEach(rack => {
+      rack.slots.forEach((slot, i) => {
+        if (!slot) return;
+        slot.left -= dt;
+        if (slot.left <= 0 && !slot.doneNoted) {
+          slot.doneNoted = true;
+          wake("jobs", `cure complete @${rack.id}:${i}`);
+          say("cure", `${rack.id} port ${i}: curing complete — releasable`);
+        }
+      });
+    });
+  }
 
   // ---------------------------------------------------------------- log
   function say(kind, text) {
@@ -468,31 +530,89 @@
   }
 
   // ---------------------------------------------------------------- MES
-  function createJob(from) {
+  function createJob(machine, taskType) {
     sim.seq++;
     const job = {
       id: "JOB-" + String(sim.seq).padStart(3, "0"),
-      from: from.id, to: ROUTE[from.id] || "outbound",
+      // The CALLING machine is the destination — it wants material brought TO
+      // it. The source is wherever the material currently is, upstream.
+      to: machine.id,
+      from: sourceFor(machine),
+      task: taskType,
+      carry: taskType === TASK.UNLOAD ? CARRIER.BOBBIN : CARRIER.ROLL,
       state: "WAITING", robot: null, born: sim.t
     };
     sim.jobs.push(job);
     wake("jobs", `created ${job.id}`);
-    say("mes", `${job.id} created — ${from.id} → ${job.to}`);
+    say("mes", `${job.id} created — ${TASK_LABEL[taskType]}, ` +
+               `${job.from} → ${job.to}`);
     return job;
   }
 
-  function readStations(dt) {
+  /** Walk the route backwards to find who feeds this machine. */
+  function sourceFor(machine) {
+    const up = Object.keys(ROUTE).find(k => ROUTE[k] === machine.id);
+    return up || "ASRS";
+  }
+
+  /* ---------------------------------------------------------------------
+     WHO STARTS A JOB — corrected 2026-08-04.
+
+     The earlier version of this page had the store pushing material out and a
+     robot collecting it. That is backwards.
+
+     The EQUIPMENT calls, and very often a human does it for them — an operator
+     scans a PDA at the machine, or presses the call button on the machine
+     itself. The two are equivalent. Only then does the CSM ask the store to
+     release something.
+
+         operator / machine   →   CSM   →   store releases   →   robot moves
+
+     The call is EDGE-TRIGGERED. MC_Task_Type goes 0 → 1/2/3 and that
+     transition IS the request; the machine clears it back to 0 as soon as it
+     sees AGV_Task_Recive, so it stops calling. A scanner that samples too
+     slowly misses the edge entirely while the machine believes it was heard.
+     That is why `pollAge` is drawn on this page — see readStations().
+     --------------------------------------------------------------------- */
+  function operatorCall(dt) {
     STATIONS.forEach(s => {
-      if (s.kind !== "source") return;
+      if (s.kind !== "machine") return;
       s.timer -= dt;
-      if (s.timer <= 0 && !s.ready) {
-        s.ready = true;
-        s.timer = s.period;
-        wake("equipment", `${s.id} finished`);
-        pulse("link0", "--steel");
-        say("mes", `${s.id} finished a batch`);
-        createJob(s);
-      }
+      if (s.timer > 0 || s.taskType) return;
+
+      s.timer = s.period;
+      // What the machine needs depends on what is physically on it. These are
+      // the three inventory booleans the protocol actually carries.
+      s.taskType = s.rollOn ? TASK.SWAP : TASK.LOAD;
+      s.calledAt = sim.t;
+      s.calledBy = Math.random() < 0.5 ? "PDA" : "call button";
+
+      wake("equipment", `${s.id} called (${s.calledBy})`);
+      pulse("link0", "--steel");
+      say("call", `${s.id}: operator ${s.calledBy} — MC_Task_Type 0→${s.taskType} ` +
+                  `(${TASK_LABEL[s.taskType]})`);
+    });
+  }
+
+  /** The CSM's scan. Polling is the specified design — the interface is not
+   *  event-driven, both sides raise bits and the CSM sweeps at a fixed rate.
+   *
+   *  Which makes the PERIOD the whole safety margin. Each sweep either catches
+   *  an outstanding call or does not; a call that is raised and cleared between
+   *  two sweeps is lost silently, with the machine believing it was heard. */
+  function readStations(dt) {
+    sim.pollAge += dt;
+    if (sim.pollAge < sim.pollPeriod) return;
+    sim.pollAge = 0;
+    sim.polls++;
+
+    STATIONS.forEach(s => {
+      if (!s.taskType) return;
+      // AGV_Task_Recive = 1 — the call landed, so the machine stops calling.
+      const t = s.taskType;
+      s.taskType = 0;
+      say("mes", `${s.id}: AGV_Task_Recive=1 → MC_Task_Type back to 0`);
+      createJob(s, t);
     });
   }
 
@@ -714,9 +834,14 @@
     STATIONS.forEach(s => {
       const [sx, sy] = px(s.x, s.y);
       const size = 0.62 * sc;
-      const isSink = s.kind === "sink";
-      const col = isSink ? css("--ink-mid") : (s.ready ? css("--green") : css("--steel"));
-      ctx.fillStyle = col; ctx.globalAlpha = s.ready ? 0.3 : 0.16;
+      // Amber only while a call is outstanding — that is the one machine state
+      // the CSM is obliged to act on. Storage and racks are passive, so they
+      // stay grey and never claim attention they have not earned.
+      const passive = s.kind !== "machine";
+      const calling = !!s.taskType;
+      const col = passive ? css("--ink-mid")
+                          : (calling ? css("--amber") : css("--steel"));
+      ctx.fillStyle = col; ctx.globalAlpha = calling ? 0.34 : 0.16;
       ctx.fillRect(sx - size / 2, sy - size / 2, size, size);
       ctx.globalAlpha = 1;
       ctx.strokeStyle = col; ctx.lineWidth = 2;
@@ -726,9 +851,20 @@
       ctx.font = "600 11px " + css("--mono");
       ctx.textAlign = "center";
       ctx.fillText(s.id, sx, sy + size / 2 + 15);
-      if (s.ready) {
-        ctx.fillStyle = css("--green");
-        ctx.fillText("READY", sx, sy + size / 2 + 28);
+
+      if (calling) {
+        ctx.fillStyle = css("--amber");
+        ctx.fillText("CALLING · " + TASK_LABEL[s.taskType], sx, sy + size / 2 + 28);
+      } else if (s.kind === "rack") {
+        // Curing racks show what is resting and how much longer.
+        const busy = s.slots.filter(Boolean);
+        if (busy.length) {
+          const soonest = Math.max(0, Math.min(...busy.map(b => b.left)));
+          ctx.fillStyle = soonest > 0 ? css("--steel") : css("--green");
+          ctx.fillText(`${busy.length}/${s.ports} curing` +
+                       (soonest > 0 ? ` · ${soonest.toFixed(0)}s` : " · ready"),
+                       sx, sy + size / 2 + 28);
+        }
       }
     });
 
@@ -875,8 +1011,10 @@
       // was never called again and the page froze with no visible error. Catch
       // it, show it, and keep the loop alive.
       try {
-        readStations(dt);
-        dispatch();
+        operatorCall(dt);   // equipment / operator raises a call
+        readStations(dt);   // the CSM's scan catches it
+        tickCuring(dt);     // material resting in the rack
+        dispatch();         // whose turn, and which port
         driveRobots(dt);
       } catch (err) {
         if (!sim.faulted) {
@@ -920,11 +1058,14 @@
   };
 
   document.getElementById("btnRush").onclick = () => {
-    const src = STATIONS.filter(s => s.kind === "source")[
-      Math.floor(sim.t * 7) % 3];
-    src.ready = true;
-    say("mes", `rush order raised at ${src.id}`);
-    createJob(src);
+    const machines = STATIONS.filter(s => s.kind === "machine");
+    const src = machines[Math.floor(sim.t * 7) % machines.length];
+    // Same path a real call takes: raise the edge and let the CSM's scan find
+    // it, rather than reaching past the scan and creating a job directly.
+    src.taskType = src.rollOn ? TASK.SWAP : TASK.LOAD;
+    src.calledBy = "PDA";
+    wake("equipment", `${src.id} rush call`);
+    say("call", `${src.id}: rush call raised by operator (PDA)`);
   };
 
   addEventListener("resize", () => { fit(); draw(); });
