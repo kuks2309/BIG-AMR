@@ -277,6 +277,13 @@ class Ros2Backend(BackendBase):
                 rows[node] = (self.node.meas_angle(node), None, None)
         return rows
 
+    def link_status(self) -> tuple:
+        """드라이버와 말이 통하는가 — 진단 신선도로 판정한다."""
+        _level, _msg, fresh, _kv = self.node.diagnostics()
+        ns = str(self.node.cfg["driver_ns"]).rstrip("/")
+        return (fresh, f"can_relay {ns} · 연결됨" if fresh
+                else f"can_relay {ns} · ⚠ 끊김 — 드라이버 응답 없음")
+
     def status(self) -> tuple:
         level, message, fresh, kv = self.node.diagnostics()
         if not fresh:

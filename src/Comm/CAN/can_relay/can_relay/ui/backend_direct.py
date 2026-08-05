@@ -184,6 +184,13 @@ class DirectBackend(BackendBase):
     def motor_rows(self) -> dict:
         return dict(self._rows)
 
+    def link_status(self) -> tuple:
+        """판다가 열려 있는가 — direct 백엔드에는 드라이버가 없다."""
+        if self.panda is None:
+            return (False, "판다 · ⚠ 미연결")
+        ser = (self._serials[0] if getattr(self, "_serials", None) else "")
+        return (True, f"판다 · 연결됨{(' ' + ser) if ser else ''}")
+
     def status(self) -> tuple:
         if self.panda is None:
             return "판다 USB 미연결", False, False

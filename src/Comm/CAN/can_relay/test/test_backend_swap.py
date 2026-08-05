@@ -351,3 +351,55 @@ def test_direct_backend_ttl_is_adjustable_like_ros2(monkeypatch):
     import inspect
     sig = inspect.signature(DirectBackend.__init__)
     assert sig.parameters["meas_ttl_s"].default == MEAS_TTL_S
+
+
+# ── 백엔드 연결 표시 (2026-08-05 사용자 지적) ─────────────────────────────
+def test_both_backends_expose_link_status():
+    """두 백엔드 모두 `link_status()` 로 **연결 여부**를 내놔야 한다.
+
+    ⚠ 사용자 지적: 「can relay 연결 확인이 없음 — 연결 표시되어야 함 화면에」.
+    예전에는 백엔드 상태가 로그에만 나가 드라이버가 죽었는지 로봇이 이상한지 구분이 안 됐다.
+    `status()`(로봇이 정상인가) 와 `link_status()`(말이 통하는가) 는 다른 질문이다.
+    """
+    from can_relay.ui.backend_base import BackendBase
+    from can_relay.ui.backend_direct import DirectBackend
+    from can_relay.ui.backend_ros2 import Ros2Backend
+    assert hasattr(BackendBase, "link_status")
+    for cls in (DirectBackend, Ros2Backend):
+        assert cls.link_status is not BackendBase.link_status, f"{cls.__name__} 미구현"
+
+
+def test_direct_link_status_follows_the_panda():
+    be = DirectBackend.__new__(DirectBackend)
+    be.panda = None
+    ok, text = be.link_status()
+    assert ok is False and "미연결" in text, (ok, text)
+    be.panda = object(); be._serials = ["1e003e00"]
+    ok, text = be.link_status()
+    assert ok is True and "연결됨" in text and "1e003e00" in text, (ok, text)
+
+
+def test_ros2_link_status_follows_diagnostics_freshness():
+    from can_relay.ui.backend_ros2 import Ros2Backend
+    be = Ros2Backend.__new__(Ros2Backend)
+
+    class _Node:
+        cfg = {"driver_ns": "/can_relay_node"}
+        def __init__(self, fresh): self._fresh = fresh
+        def diagnostics(self): return (0, "ok", self._fresh, {})
+    be.node = _Node(True)
+    ok, text = be.link_status()
+    assert ok is True and "연결됨" in text and "/can_relay_node" in text, (ok, text)
+    be.node = _Node(False)
+    ok, text = be.link_status()
+    assert ok is False and "끊김" in text, (ok, text)
+
+
+def test_status_bar_shows_the_link():
+    """상태 바가 **화면에** 연결을 보여야 한다 — 로그에만 있으면 안 된다(배선)."""
+    import inspect
+    from can_relay.ui import app as A
+    assert "lab_link" in inspect.getsource(A.MainWindow._build_status)
+    assert "_refresh_link" in inspect.getsource(A.MainWindow._refresh), \
+        "주기 갱신이 연결 표시를 갱신하지 않는다"
+    assert "link_status" in inspect.getsource(A.MainWindow._refresh_link)

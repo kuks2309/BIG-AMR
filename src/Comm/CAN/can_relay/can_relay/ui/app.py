@@ -441,12 +441,40 @@ class MainWindow(QWidget):
         v.addWidget(g2, 1)
         return w
 
-    def _build_status(self) -> QLabel:
-        """하단 상태 바 — 원본과 같이 **Seer 접속 정보**를 보인다."""
+    def _build_status(self):
+        """하단 상태 바 — **백엔드 연결**과 **Seer 접속**을 나란히 보인다.
+
+        ⚠ 2026-08-05 사용자 지적: 「can relay 연결 확인이 없음 — 연결 표시되어야 함 화면에」.
+        예전에는 백엔드 상태가 **로그에만** 나가고 화면에는 Seer 정보뿐이라, 드라이버가 죽었는지
+        로봇이 이상한지 화면에서 구분할 수 없었다.
+        """
+        box = QWidget()
+        lay = QHBoxLayout(box)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        self.lab_link = QLabel("연결 확인 중…")
+        self.lab_link.setStyleSheet(
+            "padding:4px 8px; border-top:1px solid #cfd8e0; color:#5d6d7e;")
         self.lab_status = QLabel(f"Seer {self._seer_ip} · 접속 시도 중…")
         self.lab_status.setStyleSheet(
             "padding:4px 8px; border-top:1px solid #cfd8e0; color:#5d6d7e;")
-        return self.lab_status
+        lay.addWidget(self.lab_link, 1)
+        lay.addWidget(self.lab_status, 1)
+        return box
+
+    _LINK_OK_CSS = ("padding:4px 8px; border-top:1px solid #cfd8e0; "
+                    "color:#1e8449; font-weight:600;")
+    _LINK_BAD_CSS = ("padding:4px 8px; border-top:1px solid #cfd8e0; "
+                     "color:#c0392b; font-weight:600;")
+
+    def _refresh_link(self):
+        """백엔드 연결 표시 갱신 — 색으로도 드러낸다(초록=연결, 빨강=끊김)."""
+        try:
+            connected, text = self.be.link_status()
+        except Exception as exc:                       # 백엔드가 아직 안 붙었을 때
+            connected, text = False, f"연결 확인 실패: {type(exc).__name__}"
+        self.lab_link.setText(text)
+        self.lab_link.setStyleSheet(self._LINK_OK_CSS if connected else self._LINK_BAD_CSS)
 
     # ── 주기 갱신 ─────────────────────────────────────────────────────
     def _refresh(self):
@@ -459,6 +487,7 @@ class MainWindow(QWidget):
                 self._check_seer_agreement(node, deg)
         self._redraw_wheel()
 
+        self._refresh_link()          # 백엔드 연결 표시(화면)
         text, ok, engaged = self.be.status()
         if text != getattr(self, "_last_status", None):
             self._last_status = text
