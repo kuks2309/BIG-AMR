@@ -500,6 +500,30 @@
     }
   });
 
+  /** Does this place actually have something to hand over?
+   *
+   *  The store is effectively bottomless — it is a warehouse. Everything else
+   *  can only give what it physically holds, which is exactly what the three
+   *  inventory booleans in the protocol exist to say.
+   *
+   *  This is why the line has to FILL before it can flow. At start-up only the
+   *  store holds anything, so the second machine's source is genuinely empty
+   *  and its call cannot be served yet. Dispatching it anyway sends a robot to
+   *  collect from a machine that has nothing — which is what this page did
+   *  until it was pointed out. */
+  function hasMaterial(st) {
+    if (!st) return false;
+    if (st.kind === "store") return true;
+    if (st.kind === "machine") return st.rollOn;
+    return st.slots.some(v => v && v.left <= 0);   // racks: only once cured
+  }
+
+  /** First port holding something — where a robot collects FROM. */
+  function firstFullPort(st) {
+    const i = st.slots.findIndex(v => v && v.left <= 0);
+    return i < 0 ? null : i;
+  }
+
   /** First empty port. No optimisation is expected of the CSM here — taking
    *  the first free one is explicitly acceptable, and a full MES would be the
    *  thing that optimises. */
@@ -712,7 +736,21 @@
    *  queue rather than a crowd, and it needs no knowledge of fleet size. */
   function csmDispatch() {
     const ready = sim.jobs.filter(j => j.state === "WAITING" &&
-                                       sim.t >= (j.retryAt || 0));
+                                       sim.t >= (j.retryAt || 0) &&
+                                       hasMaterial(STATIONS.find(x => x.id === j.from)));
+
+    // Anything whose source is still empty simply is not offerable yet. Say so
+    // once, so the wait is visible as a supply problem rather than looking like
+    // the dispatcher ignoring work.
+    sim.jobs.filter(j => j.state === "WAITING" &&
+                         !hasMaterial(STATIONS.find(x => x.id === j.from)))
+            .forEach(j => {
+      if (!j.notedDry) {
+        j.notedDry = true;
+        say("wait", `${j.id} cannot start — ${j.from} has nothing to give yet`);
+      }
+    });
+
     if (!ready.length) return;
 
     // Highest priority, then oldest. Age breaks the tie so nothing starves.
@@ -766,7 +804,7 @@
                         Math.hypot(b.x - src.x, b.y - src.y));
     const r = free[0];
 
-    job.srcPort = firstFreePort(src);
+    job.srcPort = firstFullPort(src);   // take FROM something, not from a gap
     r.job = job; r.goal = approachOf(src); r.leg = "collect";
     wake("robot", `${r.id} ← ${job.id}`);
     say("acs", `${r.id} assigned ${job.id} — collecting from ${job.from}`);
@@ -860,6 +898,10 @@
           // stalls a line after two or three jobs.
           const src = STATIONS.find(s => s.id === r.job.from);
           if (src && r.job.srcPort != null) src.slots[r.job.srcPort] = null;
+          // The source no longer holds it. A store is bottomless; a machine
+          // that just gave up its roll now has none, which is what decides
+          // whether its own next call is a load or a swap.
+          if (src && src.kind === "machine") src.rollOn = false;
           releaseEntry(src, r);
           r.job.state = "RUNNING";
           r.dwellLeft = DWELL_SECONDS;      // stand still and load
