@@ -138,6 +138,11 @@ class DirectBackend(BackendBase):
         self._meas_deg = {}                 # node -> 실측 조향각(°)
         self._meas_at = {}                  # node -> 그 각도를 받은 시각(신선도 판정용)
         self._drive_units = 0               # 마지막 구동 지령(raw) — 폴 루프가 재송신한다
+        self._steer_counts: dict = {}       # 마지막 조향 목표(counts) — 폴 루프가 재송신한다
+        #   ⚠ 2026-08-05 신설. 예전에는 조향을 **축당 1회만** 보냈다 — 프레임 1장이 유실되면
+        #     그 축은 지령을 통째로 못 받는다. 실제로 조그 첫 지령에서 N4 가 움직이지 않은
+        #     사례가 있고(22:42:53, SDO 거부 없음), 마스터 Seer 는 **28 ms 주기로 연속
+        #     재송신**한다(캡처 12,928회/180초). 구동은 이미 재송신하는데 조향만 빠져 있었다.
         self._rx_at = 0.0                   # 마지막으로 드라이브 응답을 받은 시각
         self._status_word = {}              # node -> 0x6041
         self._rows = {}                     # node -> (deg, rpm, amp)
@@ -288,7 +293,12 @@ class DirectBackend(BackendBase):
         `gui.py:875-879` 의 「정지」는 `_drive(0)` + 로그 "조향은 현 위치 유지" 다.
         드라이버 경유(`ros2`)는 `stop_all` 로 조향까지 다루지만 **여기서는 옮기지 않는다** —
         옮기면 프레임 스트림이 달라져 비교가 성립하지 않는다.
+
+        ⚠ 2026-08-05: 조향 목표 **재송신은 멈춘다.** 프레임을 새로 보내는 것이 아니라
+        우리가 반복해 내던 것을 그치는 것이라 위 「지령 없음」과 어긋나지 않는다.
+        멈추지 않으면 정지 후에도 우리 조향 목표가 계속 나간다.
         """
+        self._steer_counts = {}
         if not self._run:
             return False, "제어권을 먼저 획득하세요"
         try:
@@ -349,8 +359,12 @@ class DirectBackend(BackendBase):
 
     # ── 조작: 즉시 반환 ───────────────────────────────────────────────
     def steer_axis(self, node: int, deg: float) -> None:
-        """한 축에만 0x607A + 0x6040=0x3F. 원본 `_steer_axis` 와 같은 2프레임."""
+        """한 축에만 0x607A + 0x6040=0x3F. 원본 `_steer_axis` 와 같은 2프레임.
+
+        지령을 **상태로 남겨** 폴 루프가 재송신한다(마스터와 같은 방식).
+        """
         _applied, counts = steer_counts(int(node), float(deg))
+        self._steer_counts[int(node)] = int(counts)
         self._send(P.steer_target_frames(int(node), counts, MOTOR_BUS))
 
     def steer_all(self, deg: float) -> None:
@@ -421,6 +435,10 @@ class DirectBackend(BackendBase):
                 else:
                     self._send([P.drive_velocity_frame(n, self._drive_units, MOTOR_BUS)
                                 for n in DRIVE_NODES])
+                # 조향도 같은 이유로 재송신한다(마스터는 28 ms 주기 연속 송신).
+                if self._steer_counts:
+                    self._send([f for n, c in self._steer_counts.items()
+                                for f in P.steer_target_frames(n, int(c), MOTOR_BUS)])
             except Exception as exc:
                 self._run = False
                 self._log(f"폴링 중단: {type(exc).__name__}: {exc}")

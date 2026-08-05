@@ -683,12 +683,29 @@ class MainWindow(QWidget):
             self.be.steer_all(steer_deg)
             self.log_line.emit(f"조그 '{label}' — 조향 {steer_deg:+.0f}° 지령, 정착 대기")
             t0 = time.monotonic()
+            # ⚠ 대기 중 **진행 상황을 1초마다 남긴다.** 2026-08-05: 조그 첫 지령에서 N4 가
+            #   따라오지 않았는데, 사용자가 6초 타임아웃 전(5초)에 정지를 눌러 실패 판정
+            #   로그가 아예 남지 않았다 — 어느 축이 문제였는지 기록으로 알 수 없었다.
+            next_note = t0 + 1.0
             while time.monotonic() - t0 < 6.0:
                 if self._jog_stop:
                     self.be.drive(0.0)
+                    self.log_line.emit(
+                        f"조그 중단 — 정착 전 정지 (실측 "
+                        + " · ".join(f"N{n} {self.be.meas_angle(n)}" for n in STEER_NODES)
+                        + f" / 목표 {steer_deg:+.0f}°)")
                     return
                 if self.be.settled(steer_deg, tol, STEER_NODES):
                     break
+                now = time.monotonic()
+                if now >= next_note:
+                    next_note = now + 1.0
+                    self.log_line.emit(
+                        f"정착 대기 {now - t0:.0f}초 — "
+                        + " · ".join(
+                            f"N{n} {'—' if (a := self.be.meas_angle(n)) is None else f'{a:+.2f}°'}"
+                            for n in STEER_NODES)
+                        + f" (목표 {steer_deg:+.0f}°, 허용 {tol:.1f}°)")
                 time.sleep(0.05)
             else:
                 self.log_line.emit(

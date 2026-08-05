@@ -473,3 +473,40 @@ def test_entry_point_defaults_to_two_tabs():
     src = inspect.getsource(gui_node.main)
     assert 'default="both"' in inspect.getsource(gui_node) or '"both"' in src
     assert "RelayTabs" in src, "진입점이 탭 컨테이너를 쓰지 않는다"
+
+
+# ── 조향 재송신 (2026-08-05 실기 관측) ───────────────────────────────────
+def test_direct_backend_resends_the_steer_target():
+    """조향 목표를 **상태로 남겨 재송신**해야 한다 — 단발이면 프레임 1장 유실이 지령 소실이다.
+
+    ⚠ 2026-08-05 실기: 조그 첫 지령에서 N4 가 움직이지 않았다(SDO 거부 없음, 코드 경로 정상).
+    마스터 Seer 는 조향 목표를 **28 ms 주기로 연속 재송신**한다(캡처 12,928회/180초).
+    구동은 이미 재송신하고 있었는데(원본 High ③ 조치) 조향만 빠져 있었다.
+    """
+    from can_relay.ui.backend_direct import DirectBackend
+    be = DirectBackend.__new__(DirectBackend)
+    be._steer_counts = {}
+    sent = []
+    be._send = lambda frames: sent.extend(frames)
+    be.steer_axis(3, 10.0)
+    assert be._steer_counts and 3 in be._steer_counts, "조향 목표를 상태로 남기지 않는다"
+    assert sent, "즉시 송신도 해야 한다"
+
+
+def test_direct_backend_releases_steer_target_on_stop():
+    """정지하면 조향 목표 **재송신을 멈춘다** — 안 멈추면 정지 후에도 계속 나간다."""
+    from can_relay.ui.backend_direct import DirectBackend
+    be = DirectBackend.__new__(DirectBackend)
+    be._steer_counts = {3: 1, 4: 2}
+    be._run = False                       # 제어권 없음 경로로 빠져도 해제는 먼저다
+    be.stop()
+    assert be._steer_counts == {}, "정지 후에도 조향 목표가 남아 재송신된다"
+
+
+def test_poll_loop_resends_steer_in_source():
+    """폴 루프가 실제로 재송신하는가(배선)."""
+    import inspect
+    from can_relay.ui import backend_direct as D
+    src = inspect.getsource(D.DirectBackend._loop)
+    assert "_steer_counts" in src and "steer_target_frames" in src, \
+        "폴 루프가 조향을 재송신하지 않는다"
