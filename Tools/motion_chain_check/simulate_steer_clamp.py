@@ -194,6 +194,194 @@ def lateral_authority_loss(steer_deg: float, limit_deg: float) -> float:
     return math.cos(math.radians(steer_deg - applied))
 
 
+
+# ── 정책 비교: 반원 고정(±90) vs 현재 조향 기준 최소 변화 ──────────────────
+
+def wrap_pi(a: float) -> float:
+    while a > math.pi:
+        a -= 2.0 * math.pi
+    while a < -math.pi:
+        a += 2.0 * math.pi
+    return a
+
+
+def select_min_change(desired: float, cur_steer: float, cur_dir: int,
+                      hysteresis_rad: float) -> tuple:
+    """등가 2해 중 **현재 조향에서 덜 움직이는 쪽**을 고른다.
+
+    한 바퀴의 속도벡터는 `(θ,+v) ≡ (θ∓180°,−v)` 두 표현을 갖는다. 반원 고정(±90°)은
+    **입력만 보고** 한쪽을 정하므로, 목표가 경계를 지날 때마다 조향이 180° 튀고 구동 부호가
+    뒤집힌다. 최소 변화 선택은 **현재 상태까지 보고** 덜 움직이는 표현을 고른다 —
+    유일해는 그대로다(상태가 주어지면 출력이 하나로 결정된다).
+
+    `hysteresis_rad` 는 두 후보의 이동량이 비슷할 때 **현재 분기를 유지**시켜 경계
+    떨림(chattering)을 막는다. 크랩의 `WRAP_MARGIN`(25°)이 하는 일과 같은 역할이다.
+    """
+    cands = [(wrap_pi(desired), +1), (wrap_pi(desired + math.pi), -1)]
+    costs = [abs(wrap_pi(c[0] - cur_steer)) for c in cands]
+    # 현재 구동 방향과 같은 분기를 기본으로 두고, 상대가 hysteresis 이상 유리할 때만 바꾼다.
+    keep_i = 0 if cur_dir >= 0 else 1
+    flip_i = 1 - keep_i
+    if costs[flip_i] + hysteresis_rad < costs[keep_i]:
+        return cands[flip_i][0], cands[flip_i][1], True
+    return cands[keep_i][0], cands[keep_i][1], False
+
+
+def run_policy(desired_seq, policy: str, hysteresis_deg: float = 25.0) -> dict:
+    """목표 각 수열을 정책으로 돌려 조향 이동량·부호반전·필요 범위를 센다."""
+    hyst = math.radians(hysteresis_deg)
+    cur = 0.0
+    cur_dir = 1
+    travel = 0.0
+    flips = 0
+    peak = 0.0
+    over90 = 0
+    for d in desired_seq:
+        if policy == "halfplane":
+            out, direction = normalize_angle(wrap_pi(d), 1)
+        else:
+            out, direction, flipped = select_min_change(d, cur, cur_dir, hyst)
+            if flipped:
+                flips += 1
+        if policy == "halfplane" and direction != cur_dir:
+            flips += 1
+        travel += abs(math.degrees(wrap_pi(out - cur)))
+        cur, cur_dir = out, direction
+        peak = max(peak, abs(math.degrees(out)))
+        if abs(math.degrees(out)) > IK_HALF_PLANE_DEG + 1e-9:
+            over90 += 1
+    return {"travel_deg": travel, "flips": flips, "peak_deg": peak, "over_90": over90}
+
+
+def scenarios() -> dict:
+    """목표 조향각 수열 — 경계(±90°)를 지나는 상황을 포함한다."""
+    out = {}
+    # ① 직진 -> 좌측 크랩 90° -> 100° 까지 넘어감 -> 복귀
+    seq = [math.radians(x) for x in
+           list(range(0, 101, 2)) + list(range(100, -1, -2))]
+    out["크랩 전환 0°→100°→0°"] = seq
+    # ② 측면 크랩 유지 중 CTE 보정 ±10° 진동 (경계 걸침)
+    seq = [math.radians(90.0 + 10.0 * math.sin(i * 0.4)) for i in range(120)]
+    out["측면 크랩 88~100° 진동"] = seq
+    # ③ 경계 바로 위에서 미세 떨림 (±2°)
+    seq = [math.radians(90.0 + 2.0 * math.sin(i * 0.9)) for i in range(120)]
+    out["경계 ±2° 미세 떨림"] = seq
+    return out
+
+
+def compare_policies() -> None:
+    print("④ 정책 비교 — 반원 고정(±90) vs 최소 변화 선택")
+    print("   조향이동 = 액추에이터가 실제로 돈 각도 총합 · 부호반전 = 구동 방향이 뒤집힌 횟수")
+    print()
+    print("   시나리오                    | 정책          | 조향이동  | 부호반전 | 최대각 | >90° 샘플")
+    print("   ---------------------------+---------------+-----------+----------+--------+----------")
+    for name, seq in scenarios().items():
+        for pol, label in (("halfplane", "반원 고정"), ("minchange", "최소 변화")):
+            r = run_policy(seq, pol)
+            print(f"   {name:<27}| {label:<14}| {r['travel_deg']:8.0f}° | {r['flips']:8d} |"
+                  f" {r['peak_deg']:5.0f}° | {r['over_90']:4d}/{len(seq)}")
+        print("   " + "-" * 88)
+
+
+
+def run_bounded(seq, bound_deg: float) -> dict:
+    """**최소 변화 + 범위 상한** — 더 가까운 해가 상한을 넘으면 반대 해로 뒤집는다.
+
+    이것이 `wrapSteer` 의 일반형이다(상한 = 90°+WRAP_MARGIN). 상한을 90° 로 주면
+    반원 고정과 같아진다 — 즉 현행 두 정책은 **같은 식의 양 끝**이다.
+
+    ⚠ 상한 없는 최소 변화는 쓸 수 없다 — 휠 각이 한 바퀴 도는 운동(스핀)에서 출력이
+    ±180° 까지 간다(실측: 177.8°). 기구가 그만큼 돌지 않는다.
+    """
+    B = math.radians(bound_deg)
+    cur, cur_dir = 0.0, 1
+    travel, flips, peak = 0.0, 0, 0.0
+    for d in seq:
+        cands = [(wrap_pi(d), +1), (wrap_pi(d + math.pi), -1)]
+        costs = [abs(wrap_pi(c[0] - cur)) for c in cands]
+        order = sorted(range(2), key=lambda i: costs[i])
+        pick = next((i for i in order if abs(cands[i][0]) <= B + 1e-12), order[0])
+        out, direction = cands[pick]
+        if direction != cur_dir:
+            flips += 1
+        travel += abs(math.degrees(wrap_pi(out - cur)))
+        cur, cur_dir = out, direction
+        peak = max(peak, abs(math.degrees(out)))
+    return {"travel_deg": travel, "flips": flips, "peak_deg": peak}
+
+
+def sweep_bound() -> None:
+    """상한을 얼마로 두면 이득이 실현되는가."""
+    sc = dict(scenarios())
+    sc["제자리 스핀(휠 각 한 바퀴)"] = [math.radians(x) for x in range(0, 721, 5)]
+    print("⑤ 상한 훑기 — 최소 변화 정책에서 조향 이동량·구동 부호반전")
+    print("   (상한 90° = 현행 반원 고정과 동일하다 — 같은 식의 양 끝)")
+    print()
+    names = list(sc)
+    print("   상한 | " + " | ".join(f"{n[:20]:<20}" for n in names))
+    print("   -----+-" + "-+-".join(["-" * 20] * len(names)))
+    for B in (90, 100, 110, 115, 120, 140):
+        cells = []
+        for n in names:
+            r = run_bounded(sc[n], B)
+            cells.append(f"이동{r['travel_deg']:5.0f}° 반전{r['flips']:2d}")
+        print(f"   {B:4d}° | " + " | ".join(f"{c:<20}" for c in cells))
+    print()
+    print("   → 상한을 **100° 만 넘겨도 이득이 전부 실현**된다(100~140 차이 0).")
+    print("   → 스핀은 어느 상한에서도 같다 — 휠 각이 한 바퀴 도는 운동은 반드시 뒤집어야 한다.")
+
+
+
+# ── 부호 반전의 실제 대가: 구동륜 속도 계단 ────────────────────────────────
+
+CRUISE_MPS = 0.2            # can_relay vel_max_units 4889 = 0.2 m/s
+CONTROL_HZ = 50.0           # <action>_params.yaml control_rate_hz
+WHEEL_RADIUS_M = 0.125      # 정본 robot_geometry_2ws.yaml
+GEAR_WALK = 32.0
+
+
+def flip_cost(flips: int, cruise_mps: float = CRUISE_MPS,
+              control_hz: float = CONTROL_HZ) -> dict:
+    """구동 부호가 뒤집힐 때 **지령이 요구하는** 속도 계단과 등가 가속도.
+
+    조향 해를 바꾸면 같은 바퀴 운동을 `(θ∓180°, −v)` 로 표현하므로 **구동 속도 부호가
+    반대로 나간다**. 지령은 한 제어주기 안에 `+v → −v` 를 요구한다 — 계단 `2v` 다.
+    3톤 차체가 그 계단을 따를 수 없으므로 실제로는 드라이브가 포화·램프하고, 그 사이
+    **실제 운동이 지령과 갈라진다**(무엇이 되는지는 지령이 정의하지 않는다).
+
+    조향도 동시에 180° 튄다 — 두 액추에이터가 함께 불가능한 지령을 받는다.
+    """
+    step_mps = 2.0 * cruise_mps
+    dt = 1.0 / control_hz
+    accel = step_mps / dt
+    motor_rpm = (cruise_mps / WHEEL_RADIUS_M) * 60.0 / (2.0 * math.pi) * GEAR_WALK
+    return {"flips": flips, "step_mps": step_mps, "accel_mps2": accel,
+            "accel_g": accel / 9.80665, "motor_rpm_step": 2.0 * motor_rpm}
+
+
+def report_flip_cost() -> None:
+    sc = dict(scenarios())
+    sc["제자리 스핀(휠 각 한 바퀴)"] = [math.radians(x) for x in range(0, 721, 5)]
+    c = flip_cost(1)
+    print("⑥ 구동 부호 반전의 대가 — **바퀴 속도 제약**")
+    print(f"   순항 {CRUISE_MPS} m/s · 제어주기 {CONTROL_HZ:.0f} Hz 기준, 반전 1회가 지령하는 것:")
+    print(f"     속도 계단 {c['step_mps']:.2f} m/s (한 주기 {1000/CONTROL_HZ:.0f} ms 안에)")
+    print(f"     등가 가속도 {c['accel_mps2']:.0f} m/s² = {c['accel_g']:.1f} g")
+    print(f"     모터 회전수 계단 {c['motor_rpm_step']:,.0f} rpm (감속비 {GEAR_WALK:.0f})")
+    print("   3톤 차체가 따를 수 없다 — 드라이브가 포화·램프하고 그 구간의 실제 운동은")
+    print("   지령이 정의하지 않는다. 조향도 같은 순간 180° 튄다.")
+    print()
+    print("   시나리오                  | 반원 고정(±90) | 최소 변화(상한 100°+)")
+    print("   -------------------------+----------------+----------------------")
+    for name, seq in sc.items():
+        a = run_bounded(seq, 90.0)
+        b = run_bounded(seq, 100.0)
+        print(f"   {name:<25}| 반전 {a['flips']:2d}회        | 반전 {b['flips']:2d}회")
+    print()
+    print("   → 경계에서 목표가 ±2° 떠는 것만으로 **반전 35회** — 정·역을 35번 요구한다.")
+    print("     최소 변화면 0회다. 이것이 조향 이동량보다 큰 차이다.")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="조향 클램프 ±90° vs ±115° 시뮬레이션")
     ap.add_argument("--selftest", action="store_true")
@@ -243,6 +431,15 @@ def main() -> int:
                   f"{'':16}| {keep * 100:5.2f} %{mark}")
     print()
 
+    compare_policies()
+    print()
+
+    sweep_bound()
+    print()
+
+    report_flip_cost()
+    print()
+
     p = probe_crab_phase0()
     print("③ 크랩 Phase 0 (미초기화, wrapSteer)")
     print(f"   90° 초과 출력 = {p['beyond_90']} / {p['samples']}  ·  최대 |조향| = {p['max_abs_deg']:.1f}°")
@@ -250,6 +447,9 @@ def main() -> int:
 
     print("=== 판정 ===")
     print("· 한계를 115° 로 여는 것이 **바꾸는 것은 크랩뿐**이다 — 일반 IK 는 ±90° 를 넘지 않는다(①).")
+    print("· 다만 ④⑤ 가 보이듯 **반원 고정 자체가 경계에서 chattering 을 만든다** — 목표가 90° 근처에서")
+    print("  ±2° 떠는 것만으로 조향 6,404°·부호반전 35회다. 최소 변화(상한 100°+)면 222°·0회.")
+    print("  크랩의 WRAP_MARGIN 은 그 문제를 크랩에서만 부분적으로 막고 있는 장치다.")
     print(f"· 크랩에서 갈리는 조건은 **|initial| > {90 - CLAMP_MARGIN_DEG:.0f}°** — 즉 거의 옆으로 가는")
     print("  게걸음일 때다. 그때 ±90 클램프는 **한쪽 방향 보정만** 잘라내므로 CTE 보정이 비대칭이 된다.")
     print(f"· 잘리는 최대 폭은 {c['worst_loss_deg']:.0f}° 이고, 그 지점에서도 의도방향 속도 성분은 "
