@@ -45,6 +45,11 @@ STEER_LIMIT_DEG = 90
 
 # 조그 방향표 — 원본 `gui.py:85-94` 와 **같은 값**(직접 실측 2건 + 도출 6건).
 #   ① 조향 홈(0°) + raw 음수 → 전진(+x)   ② 조향 +90° + raw 양수 → 좌(IMU 실증)
+SEER_RESTORE_TIMEOUT_S = 20.0   # 반환 전 조향 복원 대기 한도
+SEER_MATCH_TOL_DEG = 3.0        # CAN 실측 ↔ Seer 판독 허용 차
+SEER_MATCH_STREAK = 5           # 이만큼 **연속** 어긋나야 경보 — 과도 표본으로 떠들지 않는다
+SEER_MATCH_REWARN_S = 30.0      # 같은 축 재경보 최소 간격
+
 JOG = {
     "전진":     (0.0,  -1, True),
     "후진":     (0.0,  +1, True),
@@ -175,6 +180,10 @@ class MainWindow(QWidget):
         self._seer_gui_path = seer_gui_path
         self._seer_run = bool(seer_enabled)
         self._seer_deg = {}
+        self._seer_at_take = {}   # 제어권 잡기 직전 Seer 조향각(반환 시 복원 기준)
+        self._steer_commanded = False   # 이번 세션에서 조향을 보냈는가(대조 중단 조건)
+        self._seer_mismatch_streak = {}
+        self._seer_mismatch_warned_at = {}
         self._alarm_tick = 0
         self._alarm_seen = set()
         self._jog_th = None
@@ -444,6 +453,10 @@ class MainWindow(QWidget):
         rows = self.be.motor_rows()
         for node in DRIVE_NODES + STEER_NODES:
             self._fill_row(self.tbl_motor, node, rows.get(node, (None, None, None)))
+        for node in STEER_NODES:                      # CAN ↔ Seer 연속 대조(원본과 같은 절차)
+            deg = self.be.meas_angle(node)
+            if deg is not None:
+                self._check_seer_agreement(node, deg)
         self._redraw_wheel()
 
         text, ok, engaged = self.be.status()
@@ -459,6 +472,42 @@ class MainWindow(QWidget):
     def _meas_angle(self, node):
         d = self.be.meas_angle(node)
         return d if d is not None else self._seer_deg.get(node)
+
+
+    def _check_seer_agreement(self, node: int, deg: float):
+        """CAN 실측과 Seer 판독이 같은 곳을 가리키는가 — **매 갱신 연속 대조**(원본 `gui.py` 와 동일).
+
+        한 번 읽고 판정하지 않는다. 2026-08-05 실기에서 획득 직후 첫 표본이 +0.00° 로 읽혔다가
+        곧 +15.807° 가 됐다(그 사이 조향 지령 없음). 과도 표본은 연속 조건이 걸러 낸다.
+        ⚠ **우리가 조향을 보낸 뒤에는 대조하지 않는다.** 제어권을 쥐면 Seer 는 모터 실측을
+        더 못 본다 — 2026-08-05 **API 1040 직접 호출**로 확인: 우리가 +20.000° 로 움직여도
+        API 는 -15.807° 에 고정, 반환 후에야 갱신된다. 그 상태로 대조하면 정상 조작마다
+        거짓 경보가 난다.
+        어긋나면 **알리기만 한다** — 판단은 운용자 몫이고, 조용히 진행하는 것만 피한다.
+        """
+        if self._steer_commanded:      # 우리가 움직인 뒤 — Seer 값은 굳어 있어 비교 의미 없음
+            return
+        ref = self._seer_deg.get(node)
+        if ref is None:
+            self._seer_mismatch_streak[node] = 0
+            return
+        diff = deg - ref
+        if abs(diff) <= SEER_MATCH_TOL_DEG:
+            if self._seer_mismatch_streak.get(node, 0) >= SEER_MATCH_STREAK:
+                self.log_line.emit(f"N{node} 조향 기준 회복 — Seer {ref:+.2f}° ↔ CAN {deg:+.2f}°")
+            self._seer_mismatch_streak[node] = 0
+            return
+        n = self._seer_mismatch_streak.get(node, 0) + 1
+        self._seer_mismatch_streak[node] = n
+        if n < SEER_MATCH_STREAK:
+            return
+        now = time.monotonic()
+        if now - self._seer_mismatch_warned_at.get(node, 0.0) < SEER_MATCH_REWARN_S:
+            return
+        self._seer_mismatch_warned_at[node] = now
+        self.log_line.emit(
+            f"⚠ N{node} 조향 기준 불일치 {n}회 연속 — Seer {ref:+.2f}° 인데 CAN 실측 "
+            f"{deg:+.2f}° (차 {diff:+.2f}°). 0° 기준이 서로 다릅니다 — 조작 전 확인하세요")
 
     def _redraw_wheel(self):
         """실측 우선. 실측이 없을 때만 슬라이더를 미리보기로 쓴다.
@@ -515,8 +564,51 @@ class MainWindow(QWidget):
         self._run_op("USB", self.be.set_usb, on)
 
     def _on_take(self, on: bool):
+        """제어권 획득/반환. **인수인계는 Seer 기준으로 한다**(원본 `gui.py` 와 같은 절차).
+
+        획득 전에 Seer 가 보던 조향각을 기억하고, 반환 전에 그 각도로 되돌려 놓고 넘긴다.
+        되돌리지 않고 넘기면 Seer 가 자기 판단으로 조향을 움직인다 —
+        2026-08-04 실기에서 반환 후 90° 까지 돌았다.
+        """
         self.btn_take.setText("제어권 해제" if on else "제어권 획득")
-        self._run_op("제어권", self.be.set_engaged, on)
+        if on:
+            self._steer_commanded = False   # 새 세션 — 대조를 다시 연다
+            self._seer_at_take = {n: self._seer_deg.get(n) for n in STEER_NODES}
+            have = {n: v for n, v in self._seer_at_take.items() if v is not None}
+            self.log("인수인계 기준(Seer) — " +
+                     (", ".join(f"N{n} {v:+.2f}°" for n, v in have.items()) if have
+                      else "⚠ Seer 각도 없음 — 반환 시 복원할 기준이 없습니다"))
+            self._run_op("제어권", self.be.set_engaged, True)
+        else:
+            self._run_op("제어권", self._release_with_handover)
+
+    def _release_with_handover(self):
+        """**작업 스레드에서** 실행: 조향 복원 → 제어권 반환. 위젯을 만지지 않는다."""
+        targets = {n: v for n, v in getattr(self, "_seer_at_take", {}).items() if v is not None}
+        if not targets:
+            self.log_line.emit("⚠ 인수인계 복원 생략 — 잡기 직전 Seer 각도가 없습니다")
+        elif any(self.be.meas_angle(n) is None for n in targets):
+            self.log_line.emit("⚠ 인수인계 복원 생략 — 조향 실측이 신선하지 않습니다(움직이지 않음)")
+        else:
+            self.log_line.emit("인수인계 복원 — " +
+                               ", ".join(f"N{n} → {v:+.2f}°" for n, v in targets.items()))
+            try:
+                self._steer_commanded = True   # 복원도 우리 조향 지령이다(대조 중단)
+                for n, v in targets.items():
+                    self.be.steer_axis(n, v)
+                t0 = time.monotonic()
+                while time.monotonic() - t0 < SEER_RESTORE_TIMEOUT_S:
+                    cur = {n: self.be.meas_angle(n) for n in targets}
+                    if all(c is not None and abs(c - targets[n]) <= 1.0 for n, c in cur.items()):
+                        self.log_line.emit(f"인수인계 복원 완료 ({time.monotonic() - t0:.1f}s)")
+                        break
+                    time.sleep(0.05)
+                else:
+                    self.log_line.emit(
+                        f"⚠ 인수인계 복원 미완료 ({SEER_RESTORE_TIMEOUT_S:.0f}s 초과) — 그대로 반환합니다")
+            except Exception as exc:
+                self.log_line.emit(f"⚠ 인수인계 복원 실패: {type(exc).__name__}: {exc}")
+        return self.be.set_engaged(False)
 
     def _on_wheel_changed(self, node: int):
         self._redraw_wheel()
@@ -527,6 +619,7 @@ class MainWindow(QWidget):
     def _send_steer(self, node: int):
         deg = (self.sld_front if node == 3 else self.sld_rear).value()
         try:
+            self._steer_commanded = True      # 이 시점부터 Seer 판독은 굳는다(대조 중단)
             self.be.steer_axis(node, float(deg))
             self.log(f"조향 지령 N{node} → {deg:+d}°")
         except Exception as exc:
@@ -555,6 +648,7 @@ class MainWindow(QWidget):
             tol = float(self.spn_tol.value())
             mmps = float(self.spn_speed.value())
             self.be.drive(0.0)
+            self._steer_commanded = True   # 조그도 우리 조향 지령이다(대조 중단)
             self.be.steer_all(steer_deg)
             self.log_line.emit(f"조그 '{label}' — 조향 {steer_deg:+.0f}° 지령, 정착 대기")
             t0 = time.monotonic()

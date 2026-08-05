@@ -287,3 +287,170 @@ def test_zero_degrees_still_renders(app):
     wv = gui.WheelView()
     wv.set_angles(0.0, 0.0)
     assert len(_render(wv)) > 0
+
+
+# ── Seer 인수인계 (2026-08-04 사용자 운영 철학) ──────────────────────────
+def test_take_records_seer_angles_as_handover_baseline(win, monkeypatch):
+    """제어권을 잡으면 **잡기 직전 Seer 각도**를 기준으로 기억해야 한다."""
+    import math
+    win.panda = object()                       # None 이 아니면 된다
+    monkeypatch.setattr(win, "_on_take", win.__class__._on_take.__get__(win))
+    win._on_seer_data({3: {"position": math.radians(-10.0)},
+                       4: {"position": math.radians(-12.0)}})
+    # 실제 판다 조작은 하지 않고 기억 경로만 확인한다
+    win._seer_at_take = {n: win._seer_deg.get(n) for n in gui.STEER_NODES}
+    assert win._seer_at_take == pytest.approx({3: 10.0, 4: 12.0}, abs=0.01)
+
+
+def test_release_restores_steering_to_the_seer_baseline(win, monkeypatch):
+    """반환 전에 **잡기 직전 Seer 값으로 조향을 되돌린다**.
+
+    2026-08-04 실기: 되돌리지 않고 넘겼더니 Seer 가 조향을 90° 까지 움직였다.
+    """
+    sent = []
+    monkeypatch.setattr(win, "_steer_axis", lambda n, d: sent.append((n, d)))
+    win._seer_at_take = {3: 10.0, 4: 12.0}
+    monkeypatch.setattr(win, "_meas_angle", lambda n: {3: 10.0, 4: 12.0}[n])
+    win._restore_steer_for_handover()
+    assert sorted(sent) == [(3, 10.0), (4, 12.0)], f"복원 지령이 나가지 않았다: {sent}"
+
+
+def test_release_does_not_move_when_baseline_is_missing(win, monkeypatch):
+    """기준이 없으면 **움직이지 않는다** — 모르는 채로 3톤 차체를 돌리지 않는다."""
+    sent = []
+    monkeypatch.setattr(win, "_steer_axis", lambda n, d: sent.append((n, d)))
+    win._seer_at_take = {}
+    win._restore_steer_for_handover()
+    assert sent == [], f"기준이 없는데 조향을 움직였다: {sent}"
+
+
+def test_release_does_not_move_when_measurement_is_stale(win, monkeypatch):
+    """실측이 신선하지 않으면 복원하지 않는다 — 어디 있는지 모르는 채로 보내지 않는다."""
+    sent = []
+    monkeypatch.setattr(win, "_steer_axis", lambda n, d: sent.append((n, d)))
+    monkeypatch.setattr(win, "_meas_angle", lambda n: None)
+    win._seer_at_take = {3: 10.0, 4: 12.0}
+    win._restore_steer_for_handover()
+    assert sent == [], f"실측이 없는데 조향을 움직였다: {sent}"
+
+
+def test_release_path_actually_calls_the_restore(win, monkeypatch):
+    """반환 경로가 **실제로** 복원을 부르는가 — 함수만 있고 배선이 없으면 소용없다.
+
+    ⚠ 2026-08-04: 처음 붙인 회귀 4건은 `_restore_steer_for_handover()` 를 **직접** 불렀다.
+    그래서 `_on_take(False)` 안의 호출을 통째로 지워도 122개가 전부 통과했다 —
+    같은 날 아침 M5(`poll_died` 방출 누락)와 똑같은 형태의 공백이다.
+    """
+    called = []
+    monkeypatch.setattr(win, "_restore_steer_for_handover", lambda: called.append(True))
+
+    class _Handle:
+        def controlWrite(self, *_a, **_kw):
+            return 0
+
+    class _Panda:
+        def __init__(self):
+            self._handle = _Handle()
+        def can_send(self, *_a, **_kw):
+            return None
+        def set_safety_mode(self, *_a, **_kw):
+            return None
+
+    win.panda = _Panda()
+    win._run = True
+    win._th = None
+    win._on_take(False)
+    assert called, "반환 경로가 인수인계 복원을 부르지 않는다"
+
+
+def _feed(win, node, deg, times, ref=0.0):
+    """`_check_seer_agreement` 를 `times` 회 먹인다.
+
+    ⚠ Seer 폴링 스레드가 `_seer_deg` 를 비울 수 있으므로(연결 실패 시 `_on_seer_status` 가
+    clear) **매 호출 직전에 기준을 다시 세운다** — 시험이 그 스레드 타이밍에 좌우되지 않게.
+    """
+    for _ in range(times):
+        win._seer_deg[node] = ref
+        win._check_seer_agreement(node, deg)
+    QtWidgets.QApplication.processEvents()
+
+
+def test_agreement_check_ignores_transient_samples(win):
+    """과도 표본 하나로 경보하지 않는다.
+
+    ⚠ 2026-08-05 실기: 획득 직후 첫 표본이 +0.00° 로 읽혔다가 곧 +15.807° 가 됐다
+    (그 사이 조향 지령 없음). 한 번 읽고 판정하면 거짓 경보가 난다.
+    """
+    win.txt_log.clear()
+    win._seer_mismatch_streak = {}; win._seer_mismatch_warned_at = {}
+    _feed(win, 3, 0.0, gui.SEER_MATCH_STREAK - 1, ref=15.8)      # 연속 조건에 못 미친다
+    assert "불일치" not in win.txt_log.toPlainText(), "과도 표본으로 경보했다"
+
+
+def test_agreement_check_warns_on_persistent_mismatch(win):
+    """계속 어긋나면 알린다 — 검사를 무력화한 것이 아니다."""
+    win.txt_log.clear()
+    win._seer_mismatch_streak = {}; win._seer_mismatch_warned_at = {}
+    _feed(win, 3, -137.27, gui.SEER_MATCH_STREAK)
+    assert "기준 불일치" in win.txt_log.toPlainText()
+
+
+def test_agreement_check_reports_recovery(win):
+    """어긋났다가 맞으면 **회복도 알린다** — 경보만 남고 끝나면 상태를 알 수 없다."""
+    win.txt_log.clear()
+    win._seer_mismatch_streak = {}; win._seer_mismatch_warned_at = {}
+    _feed(win, 4, -137.27, gui.SEER_MATCH_STREAK)
+    _feed(win, 4, 0.0, 1)
+    assert "기준 회복" in win.txt_log.toPlainText()
+
+
+def test_agreement_check_throttles_repeat_warnings(win):
+    """같은 축이 계속 어긋나도 로그를 도배하지 않는다."""
+    win.txt_log.clear()
+    win._seer_mismatch_streak = {}; win._seer_mismatch_warned_at = {}
+    _feed(win, 3, -137.27, gui.SEER_MATCH_STREAK * 6)
+    assert win.txt_log.toPlainText().count("기준 불일치") == 1
+
+
+def test_set_meas_actually_runs_the_agreement_check(win, monkeypatch):
+    """실측을 기록하는 지점이 **실제로** 대조를 부르는가 — 배선이 없으면 함수만 남는다.
+
+    ⚠ 2026-08-05: 이 회귀를 붙이기 전에는 `_set_meas` 안의 호출을 지워도 126개가 전부
+    통과했다. 오늘만 세 번째로 같은 형태의 공백이 나왔다(M5 방출 · 인수인계 복원 · 여기).
+    """
+    seen = []
+    monkeypatch.setattr(win, "_check_seer_agreement", lambda n, d: seen.append((n, d)))
+    win._set_meas(3, 12.34)
+    win._set_meas(1, 99.0)                     # 구동축은 대조 대상이 아니다
+    assert seen == [(3, 12.34)], f"조향 실측이 대조를 거치지 않는다: {seen}"
+
+
+def test_agreement_check_stops_after_we_command_steering(win):
+    """**우리가 조향을 보낸 뒤에는 대조하지 않는다.**
+
+    ⚠ 2026-08-05 실기: 제어권을 쥐면 Seer 는 버스에서 끊겨 모터 실측을 못 본다.
+    우리가 +20.00° 로 움직이는 동안 Seer 판독은 +15.81° 에 **고정**돼 있었고,
+    그 상태로 대조하면 정상 조작마다 거짓 경보가 난다(실제로 났다).
+    """
+    win.txt_log.clear()
+    win._seer_mismatch_streak = {}; win._seer_mismatch_warned_at = {}
+    win._steer_commanded = True                       # 이미 조향을 보낸 상태
+    _feed(win, 3, 20.0, gui.SEER_MATCH_STREAK * 2, ref=15.81)
+    assert "불일치" not in win.txt_log.toPlainText(), "조향 지령 후에도 대조해 거짓 경보를 냈다"
+
+
+def test_agreement_check_runs_before_any_steer_command(win):
+    """조향을 보내기 전에는 대조가 살아 있다 — 검사를 없앤 것이 아니다."""
+    win.txt_log.clear()
+    win._seer_mismatch_streak = {}; win._seer_mismatch_warned_at = {}
+    win._steer_commanded = False
+    _feed(win, 3, -137.27, gui.SEER_MATCH_STREAK, ref=0.0)
+    assert "기준 불일치" in win.txt_log.toPlainText()
+
+
+def test_steer_command_sets_the_flag(win, monkeypatch):
+    """조향 지령 지점이 **실제로** 플래그를 세우는가(배선)."""
+    monkeypatch.setattr(win, "_sdo_write", lambda *a, **k: None)
+    win._steer_commanded = False
+    win._steer_axis(3, 5.0)
+    assert win._steer_commanded is True, "조향을 보냈는데 대조가 계속 열려 있다"

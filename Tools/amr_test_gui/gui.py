@@ -82,6 +82,11 @@ SEER_GUI = os.environ.get("SEER_GUI_PATH", "/home/nvidia/T-Robot_seer_gui")
 VEL_PER_MMPS, VEL_MAX_UNITS = 24.447, 4889   # 구동 raw 환산, 상한(≈0.2 m/s)
 STEER_LIMIT_DEG = 90.0              # 조향 지령 허용 범위 ±90°
 MEAS_TTL_S = 1.0                    # 이보다 오래된 실측은 없는 것으로 친다
+STEER_NODES = (3, 4)                # 조향축(전/후). 구동축은 (1, 2)
+SEER_MATCH_TOL_DEG = 3.0            # CAN 실측 ↔ Seer 판독 허용 차(정착 허용치와 같은 스케일)
+SEER_MATCH_STREAK = 5               # 이만큼 **연속** 어긋나야 경보 — 과도 표본으로 떠들지 않는다
+SEER_MATCH_REWARN_S = 30.0          # 같은 축 재경보 최소 간격
+SEER_RESTORE_TIMEOUT_S = 20.0       # 반환 전 조향 복원 대기 한도
 RX_TTL_S = 1.0                      # 이보다 오래 응답이 없으면 버스가 죽은 것으로 보고 구동을 0 으로
 #   폴링(≈0.2 s 주기)이 5회 연속 빠지면 만료다. 폴링 스레드가 죽어도 마지막 값이
 #   남아 정착 판정을 통과시키던 결함을 막는다(2026-08-03 리뷰 High ①).
@@ -277,6 +282,10 @@ class MainWindow(QWidget):
         self._jog_stop = False
         self._meas_deg = {3: None, 4: None}
         self._meas_at = {}              # node -> 그 각도를 받은 시각(monotonic). 신선도 판정용
+        self._seer_at_take: dict = {}   # 제어권 잡기 직전 Seer 조향각(반환 시 복원 기준)
+        self._steer_commanded = False   # 이번 제어권 세션에서 조향을 보냈는가(대조 중단 조건)
+        self._seer_mismatch_streak: dict = {}     # 축별 연속 불일치 횟수
+        self._seer_mismatch_warned_at: dict = {}  # 축별 마지막 경보 시각(재경보 억제)
         self._drive_units = 0           # 마지막 구동 지령(raw). 폴 루프가 이 값을 재송신한다
         self._rx_at = 0.0               # 마지막으로 드라이브 응답을 받은 시각
         self._status = {}               # node -> 0x6041 상태워드 (호밍 완료 판정용)
@@ -502,6 +511,7 @@ class MainWindow(QWidget):
     def _steer_axis(self, node: int, deg: float) -> float:
         """한 축에만 절대위치 지령(0x607A) + 즉시 적용(0x6040=0x3F). 환산은 `steer_counts`."""
         deg, counts = steer_counts(node, deg)
+        self._steer_commanded = True          # 이 시점부터 Seer 판독은 굳는다(대조 중단)
         self._sdo_write(node, 0x607A, counts, 4)
         self._sdo_write(node, 0x6040, 0x3F, 2)
         return deg
@@ -708,6 +718,8 @@ class MainWindow(QWidget):
         """
         self._meas_deg[node] = deg
         self._meas_at[node] = time.monotonic()
+        if node in STEER_NODES:
+            self._check_seer_agreement(node, deg)
 
     def _meas_angle(self, node: int):
         """그 축의 실측 조향각. 제어권이 있으면 판다 직독, 없으면 Seer. 없으면 None.
@@ -929,6 +941,17 @@ class MainWindow(QWidget):
                 self._run = True
                 self._th = threading.Thread(target=self._loop, daemon=True, name="poll")
                 self._th.start()
+                # ── 인수인계 ① : **잡기 직전 Seer 가 보던 조향각을 기억한다.**
+                #   반환할 때 이 값으로 되돌려 놓고 넘긴다(아래 ②). 2026-08-04 실기에서
+                #   그냥 넘겼더니 Seer 가 자기 판단으로 조향을 90° 까지 움직였다.
+                #   (사용자 운영 철학: 「제어권을 가지기 전에 seer 의 조향각을 읽어야 하고
+                #    반환할 때도 seer 의 값을 주고 반환해야 한다」)
+                self._steer_commanded = False   # 새 세션 — 대조를 다시 연다
+                self._seer_at_take = {n: self._seer_deg.get(n) for n in STEER_NODES}
+                have = {n: v for n, v in self._seer_at_take.items() if v is not None}
+                self.log(f"인수인계 기준(Seer) — " +
+                         (", ".join(f"N{n} {v:+.2f}°" for n, v in have.items()) if have
+                          else "⚠ Seer 각도 없음 — 반환 시 복원할 기준이 없습니다"))
                 self.log("제어권 획득 완료 — 모터 값 폴링 시작")
             else:
                 self._jog_stop = True
@@ -940,6 +963,9 @@ class MainWindow(QWidget):
                     self.log(f"⚠ 제어권 반환 전 정지 송신 실패 — "
                              f"{type(exc).__name__}: {exc}. 드라이브가 마지막 지령을 "
                              f"유지할 수 있습니다. 하드웨어 E-STOP 을 확인하세요.")
+                # ── 인수인계 ② : **잡기 직전 Seer 값으로 조향을 되돌린 뒤** 넘긴다.
+                #   폴링을 아직 끄지 않은 상태에서 해야 실측으로 정착을 확인할 수 있다.
+                self._restore_steer_for_handover()
                 self._run = False
                 if self._th is not None:
                     self._th.join(timeout=1.0)
@@ -950,6 +976,83 @@ class MainWindow(QWidget):
                 self.log("제어권 반환 — passthrough (USB 유지)")
         except Exception as exc:
             self.log(f"제어권 처리 실패: {type(exc).__name__}: {exc}")
+
+
+    # ── 인수인계 (Seer ↔ 우리) ─────────────────────────────────────────
+    def _check_seer_agreement(self, node: int, deg: float):
+        """CAN 실측과 Seer 판독이 같은 곳을 가리키는가 — **매 표본 연속 대조**한다.
+
+        한 번만 보고 판정하지 않는다. 2026-08-05 실기에서 획득 직후 첫 표본이 +0.00° 로
+        읽혔다가 곧 +15.807° 가 됐고(그 사이 조향 지령 없음), 첫 표본 판정은 거짓 경보를 냈다.
+        과도 표본은 `SEER_MATCH_STREAK` 연속 조건이 걸러 낸다.
+
+        ⚠ **우리가 조향을 보낸 뒤에는 대조하지 않는다.** 제어권을 쥐면 Seer 는 버스에서
+        끊겨 모터 실측을 더 못 본다 — 2026-08-05 실기: 우리가 +20.00° 로 움직이는 동안
+        Seer 판독은 +15.81° 에 **고정**돼 있었고, 반환하자 다시 +15.807° 로 일치했다.
+        (같은 날 「정지 상태 20초 동안 0.000° 일치」를 유효성의 근거로 삼았던 것은 오판이다 —
+         바퀴가 안 움직이면 「따라오는 것」과 「값이 굳은 것」이 구분되지 않는다.)
+        따라서 유효한 구간은 **획득 직후 ~ 첫 조향 지령 전**뿐이다.
+
+        어긋나면 **알리기만 한다**(막지 않는다). 조향 0° 기준이 서로 다르다는 뜻이므로
+        판단은 운용자 몫이고, 조용히 진행하는 것만 피한다.
+        """
+        if self._steer_commanded:      # 우리가 움직인 뒤 — Seer 값은 굳어 있어 비교 의미 없음
+            return
+        ref = self._seer_deg.get(node)
+        if ref is None:
+            self._seer_mismatch_streak[node] = 0
+            return
+        diff = deg - ref
+        if abs(diff) <= SEER_MATCH_TOL_DEG:
+            if self._seer_mismatch_streak.get(node, 0) >= SEER_MATCH_STREAK:
+                self.log_line.emit(
+                    f"N{node} 조향 기준 회복 — Seer {ref:+.2f}° ↔ CAN {deg:+.2f}°")
+            self._seer_mismatch_streak[node] = 0
+            return
+        n = self._seer_mismatch_streak.get(node, 0) + 1
+        self._seer_mismatch_streak[node] = n
+        if n < SEER_MATCH_STREAK:
+            return
+        now = time.monotonic()
+        if now - self._seer_mismatch_warned_at.get(node, 0.0) < SEER_MATCH_REWARN_S:
+            return
+        self._seer_mismatch_warned_at[node] = now
+        self.log_line.emit(
+            f"⚠ N{node} 조향 기준 불일치 {n}회 연속 — Seer {ref:+.2f}° 인데 CAN 실측 "
+            f"{deg:+.2f}° (차 {diff:+.2f}°). 0° 기준이 서로 다릅니다 — 조작 전 확인하세요")
+
+    def _restore_steer_for_handover(self):
+        """반환 직전, 조향을 **잡기 직전 Seer 값**으로 되돌린다.
+
+        되돌리지 않고 넘기면 Seer 가 자기 판단으로 조향을 움직인다 — 2026-08-04 실기에서
+        반환 후 90° 까지 돌았다. 기준이 없거나 실측이 신선하지 않으면 **움직이지 않고** 알린다.
+        """
+        targets = {n: v for n, v in getattr(self, "_seer_at_take", {}).items() if v is not None}
+        if not targets:
+            self.log("⚠ 인수인계 복원 생략 — 잡기 직전 Seer 각도가 없습니다")
+            return
+        if any(self._meas_angle(n) is None for n in targets):
+            self.log("⚠ 인수인계 복원 생략 — 조향 실측이 신선하지 않습니다(움직이지 않음)")
+            return
+        self.log("인수인계 복원 — " +
+                 ", ".join(f"N{n} → {v:+.2f}°" for n, v in targets.items()))
+        try:
+            for n, v in targets.items():
+                self._steer_axis(n, v)
+        except Exception as exc:
+            self.log(f"⚠ 인수인계 복원 지령 실패: {type(exc).__name__}: {exc}")
+            return
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < SEER_RESTORE_TIMEOUT_S:
+            QApplication.processEvents()             # 반환 중에도 화면이 멈추지 않게
+            cur = {n: self._meas_angle(n) for n in targets}
+            if all(c is not None and abs(c - targets[n]) <= 1.0 for n, c in cur.items()):
+                self.log(f"인수인계 복원 완료 ({time.monotonic() - t0:.1f}s)")
+                return
+            time.sleep(0.05)
+        cur = {n: self._meas_angle(n) for n in targets}
+        self.log(f"⚠ 인수인계 복원 미완료 ({SEER_RESTORE_TIMEOUT_S:.0f}s 초과) — 현재 {cur}. "
+                 f"그대로 반환합니다")
 
     # ── 조그 실행 (crab: 조향 → 정착 확인 → 구동) ──────────────────────
     def _sdo_write(self, node: int, idx: int, val: int, size: int, sub: int = 0):

@@ -240,3 +240,90 @@ def test_driver_estop_contract_survives():
     from can_relay import driver_node as DN
     assert hasattr(RelayBackend, "estop"), "드라이버 백엔드의 estop 을 잘못 지웠다"
     assert hasattr(DN.CanRelayNode, "_on_estop"), "드라이버의 estop 구독 콜백을 잘못 지웠다"
+
+
+# ── Seer 인수인계 (2026-08-04 사용자 운영 철학) ──────────────────────────
+def test_port_release_restores_steering_to_seer_baseline(monkeypatch):
+    """이식본도 **반환 전에 Seer 기준으로 조향을 되돌린 뒤** 넘겨야 한다(원본과 같은 절차)."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PyQt5.QtWidgets")
+    from can_relay.ui import app as A
+
+    win = A.MainWindow.__new__(A.MainWindow)          # 위젯 생성 없이 로직만 본다
+    sent, logs = [], []
+    class _Be:
+        def meas_angle(self, n): return {3: 10.0, 4: 12.0}[n]
+        def steer_axis(self, n, d): sent.append((n, d))
+        def set_engaged(self, on): return (True, f"engaged={on}")
+    win.be = _Be()
+    win._seer_at_take = {3: 10.0, 4: 12.0}
+    win.log_line = type("S", (), {"emit": staticmethod(lambda m: logs.append(m))})()
+    ok, why = win._release_with_handover()
+    assert sorted(sent) == [(3, 10.0), (4, 12.0)], f"복원 지령이 나가지 않았다: {sent}"
+    assert ok and "engaged=False" in why, (ok, why)
+    assert any("인수인계 복원" in m for m in logs), logs
+
+
+def test_port_release_does_not_move_without_baseline():
+    """기준이 없으면 움직이지 않고 반환한다 — 모르는 채로 3톤 차체를 돌리지 않는다."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PyQt5.QtWidgets")
+    from can_relay.ui import app as A
+
+    win = A.MainWindow.__new__(A.MainWindow)
+    sent, logs = [], []
+    class _Be:
+        def meas_angle(self, n): return 0.0
+        def steer_axis(self, n, d): sent.append((n, d))
+        def set_engaged(self, on): return (True, "ok")
+    win.be = _Be()
+    win._seer_at_take = {}
+    win.log_line = type("S", (), {"emit": staticmethod(lambda m: logs.append(m))})()
+    win._release_with_handover()
+    assert sent == [], f"기준이 없는데 조향을 움직였다: {sent}"
+    assert any("생략" in m for m in logs), logs
+
+
+def test_port_take_path_records_baseline_and_release_path_uses_handover():
+    """**배선** 확인 — `_on_take` 가 획득 시 기준을 기억하고 반환 시 인수인계 경로를 탄다.
+
+    ⚠ 같은 날 두 번(M5·원본 복원) 「함수는 있는데 배선이 없어」 돌연변이를 못 잡았다.
+    """
+    import inspect
+    from can_relay.ui import app as A
+    src = inspect.getsource(A.MainWindow._on_take)
+    assert "_seer_at_take" in src, "획득 시 Seer 기준을 기억하지 않는다"
+    assert "_release_with_handover" in src, "반환이 인수인계 경로를 타지 않는다"
+
+
+def test_port_refresh_runs_the_agreement_check():
+    """이식본도 **주기 갱신마다** CAN ↔ Seer 를 대조해야 한다(원본과 같은 절차).
+
+    ⚠ 배선을 본다 — 오늘만 세 번, 함수는 있는데 호출이 없어 돌연변이를 못 잡았다.
+    """
+    import inspect
+    from can_relay.ui import app as A
+    src = inspect.getsource(A.MainWindow._refresh)
+    assert "_check_seer_agreement" in src, "주기 갱신이 대조를 부르지 않는다"
+    assert hasattr(A.MainWindow, "_check_seer_agreement")
+
+
+def test_every_steer_send_site_marks_the_flag():
+    """조향을 보내는 **모든 지점**이 `_steer_commanded` 를 세워야 한다.
+
+    ⚠ 2026-08-05: 축별 경로에만 넣고 조그 경로(`steer_all`)를 빠뜨렸다. 한 곳이라도 빠지면
+    그 경로로 움직인 뒤 대조가 계속 열려 거짓 경보가 난다.
+    """
+    import inspect, re
+    from can_relay.ui import app as A
+    src = inspect.getsource(A)
+    sites = [(i, ln) for i, ln in enumerate(src.splitlines())
+             if re.search(r"self\.be\.steer_(axis|all)\(", ln)]
+    assert sites, "조향 송신 지점을 찾지 못했다 — 이 시험을 갱신하라"
+    lines = src.splitlines()
+    for i, ln in sites:
+        window = "\n".join(lines[max(0, i - 4):i + 1])
+        assert "_steer_commanded = True" in window, (
+            f"{i+1}행 조향 송신에 `_steer_commanded = True` 가 없다: {ln.strip()}")
