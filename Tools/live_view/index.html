@@ -419,6 +419,15 @@
              y: st.y - st.y / d * APPROACH_DISTANCE };
   }
 
+  // Charging points. A robot that runs low finishes what it is carrying first —
+  // abandoning a job mid-transfer would leave material half handed over — then
+  // comes here. On the real floor these are electrodes set into the ground and
+  // the robot contacts them by sitting over the spot.
+  const CHARGERS = [
+    { x: -4.8, y: -4.6 },
+    { x:  4.8, y: -4.6 }
+  ];
+
   const OBSTACLES = [
     { x:  3.5, y:  2.5, w: 1.2, h: 0.8, label: "pallet" },
     { x: -3.0, y: -3.0, w: 1.2, h: 0.8, label: "pallet" },
@@ -494,7 +503,9 @@
       // known, which is what keeps the floor navigable and is where charging
       // would happen. Distinct bays also stop idle robots drifting into a
       // cluster and looking like a queue that is not there.
-      home: { x: -4.6 + (i - 1) * 2.3, y: -4.6 }
+      battery: 0.75 + i * 0.08,   // staggered, so they do not all charge at once
+      charging: false, goingToCharge: false,
+      phase: null, stationId: null
     });
   }
 
@@ -800,7 +811,8 @@
       return { result: "BUSY", why: "warm-up: one robot at a time" };
     }
 
-    let free = sim.robots.filter(r => !r.job);
+    let free = sim.robots.filter(r => !r.job && !r.charging && !r.goingToCharge
+                                       && r.battery > 0.25);
     if (sim.warmup) {
       // Give the turn to a robot that has not had one yet, so all three are
       // seen rather than the nearest taking every job.
@@ -840,7 +852,9 @@
     const r = free[0];
 
     job.srcPort = firstFullPort(src);   // take FROM something, not from a gap
-    r.job = job; r.goal = approachOf(src); r.leg = "collect";
+    r.job = job; r.leg = "collect";
+    r.phase = "approach"; r.stationId = src.id;
+    r.goal = nodeOf(src);               // the node OUTSIDE — ask from there
     wake("robot", `${r.id} ← ${job.id}`);
     say("acs", `${r.id} assigned ${job.id} — collecting from ${job.from}`);
     return { result: "ACCEPTED", robot: r.id };
@@ -886,62 +900,178 @@
   }
 
   // ---------------------------------------------------------------- robots
+  /* ---------------------------------------------------------------------
+     THE ROBOT'S OWN SEQUENCE, as the handshake flowchart specifies it.
+
+       approach   drive to the node OUTSIDE the machine
+       enter      ask; granted only if nobody else holds the axis
+       dock       drive in to the transfer position
+       transfer   stand still while it is loaded or unloaded
+       exit       REVERSE OUT to the node outside
+                  ...and only on ARRIVAL there does the axis go free
+
+     That last line is the one that matters and the one this page got wrong.
+     The bay is not released when the transfer ends — it is released when the
+     robot is physically back outside. Otherwise the next robot is invited in
+     while the first is still sitting on the dock, which is exactly the
+     "how can another robot come here?" problem.
+
+     With no next job the robot simply waits where it is: outside the machine
+     it just left. That is not a parking bay — the flowchart has no such thing.
+     It is the node it reversed out to.
+     --------------------------------------------------------------------- */
+
+  const DOCK_DISTANCE = 0.85;   // transfer position, inside the bay
+  const NODE_DISTANCE = 2.30;   // the node outside — where a robot waits
+
+  function pointAt(st, d) {
+    const n = Math.hypot(st.x, st.y) || 1;
+    return { x: st.x - (st.x / n) * d, y: st.y - (st.y / n) * d };
+  }
+  const nodeOf = st => pointAt(st, NODE_DISTANCE);
+  const dockOf = st => pointAt(st, DOCK_DISTANCE);
+
+  /** Put what the robot is carrying into the destination. */
+  function deliverInto(dst, job) {
+    if (!dst) return;
+    if (dst.waitingFor === job.id) dst.waitingFor = null;
+    const port = firstFreePort(dst);
+    if (port != null) {
+      dst.slots[port] = {
+        carry: job.carry,
+        left: dst.kind === "rack" ? CURE_SECONDS : 0,
+        doneNoted: dst.kind !== "rack"
+      };
+      if (dst.kind === "rack") {
+        say("cure", `${dst.id} port ${port}: curing started (${CURE_SECONDS}s)`);
+      }
+    }
+    if (dst.kind === "machine") {
+      dst.rollOn = job.carry === CARRIER.ROLL;
+      if (dst.rollOn) {
+        dst.readyAt = sim.t + PROCESS_SECONDS;
+        say("mes", `${dst.id}: processing ${PROCESS_SECONDS}s — no output yet`);
+      }
+    }
+  }
+
   function driveRobots(dt) {
     if (sim.robots.some(r => r.job)) wake("robot", "driving");
-    sim.robots.forEach(r => {
-      // No job: return to this robot's own waiting bay and hold there.
-      if (!r.job) {
-        const hx = r.home.x - r.x, hy = r.home.y - r.y;
-        const d = Math.hypot(hx, hy);
-        if (d > 0.25) {
-          const rep = repulsion(r);
-          const vx = hx / d + rep.x, vy = hy / d + rep.y;
-          const n = Math.hypot(vx, vy) || 1;
-          const step = Math.min(r.speed * dt, d);
-          r.x += vx / n * step;
-          r.y += vy / n * step;
-          r.steer = Math.atan2(vy, vx);
-        }
-        return;
-      }
-      if (!r.goal) return;
 
-      // Loading takes real time on a real line — stand still while it happens.
-      if (r.dwellLeft > 0) {
-        r.dwellLeft -= dt;
-        if (r.dwellLeft <= 0) {
-          r.dwellLeft = 0;
-          // Loading finished — only NOW is the robot out of the bay.
-          releaseEntry(STATIONS.find(s => s.id === r.job.from), r);
-          const dst = STATIONS.find(s => s.id === r.job.to);
-          r.goal = approachOf(dst);
-          r.leg = "deliver";
-          wake("robot", `${r.job.id} loaded`);
-          say("acs", `${r.id} loaded at ${r.job.from} — delivering`);
+    sim.robots.forEach(r => {
+      // ---- battery -----------------------------------------------------
+      // Drains while working. A robot low on charge finishes what it is
+      // carrying — abandoning a job mid-transfer would leave material half
+      // handed over — and only then goes to a charger.
+      if (r.charging) {
+        r.battery = Math.min(1, r.battery + dt * 0.09);
+        if (r.battery >= 0.98) {
+          r.charging = false;
+          say("acs", `${r.id} charged — available again`);
         }
         return;
       }
+
+      if (!r.job && r.battery < 0.35 && !r.goingToCharge) {
+        r.goingToCharge = true;
+        const c = CHARGERS.reduce((best, c) =>
+          Math.hypot(c.x - r.x, c.y - r.y) < Math.hypot(best.x - r.x, best.y - r.y)
+            ? c : best);
+        r.goal = { x: c.x, y: c.y };
+        say("acs", `${r.id} battery ${(r.battery * 100) | 0}% — going to charge`);
+      }
+
+      // ---- idle --------------------------------------------------------
+      if (!r.job && !r.goingToCharge) {
+        r.goal = null;
+        return;                       // wait right here, outside the machine
+      }
+
+      if (!r.goal) return;
 
       const ex = r.goal.x - r.x, ey = r.goal.y - r.y;
       const dist = Math.hypot(ex, ey);
 
-      // The node BEFORE the machine. A robot waits here until the axis is its
-      // own — it does not approach and then discover the bay is taken.
-      const target = STATIONS.find(s =>
-        s.id === (r.leg === "collect" ? r.job.from : r.job.to));
-      if (dist < ENTRY_REQUEST_RANGE && !requestEntry(target, r)) {
-        if (!r.notedHold) {
-          r.notedHold = true;
-          say("wait", `${r.id} holding outside ${target.id} — ` +
-                      `${target.occupiedBy} is inside`);
+      // ---- transfer dwell ----------------------------------------------
+      if (r.dwellLeft > 0) {
+        r.dwellLeft -= dt;
+        if (r.dwellLeft <= 0) {
+          r.dwellLeft = 0;
+          r.phase = "exit";                       // reverse out before anything
+          r.goal = nodeOf(STATIONS.find(s => s.id === r.stationId));
+          say("dock", `${r.id}: transfer done — reversing out of ${r.stationId}`);
         }
-        return;                                  // stand still. Do not creep in.
+        return;
       }
-      r.notedHold = false;
 
-      // The gate switches on approach and back on departure.
+      // ---- arrivals ----------------------------------------------------
+      if (dist < 0.26) {
+        if (r.goingToCharge) {
+          r.goingToCharge = false; r.charging = true; r.goal = null;
+          say("acs", `${r.id} on charger`);
+          return;
+        }
+
+        const st = STATIONS.find(s => s.id === r.stationId);
+
+        if (r.phase === "approach") {
+          // At the node outside. Ask — and hold here if refused.
+          if (!requestEntry(st, r)) {
+            if (!r.notedHold) {
+              r.notedHold = true;
+              say("wait", `${r.id} at the node outside ${st.id} — ` +
+                          `${st.occupiedBy} is inside`);
+            }
+            return;
+          }
+          r.notedHold = false;
+          r.phase = "dock";
+          r.goal = dockOf(st);
+          return;
+        }
+
+        if (r.phase === "dock") {
+          r.phase = "transfer";
+          r.dwellLeft = DWELL_SECONDS;
+          if (r.leg === "collect") {
+            if (r.job.srcPort != null) st.slots[r.job.srcPort] = null;
+            if (st.kind === "machine") st.rollOn = false;
+            r.job.state = "RUNNING";
+            say("acs", `${r.id} loading ${r.job.carry} at ${st.id}`);
+          } else {
+            deliverInto(st, r.job);
+            say("acs", `${r.id} unloading ${r.job.carry} at ${st.id}`);
+          }
+          return;
+        }
+
+        if (r.phase === "exit") {
+          // Back outside. ONLY NOW is the axis free.
+          releaseEntry(st, r);
+          if (r.leg === "collect") {
+            const dst = STATIONS.find(s => s.id === r.job.to);
+            r.leg = "deliver"; r.phase = "approach";
+            r.stationId = dst.id; r.goal = nodeOf(dst);
+          } else {
+            r.job.state = "DONE";
+            wake("jobs", `${r.job.id} done`);
+            sim.done++;
+            r.doneOne = true;
+            if (sim.warmup && sim.robots.every(x => x.doneOne)) {
+              sim.warmup = false;
+              say("done", `warm-up complete — floor now runs concurrently`);
+            }
+            say("done", `${r.job.id} complete — ${r.job.carry} to ${r.job.to}`);
+            r.job = null; r.goal = null; r.phase = null;
+            r.leg = null; r.stationId = null; r.authority = "seer";
+          }
+        }
+        return;
+      }
+
+      // ---- move --------------------------------------------------------
       const want = dist < HANDOVER_RANGE ? "jetson" : "seer";
-      if (want !== r.authority) {
+      if (want !== r.authority && r.job) {
         r.authority = want;
         wake("robot", want === "jetson" ? "gate engaged" : "gate released");
         say(want === "jetson" ? "acs" : "done",
@@ -950,103 +1080,19 @@
               : `${r.id}: gate released — Seer driving again`);
       }
 
-      if (dist < 0.28) {
-        if (r.leg === "collect") {
-          // Collected. Free the port we took it from, so that machine can be
-          // served again — forgetting to release the source is what silently
-          // stalls a line after two or three jobs.
-          const src = STATIONS.find(s => s.id === r.job.from);
-          if (src && r.job.srcPort != null) src.slots[r.job.srcPort] = null;
-          // The source no longer holds it. A store is bottomless; a machine
-          // that just gave up its roll now has none, which is what decides
-          // whether its own next call is a load or a swap.
-          if (src && src.kind === "machine") src.rollOn = false;
-          // NOT released here. The robot is still physically in the bay for
-          // the whole loading dwell — releasing on arrival would let the next
-          // robot in while this one is still sitting there.
-          r.job.state = "RUNNING";
-          r.dwellLeft = DWELL_SECONDS;      // stand still and load
-          say("acs", `${r.id} at ${r.job.from} — loading ${DWELL_SECONDS}s ` +
-                     `(${r.job.carry})`);
-        } else {
-          const dst = STATIONS.find(s => s.id === r.job.to);
-          if (dst) {
-            // The machine's wait ends here — this is what it called for.
-            if (dst.waitingFor === r.job.id) dst.waitingFor = null;
-            // Whatever we brought now occupies a port. In a rack it starts
-            // curing; anywhere else it is simply present.
-            const port = firstFreePort(dst);
-            if (port != null) {
-              dst.slots[port] = {
-                carry: r.job.carry,
-                left: dst.kind === "rack" ? CURE_SECONDS : 0,
-                doneNoted: dst.kind !== "rack"
-              };
-              if (dst.kind === "rack") {
-                say("cure", `${dst.id} port ${port}: curing started ` +
-                            `(${CURE_SECONDS}s)`);
-              }
-            }
-            // A machine that received a roll now physically has one — but it
-            // is RAW. The machine has to work on it before anything downstream
-            // can collect an output, so nothing here is available yet.
-            if (dst.kind === "machine") {
-              dst.rollOn = r.job.carry === CARRIER.ROLL;
-              if (dst.rollOn) {
-                dst.readyAt = sim.t + PROCESS_SECONDS;
-                say("mes", `${dst.id}: processing ${PROCESS_SECONDS}s — ` +
-                           `no output until it finishes`);
-              }
-            }
-          }
-          releaseEntry(dst, r);
-          r.job.state = "DONE";
-          wake("jobs", `${r.job.id} done`);
-          sim.done++;
-          r.doneOne = true;
-          if (sim.warmup && sim.robots.every(x => x.doneOne)) {
-            sim.warmup = false;
-            say("done", `warm-up complete — all ${sim.robots.length} robots have ` +
-                        `run a job. Floor now runs concurrently.`);
-          }
-          say("done", `${r.job.id} complete — ${r.job.carry} delivered to ` +
-                      `${r.job.to} by ${r.id}`);
-          r.job = null; r.goal = null; r.leg = null; r.dwellLeft = 0;
-          r.authority = "seer";
-        }
-        return;
-      }
-
-      // Work out where we are actually going FIRST. Attraction is normalised
-      // to 1; avoidance fades to nothing near the goal so the approach point —
-      // deliberately close to a machine — stays reachable. Without that fade
-      // the two forces cancel and the robot stalls just short: the classic
-      // goal-near-obstacle deadlock.
-      const fade = Math.min(1, dist / DOCK_FADE_M);
+      const fade = Math.max(0, Math.min(1, (dist - 0.3) / DOCK_FADE_M));
       const rep = repulsion(r);
-      const vx = ex / dist + fade * rep.x;
-      const vy = ey / dist + fade * rep.y;
+      let vx = ex / dist + rep.x * fade;
+      let vy = ey / dist + rep.y * fade;
       const mag = Math.hypot(vx, vy) || 1;
-
-      // The platform crabs: both wheels swivel to the same angle and the body
-      // translates without turning, so heading never changes. The steering
-      // follows the TRAVEL direction, not the straight line to the goal, so the
-      // wheels visibly turn as the robot deflects around something. Folded into
-      // +/-90 exactly as the real inverse kinematics normalises it.
-      //
-      // This must come after vx/vy exist. It previously sat above them, which
-      // threw a ReferenceError on every frame and silently killed the whole
-      // animation — nothing moved and no error was visible on the page.
-      let a = Math.atan2(vy, vx);
-      if (a >  Math.PI / 2) a -= Math.PI;
-      if (a < -Math.PI / 2) a += Math.PI;
-      r.steer += (a - r.steer) * Math.min(1, dt * 4);   // servos are not instant
-
+      r.steer = Math.atan2(vy, vx);
       const v = Math.min(r.speed, dist * 1.6);
       r.x += (vx / mag) * v * dt;
       r.y += (vy / mag) * v * dt;
+      r.battery = Math.max(0, r.battery - dt * 0.012);
     });
   }
+
 
   // ---------------------------------------------------------------- render
   const cv = document.getElementById("floor");
@@ -1172,6 +1218,19 @@
                        sx, sy + size / 2 + 28);
         }
       }
+    });
+
+    // charging points
+    CHARGERS.forEach(c => {
+      const [cx, cy] = px(c.x, c.y);
+      ctx.strokeStyle = css("--green"); ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath(); ctx.arc(cx, cy, 0.34 * sc, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = css("--green");
+      ctx.font = "600 10px " + css("--mono");
+      ctx.textAlign = "center";
+      ctx.fillText("charge", cx, cy + 0.34 * sc + 12);
     });
 
     // robots
