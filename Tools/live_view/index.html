@@ -1097,12 +1097,18 @@
     btnPause.setAttribute("aria-pressed", String(!sim.running));
   };
 
-  const speeds = [1, 2, 4];
+  // Slow speeds first. The interesting events here are brief — a call lasts
+  // less than one poll period — so being able to drop below real time matters
+  // more than being able to go faster. ×0.1 makes a sub-second edge take ten
+  // seconds to pass, which is the only way to actually read one.
+  const speeds = [1, 0.5, 0.25, 0.1, 2, 4];
   let si = 0;
   document.getElementById("btnSpeed").onclick = (e) => {
     si = (si + 1) % speeds.length;
     sim.speed = speeds[si];
     e.target.textContent = "Speed ×" + sim.speed;
+    e.target.style.color = sim.speed < 1 ? "var(--steel)"
+                         : sim.speed > 1 ? "var(--amber)" : "";
   };
 
   document.getElementById("btnRush").onclick = () => {
