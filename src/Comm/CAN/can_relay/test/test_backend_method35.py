@@ -485,7 +485,7 @@ def test_steer_axis_does_not_claim_single_target_angle():
 
 
 # ── 「캡처된 상황에서만」 제한 (2026-08-03 사용자 결정) ──────────────────
-def test_halt_steer_refuses_while_axis_is_moving():
+def test_hold_steer_at_measured_refuses_while_axis_is_moving():
     """움직이는 축에는 보내지 않는다 — 이동 중 사용은 마스터 캡처에 0건이다."""
     link, be = make(steer_home={3: 0, 4: 0})
     for n in (3, 4):                       # 두 표본이 크게 다르다 = 이동 중
@@ -495,23 +495,23 @@ def test_halt_steer_refuses_while_axis_is_moving():
         feed(link, n, P.OBJ_POSITION_ACTUAL, 1_500_000)
     be._drain()
     n_before = len(writes_to(link, P.OBJ_TARGET_POSITION))
-    assert be.halt_steer("이동 중") is False
+    assert be.hold_steer_at_measured("이동 중") is False
     assert len(writes_to(link, P.OBJ_TARGET_POSITION)) == n_before, \
         "이동 중인데 조향 목표를 보냈다"
 
 
-def test_halt_steer_refuses_with_single_sample():
+def test_hold_steer_at_measured_refuses_with_single_sample():
     """표본이 하나면 정지인지 **모른다** — 모르면 보내지 않는다."""
     link, be = make(steer_home={3: 0, 4: 0})
     for n in (3, 4):
         feed(link, n, P.OBJ_POSITION_ACTUAL, 1_000_000)
     be._drain()
     n_before = len(writes_to(link, P.OBJ_TARGET_POSITION))
-    assert be.halt_steer("표본 1개") is False
+    assert be.hold_steer_at_measured("표본 1개") is False
     assert len(writes_to(link, P.OBJ_TARGET_POSITION)) == n_before
 
 
-def test_halt_steer_sends_when_stationary_within_master_band():
+def test_hold_steer_at_measured_sends_when_stationary_within_master_band():
     """마스터가 실제로 쓰던 대역(|Δ| ≤ 200 c) 안이면 보낸다."""
     link, be = make(steer_home={3: 0, 4: 0})
     for n in (3, 4):
@@ -520,7 +520,7 @@ def test_halt_steer_sends_when_stationary_within_master_band():
     for n in (3, 4):
         feed(link, n, P.OBJ_POSITION_ACTUAL, 1_000_150)      # Δ=150 c < 200 c
     be._drain()
-    assert be.halt_steer("정지") is True
+    assert be.hold_steer_at_measured("정지") is True
     assert {f.can_id - 0x600 for f in writes_to(link, P.OBJ_TARGET_POSITION)} == {3, 4}
 
 

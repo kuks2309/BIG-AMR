@@ -8,13 +8,13 @@
 수동 판독(`orin_steer_crosscheck.py`, 송신 0건 20 초 2,109 샘플)은 **후자가 참**이라고 한다
 (Seer 1040 도 +1.285° / +1.406° 로 정합).
 
-문제는 `stop_all` → `halt_steer` 가 **읽은 값을 그대로 조향 목표(0x607A)로 써 넣는다**는 것이다.
+문제는 `stop_all` → `hold_steer_at_measured`(옛 이름 `halt_steer`) 가 **읽은 값을 그대로 조향 목표(0x607A)로 써 넣는다**는 것이다.
 첫 판독이 실제와 1.3° 다르면 **정지 명령이 축을 1.3° 움직이라고 지시**한다.
 
 이 스크립트는 그 첫 판독을 시간순으로 남긴다. **조향 목표를 설정하지 않으므로 0x607A 를 내지
 않는다**(구동은 0x60FF=0 = 정지 지령만 나간다).
 
-⚠ 종료 시 `engage false` 경로가 `halt_steer` 를 부르며, 그때는 판독이 안정된 뒤라 참값이
+⚠ 종료 시 `engage false` 경로가 `hold_steer_at_measured` 를 부르며, 그때는 판독이 안정된 뒤라 참값이
 목표가 된다. 그래도 축이 미세하게 움직일 수 있으므로 이동구역을 확인하고 실행할 것.
 """
 from __future__ import annotations
@@ -77,8 +77,9 @@ def main():
                   f"차 {vals[-1]-vals[0]:+,} counts "
                   f"({(vals[-1]-vals[0])/COUNTS_PER_DEG:+.3f}°)")
 
-    repo = os.path.dirname(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
-    out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Log")
+    # 원자료는 **저장소 루트 `Log/`** 에 모은다(`Tools/Log/` 를 새로 만들지 않는다).
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    out = os.path.join(repo, "Log")
     os.makedirs(out, exist_ok=True)
     path = os.path.join(out, f"first_read_{time.strftime('%y%m%d_%H%M%S')}.json")
     with open(path, "w", encoding="utf-8") as fh:

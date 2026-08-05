@@ -62,7 +62,7 @@ def test_capture_actually_loaded():
 def test_our_steer_target_frames_are_byte_identical_to_master(node, counts):
     """`steer_target_frames` 가 만드는 2프레임이 **캡처 원본과 바이트 동일**한가.
 
-    이것이 `halt_steer` 가 보내는 바로 그 프레임이다.
+    이것이 `hold_steer_at_measured`(2026-08-05 개명 전 `halt_steer`) 가 보내는 바로 그 프레임이다.
     """
     ours = P.steer_target_frames(node, counts, bus=2)
     for f in ours:

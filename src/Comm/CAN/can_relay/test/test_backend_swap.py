@@ -327,3 +327,27 @@ def test_every_steer_send_site_marks_the_flag():
         window = "\n".join(lines[max(0, i - 4):i + 1])
         assert "_steer_commanded = True" in window, (
             f"{i+1}행 조향 송신에 `_steer_commanded = True` 가 없다: {ln.strip()}")
+
+
+def test_direct_backend_ttl_is_adjustable_like_ros2(monkeypatch):
+    """신선도 TTL 은 **백엔드와 무관하게 같은 방식으로 조정**돼야 한다(리뷰 Low ③).
+
+    ros2 는 ROS 파라미터를 매 호출 재조회해 `ros2 param set` 이 즉시 먹는다. direct 는
+    모듈 상수를 직접 읽어 런타임 조정이 불가능했다 — 같은 개념인데 한쪽만 바뀌었다.
+    """
+    import time as _t
+    from can_relay.ui.backend_direct import DirectBackend, MEAS_TTL_S
+
+    be = DirectBackend.__new__(DirectBackend)
+    be.meas_ttl_s = 10.0
+    be._meas_deg = {3: 5.0}
+    be._meas_at = {3: _t.monotonic() - 2.0}          # 2초 전 값
+    assert be.meas_angle(3) == 5.0, "TTL 10초인데 2초 된 값을 버렸다"
+
+    be.meas_ttl_s = 1.0                              # 런타임 조정
+    assert be.meas_angle(3) is None, "TTL 을 줄였는데 여전히 옛 값을 쓴다"
+
+    # 생성자 기본값은 모듈 상수와 같다(계약 유지)
+    import inspect
+    sig = inspect.signature(DirectBackend.__init__)
+    assert sig.parameters["meas_ttl_s"].default == MEAS_TTL_S

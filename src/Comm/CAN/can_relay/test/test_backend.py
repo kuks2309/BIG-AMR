@@ -786,13 +786,13 @@ def test_cancel_reports_failure_when_position_unknown():
     assert ok is False and "못 보냈다" in why
 
 
-def test_halt_steer_overwrites_stale_target():
+def test_hold_steer_at_measured_overwrites_stale_target():
     link, be = make(**M35)
     be._steer_counts = {3: 9_999_999, 4: 9_999_999}
     # 표본 **2개** — 정지 확인이 있어야 보낸다(2026-08-03: 캡처된 상황으로 제한).
     at(link, 3, 7_871_815); at(link, 4, 7_840_086); be._drain()
     at(link, 3, 7_871_815); at(link, 4, 7_840_086); be._drain()
-    assert be.halt_steer("시험") is True
+    assert be.hold_steer_at_measured("시험") is True
     assert be._steer_counts == {3: 7_871_815, 4: 7_840_086}
 
 

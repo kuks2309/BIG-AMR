@@ -54,7 +54,8 @@ HOMING_SPEED = 2500         # 0x6099:00 — 0.1 r/min → 250 r/min
 HOMING_TIMEOUT_S = 90.0
 HOMING_START_S = 10.0
 BIT15 = 1 << 15
-MEAS_TTL_S = 1.0            # 이보다 오래된 실측은 없는 것으로 친다(원본 High ①)
+MEAS_TTL_S = 1.0            # 이보다 오래된 실측은 없는 것으로 친다(원본 High ①). **기본값일 뿐이다** —
+#                             인스턴스가 `meas_ttl_s` 로 들고 런타임에 바꿀 수 있다(리뷰 Low ③).
 RX_TTL_S = 1.0              # 이보다 오래 응답이 없으면 구동을 0 으로(원본 High ③)
 
 # ⚠ 깊이를 세지 않는다. `dirname` 6회로 적었다가 `.../src/Tools/...` 를 가리켜
@@ -120,7 +121,12 @@ class DirectBackend(BackendBase):
                               CAP_STEER_AXIS, CAP_STEER_ALL, CAP_DRIVE,
                               CAP_MOTOR_TABLE})
 
-    def __init__(self, log: Optional[Callable[[str], None]] = None):
+    def __init__(self, log: Optional[Callable[[str], None]] = None,
+                 meas_ttl_s: float = MEAS_TTL_S):
+        # ⚠ TTL 을 **인스턴스 상태**로 든다. 예전에는 모듈 상수를 직접 읽어, ros2 백엔드는
+        #   ROS 파라미터로 런타임 조정이 되는데 direct 백엔드만 안 되는 비대칭이 있었다
+        #   (리뷰 Low ③). 같은 개념은 `--backend` 와 무관하게 같은 방식으로 조정돼야 한다.
+        self.meas_ttl_s = float(meas_ttl_s)
         self._log = log or (lambda _m: None)
         self.panda = None
         self._cls = None
@@ -166,7 +172,7 @@ class DirectBackend(BackendBase):
         if deg is None:
             return None
         at = self._meas_at.get(node)
-        if at is None or (time.monotonic() - at) > MEAS_TTL_S:
+        if at is None or (time.monotonic() - at) > self.meas_ttl_s:
             return None
         return deg
 
@@ -269,7 +275,8 @@ class DirectBackend(BackendBase):
         """원본의 「정지」 — **구동만 0**. 조향은 현 위치를 유지한다(지령 없음).
 
         ⚠ 원본에 조향을 세우는 경로가 없다는 것은 실측으로 확인했다(2026-08-04):
-        `grep -c halt_steer Tools/amr_test_gui/gui.py` → **0**,
+        `grep -c halt_steer Tools/amr_test_gui/gui.py` → **0**,   # 2026-08-03 실행 기록
+        (그 함수는 2026-08-05 `hold_steer_at_measured` 로 개명됐다 — 위 명령은 당시 그대로 남긴다)
         `grep -n 0x607A …` → 조향 목표를 쓰는 곳은 `_steer_axis`(:443) 하나뿐이고 정지 경로가 아니며,
         `gui.py:875-879` 의 「정지」는 `_drive(0)` + 로그 "조향은 현 위치 유지" 다.
         드라이버 경유(`ros2`)는 `stop_all` 로 조향까지 다루지만 **여기서는 옮기지 않는다** —
