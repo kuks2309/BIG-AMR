@@ -9,7 +9,7 @@ import pathlib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from mini_mes.adapters.base import StationStatus, TransportResult   # noqa: E402
+from mini_mes.adapters.base import StationStatus, TaskType, TransportResult  # noqa: E402
 from mini_mes.adapters.mock import ManualClock, MockAcs, MockEquipment  # noqa: E402
 from mini_mes.main_cycle import MainCycle                            # noqa: E402
 
@@ -20,7 +20,16 @@ def build(travel=8.0, timeout=600.0, accept=True):
     acs = MockAcs(clock, travel_seconds=travel, accept=accept)
     cycle = MainCycle(equipment, acs, clock=clock, logger=lambda m: None,
                       job_timeout_s=timeout)
+    cycle.source_for = lambda sid: "station_3"
     return clock, equipment, acs, cycle
+
+
+def request_transport(equipment, to="station_9", frm="station_3"):
+    """Start work the way it really starts: material exists somewhere, and a
+    machine asks for it. Both halves are needed — a call nobody can serve is
+    left outstanding, and material nobody asked for moves nothing."""
+    equipment.force_status(frm, StationStatus.FINISHED)
+    return equipment.raise_call(to, TaskType.LOAD)
 
 
 # ---------------------------------------------------------------- happy path
@@ -28,7 +37,7 @@ def build(travel=8.0, timeout=600.0, accept=True):
 def test_job_reaches_done():
     clock, equipment, acs, cycle = build(travel=8.0)
 
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    request_transport(equipment)
     cycle.tick()                       # read_inputs creates the job
 
     assert len(cycle.active) == 1
@@ -50,9 +59,8 @@ def test_done_notifies_destination_station():
     clock, equipment, acs, cycle = build(travel=1.0)
     # Route to a station the mock actually knows about. The default destination
     # ("station_out") is a placeholder that exists in no factory.
-    cycle.on_station_finished = lambda sid: cycle.create_job(sid, "station_9")
 
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    request_transport(equipment)
     cycle.tick(); cycle.tick()
     clock.advance(2.0)
     cycle.tick()
@@ -63,11 +71,15 @@ def test_done_notifies_destination_station():
 def test_unknown_destination_is_warned_not_silent():
     """A notification the destination refuses must not look like clean success."""
     clock, equipment, acs, cycle = build(travel=1.0)
+    # Route to a station the mock has never heard of. The transport still
+    # succeeds — the robot went and came back — but the notification does not,
+    # and that difference has to survive into the log.
+    request_transport(equipment, to="station_9")
+    cycle.source_for = lambda sid: "station_3"
     logged = []
     cycle.logger = logged.append
-    # Default destination "station_out" is unknown to the mock.
-    equipment.force_status("station_3", StationStatus.FINISHED)
     cycle.tick(); cycle.tick()
+    cycle.store.active[0].job.to_station = "no_such_station"
     clock.advance(2.0)
     cycle.tick()
 
@@ -76,13 +88,14 @@ def test_unknown_destination_is_warned_not_silent():
     assert any("did not accept" in m for m in logged)
 
 
+
 # ------------------------------------------------------------- failure paths
 
 def test_timeout_moves_running_to_failed():
     """t5 — the transition that stops a blind takeover hanging forever."""
     clock, equipment, acs, cycle = build(travel=8.0, timeout=600.0)
 
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    request_transport(equipment)
     cycle.tick(); cycle.tick()
     job = cycle.finished[0] if cycle.finished else cycle.active[0][0]
     assert job.state_name == "RUNNING"
@@ -99,7 +112,7 @@ def test_acs_failure_moves_to_failed():
     clock, equipment, acs, cycle = build()
     acs.fail_next = True
 
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    request_transport(equipment)
     cycle.tick(); cycle.tick(); cycle.tick()
 
     job = cycle.finished[0]
@@ -136,7 +149,7 @@ def test_busy_fleet_queues_the_job_instead_of_failing_it():
             return True
 
     cycle.acs = BusyThenFree()
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    request_transport(equipment)
 
     # One transition per tick, so this takes two: t1 into ASSIGNED (which
     # submits and is told BUSY), then t_busy back out to IDLE.
@@ -180,7 +193,7 @@ def test_busy_retry_is_rate_limited():
 
     busy = AlwaysBusy()
     cycle.acs = busy
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    request_transport(equipment)
 
     for _ in range(20):               # 20 ticks, no time passing
         cycle.tick()
@@ -192,7 +205,7 @@ def test_busy_retry_is_rate_limited():
 def test_rejected_job_fails_without_running():
     clock, equipment, acs, cycle = build(accept=False)
 
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    request_transport(equipment)
     cycle.tick(); cycle.tick()
 
     job = cycle.finished[0]
@@ -203,7 +216,7 @@ def test_rejected_job_fails_without_running():
 def test_failed_job_cancels_at_acs():
     """A timed-out job must not leave a robot still driving to it."""
     clock, equipment, acs, cycle = build(timeout=10.0)
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    request_transport(equipment)
     cycle.tick(); cycle.tick()
     job = cycle.active[0][0]
 
@@ -257,7 +270,7 @@ def test_only_one_transition_fires_per_tick():
 def test_guard_error_does_not_stall_the_cycle():
     """A broken guard must not take the main cycle down with it."""
     clock, equipment, acs, cycle = build()
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    request_transport(equipment)
     cycle.tick()
 
     _, ctx, fsm = cycle.active[0]
@@ -273,7 +286,7 @@ def test_guard_error_does_not_stall_the_cycle():
 def test_station_produces_only_one_job_per_batch():
     """FINISHED sitting for many ticks must not spawn a job every tick."""
     clock, equipment, acs, cycle = build()
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    request_transport(equipment)
 
     for _ in range(5):
         cycle.tick()
@@ -290,10 +303,9 @@ def test_station_can_produce_again_after_its_job_completes():
     completing and nothing happens.
     """
     clock, equipment, acs, cycle = build(travel=1.0)
-    cycle.on_station_finished = lambda sid: cycle.create_job(sid, "station_9")
 
     # first batch
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    request_transport(equipment)
     cycle.tick(); cycle.tick()
     clock.advance(2.0)
     cycle.tick()
@@ -303,8 +315,8 @@ def test_station_can_produce_again_after_its_job_completes():
     # the source must be free again, not stuck in FINISHED
     assert equipment.get_station_status("station_3") is StationStatus.IDLE
 
-    # second batch from the same station must produce a second job
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    # the station may be served again: material exists and it asks once more
+    request_transport(equipment)
     cycle.tick(); cycle.tick()
     clock.advance(2.0)
     cycle.tick()

@@ -1,76 +1,99 @@
-"""EquipmentMonitorTask — "is the material actually ready at source?"
+"""EquipmentMonitorTask — "who is asking for a robot?"
 
-The first box on the whiteboard. It polls the production machines and turns
-finished batches into transport jobs. It decides nothing about robots, routes or
-timing; it only notices that work exists.
+The first box on the whiteboard, and the one whose direction was wrong until
+2026-08-04.
 
-Polling rather than waiting on an event, deliberately. The equipment protocol is
-unknown when this was written, and a poll is the one interaction every
-industrial protocol supports — Modbus has no notion of a subscription at all.
+**The correction.** This task used to watch machines and invent work: a station
+reported FINISHED, so a job was created to move its output onward. That is
+backwards. The equipment CALLS — usually because a person pressed a button on
+the machine or scanned a handheld terminal beside it — and only then does
+anything happen.
 
-⚠ **The specification arrived on 2026-08-04 and polling is not sufficient.** A
-machine requests a robot by *changing* a value: the request is the transition
-itself, and the machine clears the signal once it believes it was heard. A
-sampler misses any change that reverts between two samples, while the machine
-believes the call succeeded — a silently dropped job, which is the worst failure
-mode this layer has.
+    operator or machine  ──call──▶  CSM  ──▶  release from the source
 
-**Correction, 2026-08-04.** An earlier version of this note said subscriptions
-were the fix. They are not. Asked directly in the system review, the answer was
-that the equipment interface is *not* event-driven at all — both sides call each
-other by raising bits, and CSM is expected to scan continuously at a fixed
-interval. So polling is the specified design, not a shortcut.
+The caller is the **destination**. A machine asking for a LOAD wants material
+brought *to* it; working out where that material comes from is our job, not
+something the call carries.
 
-What remains wrong is the **interval**, and it is now the entire safety margin:
-a request is a transition, and the machine clears it once it believes it was
-heard. 1 Hz here is an unjustified default. The number that decides it is the
-equipment's minimum signal hold time, which nobody has yet — until we do, treat
-this task as correct against the mock and unproven against the real protocol.
-See debt-033.
-
-One second is not a considered number so much as an obviously-safe one: a
-station takes minutes to finish a batch, so a second of latency is invisible,
-and one request per station per second is nothing to a PLC.
+**Polling is the specified interaction**, not a shortcut. The interface is not
+event-driven — both sides raise bits and the CSM scans at a fixed interval.
+Which makes the interval the entire safety margin, because a call is a
+transition and the machine clears it once it believes it was heard. The adapter
+latches calls until acknowledged so the race does not reach this task; the
+period below is still an unjustified default until somebody asks the equipment
+vendor for its minimum signal hold time. See debt-033.
 """
 
+from ...adapters.base import StationStatus, TaskType
 from ..fsm_task import FsmTask
+
+#: 1 Hz. Not a measured number — see the note above and debt-033.
+DEFAULT_PERIOD_S = 1.0
 
 
 class EquipmentMonitorTask(FsmTask):
 
     name = "equipment_monitor"
-    period = 1.0
+    period = DEFAULT_PERIOD_S
 
-    def __init__(self, store, route, wakes=None, name=None, period=None):
+    def __init__(self, store, source_for, wakes=None, name=None, period=None):
         """
         :param store: the shared JobStore
-        :param route: callable(station_id) -> destination station_id. A real
-            line is a process route, not everything piling into one place: a
-            part finishes at one machine and moves to the next operation.
-        :param wakes: FsmTasks to notify when a job is created. Wired by the
-            application, not known here — this task must not learn who its
-            listeners are.
+        :param source_for: callable(station_id) -> station_id that feeds it.
+            The call says who wants material, never where it comes from, so
+            somebody has to answer that. It is the process route, and it lives
+            outside this task because a route is configuration, not logic.
+        :param wakes: FsmTasks to notify when a job is created.
         """
         super().__init__(name=name, period=period)
         self.store = store
-        self.route = route
+        self.source_for = source_for
         self.wakes = list(wakes or [])
 
-        #: Jobs this task has created. Cheap health signal: a monitor with zero
-        #: created jobs and a factory that is producing means something is wrong
-        #: between them.
         self.created = 0
+        #: Calls heard but not turned into jobs, because the source had nothing
+        #: to give. Worth counting separately: a rising number here is a supply
+        #: problem upstream, not a fault in this layer.
+        self.deferred = 0
 
     async def step(self):
-        for station_id in self.store.find_finished_stations():
-            self.store.claim_station(station_id)
-            destination = self.route(station_id)
-            self.store.create(station_id, destination)
+        for call in self.store.equipment.poll_calls():
+            source = self.source_for(call.station_id)
+
+            # A source that is empty, still processing, or faulted cannot serve
+            # this call yet. Leave the call outstanding — do NOT acknowledge it
+            # — so it is picked up again once material exists. Acknowledging
+            # here would tell the machine it had been heard and then drop the
+            # request, which is the silent failure this layer must not have.
+            if not self._can_supply(source):
+                self.deferred += 1
+                continue
+
+            # One job per station at a time. The station latch is the store's,
+            # and it is what stops a machine that keeps calling from spawning a
+            # second robot for work already under way.
+            if not self.store.claim_station(call.station_id):
+                continue
+
+            self.store.create(source, call.station_id,
+                              task_type=call.task_type)
             self.created += 1
 
-            # Wake the others now rather than letting them find it on their own
-            # next poll. Both would get there eventually; this removes up to a
-            # full poll period of dead time per job, and it is what makes the
-            # whiteboard's arrows between the boxes real.
+            # Heard. The machine stops calling now, and only now.
+            self.store.equipment.acknowledge_call(call)
+            self.store.logger(
+                f"[{call.station_id}] call heard via {call.source} "
+                f"({call.task_type.name.lower()}) — source {source}")
+
             for task in self.wakes:
                 task.notify()
+
+    def _can_supply(self, station_id):
+        """Can this place actually hand something over right now?
+
+        BUSY is the one worth stating: a machine that is processing HOLDS
+        material but cannot give it. Treating held and available as the same
+        thing sends a robot to collect something that does not exist yet.
+        """
+        return (self.store.equipment.get_station_status(station_id)
+                is StationStatus.FINISHED)

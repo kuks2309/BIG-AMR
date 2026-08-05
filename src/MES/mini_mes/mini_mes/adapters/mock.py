@@ -19,15 +19,15 @@ told to fail on demand, because the failure paths are the ones worth testing.
 
 import itertools
 
-from .base import (AcsAdapter, EquipmentAdapter, StationStatus,
-                   TransportResult)
+from .base import (AcsAdapter, EquipmentAdapter, StationStatus, TaskType,
+                   TransportCall, TransportResult)
 
 
 class MockEquipment(EquipmentAdapter):
 
     def __init__(self, station_ids, clock, process_seconds=5.0):
         """
-        :param station_ids:     e.g. ["station_3", "station_9"]
+        :param station_ids:     e.g. ["1A01", "1T01"]
         :param clock:           callable() -> float, seconds
         :param process_seconds: how long BUSY lasts before FINISHED
         """
@@ -36,6 +36,12 @@ class MockEquipment(EquipmentAdapter):
         self._status = {sid: StationStatus.IDLE for sid in station_ids}
         self._busy_until = {}
         self.commands = []          # recorded for assertions in tests
+
+        #: Calls raised and not yet acknowledged. Held here rather than
+        #: reported as a level, because a call is a transition and the machine
+        #: clears it once it believes it was heard — see TransportCall.
+        self._calls = []
+        self.acknowledged = []      # recorded for assertions in tests
 
     # -- EquipmentAdapter ------------------------------------------------
 
@@ -72,12 +78,43 @@ class MockEquipment(EquipmentAdapter):
     def list_stations(self):
         return list(self._status)
 
+    # -- the call interface ----------------------------------------------
+
+    def poll_calls(self):
+        """Outstanding calls. Latched until acknowledged, deliberately."""
+        return list(self._calls)
+
+    def acknowledge_call(self, call):
+        self.acknowledged.append((self._clock(), call.station_id))
+        self._calls = [c for c in self._calls if c is not call]
+
     # -- test helpers ----------------------------------------------------
 
     def force_status(self, station_id, status):
         """Put a station into any state directly, including FAULT."""
         self._status[station_id] = status
         self._busy_until.pop(station_id, None)
+
+    def raise_call(self, station_id, task_type=TaskType.LOAD, source="machine"):
+        """A machine asks for a robot — the way work actually starts.
+
+        `source` is "machine" or "PDA"; the protocol treats them identically
+        and both are ultimately a person pressing something.
+        """
+        call = TransportCall(station_id, task_type, self._clock(), source)
+        self._calls.append(call)
+        return call
+
+    def start_processing(self, station_id, seconds=None):
+        """The machine begins work on what it was given.
+
+        BUSY means it HOLDS material that is not available. Only when the time
+        elapses does it become FINISHED and collectable. A machine handed a raw
+        roll has nothing to give until this completes.
+        """
+        self._status[station_id] = StationStatus.BUSY
+        self._busy_until[station_id] = self._clock() + (
+            self._process_seconds if seconds is None else seconds)
 
 
 class MockAcs(AcsAdapter):

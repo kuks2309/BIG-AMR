@@ -103,19 +103,38 @@ class MainCycle:
     # ---------------------------------------------------------------- loop
 
     def read_inputs(self):
-        """Turn finished stations into transport jobs.
+        """Turn outstanding calls into transport jobs.
 
-        A station gets at most one job in flight at a time; the store owns that
-        rule and the reasoning behind it.
+        Corrected 2026-08-04 along with the concurrent driver. This used to
+        watch for stations reporting FINISHED and invent work for them, which
+        is backwards — the equipment calls, and material being present is a
+        separate fact that decides whether a call can be *served*.
+
+        Both drivers now read the same input through the same store, which is
+        the point of sharing it. Two drivers implementing two different designs
+        would be worse than the duplication the store was extracted to avoid.
         """
-        for station_id in self.store.find_finished_stations():
-            self.store.claim_station(station_id)
-            self.on_station_finished(station_id)
+        from .adapters.base import StationStatus
 
-    def on_station_finished(self, station_id):
-        """Override to choose a destination. Default sends everything to
-        `station_out`, which is enough to exercise the pipeline."""
-        self.create_job(from_station=station_id, to_station="station_out")
+        for call in self.store.equipment.poll_calls():
+            source = self.source_for(call.station_id)
+            # Not servable yet: leave the call outstanding rather than
+            # acknowledging work we are not going to do.
+            if (self.store.equipment.get_station_status(source)
+                    is not StationStatus.FINISHED):
+                continue
+            if not self.store.claim_station(call.station_id):
+                continue
+            self.store.create(source, call.station_id, task_type=call.task_type)
+            self.store.equipment.acknowledge_call(call)
+
+    def source_for(self, station_id):
+        """Which station feeds this one. Override to describe the real route.
+
+        Note the direction: a call says who WANTS material, never where it
+        comes from. Answering that is the CSM's job.
+        """
+        return "ASRS"
 
     def step_jobs(self):
         """Advance every active job by one tick, retiring the terminal ones."""

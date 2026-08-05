@@ -76,13 +76,16 @@ class MesApp:
         return f"<MesApp {self.health()}>"
 
 
-def build_mes(equipment, acs, route, clock=time.monotonic, logger=print,
+def build_mes(equipment, acs, source_for, clock=time.monotonic, logger=print,
               job_timeout_s=600.0, poll_seconds=None, install_supervisor=True):
     """Assemble the Mini MES.
 
     :param equipment: EquipmentAdapter — mock, or the CATL one when it exists
     :param acs:       AcsAdapter — mock, SimAcs, or the real fleet controller
-    :param route:     callable(station_id) -> destination station_id
+    :param source_for: callable(station_id) -> the station that FEEDS it.
+        Note the direction. A machine calls for material to be brought TO it,
+        so what we need to know is where that material comes from — not where
+        this machine's output goes next.
     :param poll_seconds: optional {task_name: period} override. Only for hosts
         with a good reason — a simulation running faster than real time, say.
     :param install_supervisor: False builds the tasks without one, for a host
@@ -96,7 +99,7 @@ def build_mes(equipment, acs, route, clock=time.monotonic, logger=print,
                      job_timeout_s=job_timeout_s, dispatch_gated=True)
 
     periods = poll_seconds or {}
-    monitor = EquipmentMonitorTask(store, route=route,
+    monitor = EquipmentMonitorTask(store, source_for=source_for,
                                    period=periods.get("equipment_monitor"))
     dispatcher = DispatcherTask(store, period=periods.get("dispatcher"))
     tracker = JobTrackerTask(store, period=periods.get("job_tracker"))

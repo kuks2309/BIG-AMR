@@ -16,24 +16,38 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from mini_mes.adapters.base import StationStatus, TransportResult  # noqa: E402
+from mini_mes.adapters.base import StationStatus, TaskType, TransportResult  # noqa: E402
 from mini_mes.adapters.mock import ManualClock, MockAcs, MockEquipment  # noqa: E402
 from mini_mes.main_cycle import MainCycle                          # noqa: E402
 from mini_mes.runtime import build_mes                             # noqa: E402
 
-STATIONS = ["station_3", "station_5", "station_9"]
-ROUTE = {"station_3": "station_5", "station_5": "station_9"}
+STATIONS = ["ASRS", "1A01", "1T01", "1L01"]
+
+#: Who feeds whom. The call says who WANTS material; this says where it is.
+FEEDS = {"1A01": "ASRS", "1T01": "1A01", "1L01": "1T01"}
 
 
-def route(station_id):
-    return ROUTE.get(station_id, "station_9")
+def source_for(station_id):
+    return FEEDS.get(station_id, "ASRS")
+
+
+def call_everywhere(equipment):
+    """Every machine asks for material, and the supply chain is stocked.
+
+    This is what a busy line looks like from this layer: several outstanding
+    calls at once, competing for a fleet that cannot serve them all.
+    """
+    for sid in STATIONS:
+        equipment.force_status(sid, StationStatus.FINISHED)
+    for sid in ("1A01", "1T01", "1L01"):
+        equipment.raise_call(sid, TaskType.LOAD)
 
 
 def build(travel=2.0, timeout=600.0, supervisor=True):
     clock = ManualClock()
     equipment = MockEquipment(STATIONS, clock)
     app = build_mes(equipment, MockAcs(clock, travel_seconds=travel),
-                    route=route, clock=clock, logger=lambda m: None,
+                    source_for=source_for, clock=clock, logger=lambda m: None,
                     job_timeout_s=timeout, install_supervisor=supervisor)
     return clock, equipment, app
 
@@ -88,7 +102,8 @@ def test_a_finished_batch_becomes_a_retired_job():
     """Nobody calls anything directly. The monitor notices, the dispatcher
     grants, the tracker moves it — three machines, one outcome."""
     clock, equipment, app = build(travel=2.0)
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    equipment.force_status("ASRS", StationStatus.FINISHED)
+    equipment.raise_call("1A01", TaskType.LOAD)
 
     tick(app, 3)
     clock.advance(3.0)
@@ -102,21 +117,25 @@ def test_a_finished_batch_becomes_a_retired_job():
 
 def test_the_route_is_followed_not_a_default_sink():
     clock, equipment, app = build(travel=1.0)
-    equipment.force_status("station_5", StationStatus.FINISHED)
+    equipment.force_status("1A01", StationStatus.FINISHED)
+    equipment.raise_call("1T01", TaskType.LOAD)
     tick(app, 2)
 
-    assert app.store.active[0].job.to_station == "station_9"
+    assert app.store.active[0].job.to_station == "1T01"
+    assert app.store.active[0].job.from_station == "1A01"
 
 
 def test_a_station_produces_again_after_its_job_completes():
     """The regression that stalled the line, re-checked through the new path."""
     clock, equipment, app = build(travel=1.0)
 
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    equipment.force_status("ASRS", StationStatus.FINISHED)
+    equipment.raise_call("1A01", TaskType.LOAD)
     tick(app, 3); clock.advance(2.0); tick(app)
     assert app.tracker.completed == 1
 
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    equipment.force_status("ASRS", StationStatus.FINISHED)
+    equipment.raise_call("1A01", TaskType.LOAD)
     tick(app, 3); clock.advance(2.0); tick(app)
     assert app.tracker.completed == 2
 
@@ -128,8 +147,7 @@ def test_a_one_robot_fleet_drains_a_queue_without_losing_a_job():
     acs = OneRobotAcs(clock, travel_seconds=2.0)
     app.store.acs = acs
 
-    for sid in ("station_3", "station_5", "station_9"):
-        equipment.force_status(sid, StationStatus.FINISHED)
+    call_everywhere(equipment)
 
     for _ in range(60):
         tick(app)
@@ -165,7 +183,7 @@ def test_the_dispatcher_stops_the_fleet_being_shouted_at():
         equipment = MockEquipment(stations, clock)
         acs = OneRobotAcs(clock, travel_seconds=2.0)
         if gated:
-            app = build_mes(equipment, acs, route=lambda s: "sink",
+            app = build_mes(equipment, acs, source_for=lambda s: "sink",
                             clock=clock, logger=lambda m: None,
                             install_supervisor=False)
             drive, finished = (lambda: asyncio.run(app.tick_all()),
@@ -173,12 +191,13 @@ def test_the_dispatcher_stops_the_fleet_being_shouted_at():
         else:
             cycle = MainCycle(equipment, acs, clock=clock,
                               logger=lambda m: None)
-            cycle.on_station_finished = \
-                lambda sid: cycle.create_job(sid, "sink")
+            cycle.source_for = lambda sid: "sink"
             drive, finished = cycle.tick, lambda: len(cycle.finished)
 
-        for sid in producers:
+        for sid in stations:
             equipment.force_status(sid, StationStatus.FINISHED)
+        for sid in producers:
+            equipment.raise_call(sid, TaskType.LOAD)
         for _ in range(200):
             drive()
             clock.advance(0.5)
@@ -209,10 +228,8 @@ def test_the_two_drivers_reach_the_same_outcome():
         equipment = MockEquipment(STATIONS, clock)
         cycle = MainCycle(equipment, OneRobotAcs(clock), clock=clock,
                           logger=lambda m: None)
-        cycle.on_station_finished = \
-            lambda sid: cycle.create_job(sid, route(sid))
-        for sid in STATIONS:
-            equipment.force_status(sid, StationStatus.FINISHED)
+        cycle.source_for = source_for
+        call_everywhere(equipment)
         for _ in range(60):
             cycle.tick()
             clock.advance(0.5)
@@ -221,11 +238,10 @@ def test_the_two_drivers_reach_the_same_outcome():
     def run_supervised():
         clock = ManualClock()
         equipment = MockEquipment(STATIONS, clock)
-        app = build_mes(equipment, OneRobotAcs(clock), route=route,
+        app = build_mes(equipment, OneRobotAcs(clock), source_for=source_for,
                         clock=clock, logger=lambda m: None,
                         install_supervisor=False)
-        for sid in STATIONS:
-            equipment.force_status(sid, StationStatus.FINISHED)
+        call_everywhere(equipment)
         for _ in range(60):
             asyncio.run(app.tick_all())
             clock.advance(0.5)
@@ -248,11 +264,12 @@ def test_it_runs_under_the_supervisor_on_real_timers():
     through on their own periods."""
     equipment = MockEquipment(STATIONS, time.monotonic)
     app = build_mes(equipment, MockAcs(time.monotonic, travel_seconds=0.05),
-                    route=route, clock=time.monotonic, logger=lambda m: None,
+                    source_for=source_for, clock=time.monotonic, logger=lambda m: None,
                     poll_seconds={"equipment_monitor": 0.02,
                                   "dispatcher": 0.02,
                                   "job_tracker": 0.02})
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    equipment.force_status("ASRS", StationStatus.FINISHED)
+    equipment.raise_call("1A01", TaskType.LOAD)
 
     async def scenario():
         task = asyncio.ensure_future(
@@ -272,7 +289,7 @@ def test_one_crashing_fsm_does_not_stop_the_others():
     everything. Splitting the loop was supposed to buy this."""
     equipment = MockEquipment(STATIONS, time.monotonic)
     app = build_mes(equipment, MockAcs(time.monotonic, travel_seconds=0.05),
-                    route=route, clock=time.monotonic, logger=lambda m: None,
+                    source_for=source_for, clock=time.monotonic, logger=lambda m: None,
                     poll_seconds={"equipment_monitor": 0.02,
                                   "dispatcher": 0.02,
                                   "job_tracker": 0.02})
@@ -287,7 +304,8 @@ def test_one_crashing_fsm_does_not_stop_the_others():
         await original()
 
     app.dispatcher.step = flaky
-    equipment.force_status("station_3", StationStatus.FINISHED)
+    equipment.force_status("ASRS", StationStatus.FINISHED)
+    equipment.raise_call("1A01", TaskType.LOAD)
 
     async def scenario():
         task = asyncio.ensure_future(

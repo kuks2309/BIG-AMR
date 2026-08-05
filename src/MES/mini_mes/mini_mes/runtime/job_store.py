@@ -54,7 +54,7 @@ class JobStore:
 
     # ---------------------------------------------------------------- jobs
 
-    def create(self, from_station, to_station, priority=0):
+    def create(self, from_station, to_station, priority=0, task_type=None):
         self._job_seq += 1
         now = self.clock()
         job = Job(
@@ -65,6 +65,9 @@ class JobStore:
             created_at=now,
             state_since=now,
         )
+        # What the equipment asked for: load, unload, or swap. Carried so the
+        # adapter can issue the right operation without re-deriving it.
+        job.task_type = task_type
         ctx = JobContext(job, self.equipment, self.acs, self.clock,
                          logger=self.logger, job_timeout_s=self.job_timeout_s)
         # A gated store hands submission timing to the Dispatcher FSM; an
@@ -135,9 +138,19 @@ class JobStore:
 
         for record in retired:
             self.finished.append(record.job)
-            # Free the source station whether the job succeeded or failed — a
-            # failed job must not block that station for ever.
+            # Free BOTH ends, whether the job succeeded or failed.
+            #
+            # Which end was claimed changed on 2026-08-04: the old model claimed
+            # the source (the station whose output we were moving), the new one
+            # claims the CALLER, which is the destination. Discarding both is
+            # correct under either, and a discard of something never claimed is
+            # a no-op — so this cannot leak a latch again if the direction is
+            # ever revisited.
+            #
+            # A leaked latch does not fail loudly. The station simply stops
+            # being served, for ever, while everything else keeps working.
             self.station_busy.discard(record.job.from_station)
+            self.station_busy.discard(record.job.to_station)
             self.logger(f"[{record.job.job_id}] retired in "
                         f"{record.fsm.current.name}")
 

@@ -37,16 +37,70 @@ from enum import Enum
 class StationStatus(Enum):
     """What a production machine reports about itself.
 
-    Deliberately small. These are the only distinctions the Mini MES needs to
-    decide whether transport work exists. A richer protocol should be collapsed
-    into these by the adapter, not leaked upward.
+    Deliberately small. These are the only distinctions the Mini MES needs, and
+    a richer protocol is collapsed into them by the adapter rather than leaked
+    upward.
+
+    ⚠ These describe what a machine HAS. They do not say whether it wants
+    anything — that is a separate question with a separate answer, and
+    conflating the two is the mistake corrected on 2026-08-04. See
+    `TransportCall` below.
     """
 
     IDLE = "idle"            # nothing loaded, nothing to collect
-    BUSY = "busy"            # processing, do not disturb
-    FINISHED = "finished"    # done — material is waiting for collection
+    BUSY = "busy"            # processing — holds material, but not available
+    FINISHED = "finished"    # done — material is available for collection
     FAULT = "fault"          # broken; needs a human
     UNKNOWN = "unknown"      # unreachable or not answering
+
+
+class TaskType(Enum):
+    """What a machine is asking for, as the equipment issues it."""
+
+    LOAD = 1     # bring material to me
+    UNLOAD = 2   # take material away from me
+    SWAP = 3     # take what I have, then bring me the next one
+
+
+class TransportCall:
+    """A machine asking for a robot.
+
+    **This is the correction of 2026-08-04, and it is the direction of the whole
+    system.**
+
+    The earlier model was that the Mini MES watched machines and pushed work at
+    them: a station reported FINISHED, so we invented a job to move its output
+    onward. That is backwards. The equipment CALLS — very often because a human
+    pressed a button on the machine or scanned a handheld terminal beside it —
+    and only then does anything happen.
+
+        operator or machine  ──call──▶  CSM  ──▶  release from the source
+
+    Two consequences that are easy to miss:
+
+    **The caller is the DESTINATION, not the source.** A machine calling for a
+    LOAD is asking for material to be brought *to* it. Where that material comes
+    from is our problem to work out, not something the call carries.
+
+    **The call is a transition, and the machine clears it once it believes it
+    was heard.** So an adapter must report an outstanding call until the FSM has
+    acted on it — see `EquipmentAdapter.poll_calls`.
+    """
+
+    __slots__ = ("station_id", "task_type", "raised_at", "source")
+
+    def __init__(self, station_id, task_type, raised_at=0.0, source="equipment"):
+        self.station_id = station_id
+        self.task_type = task_type
+        #: Where the call came from — the machine itself, or a person with a
+        #: handheld terminal. The protocol treats them identically; we record it
+        #: because "a human is waiting" is worth seeing in a log.
+        self.source = source
+        self.raised_at = raised_at
+
+    def __repr__(self):
+        return (f"<TransportCall {self.station_id} "
+                f"{self.task_type.name} via {self.source}>")
 
 
 class EquipmentAdapter(ABC):
@@ -57,9 +111,36 @@ class EquipmentAdapter(ABC):
     """
 
     @abstractmethod
+    def poll_calls(self):
+        """Outstanding transport calls. Returns a list of `TransportCall`.
+
+        **The primary input to the whole system.** Machines ask; we answer.
+
+        Polling is the specified interaction, not a shortcut — the interface is
+        not event-driven, both sides raise bits, and the CSM is expected to scan
+        continuously at a fixed interval.
+
+        ⚠ An implementation must hold a call until `acknowledge_call` is
+        received. A call is raised as a transition and the machine clears it
+        once it believes it was heard, so an adapter that reports the raw level
+        can drop a request between two scans while the machine believes it
+        succeeded. Latch it here, where the protocol detail belongs, rather than
+        exposing the race to the FSM. See debt-033.
+        """
+
+    @abstractmethod
+    def acknowledge_call(self, call) -> None:
+        """Tell the equipment its call was heard, so it stops asking."""
+
+    @abstractmethod
     def get_station_status(self, station_id) -> StationStatus:
-        """Current status of one station. Must not block for long — this is
-        called from the main cycle."""
+        """What this station currently HAS. Must not block for long.
+
+        Note this is no longer how work is discovered — `poll_calls` is. This
+        answers the different question of whether a source can actually give
+        anything, which is what stops a robot being sent to collect from a
+        machine that is empty or still processing.
+        """
 
     @abstractmethod
     def send_station_command(self, station_id, command) -> bool:

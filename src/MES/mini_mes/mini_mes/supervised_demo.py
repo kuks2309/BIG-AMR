@@ -21,14 +21,14 @@ import argparse
 import asyncio
 import time
 
-from .adapters.base import StationStatus, TransportResult
+from .adapters.base import StationStatus, TaskType, TransportResult
 from .adapters.mock import MockEquipment
 from .runtime import FsmTask, build_mes
 
-STATIONS = ["station_3", "station_5", "station_9", "station_out"]
-ROUTE = {"station_3": "station_5",
-         "station_5": "station_9",
-         "station_9": "station_out"}
+STATIONS = ["ASRS", "1A01", "1T01", "1L01"]
+
+#: Who feeds whom. A call says who WANTS material, never where it comes from.
+FEEDS = {"1A01": "ASRS", "1T01": "1A01", "1L01": "1T01"}
 
 
 class FakeFleet:
@@ -75,16 +75,23 @@ class FactoryTask(FsmTask):
     def __init__(self, equipment, period):
         super().__init__(period=period)
         self.equipment = equipment
-        self.producers = [s for s in ROUTE]
+        self.producers = list(FEEDS)
         self._next = 0
         self.batches = 0
 
     async def step(self):
+        """A machine asks for material — the way work actually starts.
+
+        The supply chain is kept stocked so the calls can be served; this demo
+        is about the queueing, not about the line filling up.
+        """
         station = self.producers[self._next % len(self.producers)]
         self._next += 1
-        self.equipment.force_status(station, StationStatus.FINISHED)
+        for sid in STATIONS:
+            self.equipment.force_status(sid, StationStatus.FINISHED)
+        self.equipment.raise_call(station, TaskType.LOAD, source="PDA")
         self.batches += 1
-        print(f"  ── {station} finished a batch")
+        print(f"  ── {station} called for material (PDA)")
 
 
 class StopAfter(FsmTask):
@@ -111,7 +118,7 @@ async def run(seconds, robots, batch_seconds, travel):
     fleet = FakeFleet(robots=robots, travel_seconds=travel)
 
     app = build_mes(equipment, fleet,
-                    route=lambda sid: ROUTE.get(sid, "station_out"),
+                    source_for=lambda sid: FEEDS.get(sid, "ASRS"),
                     clock=time.monotonic,
                     logger=lambda m: print(f"  {m}"))
 
