@@ -41,8 +41,29 @@ class Mcl2dLocalizationNode : public rclcpp::Node
                 RCLCPP_ERROR(get_logger(), "map load FAIL: %s", map_path.c_str());
             }
         }
-        // Roll_A084 듀얼 라이다
-        loc_->setLasers({{0.879, -0.579, -M_PI / 4}, {-0.879, 0.579, 3 * M_PI / 4}});
+        // 라이다 장착 자세 — [x0,y0,yaw0, x1,y1,yaw1, ...] (m, rad), update(scans) 순서와 일치.
+        // 기본값은 이 기체(Foil_A082)의 Seer 컨트롤러 설정에서 읽은 값이다(2026-08-07,
+        // 1500 robot_status_model_req → deviceTypes/laser: FrontLiDAR id0, RearLiDAR id1).
+        //   FrontLiDAR  x 0.881676  y -0.578664  yaw -45°      ip 192.168.192.100:6060
+        //   RearLiDAR   x -0.857    y  0.5971    yaw 135.29°   ip 192.168.192.101:6061
+        // 둘 다 useForLocalization=true. 기체가 바뀌면 같은 조회로 값을 다시 받아 파라미터로 넘긴다.
+        const std::vector<double> kFoilA082Mounts = {0.881676, -0.578664, -M_PI / 4,
+                                                     -0.857, 0.5971, 135.29 * M_PI / 180.0};
+        const auto mount_flat = declare_parameter<std::vector<double>>("laser_mounts", kFoilA082Mounts);
+        if (mount_flat.size() < 3 || mount_flat.size() % 3 != 0)
+        {
+            RCLCPP_FATAL(get_logger(), "laser_mounts 는 3의 배수여야 한다(받은 값 %zu개) — [x,y,yaw] 반복",
+                         mount_flat.size());
+            throw std::invalid_argument("laser_mounts size must be a positive multiple of 3");
+        }
+        std::vector<LaserMount> mounts;
+        for (std::size_t i = 0; i + 2 < mount_flat.size(); i += 3)
+        {
+            mounts.push_back({mount_flat[i], mount_flat[i + 1], mount_flat[i + 2]});
+            RCLCPP_INFO(get_logger(), "laser[%zu] mount x=%.6f y=%.6f yaw=%.4f rad (%.3f deg)", i / 3,
+                        mount_flat[i], mount_flat[i + 1], mount_flat[i + 2], mount_flat[i + 2] * 180.0 / M_PI);
+        }
+        loc_->setLasers(mounts);
         loc_->setInitialPose({init_x, init_y, init_theta});
 
         pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("mcl_pose", 10);
