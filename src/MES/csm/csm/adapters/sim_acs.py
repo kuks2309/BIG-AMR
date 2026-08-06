@@ -404,13 +404,29 @@ class SimRobot:
         distance = math.hypot(gx - x, gy - y)
 
         if distance < self.tolerance:
-            if self.fleet is not None and self._exit_station:
-                self.fleet.release(self._exit_station, self.name or "robot")
+            station = self._exit_station
+            self._release_exit()
             self.node.get_logger().info(
-                f"{self._tag()}clear of {self._exit_station} — waiting outside")
-            self._exit_goal = None
-            self._exit_station = None
-            self._stop()
+                f"{self._tag()}clear of {station} — waiting outside")
+            return
+
+        # STALL GUARD. Arriving was the only way out of this leg, so a robot
+        # that cannot reach the waiting spot — wedged, or blocked by another
+        # robot — drives at the exit pose forever. Nothing upstream notices,
+        # because with _active_job already cleared the fleet reports it "idle"
+        # the whole time it is driving.
+        #
+        # Measured 2026-08-06: amr1 backed out of 1A03, never arrived, and kept
+        # driving about 5 m across the hall into the pillar at (0, 2.0), where
+        # it wedged and stayed for the rest of the run.
+        #
+        # Giving up releases the bay. Holding it would strand the next robot on
+        # behalf of one whose job is already over.
+        if self._exit_stalled(x, y):
+            self.node.get_logger().warn(
+                f"{self._tag()}could not clear {self._exit_station} in "
+                f"{self.stall_seconds:.0f}s — giving up and releasing the bay")
+            self._release_exit()
             return
 
         # Full avoidance on the way out: there is no goal near a machine to
@@ -428,6 +444,65 @@ class SimRobot:
         cmd.linear.x = vx / m * speed
         cmd.linear.y = vy / m * speed
         self.pub_cmd.publish(cmd)
+
+    def _robot_ahead(self, x, y, ex, ey):
+        """Name of another robot inside the protective field, or None.
+
+        Fleet poses, not the scanners, and on purpose: a range reading cannot
+        tell a robot from the machine being docked to, and the approach point
+        sits only 1.6 m from a solid machine. A protective field driven by range
+        alone would refuse to let the robot dock at all — which is precisely why
+        the dock fade exists. Robot positions are known exactly, so this can
+        stop for robots and still allow docking.
+
+        Only the corridor AHEAD counts. The platform crabs, so "ahead" is the
+        direction of travel — the goal vector — not where the nose points.
+        """
+        if self.fleet is None:
+            return None
+        n = math.hypot(ex, ey)
+        if n < 1e-9:
+            return None
+        fx, fy = ex / n, ey / n
+        for other in self.fleet.robots:
+            if other is self or other.pose is None:
+                continue
+            dx, dy = other.pose[0] - x, other.pose[1] - y
+            along = dx * fx + dy * fy
+            if along <= 0.0 or along >= ROBOT_STOP_AHEAD:
+                continue                      # behind us, or far enough off
+            if abs(-dx * fy + dy * fx) < ROBOT_STOP_SIDE:
+                return other.name or "robot"
+        return None
+
+    def _release_exit(self):
+        """Let go of the bay and stop. The only way out of the exit leg."""
+        if self.fleet is not None and self._exit_station:
+            self.fleet.release(self._exit_station, self.name or "robot")
+        self._exit_goal = None
+        self._exit_station = None
+        self._reset_stall()
+        self._stop()
+
+    def _exit_stalled(self, x, y):
+        """_check_stall for the exit leg.
+
+        Separate because _check_stall ends the job through _finish, and there
+        is no job here — _finish is what started this leg. Same thresholds, so
+        a robot that cannot back out gives up as readily as one that cannot
+        reach a station.
+        """
+        now = self.node.get_clock().now().nanoseconds * 1e-9
+        if self._stall_ref is None:
+            self._stall_ref = (x, y)
+            self._stall_since = now
+            return False
+        moved = math.hypot(x - self._stall_ref[0], y - self._stall_ref[1])
+        if moved >= self.stall_distance:
+            self._stall_ref = (x, y)
+            self._stall_since = now
+            return False
+        return now - self._stall_since >= self.stall_seconds
 
     def _on_arrival(self, distance):
         """Reached the current leg's goal."""
