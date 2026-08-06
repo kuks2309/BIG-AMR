@@ -4,6 +4,13 @@ project(mcl2d_ros2)
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 17)
 endif()
+# ament 기본 빌드타입은 비어 있어 최적화 플래그가 붙지 않는다(-O0). 파티클필터가 핫패스라
+# 그대로 두면 위치추정 주기가 34Hz 입력 대비 4.83Hz 까지 떨어진다(2026-08-02 실기 A/B,
+# 인스턴스 1개 조건 30초 측정: Release 29.6Hz / 최적화없음 4.83Hz = 6.1배, 처리비율 0.95 vs 0.15).
+# 형제 mcl2d_core/CMakeLists.txt 와 동일하게 기본을 Release 로.
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
 add_compile_options(-Wall -Wextra)
 
 find_package(ament_cmake REQUIRED)

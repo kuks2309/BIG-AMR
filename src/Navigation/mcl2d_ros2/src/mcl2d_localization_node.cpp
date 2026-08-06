@@ -47,8 +47,16 @@ class Mcl2dLocalizationNode : public rclcpp::Node
 
         pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("mcl_pose", 10);
         tf_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+        // 오도메트리는 BEST_EFFORT 로 구독한다. icp_odometry(rtabmap_odom)는 `qos` 파라미터를
+        // 구독뿐 아니라 **발행에도** 적용해 /odom 을 BEST_EFFORT 로 내보내는데, 기본 RELIABLE 로
+        // 구독하면 offered(BEST_EFFORT) < requested(RELIABLE) 라 한 건도 전달되지 않는다
+        // (2026-08-02 실기 확인: "incompatible QoS ... No messages will be sent to it",
+        //  `ros2 topic info /odom -v` → Reliability: BEST_EFFORT).
+        // BEST_EFFORT 구독자는 RELIABLE 발행자와도 연결되므로 이쪽이 항상 넓다.
+        rclcpp::QoS odom_qos(20);
+        odom_qos.best_effort();
         sub_odom_ = create_subscription<nav_msgs::msg::Odometry>(
-            "odom", 20, [this](nav_msgs::msg::Odometry::SharedPtr m) { onOdom(*m); });
+            "odom", odom_qos, [this](nav_msgs::msg::Odometry::SharedPtr m) { onOdom(*m); });
         sub_front_ = create_subscription<sensor_msgs::msg::LaserScan>(
             "scan_front", 10, [this](sensor_msgs::msg::LaserScan::SharedPtr m) { front_ = fromRosScan(*m); });
         sub_rear_ = create_subscription<sensor_msgs::msg::LaserScan>(
