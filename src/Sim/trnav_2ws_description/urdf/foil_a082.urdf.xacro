@@ -55,6 +55,30 @@
   </xacro:if>
   <xacro:property name="PFX" value="${NS + '/' if NS else ''}"/>
 
+  <!-- ABSOLUTE TOPIC PREFIX (2026-08-06). Measured, not assumed: Gazebo gives a
+       plugin's node the namespace of the PREVIOUSLY inserted model, not its own.
+       From one clean three-robot run:
+
+         [amr1.amr1_gazebo_ros2_control] ... in namespace: /amr1   (right)
+         [amr1.amr2_gazebo_ros2_control] ... in namespace: /amr1   (wrong)
+         [amr2.amr3_gazebo_ros2_control] ... in namespace: /amr2   (wrong)
+
+       The model SDF Gazebo holds is correct — `gz model -m amr2 -i` shows
+       <namespace>/amr2</namespace> — so the description is not at fault and no
+       change to it can fix the namespace. Only controller_manager escapes,
+       because gazebo_ros2_control reads the SDF itself rather than inheriting
+       the plugin node's namespace.
+
+       The consequence was severe and silent: amr2's sensors and ground truth
+       published into /amr1, so /amr1/odom_truth carried two robots' poses
+       alternately, and amr3 had no scans, no IMU and no ground truth at all.
+
+       So do not rely on the namespace. Every plugin topic below is written
+       ABSOLUTE via this prefix, which resolves the same wherever the node
+       lands. Empty namespace gives /scan_front, /odom_truth ... exactly the
+       single-robot topics sim.launch.py already expects. -->
+  <xacro:property name="TNS" value="${'/' + NS if NS else ''}"/>
+
   <!-- ===================== parameters ===================== -->
   <!-- Measured (robot_geometry_2ws.yaml) -->
   <xacro:property name="W1_X" value="0.6039"/>
@@ -326,7 +350,7 @@
       <plugin name="${NS + '_' if NS else ''}scan_front_plugin" filename="libgazebo_ros_ray_sensor.so">
         <ros>
           <namespace>/${NS}</namespace>
-          <remapping>~/out:=scan_front</remapping>
+          <remapping>~/out:=${TNS}/scan_front</remapping>
         </ros>
         <output_type>sensor_msgs/LaserScan</output_type>
         <frame_name>scan_front_link</frame_name>
@@ -354,7 +378,7 @@
       <plugin name="${NS + '_' if NS else ''}scan_rear_plugin" filename="libgazebo_ros_ray_sensor.so">
         <ros>
           <namespace>/${NS}</namespace>
-          <remapping>~/out:=scan_rear</remapping>
+          <remapping>~/out:=${TNS}/scan_rear</remapping>
         </ros>
         <output_type>sensor_msgs/LaserScan</output_type>
         <frame_name>scan_rear_link</frame_name>
@@ -370,7 +394,7 @@
       <plugin name="${NS + '_' if NS else ''}imu_plugin" filename="libgazebo_ros_imu_sensor.so">
         <ros>
           <namespace>/${NS}</namespace>
-          <remapping>~/out:=imu/data</remapping>
+          <remapping>~/out:=${TNS}/imu/data</remapping>
         </ros>
         <frame_name>imu_link</frame_name>
         <initial_orientation_as_reference>false</initial_orientation_as_reference>
@@ -390,7 +414,7 @@
     <plugin name="${NS + '_' if NS else ''}ground_truth" filename="libgazebo_ros_p3d.so">
       <ros>
         <namespace>/${NS}</namespace>
-        <remapping>odom:=odom_truth</remapping>
+        <remapping>odom:=${TNS}/odom_truth</remapping>
       </ros>
       <frame_name>world</frame_name>
       <!-- base_footprint, not base_link: Gazebo lumps links joined by fixed
