@@ -13,6 +13,8 @@ install(
     scripts/wheel_cmd_bridge.py
     scripts/wheel_odometry.py
     scripts/teleop_gui.py
+    scripts/show_roads.py
+    scripts/generate_world.py
     scripts/stop_sim.sh
     scripts/run_gui.sh
     scripts/start_sim.sh
