@@ -44,11 +44,23 @@ from launch_ros.actions import Node
 #: clear of the corner stations and of each other — two robots spawned on top of
 #: one another push each other across the floor before anything is even running.
 START_POSES = [
-    (-3.0, -8.0, 0.0),
-    (0.0, -8.0, 0.0),
-    (3.0, -8.0, 0.0),
-    (6.0, -8.0, 0.0),
+    (-3.0, -4.5, 0.0),
+    (0.0, -4.5, 0.0),
+    (3.0, -4.5, 0.0),
+    (6.0, -4.5, 0.0),
 ]
+
+#: Measured 2026-08-06: robots parked at y = -8.0 were found at y = -9.4 before
+#: any job started — 1.4 m of drift into the south wall, whose inner face is at
+#: -9.9. A robot 1.6 m long is then jammed against it, cannot move, and the
+#: stall detector fails its first job within eight seconds. Three of four jobs
+#: in a five-minute run died that way, and because the machines never received
+#: material the stations downstream could never be served either: 46 of 50 calls
+#: went unanswered from this one cause.
+#:
+#: The drift itself is not explained — the robots are idle and uncommanded when
+#: it happens, so something in the spawn or the casters rolls them. Parking well
+#: clear of the wall stops it mattering; it does not stop it happening.
 
 
 def _strip_comments(node):
