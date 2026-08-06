@@ -112,7 +112,12 @@
     #
     # 실측 확정 (2026-08-03 11:44, `Tools/docking_field_kit/orin_steer_crosscheck.py`,
     #   2회 독립 실행이 counts 단위까지 동일. 산출 Log/steer_xcheck_reboot_0deg*.jsonl):
-    #   조건 — 판다 SAFETY_SILENT·passthrough(제어권 미취득)라 CAN 과 Seer 가 독립 경로.
+    # ❌ 정정 2026-08-06 — 아래 「독립 경로」·「사용자 확인 0°」·「2회 독립 실행 동일」은 반증됐다.
+    #    Seer 1005/1040 은 판다가 엿듣는 바로 그 0x6064 의 아핀 변환(1040 x57,344 = 1.000001,
+    #    1005 = 1.000130)이라 역산식이 항등식이다. 유효한 근거는 '송신 0건(AST)' 뿐이고,
+    #    값의 지위는 물리 0° 실측이 아니라 'Seer 좌표계의 조향 영점 + 공학적 채택'이다.
+    #    인용 금지. 현행 정본: docs/homing/2026-08-03-can-relay-homing-assets.md §0.
+    #   (이력) 조건 — 판다 SAFETY_SILENT·passthrough(제어권 미취득)라 CAN 과 Seer 가 독립 경로.
     #          도구는 AST 구문트리 검사로 송신 API 호출 0건 확인.
     #          **사용자 확인: Seer 표시 앞바퀴 2축 모두 0°**  ⇒ 외삽이 거의 없는 이상적 조건.
     #   node3  CAN 7,871,823c (sigma=3, n=3110) · Seer -0.000° (sigma=0.000) -> 0° = 7,871,816c

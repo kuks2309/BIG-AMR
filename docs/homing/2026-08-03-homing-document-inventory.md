@@ -235,8 +235,8 @@
 
 | 파일:줄 | 값 | 기준선#6 대조 |
 |---|---|---|
-| `src/Comm/CAN/can_relay/config/machine/foil_a082.yaml:126` | `[7871810, 7839894]` | ✅ **정본** |
-| `Tools/amr_test_gui/gui.py:46` | `{3:7871810, 4:7839894}` | ✅ (config 미연동 사본) |
+| `src/Comm/CAN/can_relay/config/machine/foil_a082.yaml` | `[7871815, 7840086]` | ✅ **정본** (2026-08-06 재확인 — 이전 기재 `[7871810, 7839894]` 는 폐기값) |
+| `Tools/amr_test_gui/gui.py` | `_load_steer_home()` → 정본 YAML 로드(실패 시 코드 사본 `{3:7871815, 4:7840086}` + 경고) | ✅ **2026-08-06 재확인** — 이전 기재는 **값·기전 둘 다 틀렸다**(폐기값 + 지금은 하드코딩이 아니라 YAML 연동) |
 | `src/Actuators/motor_control/config/tongyi_amr.yaml:40` | `[7871810, 7839894]` | ✅ (사본) |
 | `motor_control/driver_node.py:71` | `[7871810, 7839894]` | ⚠ 코드 기본값 존재 자체가 debt-032 |
 | `Tools/Kinematics/chassis_kinematics.py:79` | `{3:7871810, 4:7839894}` | ✅ (사본) |
