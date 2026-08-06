@@ -308,6 +308,19 @@
         </visual>
       </link>
     </model>
+    <model name="markerbit_ASRS_0">
+      <static>true</static>
+      <pose>-17.030 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="marker_GRV1_LD">
       <static>true</static>
       <pose>-11.200 6.980 0.675 0 0 0</pose>
@@ -330,6 +343,32 @@
           <material>
             <ambient>0.05 0.05 0.05 1</ambient>
             <diffuse>0.05 0.05 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV1_LD_1">
+      <static>true</static>
+      <pose>-11.215 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV1_LD_3">
+      <static>true</static>
+      <pose>-11.185 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
@@ -360,6 +399,45 @@
         </visual>
       </link>
     </model>
+    <model name="markerbit_GRV1_ULD_0">
+      <static>true</static>
+      <pose>-8.830 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV1_ULD_1">
+      <static>true</static>
+      <pose>-8.815 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV1_ULD_3">
+      <static>true</static>
+      <pose>-8.785 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="marker_GRV2_LD">
       <static>true</static>
       <pose>-5.200 6.980 0.675 0 0 0</pose>
@@ -382,6 +460,32 @@
           <material>
             <ambient>0.05 0.05 0.05 1</ambient>
             <diffuse>0.05 0.05 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV2_LD_2">
+      <static>true</static>
+      <pose>-5.200 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV2_LD_3">
+      <static>true</static>
+      <pose>-5.185 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
@@ -412,6 +516,45 @@
         </visual>
       </link>
     </model>
+    <model name="markerbit_GRV2_ULD_0">
+      <static>true</static>
+      <pose>-2.830 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV2_ULD_2">
+      <static>true</static>
+      <pose>-2.800 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV2_ULD_3">
+      <static>true</static>
+      <pose>-2.785 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="marker_GRV3_LD">
       <static>true</static>
       <pose>0.800 6.980 0.675 0 0 0</pose>
@@ -434,6 +577,45 @@
           <material>
             <ambient>0.05 0.05 0.05 1</ambient>
             <diffuse>0.05 0.05 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV3_LD_1">
+      <static>true</static>
+      <pose>0.785 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV3_LD_2">
+      <static>true</static>
+      <pose>0.800 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV3_LD_3">
+      <static>true</static>
+      <pose>0.815 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
@@ -464,6 +646,58 @@
         </visual>
       </link>
     </model>
+    <model name="markerbit_GRV3_ULD_0">
+      <static>true</static>
+      <pose>3.170 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV3_ULD_1">
+      <static>true</static>
+      <pose>3.185 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV3_ULD_2">
+      <static>true</static>
+      <pose>3.200 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV3_ULD_3">
+      <static>true</static>
+      <pose>3.215 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="marker_GRV4_LD">
       <static>true</static>
       <pose>6.800 6.980 0.675 0 0 0</pose>
@@ -486,6 +720,19 @@
           <material>
             <ambient>0.05 0.05 0.05 1</ambient>
             <diffuse>0.05 0.05 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV4_LD_4">
+      <static>true</static>
+      <pose>6.830 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
@@ -516,6 +763,32 @@
         </visual>
       </link>
     </model>
+    <model name="markerbit_GRV4_ULD_0">
+      <static>true</static>
+      <pose>9.170 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_GRV4_ULD_4">
+      <static>true</static>
+      <pose>9.230 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="marker_CTR1_LD">
       <static>true</static>
       <pose>-11.200 -6.980 0.675 0 0 0</pose>
@@ -538,6 +811,19 @@
           <material>
             <ambient>0.05 0.05 0.05 1</ambient>
             <diffuse>0.05 0.05 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_CTR1_LD_1">
+      <static>true</static>
+      <pose>-11.185 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
@@ -568,6 +854,32 @@
         </visual>
       </link>
     </model>
+    <model name="markerbit_CTR1_ULD_0">
+      <static>true</static>
+      <pose>-8.770 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_CTR1_ULD_1">
+      <static>true</static>
+      <pose>-8.785 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="marker_CTR2_LD">
       <static>true</static>
       <pose>-5.200 -6.980 0.675 0 0 0</pose>
@@ -590,6 +902,19 @@
           <material>
             <ambient>0.05 0.05 0.05 1</ambient>
             <diffuse>0.05 0.05 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_CTR2_LD_2">
+      <static>true</static>
+      <pose>-5.200 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
@@ -620,6 +945,32 @@
         </visual>
       </link>
     </model>
+    <model name="markerbit_CTR2_ULD_0">
+      <static>true</static>
+      <pose>-2.770 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_CTR2_ULD_2">
+      <static>true</static>
+      <pose>-2.800 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="marker_CTR3_LD">
       <static>true</static>
       <pose>0.800 -6.980 0.675 0 0 0</pose>
@@ -642,6 +993,32 @@
           <material>
             <ambient>0.05 0.05 0.05 1</ambient>
             <diffuse>0.05 0.05 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_CTR3_LD_1">
+      <static>true</static>
+      <pose>0.815 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_CTR3_LD_2">
+      <static>true</static>
+      <pose>0.800 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
@@ -672,6 +1049,45 @@
         </visual>
       </link>
     </model>
+    <model name="markerbit_CTR3_ULD_0">
+      <static>true</static>
+      <pose>3.230 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_CTR3_ULD_1">
+      <static>true</static>
+      <pose>3.215 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_CTR3_ULD_2">
+      <static>true</static>
+      <pose>3.200 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="marker_CTR4_LD">
       <static>true</static>
       <pose>6.800 -6.980 0.675 0 0 0</pose>
@@ -694,6 +1110,19 @@
           <material>
             <ambient>0.05 0.05 0.05 1</ambient>
             <diffuse>0.05 0.05 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_CTR4_LD_3">
+      <static>true</static>
+      <pose>6.785 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
@@ -724,6 +1153,32 @@
         </visual>
       </link>
     </model>
+    <model name="markerbit_CTR4_ULD_0">
+      <static>true</static>
+      <pose>9.230 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_CTR4_ULD_3">
+      <static>true</static>
+      <pose>9.185 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="marker_SLT_LD1">
       <static>true</static>
       <pose>-18.950 -6.980 0.675 0 0 0</pose>
@@ -746,6 +1201,32 @@
           <material>
             <ambient>0.05 0.05 0.05 1</ambient>
             <diffuse>0.05 0.05 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_SLT_LD1_1">
+      <static>true</static>
+      <pose>-18.935 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_SLT_LD1_4">
+      <static>true</static>
+      <pose>-18.980 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
@@ -776,6 +1257,45 @@
         </visual>
       </link>
     </model>
+    <model name="markerbit_SLT_LD2_0">
+      <static>true</static>
+      <pose>-17.620 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_SLT_LD2_1">
+      <static>true</static>
+      <pose>-17.635 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_SLT_LD2_4">
+      <static>true</static>
+      <pose>-17.680 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="marker_SLT_LD3">
       <static>true</static>
       <pose>-16.350 -6.980 0.675 0 0 0</pose>
@@ -798,6 +1318,32 @@
           <material>
             <ambient>0.05 0.05 0.05 1</ambient>
             <diffuse>0.05 0.05 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_SLT_LD3_2">
+      <static>true</static>
+      <pose>-16.350 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_SLT_LD3_4">
+      <static>true</static>
+      <pose>-16.380 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
@@ -828,6 +1374,45 @@
         </visual>
       </link>
     </model>
+    <model name="markerbit_SLT_LD4_0">
+      <static>true</static>
+      <pose>-15.020 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_SLT_LD4_2">
+      <static>true</static>
+      <pose>-15.050 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_SLT_LD4_4">
+      <static>true</static>
+      <pose>-15.080 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="marker_WIP_GRV1">
       <static>true</static>
       <pose>11.800 6.980 0.675 0 0 0</pose>
@@ -850,6 +1435,32 @@
           <material>
             <ambient>0.05 0.05 0.05 1</ambient>
             <diffuse>0.05 0.05 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_WIP_GRV1_3">
+      <static>true</static>
+      <pose>11.815 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_WIP_GRV1_4">
+      <static>true</static>
+      <pose>11.830 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
@@ -880,6 +1491,45 @@
         </visual>
       </link>
     </model>
+    <model name="markerbit_WIP_GRV2_0">
+      <static>true</static>
+      <pose>14.170 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_WIP_GRV2_3">
+      <static>true</static>
+      <pose>14.215 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_WIP_GRV2_4">
+      <static>true</static>
+      <pose>14.230 6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="marker_WIP_CTR1">
       <static>true</static>
       <pose>11.800 -6.980 0.675 0 0 0</pose>
@@ -906,6 +1556,45 @@
         </visual>
       </link>
     </model>
+    <model name="markerbit_WIP_CTR1_1">
+      <static>true</static>
+      <pose>11.815 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_WIP_CTR1_2">
+      <static>true</static>
+      <pose>11.800 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_WIP_CTR1_4">
+      <static>true</static>
+      <pose>11.770 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="marker_WIP_CTR2">
       <static>true</static>
       <pose>14.200 -6.980 0.675 0 0 0</pose>
@@ -928,6 +1617,58 @@
           <material>
             <ambient>0.05 0.05 0.05 1</ambient>
             <diffuse>0.05 0.05 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_WIP_CTR2_0">
+      <static>true</static>
+      <pose>14.230 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_WIP_CTR2_1">
+      <static>true</static>
+      <pose>14.215 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_WIP_CTR2_2">
+      <static>true</static>
+      <pose>14.200 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="markerbit_WIP_CTR2_4">
+      <static>true</static>
+      <pose>14.170 -6.960 0.675 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
+          <material>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>

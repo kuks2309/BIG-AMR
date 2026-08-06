@@ -190,6 +190,31 @@ for _n, _s in STATIONS.items():
     else:
         MARKERS[_n] = (_dx, ROW_S_Y + MACHINE_D / 2.0, math.pi / 2.0)
 
+#: INSIDE THIS RANGE OF A MARKER the robot is in the bay and must not turn.
+#:
+#: Docked, it presents its flat side — half-width 0.45 m — leaving 0.229 m to
+#: the machine face. Rotating swings the corner out to the half-diagonal,
+#: hypot(0.8, 0.45) = 0.918 m: an extra 0.468 m of sweep into a 0.229 m gap, so
+#: a corner cuts about 0.24 m INTO the machine. Reversing out the way it came in
+#: is not tidiness, it is the only motion that fits.
+#:
+#: A marker is 4.0 m from its spur junction, the dock 2.2 m, and the docked
+#: robot 0.65 m. Three metres therefore covers the whole bay and releases the
+#: robot to turn only once it is within a metre of the aisle.
+BAY_RADIUS = abs((ROW_N_Y - MACHINE_D / 2.0) - AISLE_N_Y) - 1.0
+
+#: EVERY MARKER IS DIFFERENT, and a robot checks the one it can see before it
+#: enters. A marker is not just something to aim at — it says WHICH port this
+#: is, so arriving at the wrong station is detectable rather than silent.
+#:
+#: Without it, a robot pointed at the wrong bay docks perfectly against the
+#: wrong machine and reports success; the CSM then believes material is
+#: somewhere it is not. With it, the mismatch stops the approach.
+#:
+#: Stable and sorted, so an id belongs to a port for good and does not shuffle
+#: when the plant gains a machine.
+MARKER_IDS = {name: i for i, name in enumerate(sorted(DOCKS), start=1)}
+
 #: Robot half-width. It crabs sideways into the dock, so this is the face that
 #: ends up against the machine.
 ROBOT_HALF_WIDTH = 0.45

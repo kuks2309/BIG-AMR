@@ -317,18 +317,25 @@ class SimRobot:
 
     def _begin_docking(self, station):
         """Hand the last couple of metres to the marker-guided controller."""
+        # The robot is told WHICH marker this bay must show. If it can see a
+        # marker but it is the wrong one, the approach is refused before the
+        # robot moves — docking against the wrong machine would be reported as
+        # success, and the CSM would then believe material is somewhere it is
+        # not.
         self._dock = docking.DockController(target=plant.DOCK_TARGET,
-                                            d_min=plant.DOCK_MIN)
+                                            d_min=plant.DOCK_MIN,
+                                            expect_id=plant.MARKER_IDS.get(station))
         self._dock.reset(now=self._now())
         self._docking = True
         self.node.get_logger().info(
             f"{self._tag()}{self._active_job}: at {station} approach point — "
-            f"docking on marker")
+            f"docking on marker {plant.MARKER_IDS.get(station)}")
 
     def _run_docking(self, station):
         """One docking cycle. Ends the leg on success, fails the job on fault."""
         marker = plant.MARKERS.get(station)
-        obs = docking.observe(self.pose, marker) if marker else None
+        obs = (docking.observe(self.pose, marker, plant.MARKER_IDS.get(station))
+               if marker else None)
         if obs is not None:
             obs.stamp = self._now()
 

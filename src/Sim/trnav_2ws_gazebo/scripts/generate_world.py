@@ -168,6 +168,23 @@ def main():
         parts.append(box(f"markerdot_{name}", mx + nx * 0.03, my + ny * 0.03, MARKER_Z,
                          0.08, 0.01, 0.08, (0.05, 0.05, 0.05, 1), solid=False))
 
+        # EVERY MARKER IS DIFFERENT. The id is drawn as white cells in a row
+        # across the black square — a plain binary tally, five bits, enough for
+        # the 25 ports. The robot checks it before entering, so arriving at the
+        # wrong bay is refused rather than docked against and reported as a
+        # success. Drawn rather than merely numbered so it can be read off the
+        # screen as well as out of the log.
+        marker_id = plant.MARKER_IDS[name]
+        px, py = -ny, nx                        # across the face of the marker
+        for bit in range(5):
+            if not (marker_id >> bit) & 1:
+                continue
+            off = (bit - 2) * 0.015
+            parts.append(box(
+                f"markerbit_{name}_{bit}",
+                mx + nx * 0.04 + px * off, my + ny * 0.04 + py * off, MARKER_Z,
+                0.009, 0.005, 0.034, (0.97, 0.97, 0.97, 1), solid=False))
+
     parts.append(FTR)
 
     here = os.path.dirname(os.path.abspath(__file__))

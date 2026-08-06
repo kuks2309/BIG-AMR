@@ -64,6 +64,7 @@ LOWPASS = 0.85          # heavy, for the same reason
 class Observation:
     """What the robot sees of the marker, in its own body frame.
 
+    :param marker_id: identity of the marker seen, or None if unidentified
     :param range_m: distance to the marker along the approach axis
     :param cte:     lateral offset of the marker from the approach axis;
                     positive means the marker is to the +90 deg side of it
@@ -72,11 +73,15 @@ class Observation:
     :param stamp:   when this was observed, seconds
     """
 
-    def __init__(self, range_m, cte, axis, stamp):
+    def __init__(self, range_m, cte, axis, stamp, marker_id=None):
         self.range_m = range_m
         self.cte = cte
         self.axis = axis
         self.stamp = stamp
+        #: WHICH port this marker belongs to. The whole point of a marker being
+        #: unique: it identifies the bay, so arriving at the wrong one is
+        #: detectable instead of silent.
+        self.marker_id = marker_id
 
 
 class Result:
@@ -96,7 +101,8 @@ class DockController:
 
     def __init__(self, target=D_TARGET, d_min=D_MIN, kp_dist=KP_DIST,
                  kp_lat=KP_LAT, v_max=V_MAX, tol_d=TOL_D, tol_lat=TOL_LAT,
-                 conv_n=CONV_N, obs_stale=OBS_STALE, timeout=TIMEOUT):
+                 conv_n=CONV_N, obs_stale=OBS_STALE, timeout=TIMEOUT,
+                 expect_id=None):
         self.target = target
         self.d_min = d_min
         self.kp_dist = kp_dist
@@ -107,6 +113,9 @@ class DockController:
         self.conv_n = conv_n
         self.obs_stale = obs_stale
         self.timeout = timeout
+        #: The marker this dock MUST show. None accepts whatever is seen, which
+        #: is only right where there is nothing to confuse it with.
+        self.expect_id = expect_id
         self.reset()
 
     def reset(self, now=0.0):
@@ -139,6 +148,13 @@ class DockController:
         # project that only pushed the marker further out of view.
         if obs is None or now - obs.stamp > self.obs_stale:
             return self._fail("marker lost")
+
+        # WRONG BAY. Refuse before moving, not after docking. A robot that
+        # docks against the wrong machine reports success, and the CSM then
+        # believes material is somewhere it is not — far worse than a failure.
+        if self.expect_id is not None and obs.marker_id != self.expect_id:
+            return self._fail(
+                f"wrong marker: expected {self.expect_id}, saw {obs.marker_id}")
 
         # SETTLE: command the steering, drive nothing, until the wheels arrive.
         if self.phase == "settle":
@@ -234,8 +250,8 @@ def _wrap(a):
 CAMERA_YAWS = (math.pi / 2, -math.pi / 2)
 
 
-def observe(robot_pose, marker_pose, max_range=6.0, half_fov=math.radians(55.0),
-            camera_yaws=CAMERA_YAWS):
+def observe(robot_pose, marker_pose, marker_id=None, max_range=6.0,
+            half_fov=math.radians(55.0), camera_yaws=CAMERA_YAWS):
     """Build an Observation from ground truth — the simulator's stand-in camera.
 
     A real camera sees the marker or it does not, so the same limits apply here:
@@ -274,4 +290,4 @@ def observe(robot_pose, marker_pose, max_range=6.0, half_fov=math.radians(55.0),
     bearing = math.atan2(by, bx)
     if not any(abs(_wrap(bearing - cam)) <= half_fov for cam in camera_yaws):
         return None
-    return Observation(range_m, cte, axis, 0.0)
+    return Observation(range_m, cte, axis, 0.0, marker_id)
