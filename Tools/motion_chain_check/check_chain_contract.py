@@ -154,8 +154,21 @@ def read_mech_limit_deg(counts_per_deg: float):
     return min(vals) / counts_per_deg, f"SEER_HOME_ZERO min={min(vals):,}"
 
 
+def spin_requirement_deg(geom: dict, offset_deg: float) -> float:
+    """**제자리 스핀이 요구하는 raw 조향각** — 클램프가 이보다 작으면 스핀이 잘린다.
+
+    inline 2WS 는 `y ≈ 0` 이라 제자리 회전(vx=vy=0)이 구조상 ±90° 근처를 요구한다:
+        θ_spin = atan2(x_i, −y_i)
+    translator 가 영점 오프셋을 빼므로 can_relay 가 보는 raw 는 그보다 |offset| 만큼 크다
+    (+θ 쪽). 사용자 요구(2026-08-06): **스핀은 허용할 것.**
+    """
+    th = math.degrees(math.atan2(float(geom["w1_x"]), -float(geom["w1_y"])))
+    return abs(abs(th) + abs(offset_deg))
+
+
 def check_steer_limits(clamp_deg: float, bench_deg: float, wrap_margin_deg,
-                       mech_limit_deg, mech_note: str, twows_limits: dict) -> Result:
+                       mech_limit_deg, mech_note: str, twows_limits: dict,
+                       spin_req_deg=None) -> Result:
     """하류 클램프가 **상류 요구치 이상, 기구 한계 이하**인가.
 
         90° + WRAP_MARGIN  ≤  can_relay steer_limit_deg  ≤  기구 −리밋
@@ -180,6 +193,14 @@ def check_steer_limits(clamp_deg: float, bench_deg: float, wrap_margin_deg,
                      f"보정 여유가 최대 {lower - clamp_deg:.0f}° 잘리고, 잘리면 구동 부호 반전이 걸린다")
     else:
         lines.append(f"         하한 {lower:.0f}° (90° + WRAP_MARGIN) 충족 — 크랩 보정 여유 보존")
+    # 사용자 요구(2026-08-06) — 스핀은 허용할 것. WRAP_MARGIN 이 낮아져도 이 하한은 남는다.
+    if spin_req_deg is not None:
+        if clamp_deg + 1e-9 < spin_req_deg:
+            ok = False
+            lines.append(f"         ⚠ **스핀이 잘린다** — 제자리 회전은 raw {spin_req_deg:.2f}° 를 "
+                         f"요구하는데 클램프가 {clamp_deg}° 다(요구: 스핀 허용)")
+        else:
+            lines.append(f"         스핀 요구 {spin_req_deg:.2f}° ≤ {clamp_deg}° — 제자리 회전 허용")
     if mech_limit_deg is None:
         lines.append(f"         ⚠ 기구 −리밋 미판정 ({mech_note}) — 상한 확인 불가")
     elif clamp_deg > mech_limit_deg + 1e-9:
@@ -261,12 +282,17 @@ def run_checks() -> list:
     effective_bench = float(machine.get("steer_limit_bench_deg",
                                         relay.get("steer_limit_bench_deg", effective_clamp)))
     mech_limit, mech_note = read_mech_limit_deg(float(machine["steer_counts_per_deg"]))
+    try:
+        spin_req = spin_requirement_deg(load_ros_params(GEOMETRY_CANONICAL),
+                                        float(tr["steer_offset_front_deg"]))
+    except (OSError, ValueError, KeyError):
+        spin_req = None
     out = [
         check_steer_scale(tr, machine),
         check_drive_scale(tr, machine),
         check_motor_ids(tr, relay),
         check_steer_limits(effective_clamp, effective_bench, read_wrap_margin_deg(CRAB_SRC),
-                           mech_limit, mech_note, collect_twows_limits(twows)),
+                           mech_limit, mech_note, collect_twows_limits(twows), spin_req),
     ]
     try:
         canonical = load_ros_params(GEOMETRY_CANONICAL)
@@ -308,11 +334,12 @@ _BASE_GEOM = {"w1_x": 0.6039, "w1_y": -0.0014, "w2_x": -0.5961, "w2_y": -0.0014,
               "wheel_radius": 0.125, "gear_walk": 32.0}
 
 
-def _all(tr, machine, relay, limits, margin, clamp=115.0, mech=137.1, bench=90.0):
+def _all(tr, machine, relay, limits, margin, clamp=115.0, mech=137.1, bench=90.0,
+         spin_req=91.55):
     return {r.cid: r for r in [
         check_steer_scale(tr, machine), check_drive_scale(tr, machine),
         check_motor_ids(tr, relay),
-        check_steer_limits(clamp, bench, margin, mech, "시험", limits),
+        check_steer_limits(clamp, bench, margin, mech, "시험", limits, spin_req),
     ]}
 
 
@@ -365,6 +392,16 @@ def selftest() -> int:
     cases.append(("벤치 90 ≤ 체인 115 → C4 PASS", r.ok is True))
     r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0, clamp=115.0, bench=130.0)["C4"]
     cases.append(("벤치가 체인보다 넓으면 → C4 FAIL", r.ok is False))
+
+    # 스핀 허용 요구 — WRAP_MARGIN 이 0 이어도 이 하한은 남아야 한다.
+    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 0.0, clamp=91.0)["C4"]
+    cases.append(("clamp 91 < 스핀 요구 91.55 → C4 FAIL", r.ok is False))
+    cases.append(("스핀 잘림 경고 문구 포함", "스핀이 잘린다" in r.detail))
+    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 0.0, clamp=92.0)["C4"]
+    cases.append(("clamp 92 ≥ 스핀 요구 → C4 PASS", r.ok is True))
+    g = {"w1_x": 0.6039, "w1_y": -0.0014}
+    cases.append(("스핀 요구 = |atan2(x,−y)| + |offset|",
+                  abs(spin_requirement_deg(g, -1.676) - 91.546) < 0.01))
 
     # C6 — 2WS 기하 ↔ 정본
     ok6 = check_2ws_geometry(_BASE_GEOM, {"a_params.yaml": dict(_BASE_GEOM)})
