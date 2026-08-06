@@ -107,9 +107,25 @@ Seer 리버스 엔지니어링(Reverse Engineering) 자산이 있는 별도 PC. 
 | rbk 자산 | `<하드>/usr/local/SeerRobotics/rbk/plugins/libMCLoc.so`, `<하드>/usr/local/etc/.SeerRobotics/rbk/resources/params/robot.param`(SQLite) |
 | 도구 | `objdump`·`nm`·`readelf`·`python3` 있음. **`sqlite3` CLI 없음** → `python3 -c "import sqlite3"` 사용 |
 
+**접속은 래퍼 스크립트로 한다 — 호스트명을 직접 타이핑하지 않는다:**
+
 ```bash
-ssh -o ConnectTimeout=60 amap@amap-server 'whoami'     # ← 타임아웃을 넉넉히
+Tools/seer_re/amap_server.sh info                   # 접속 + 원본 하드·바이너리 확인
+Tools/seer_re/amap_server.sh ssh '<명령>'           # 원격 실행
+Tools/seer_re/amap_server.sh nm '<패턴>'            # libMCLoc.so 심볼 검색
+Tools/seer_re/amap_server.sh disasm 0x33cb70 0x33cca0
+Tools/seer_re/amap_server.sh push <파일...>         # /tmp/mcl_oracle/ 로 전송
+Tools/seer_re/amap_server.sh run <실행파일> "$(Tools/seer_re/amap_server.sh so)"
+
+ssh -o ConnectTimeout=60 amap@amap-server 'whoami'  # (직접 쓸 때) 타임아웃을 넉넉히
 ```
+
+> **⚠ 함정 0 — 이름·경로가 바뀐다. 재개(resume) 직후에는 기록부터 연다.**
+> 2026-08-06 에 tailscale 이름이 `amap-1` → `amap-server` 로 바뀌었고 하드도 `sda2` → `sdb2` 로 정정됐다.
+> 6일 만에 재개한 세션이 **이 문서와 프로젝트 메모리 두 곳이 이미 정정돼 있었는데도** 대화 이력의 낡은
+> 명령(`ssh amap@amap-1`)을 그대로 타이핑해 실패했다:
+> [docs/claude-mistake/2026-08-06-005](../claude-mistake/2026-08-06-005_hostname-typed-by-hand-ignoring-two-records.md).
+> 그래서 값을 위 스크립트에 박제했다 — 이름이 또 바뀌면 `Tools/seer_re/amap_server.sh` 의 `HOST` 한 줄만 고친다.
 
 > **⚠ 함정 1 — 첫 접속이 느리다. 타임아웃 15초로는 실패한다.**
 > `timeout 15 ssh amap@amap-server` 는 `Terminated`(exit 143)로 끝난다. 이는 **내가 건 타임아웃**이지
