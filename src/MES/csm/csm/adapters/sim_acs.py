@@ -138,6 +138,10 @@ class SimRobot:
                                  self._on_model_states, 10)
         node.create_subscription(LaserScan, f"{ns}/scan_front", self._on_front, 10)
         node.create_subscription(LaserScan, f"{ns}/scan_rear", self._on_rear, 10)
+        # Settle-then-drive needs the MEASURED steering angles. Commanded is not
+        # good enough: the whole point is that the servo lags the command.
+        node.create_subscription(JointState, f"{ns}/joint_states",
+                                 self._on_joints, 10)
 
         self.pose = None            # (x, y, yaw) ground truth
         self._front = None
@@ -190,6 +194,13 @@ class SimRobot:
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         self.pose = (pose.position.x, pose.position.y, yaw)
+
+    def _on_joints(self, msg):
+        for name, position in zip(msg.name, msg.position):
+            if name == "w1_steer_joint":
+                self._steer_actual[0] = position
+            elif name == "w2_steer_joint":
+                self._steer_actual[1] = position
 
     def _on_front(self, msg):
         self._front = msg
