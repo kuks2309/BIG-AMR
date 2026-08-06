@@ -433,6 +433,75 @@
     </plugin>
   </gazebo>
 
+  <!-- ===================== docking cameras ===================== -->
+  <!-- TWO cameras, one per side, optical axis along body +/-y.
+       Mounting mirrors the docking project (docking_gui_dist), which carries a
+       RealSense on each side: left_link (0, +0.34, 0.16) yaw +pi/2, right_link
+       the mirror of it. Scaled to this chassis, which is 0.9 m wide.
+
+       They face SIDEWAYS because the robot crabs into a dock: the machine is
+       beside it, never ahead. That is also why the drive controller holds its
+       aisle heading on a docking spur — turning to face the machine would swing
+       the marker out of both cameras' view. -->
+  <!-- AT THE BODY EDGE, flush. Moving these inboard looked like it would buy
+       working distance for the lens, and instead put the robot's own chassis in
+       the bottom third of the frame: the body half-width is 0.45 and its top is
+       only 0.04 m below the lens, so from 0.20 m the camera stares across its
+       own roof and the marker is clipped from below. Flush with the edge, the
+       body is behind the lens and cannot occlude anything.
+
+       The cost is that at the docked standoff the lens is only 0.16 m from the
+       marker and sees 0.22 m of width — which is what sets the marker size. -->
+  <xacro:property name="CAM_Y" value="0.46"/>
+  <xacro:property name="CAM_Z" value="0.55"/>
+
+  <xacro:macro name="dock_camera" params="side y yaw">
+    <link name="cam_${side}_link">
+      <visual>
+        <geometry><box size="0.03 0.10 0.03"/></geometry>
+        <material name="imu_green"/>
+      </visual>
+      <inertial><mass value="0.1"/><inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/></inertial>
+    </link>
+    <joint name="cam_${side}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child  link="cam_${side}_link"/>
+      <origin xyz="0 ${y} ${CAM_Z}" rpy="0 0 ${yaw}"/>
+    </joint>
+    <gazebo reference="cam_${side}_link">
+      <sensor type="camera" name="dock_cam_${side}">
+        <update_rate>15.0</update_rate>
+        <visualize>false</visualize>
+        <camera>
+          <!-- ~69 deg horizontal, the D435 colour stream. The docking
+               observation model assumes a 55 deg half-angle; this is wider,
+               so what the controller is told it can see, it really can. -->
+          <horizontal_fov>1.204</horizontal_fov>
+          <image><width>640</width><height>480</height><format>R8G8B8</format></image>
+          <clip><near>0.05</near><far>30.0</far></clip>
+        </camera>
+        <plugin name="${NS + '_' if NS else ''}dock_cam_${side}" filename="libgazebo_ros_camera.so">
+          <ros>
+            <namespace>/${NS}</namespace>
+            <!-- Source name is the CAMERA NAME, not ~. gazebo_ros_camera
+                 publishes on "<camera_name>/image_raw" relative to its node,
+                 so a "~/image_raw" rule never matches and the absolute target
+                 is silently not applied — which let Gazebo's namespace shift
+                 put amr2's cameras onto /amr1 and lose amr3's entirely.
+                 Measured: /amr1/dock_camera_left/image_raw had 2 publishers. -->
+            <remapping>dock_camera_${side}/image_raw:=${TNS}/dock_camera_${side}/image_raw</remapping>
+            <remapping>dock_camera_${side}/camera_info:=${TNS}/dock_camera_${side}/camera_info</remapping>
+          </ros>
+          <camera_name>dock_camera_${side}</camera_name>
+          <frame_name>${NS + '_' if NS else ''}cam_${side}_link</frame_name>
+        </plugin>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:dock_camera side="left"  y="${CAM_Y}"  yaw="${PI2}"/>
+  <xacro:dock_camera side="right" y="${-CAM_Y}" yaw="${-PI2}"/>
+
   <!-- ===================== ros2_control ===================== -->
   <!-- Stands in for the real CANopen SDO layer:
        steering = position control, drive = velocity control -->
