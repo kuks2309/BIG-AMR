@@ -147,7 +147,9 @@ class MesSimNode(Node):
         self.create_timer(batch_seconds + 2.0, self._produce_batch)
         self._next_station = 0
 
-        chain = " → ".join(["ASRS"] + list(FEEDS))
+        chain = " -> ".join(s["name"] + ": " + s["from"][0] + " -> "
+                             + s["to"][0].split("_")[0] + "_LD"
+                             for s in plant.SEGMENTS)
         self.get_logger().info(f"CSM up — process route: {chain}")
         self.get_logger().info(f"job timeout {job_timeout:.0f}s")
         self.get_logger().info("waiting for /odom from the simulation...")
