@@ -240,6 +240,27 @@ SEGMENTS = [
     },
 ]
 
+#: WHICH PORT SUPPLIES WHICH, paired by machine.
+#:
+#: Derived per index, not per segment. An earlier version took the segment's
+#: FIRST source for every destination, so all four coaters were fed from
+#: GRV1_ULD alone: gravure 2, 3 and 4's output was never collected and four
+#: machines queued behind one port.
+FEEDS = {}
+for _i in range(1, 5):
+    FEEDS[f"GRV{_i}_LD"] = "ASRS"
+    FEEDS[f"CTR{_i}_LD"] = f"GRV{_i}_ULD"
+    FEEDS[f"SLT_LD{_i}"] = f"CTR{_i}_ULD"
+
+#: A machine's material goes in one port and comes out the other — the line IP
+#: summary lists these as "Unwinder / Rewinder" pairs. Without the link the two
+#: ports are unrelated stations and the line cannot fill past its first stage:
+#: material delivered to a gravure's load port is never collectable from its
+#: unload port, so no coater job is ever servable and two thirds of the fleet
+#: never moves.
+PORT_LINKS = [(f"GRV{i}_LD", f"GRV{i}_ULD") for i in range(1, 5)]
+PORT_LINKS += [(f"CTR{i}_LD", f"CTR{i}_ULD") for i in range(1, 5)]
+
 #: Which segment each robot serves. Three robots, three segments — the real line
 #: runs 2 + 2 + 6 [S16], so this is one of each rather than the full fleet.
 ROBOT_SEGMENT = {"amr1": "A", "amr2": "B", "amr3": "C"}
