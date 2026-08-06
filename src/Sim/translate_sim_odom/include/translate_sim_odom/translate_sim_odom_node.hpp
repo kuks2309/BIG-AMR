@@ -86,8 +86,13 @@ class TranslateSimOdomNode : public rclcpp::Node
     //   (docs/verified_facts/2026-08-04-amr-test-gui-field-run.md:80-88) → 0.050/0.6 ≈ 0.083 m/s².
     //   ⚠ 드라이브의 실제 0x6084(profile_dec)는 Seer 마스터가 설정한 값이고 우리가 쓰지 않아
     //     읽어 확인한 바 없다 — 이 값은 **한 동작점(50 mm/s)에서 역산**한 것이다.
-    // steer_rate: 설정 유래. steer_profile_velocity 30000(=0.1 rpm 단위) → 모터 3000 rpm,
-    //   조향 감속비 315 → 출력 9.524 rpm = 57.1 deg/s. **실측이 아니라 설정에서 유도**했다.
+    // steer_rate: 설정 유래. steer_profile_velocity 30000 → 모터 3000 rpm, 조향 감속비 315
+    //   → 출력 9.524 rpm = 57.1 deg/s. **실측이 아니라 설정에서 유도**했다.
+    //   ⚠ 그 유도는 `0x6081`(profile velocity)이 **0.1 rpm 단위라는 가정**에 의존한다.
+    //     그 단위 근거는 저장소에도 `References/Tongyi-Motor-Controller/` 에도 **없다** —
+    //     `fb_vel`(0x606C)의 단위에서 유추했을 뿐이다. 단위가 다르면 57.1 도 틀린다.
+    //     ⇒ 이 값은 **자릿수 감(order-of-magnitude)** 으로만 쓰고, 조향 소요시간을 근거로
+    //       삼는 주장은 실측 전까지 하지 않는다.
     double drive_accel_mps2_{0.0};
     double drive_decel_mps2_{0.0};
     double steer_rate_rad_s_{0.0};

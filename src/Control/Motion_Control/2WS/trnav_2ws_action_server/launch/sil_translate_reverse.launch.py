@@ -38,9 +38,13 @@ def generate_launch_description():
     # /rtabmap/localization_pose (PoseWithCovarianceStamped, SensorDataQoS)
     #   → /robot_pose (PoseStamped, RELIABLE depth=10)
     # LocalizationMonitor 는 **TF 가 아니라 /robot_pose 토픽 캐시**만 쓴다
-    # (localization_monitor.cpp:137-150). 실차에선 trnav_pose_publisher 가 그 토픽을 내고,
-    # SIL 에선 이 어댑터가 낸다. 없으면 액션이 시작 즉시 abort(-3) 한다 —
-    # 에러 문구는 "TF2 map->base_link not available" 이지만 실제 원인은 이 토픽 부재다.
+    # (localization_monitor.cpp:137-150). SIL 에선 이 어댑터가 그 토픽을 낸다.
+    # 없으면 액션이 시작 즉시 abort(-3) 한다 — 에러 문구는
+    # "TF2 map->base_link not available" 이지만 실제 원인은 이 토픽 부재다.
+    # ⚠ 실차에서 /robot_pose 를 무엇이 내는지는 **이 저장소에서 확인되지 않는다.**
+    #   QD 문서가 `src/Navigation/trnav_pose_publisher` 를 가리키나 그 경로는 부재이고
+    #   (src/Navigation/ = icp_odometry_bringup · mcl2d_*), 근거는 sil_pose_adapter_node.cpp:8
+    #   주석 한 줄뿐이다. 실기 브링업에서 발행자를 확인할 것.
     pose_adapter_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([

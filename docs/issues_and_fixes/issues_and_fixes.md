@@ -58,8 +58,17 @@
   실차는 `trnav_pose_publisher` 가 그 토픽을 내고, SIL 에선 `sil_pose_adapter` 가
   `/rtabmap/localization_pose`(PoseWithCovarianceStamped) → `/robot_pose` 로 변환해 낸다.
   `sil_crab_linear` 에는 그 어댑터가 있고 `sil_spin`·`sil_turn` 에는 **불필요 사유가 명시**돼
-  있는데, 이 4종만 **사유 없이 빠져 있었다.** ⇒ 이 4개 런치는 **작성 이후 한 번도 성공한 적이
-  없다.** (실차 경로는 정상 — 이건 SIL 하네스만의 결함이다.)
+  있는데, 이 4종만 **사유 없이 빠져 있었다.**
+
+  > ⚠ **2026-08-06 자기 정정** — 초판은 여기에 두 가지를 더 적었으나 **근거가 없어 철회한다**:
+  > - ~~「이 4개 런치는 작성 이후 한 번도 성공한 적이 없다」~~ → 어댑터를 별도로 띄우면
+  >   동작하므로 **단정할 수 없다.** 확인된 것은 「이 런치만으로는 abort 한다」뿐이다.
+  > - ~~「실차 경로는 정상 — SIL 하네스만의 결함이다」~~ → **확인 불가.**
+  >   `/robot_pose` 를 내는 `trnav_pose_publisher` 는 **이 저장소에 없다**
+  >   (`src/Navigation/` = `icp_odometry_bringup`·`mcl2d_*` 뿐, QD 문서가 가리키는
+  >   `src/Navigation/trnav_pose_publisher` 경로는 **부재**). 근거는 `sil_pose_adapter_node.cpp:8`
+  >   주석 한 줄뿐이었다. **실기에서도 이 4종이 abort 할 가능성을 배제하지 못한다** —
+  >   실기 브링업에서 `/robot_pose` 발행자를 확인해야 한다. **미확인.**
 - **수정**: 4개 런치에 `sil_pose_adapter` include 추가(crab 과 동일 방식, 파라미터 불요).
 - **검증** (`ROS_DOMAIN_ID=43`, 2 m 직선):
 
@@ -101,10 +110,20 @@
   `mpc_reverse_debug` 계측: CTE 가 −0.0030 m 에서 단조 감소해 −0.0002 m,
   **|CTE| 가 증가한 스텝 0/557**. 제어는 정상 수렴한다. ⇒ **제어 결함 없음.**
 
-- **다만 진짜 결함이 하나 남는다 — 잘못된 입력에 `status 0` 을 준다.**
-  헤딩오차 ±180°·횡오차 0.39 m 로 끝났는데도 결과가 **SUCCEEDED** 였다. 성공 판정이
-  횡오차·헤딩오차를 보지 않는다. 호출자는 경로를 잘못 만들어도 **성공으로 통보받는다.**
-  같은 형태가 `translate_*`·`mpc` 에도 있는지 미확인. **미해결.**
+- **관측 사실 — `status` 는 경로 정확도를 담지 않는다** (⚠ 「결함」으로 단정하지 않는다):
+  - 헤딩오차 ±180°·횡오차 0.39 m 로 끝났는데도 결과가 **`status 0`(SUCCEEDED)** 였다.
+  - 코드 확인: `result->status = 0` 이 **무조건**이고(`mpc_reverse:953`),
+    `final_lateral_error`·`final_heading_error` 는 **계산해 결과에 실을 뿐 판정에 쓰지 않는다.**
+    **4종 전부 동일** — `translate_forward:950` · `translate_reverse:891` · `mpc:960` ·
+    `mpc_reverse:953`, 각 직전 12줄에 오차 검사 **0건**.
+  - **QD 원본도 동일** — 판정 블록 직접 대조 **차이 0(byte-identical)**.
+  - ⚠ **이것이 결함인지 설계인지 저장소 안에서 판정할 수 없다.** 액션이 오차를 **수치로
+    돌려주고 호출자가 판단하는 계약**일 수 있는데, 이 저장소에는
+    **`final_lateral_error`·`final_heading_error` 를 읽는 코드가 0건**이고 액션을 호출하는
+    상위 계층(미션·GUI)도 **0건**이다(각 `*_main.cpp` 는 노드 spin 뿐). 호출자는
+    저장소 밖(acs_gui 등)에 있다.
+  - **필요한 확인**: 외부 호출자가 이 두 필드를 검사하는가. 검사하면 설계대로이고,
+    무시하면 「경로를 잘못 만들어도 성공으로 통보」가 성립한다. **미확인.**
 - **부수**: `final_heading_error` 를 전진 기준으로 계산해 후진 시 ±180° 로 나온다(보고 아티팩트).
 - **교훈 기록**: `docs/claude-mistake/2026-08-06-004_mpc-reverse-defect-from-bad-probe.md`
 
