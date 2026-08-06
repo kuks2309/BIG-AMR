@@ -32,7 +32,7 @@ import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
-                            TimerAction)
+                            SetEnvironmentVariable, TimerAction)
 from launch.actions import RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
@@ -175,6 +175,21 @@ def generate_launch_description():
     ]
     gui = LaunchConfiguration('gui')
 
+    # Keep Gazebo able to find its system media (shaders). sim.launch.py has
+    # always done this; the fleet launch did not, so `gui:=true` brought up
+    # gzclient and it died immediately:
+    #
+    #   [Err] [RTShaderSystem.cc:480] Unable to find shader lib ...
+    #   [Err] [RenderEngine.cc:197]   Failed to initialize scene
+    #   gzclient: ... Assertion `px != 0' failed.        exit code -6
+    #
+    # gzserver is unaffected, so the fleet came up headless and looked fine
+    # from the topics while there was simply no window to watch it in. Nothing
+    # sources /usr/share/gazebo/setup.sh for us — not ~/.bashrc, not
+    # start_sim.sh — so the launch has to set it itself.
+    _res = os.environ.get('GAZEBO_RESOURCE_PATH', '') or '/usr/share/gazebo-11'
+    resource_path = SetEnvironmentVariable('GAZEBO_RESOURCE_PATH', _res)
+
     gzserver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(gazebo_ros, 'launch', 'gzserver.launch.py')),
@@ -198,4 +213,4 @@ def generate_launch_description():
                              xacro_file, LaunchConfiguration('steer_lag'),
                              delay=i * 8.0)
 
-    return LaunchDescription(args + [gzserver, gzclient] + robots)
+    return LaunchDescription(args + [resource_path, gzserver, gzclient] + robots)
