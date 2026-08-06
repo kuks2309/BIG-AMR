@@ -159,6 +159,14 @@ class SimRobot:
         #: so the refusal arrives before the trip is wasted.
         self.entry_request_range = 2.2
         self._noted_hold = False
+        #: Set while stopped for another robot, so the wait is logged once.
+        self._noted_yield = False
+        #: Marker-guided controller for the last couple of metres, or None.
+        self._dock = None
+        self._docking = False
+        #: Measured steering joint angles — settle-then-drive needs to know
+        #: where the wheels ACTUALLY are, not where they were commanded.
+        self._steer_actual = [0.0, 0.0]
         #: Set while reversing out of a bay after finishing.
         self._exit_goal = None
         self._exit_station = None
@@ -410,6 +418,15 @@ class SimRobot:
 
         if self._active_job is None or self._goal is None:
             return
+
+        # DOCKING OWNS THE TICK once it has started. It is a distinct mode with
+        # its own guards and its own timeout, and it must not be re-entered
+        # through the waypoint logic: the robot sits inside the approach
+        # tolerance for the whole manoeuvre, so an arrival check ahead of this
+        # would return every cycle and the dock would never be driven at all.
+        if self._docking:
+            target = self._from if self._leg == "collect" else self._to
+            return self._run_docking(target)
 
         x, y, yaw = self.pose
         gx, gy = self._goal
@@ -745,6 +762,9 @@ class SimRobot:
 
         self._active_job = None
         self._goal = None
+        self._waypoints = []
+        self._dock = None
+        self._docking = False
         self._leg = None
         self._from = None
         self._to = None
