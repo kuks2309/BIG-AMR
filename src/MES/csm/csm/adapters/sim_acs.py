@@ -555,15 +555,35 @@ class SimRobot:
         # where the offset is small and the angle is nowhere near ±90°.
         heading_err = math.atan2(vy, vx)
         cmd = Twist()
-        cmd.angular.z = max(-self.max_turn, min(self.max_turn,
-                                                self.turn_gain * heading_err))
 
-        # Slow down while badly misaligned — turning on the spot beats driving
-        # confidently in the wrong direction, and it stops the robot arcing
-        # wide around every goal.
-        align = max(0.0, math.cos(heading_err))
-        if abs(heading_err) > self.crab_window:
-            speed *= align
+        # HOLD HEADING ON THE FINAL SPUR, AND CRAB IN.
+        #
+        # The docking cameras are SIDE mounted (d435_left / d435_right), so the
+        # marker has to stay off to one side. Turning to face the machine — which
+        # is what the rule below would do, since the spur runs perpendicular to
+        # the aisle — swings the marker to bearing 0, where neither camera can
+        # see it. Measured on this layout: the ASRS marker is visible from the
+        # approach point at yaw 0 and 30 deg, and NOT visible at 60 or 90.
+        #
+        # So on the last hop the body keeps its aisle heading and slides in
+        # sideways, which is exactly how the docking project approaches a dock.
+        #
+        # The turn rule exists because crabbing everywhere put the wheel angle on
+        # the +-90 deg fold, where the inverse kinematics has two equally valid
+        # answers and flipped between them every cycle. A STEADY 90 deg crab does
+        # not do that: commanding linear.y = 0.4 directly moved this robot 2.36 m
+        # in 6 s, smoothly. The judder came from a heading error that kept
+        # changing sign, not from the angle itself.
+        if self._final_leg:
+            cmd.angular.z = 0.0
+        else:
+            cmd.angular.z = max(-self.max_turn, min(self.max_turn,
+                                                    self.turn_gain * heading_err))
+            # Slow down while badly misaligned — turning on the spot beats
+            # driving confidently in the wrong direction, and it stops the robot
+            # arcing wide around every goal.
+            if abs(heading_err) > self.crab_window:
+                speed *= max(0.0, math.cos(heading_err))
 
         cmd.linear.x = vx * speed
         cmd.linear.y = vy * speed
