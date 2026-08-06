@@ -151,3 +151,49 @@ def test_every_machine_has_separate_load_and_unload_ports():
             ld, uld = plant.DOCKS[f"{fam}{i}_LD"], plant.DOCKS[f"{fam}{i}_ULD"]
             assert ld != uld
             assert math.dist(ld, uld) == pytest.approx(2 * plant.PORT_OFFSET)
+
+
+# ------------------------------------------------ docks are not thoroughfares
+
+def test_a_dock_is_never_used_to_join_the_network(net):
+    """A robot must never enter a station it has no job at.
+
+    The planner used another station's dock as an on-ramp: amr2, sent to
+    collect from GRV1_ULD, was given a first waypoint of (-17.0, 4.8) — the
+    ASRS dock, inside the bay where amr1 was working — and drove into it.
+    """
+    import random
+    rnd = random.Random(0)
+    for _ in range(300):
+        pos = (rnd.uniform(plant.HALL_W + 1, plant.HALL_E - 1),
+               rnd.uniform(plant.HALL_S + 1, plant.HALL_N - 1))
+        node = net.entry_node(pos)
+        assert not node.startswith(("dock_", "park_")), (
+            f"joined the network at {node} from {pos}")
+
+
+def test_standing_inside_a_bay_still_leaves_by_the_spur(net):
+    """Even starting ON a dock, the way out is the spur — not a neighbour's."""
+    for name in ("ASRS", "GRV1_ULD", "CTR2_LD"):
+        node = net.entry_node(plant.DOCKS[name])
+        assert not node.startswith(("dock_", "park_"))
+
+
+def test_every_port_has_its_own_marker_id():
+    ids = [plant.MARKER_IDS[n] for n in plant.DOCKS]
+    assert len(set(ids)) == len(ids), "two ports sharing an id is unresolvable"
+    assert set(plant.MARKER_IDS) == set(plant.DOCKS)
+
+
+def test_the_bay_radius_covers_the_whole_spur_but_not_the_aisle():
+    """Inside a bay the robot may not turn; on the aisle it must be free to.
+
+    Rotating docked swings a corner 0.468 m further than the flat side into a
+    0.229 m gap, so the release point has to be clear of the machine but still
+    let the robot turn before it has to travel.
+    """
+    face = plant.ROW_N_Y - plant.MACHINE_D / 2.0
+    marker_to_dock = face - plant.DOCKS["ASRS"][1]
+    marker_to_join = face - plant.JOINS["ASRS"][1]
+    assert plant.BAY_RADIUS > marker_to_dock, "the dock itself must count as in-bay"
+    assert plant.BAY_RADIUS < marker_to_join, "the aisle junction must not"

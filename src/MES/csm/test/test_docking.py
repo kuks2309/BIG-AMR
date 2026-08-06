@@ -227,3 +227,37 @@ def _running():
     step(c, 1.5, 0.1, steer=(steer, steer))
     assert c.phase == "run"
     return c
+
+
+# ------------------------------------------------------------ marker identity
+
+def test_the_wrong_marker_refuses_the_approach():
+    """Docking against the wrong machine reports SUCCESS, which is worse than
+    a failure: the CSM then believes material is somewhere it is not."""
+    c = DockController(expect_id=7)
+    o = obs(1.5, stamp=0.0)
+    o.marker_id = 12
+    speed, _, status = c.step(o, [0.0, 0.0], 0.0)
+    assert status == Result.FAILED
+    assert speed == 0.0, "refuse before moving, not after docking"
+    assert "wrong marker" in c.reason
+
+
+def test_the_right_marker_is_accepted():
+    c = DockController(expect_id=7)
+    o = obs(1.5, stamp=0.0)
+    o.marker_id = 7
+    _, _, status = c.step(o, [0.0, 0.0], 0.0)
+    assert status == Result.RUNNING
+
+
+def test_an_unidentified_marker_is_refused_when_an_id_is_expected():
+    c = DockController(expect_id=7)
+    _, _, status = c.step(obs(1.5, stamp=0.0), [0.0, 0.0], 0.0)
+    assert status == Result.FAILED
+    assert "wrong marker" in c.reason
+
+
+def test_observe_reports_which_marker_it_saw():
+    o = docking.observe((0.0, 0.0, 0.0), (0.0, 2.0, -math.pi / 2), marker_id=42)
+    assert o is not None and o.marker_id == 42
