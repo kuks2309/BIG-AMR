@@ -40,27 +40,24 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-#: Where each robot parks at spawn. Spread along the bottom of the 20 x 20 hall,
-#: clear of the corner stations and of each other — two robots spawned on top of
-#: one another push each other across the floor before anything is even running.
+#: Where each robot parks at spawn — one bay per AGV class, on a spur off the
+#: cross aisle at the end of that class's own run, so an idle robot never stands
+#: on a lane another class needs. Positions come from csm/plant.py PARKING.
 START_POSES = [
-    (-3.0, -4.5, 0.0),
-    (0.0, -4.5, 0.0),
-    (3.0, -4.5, 0.0),
-    (6.0, -4.5, 0.0),
+    (-21.5, 1.5, 0.0),      # amr1 — 1.5T AGV A, west end (ASRS -> Gravure LD)
+    (17.5, 1.5, 0.0),       # amr2 — 1.5T AGV B, east end (Gravure ULD -> Coater LD)
+    (17.5, -1.5, 0.0),      # amr3 — 3.5T AGV,   east end (Coater ULD -> Slitter LD)
+    (-21.5, -1.5, 0.0),     # spare
 ]
 
-#: Measured 2026-08-06: robots parked at y = -8.0 were found at y = -9.4 before
-#: any job started — 1.4 m of drift into the south wall, whose inner face is at
-#: -9.9. A robot 1.6 m long is then jammed against it, cannot move, and the
-#: stall detector fails its first job within eight seconds. Three of four jobs
-#: in a five-minute run died that way, and because the machines never received
-#: material the stations downstream could never be served either: 46 of 50 calls
-#: went unanswered from this one cause.
+#: The parking row used to sit in the middle of the traffic, and idle robots
+#: were repeatedly driven into by working ones. It is now off the aisles.
 #:
-#: The drift itself is not explained — the robots are idle and uncommanded when
-#: it happens, so something in the spawn or the casters rolls them. Parking well
-#: clear of the wall stops it mattering; it does not stop it happening.
+#: An earlier note here recorded 1.4 m of drift by robots that were "idle and
+#: uncommanded", and blamed the spawn or the casters. That was wrong: the world
+#: had many stacked launches in it and ten leftover wheel_cmd_bridge nodes per
+#: robot were publishing wheel commands the whole time. In a clean world all
+#: three settle 0.07 m.
 
 
 def _strip_comments(node):
@@ -164,7 +161,7 @@ def generate_launch_description():
     pkg_desc = get_package_share_directory('trnav_2ws_description')
     gazebo_ros = get_package_share_directory('gazebo_ros')
     xacro_file = os.path.join(pkg_desc, 'urdf', 'foil_a082.urdf.xacro')
-    world = os.path.join(pkg_gazebo, 'worlds', 'warehouse.world')
+    world = os.path.join(pkg_gazebo, 'worlds', 'factory.world')
 
     args = [
         DeclareLaunchArgument('robots', default_value='3',
