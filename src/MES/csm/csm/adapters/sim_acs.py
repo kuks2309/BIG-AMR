@@ -336,12 +336,49 @@ class SimRobot:
             self._begin_delivery()
             return
 
-        if distance <= self.tolerance:
-            self._on_arrival(distance)
-            return
+        # WAYPOINT REACHED. Intermediate waypoints are corners on the road, not
+        # destinations: step to the next one and carry on in the same pass. Only
+        # the last waypoint is the dock, and only that counts as arriving.
+        #
+        # The tolerance is looser out on the lanes than at a machine. A corner
+        # does not have to be hit precisely, and demanding dock accuracy at every
+        # turn would have the robot creeping around the whole ring.
+        if not self._final_leg and distance <= self.waypoint_tolerance:
+            self._waypoints.pop(0)
+            self._goal = self._waypoints[0]
+            self._reset_stall()
+            gx, gy = self._goal
+            ex, ey = gx - x, gy - y
+            distance = math.hypot(ex, ey)
+
+        # HANDOFF TO DOCKING. Reaching the last waypoint is not arriving — it is
+        # arriving at the APPROACH POINT, a couple of metres out. The lane
+        # network navigates by map position, and the map only knows where we
+        # drew the machine; the last stretch is closed against the marker fixed
+        # to the real machine instead. See adapters/docking.py.
+        if self._final_leg and distance <= self.tolerance:
+            self._begin_docking(target)
+            return self._run_docking(target)
 
         if self._check_stall(x, y):
             return
+
+        # PROTECTIVE STOP. Deliberately AFTER _check_stall: a robot held here
+        # keeps accumulating stall time, so two robots that stop facing each
+        # other give up on their jobs after stall_seconds instead of waiting on
+        # one another for ever. Failing a job is recoverable — the MES re-raises
+        # it while the station still holds material — and, unlike a collision,
+        # it leaves both robots free to take the next one rather than wedged
+        # together where they stopped.
+        blocker = self._robot_ahead(x, y, ex, ey)
+        if blocker is not None:
+            if not self._noted_yield:
+                self._noted_yield = True
+                self.node.get_logger().info(
+                    f"{self._tag()}waiting — {blocker} is in the way")
+            self._stop()
+            return
+        self._noted_yield = False
 
         # Attraction: goal direction in the body frame. The platform crabs, so
         # this becomes vx/vy directly with no heading change.
