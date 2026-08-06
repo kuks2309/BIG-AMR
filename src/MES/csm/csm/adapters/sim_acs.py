@@ -823,10 +823,35 @@ class SimAcs(AcsAdapter):
         if job.to_station in taken:
             return TransportResult.BUSY
 
-        free = [r for r in self.robots if not r.busy]
+        # SEGMENTED FLEET. A robot serves ONE leg of the material flow, which is
+        # how the line is actually designed [system deck slide 16]:
+        #
+        #   1.5T-Big AGV A  ASRS        -> Gravure LD
+        #   1.5T-Big AGV B  Gravure ULD -> Coater LD
+        #   3.5T-Big AGV    Coater ULD  -> Slitter LD
+        #
+        # This was previously a free-for-all: nearest free robot took any job,
+        # so all three roamed the whole floor and met head-on constantly. Most
+        # of the traffic conflict that behaviour produced was an artefact of a
+        # fleet model the customer never specified.
+        segment = plant.segment_for_job(job.from_station, job.to_station)
+        if segment is None:
+            self.node.get_logger().warn(
+                f"{job.from_station} -> {job.to_station} is not a leg of the "
+                f"documented material flow")
+            return TransportResult.REJECTED
+
+        # A robot with no ground truth yet cannot be routed — the network is
+        # entered from where the robot IS. It is a real state, not an error:
+        # the node can be offered work in the moment between starting and its
+        # first /gazebo/model_states message.
+        free = [r for r in self.robots
+                if not r.busy
+                and r.pose is not None
+                and plant.ROBOT_SEGMENT.get(r.name) == segment["name"]]
         if not free:
-            # BUSY, not REJECTED. The job is perfectly valid; there is simply no
-            # robot free. It waits its turn rather than being thrown away.
+            # BUSY, not REJECTED. The job is perfectly valid; the robot class
+            # that serves this leg is simply working. It waits its turn.
             return TransportResult.BUSY
 
         # Nearest free robot to the pickup. This is the decision the ACS really
