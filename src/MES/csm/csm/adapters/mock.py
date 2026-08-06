@@ -47,19 +47,45 @@ class MockEquipment(EquipmentAdapter):
         #: has something to give and never needs to process.
         self._store_ids = set()
 
+        #: load port -> unload port, for machines whose output appears
+        #: somewhere other than where the material went in. Empty means every
+        #: station keeps its own output, which is how a single-port machine
+        #: behaves and what every existing test assumes.
+        self._outlet = {}
+
     # -- EquipmentAdapter ------------------------------------------------
 
     def get_station_status(self, station_id):
         if station_id not in self._status:
             return StationStatus.UNKNOWN
-
-        # A BUSY station becomes FINISHED once its processing time elapses.
-        until = self._busy_until.get(station_id)
-        if until is not None and self._clock() >= until:
-            self._status[station_id] = StationStatus.FINISHED
-            self._busy_until.pop(station_id, None)
-
+        self._settle()
         return self._status[station_id]
+
+    def _settle(self):
+        """Apply every elapsed processing time, not just the one being asked about.
+
+        Lazily settling only the queried station is not enough once a machine's
+        output appears at a DIFFERENT port from its input. Nobody ever asks
+        about a load port: the monitor asks whether a job's SOURCE has material,
+        and the source of a coater job is the gravure's UNLOAD port. So the
+        gravure's load port would sit BUSY for ever, its timer never examined,
+        and the material would arrive and stop dead.
+        """
+        now = self._clock()
+        for sid, until in list(self._busy_until.items()):
+            if now < until:
+                continue
+            self._busy_until.pop(sid, None)
+            outlet = self._outlet.get(sid)
+            if outlet is None:
+                self._status[sid] = StationStatus.FINISHED
+                continue
+            # THE MACHINE'S INTERNAL HAND-OVER. Material went in at the load
+            # port, the machine ran, and the output now sits at the unload
+            # port — which is a different station with its own docking bay.
+            # The load port is free again to take the next roll.
+            self._status[sid] = StationStatus.IDLE
+            self._status[outlet] = StationStatus.FINISHED
 
     def send_station_command(self, station_id, command):
         if station_id not in self._status:
@@ -111,6 +137,17 @@ class MockEquipment(EquipmentAdapter):
         """Put a station into any state directly, including FAULT."""
         self._status[station_id] = status
         self._busy_until.pop(station_id, None)
+
+    def link_ports(self, load_id, unload_id):
+        """Declare that this machine's output appears at a different port.
+
+        Real machines are listed as "Unwinder / Rewinder" pairs: a roll goes in
+        one side and comes out the other. Without this the two ports are
+        unrelated stations, material delivered to the load port is never
+        collectable from the unload port, and every downstream job is unservable
+        for ever — the line cannot fill past its first stage.
+        """
+        self._outlet[load_id] = unload_id
 
     def mark_store(self, *station_ids):
         """Declare these to be warehouses: always supplied, never processing."""
