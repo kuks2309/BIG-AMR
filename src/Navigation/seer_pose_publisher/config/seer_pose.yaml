@@ -1,0 +1,27 @@
+/seer_pose_publisher:
+  ros__parameters:
+    host: "192.168.44.82"
+
+    # ⚠ 벤더 권장은 요청 간격 100~200 ms 이상이며 과빈번 시 로봇이 연결을 끊는다
+    #   (References/Seer-Driver/seer_api_guide.md:28 — 실효 폴링 ~5~10 Hz).
+    #   액션 제어 주기는 20 Hz 지만 LocalizationMonitor 신선도 임계가 0.5 s 이므로
+    #   10 Hz 로 5배 여유를 둔다. 10 을 넘기면 노드가 경고한다.
+    rate_hz: 10.0
+
+    frame_id: "map"
+
+    # 맵 게이트 — 빈 문자열이면 비활성(경고만).
+    # Seer 에 다른 맵이 올라오면 좌표계가 조용히 어긋나므로, 운용 시 반드시 채운다.
+    # 확인 방법:  python3 -m csm.seer_client  또는 1000 조회의 current_map_md5
+    # 2026-08-06 실측:  current_map "260709_test"
+    #                   md5 0d0a479f583b2b84f9f45a6de87eead7
+    expected_map_md5: ""
+
+    map_recheck_sec: 5.0
+
+    # Seer 측위 신뢰도 하한. 0 이면 비활성.
+    # ⚠ 임계값 근거 없음 — 2026-08-06 정지 상태에서 0.830 관측이 전부다. 주행 중 분포
+    #   미측정이므로 기본 0(비활성)으로 두고, 실측 후 정한다.
+    min_confidence: 0.0
+
+    timeout_sec: 0.3

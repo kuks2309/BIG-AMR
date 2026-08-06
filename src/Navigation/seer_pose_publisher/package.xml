@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>seer_pose_publisher</name>
+  <version>0.1.0</version>
+  <description>
+    Seer(SRC) 상태 API 1004 을 폴링해 /robot_pose (geometry_msgs/PoseStamped, map frame) 로
+    발행한다.
+
+    이 저장소에는 /robot_pose 발행자가 없었다 — QD 문서가 가리키는
+    src/Navigation/trnav_pose_publisher 경로는 부재다. 그 공백 때문에
+    trnav_2ws_action_server 의 translate_forward·translate_reverse·mpc·mpc_reverse 네 액션이
+    목표 접수 직후 status -3 로 abort 한다(로그 문구는 "TF2 map->base_link not available"
+    이지만 TF 가 아니라 이 토픽 부재가 원인이다).
+
+    ⚠ 읽기 전용 — 상태 포트 19204 만 연다. 제어(19205)·내비(19206)·설정(19207) 포트와
+    명령 API 번호는 코드에 등장하지 않는다. csm.seer_client 의 _ALLOWED_PORTS 가 접속
+    시점에 강제한다. 본 노드는 로봇을 움직일 수 없다.
+
+    ⚠ 폴링 주기 기본 10 Hz — 벤더 권장은 요청 간격 100~200 ms 이상이며 과빈번 시 로봇이
+    연결을 끊는다(References/Seer-Driver/seer_api_guide.md:28). 더 나은 경로는 Push
+    API(19301)이나 구독 항목 설정 방법이 우리 참조에 미열람이다.
+  </description>
+  <maintainer email="drko@knj-robotics.com">kuks2309</maintainer>
+  <license>Proprietary</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>csm</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

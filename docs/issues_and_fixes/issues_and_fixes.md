@@ -69,6 +69,12 @@
   >   `src/Navigation/trnav_pose_publisher` 경로는 **부재**). 근거는 `sil_pose_adapter_node.cpp:8`
   >   주석 한 줄뿐이었다. **실기에서도 이 4종이 abort 할 가능성을 배제하지 못한다** —
   >   실기 브링업에서 `/robot_pose` 발행자를 확인해야 한다. **미확인.**
+  >
+  > ✅ **2026-08-06 해소** — 확인 결과 이 저장소에 발행자가 **없는 것이 맞았다.**
+  >   `src/Navigation/seer_pose_publisher` 를 신설해 Seer 상태 API `1004` 로 그 토픽을 낸다
+  >   (ADR `docs/adr/2026-08-06-seer-pose-publisher.md`). 실 Seer 대상 **읽기 전용** 검증:
+  >   발행 **9.796/9.978 Hz** · 구동 중인 로봇 좌표 실시간 추종 · 맵 게이트 차단 시 수신 0건.
+  >   ⚠ **구동 연동 검증 0회** — 액션과 함께 돌려본 적은 없다.
 - **수정**: 4개 런치에 `sil_pose_adapter` include 추가(crab 과 동일 방식, 파라미터 불요).
 - **검증** (`ROS_DOMAIN_ID=43`, 2 m 직선):
 
