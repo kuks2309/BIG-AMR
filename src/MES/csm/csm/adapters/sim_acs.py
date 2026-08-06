@@ -100,6 +100,9 @@ class SimRobot:
         #: single-robot world spawns "foil_a082"; the fleet spawns amrN.
         self.model_name = name or "foil_a082"
         self.tolerance = arrive_tolerance
+        #: How near a lane corner counts as reaching it. Far looser than the
+        #: dock tolerance: a corner is a direction change, not a destination.
+        self.waypoint_tolerance = 0.6
         self.max_speed = max_speed
         self.stations = dict(stations or APPROACH_POSES)
         self.influence_radius = influence_radius
@@ -142,6 +145,8 @@ class SimRobot:
 
         self._active_job = None
         self._goal = None
+        #: Remaining lane corners for this leg; the last entry is the dock.
+        self._waypoints = []
         #: Called with (job_id, result) when a job ends, however it ends.
         self.on_finished = None
         #: Set by SimAcs. Owns the entry interlock, which is fleet-wide.
@@ -269,16 +274,111 @@ class SimRobot:
         destination would report the load delivered without the robot ever
         having visited the source — the job would be fiction.
         """
+        # PLAN FIRST, then commit. accept() used to set _active_job and only
+        # then compute the route; when routing raised — the very first job
+        # arrives before the robot's first ground-truth message, so self.pose
+        # was None — the robot was left holding a job it had no route for, and
+        # reported busy for ever after. Every later job for that segment then
+        # queued behind a robot that would never move.
+        waypoints = self._plan(job.from_station)
+
         self._active_job = job.job_id
         self._leg = "collect"
         self._from = job.from_station
         self._to = job.to_station
-        self._goal = self.stations[job.from_station]
         self._dwell_until = None
         self._reset_stall()
+        self._waypoints = waypoints
+        self._goal = waypoints[0]
         self.node.get_logger().info(
             f"{self._tag()}{job.job_id}: leg 1/2 — collecting from "
-            f"{job.from_station} {self._goal}")
+            f"{job.from_station} {self._goal} via {len(self._waypoints)} waypoints")
+
+    # ------------------------------------------------------------- docking
+
+    def _begin_docking(self, station):
+        """Hand the last couple of metres to the marker-guided controller."""
+        self._dock = docking.DockController(target=plant.DOCK_TARGET,
+                                            d_min=plant.DOCK_MIN)
+        self._dock.reset(now=self._now())
+        self._docking = True
+        self.node.get_logger().info(
+            f"{self._tag()}{self._active_job}: at {station} approach point — "
+            f"docking on marker")
+
+    def _run_docking(self, station):
+        """One docking cycle. Ends the leg on success, fails the job on fault."""
+        marker = plant.MARKERS.get(station)
+        obs = docking.observe(self.pose, marker) if marker else None
+        if obs is not None:
+            obs.stamp = self._now()
+
+        speed, steer, status = self._dock.step(obs, self._steer_actual,
+                                               self._now())
+        if status == docking.Result.DOCKED:
+            self.node.get_logger().info(
+                f"{self._tag()}{self._active_job}: {self._dock.reason}")
+            self._end_docking()
+            self._on_arrival(0.0)
+            return
+        if status == docking.Result.FAILED:
+            job = self._active_job
+            self.node.get_logger().warn(
+                f"{self._tag()}{job}: docking failed — {self._dock.reason}")
+            self._end_docking()
+            self._finish(job, TransportResult.FAILED)
+            return
+
+        # Crab: both wheels to one angle, one speed — pure translation.
+        cmd = Twist()
+        cmd.linear.x = speed * math.cos(steer)
+        cmd.linear.y = speed * math.sin(steer)
+        self.pub_cmd.publish(cmd)
+
+    def _end_docking(self):
+        self._dock = None
+        self._docking = False
+        self._stop()
+
+    def _plan(self, station):
+        """Waypoints from where the robot is now to a station's dock.
+
+        Returns a direct goal only as a last resort — if the robot has no
+        position yet, or the network cannot reach the station. submit_job
+        refuses to offer work to a robot without a position, so in practice the
+        first case does not arise; it is handled here so a missing pose can
+        never raise halfway through accept() and strand the robot.
+        """
+        if self.pose is None:
+            return [self.stations[station]]
+        return list(ROADS.route_from(self.pose[:2], station)) or \
+            [self.stations[station]]
+
+    def _set_route(self, station):
+        """Plan this leg along the lane network, from wherever the robot is.
+
+        The goal becomes the FIRST waypoint rather than the station, and the
+        robot works down the list. Every hop after the first is a lane that
+        roads.build() has proved clear of every machine and the pillar, so the
+        three routes that used to drive through something solid cannot recur.
+
+        Only the first hop — from wherever the robot happens to be onto the
+        network — is unchecked ground, and entry_node() prefers a waypoint it
+        can reach in a straight line.
+        """
+        self._waypoints = self._plan(station)
+        self._goal = self._waypoints[0]
+
+    @property
+    def _final_leg(self):
+        """True once the current goal is the dock itself.
+
+        The interlock and the dock fade both belong to the last hop only. Asking
+        for entry from a waypoint on the far side of the hall would hold a bay
+        for the length of the drive, and fading avoidance out at an intermediate
+        waypoint would blind the robot in open floor rather than at the machine.
+        """
+        return len(self._waypoints) <= 1
 
     def _tag(self):
         return f"[{self.name}] " if self.name else ""
@@ -393,7 +493,13 @@ class SimRobot:
         # the classic "goal near an obstacle" deadlock in a potential field.
         # Beyond dock_fade_m the field is at full strength; at the goal it is
         # zero, so the last stretch is committed.
-        fade = min(1.0, distance / self.dock_fade_m)
+        # The fade belongs to the FINAL hop only. Out on the lanes the robot is
+        # in open floor with other robots about and needs full avoidance; it is
+        # only at the machine that repulsion has to yield, because the dock is
+        # deliberately close to something solid. Fading at an intermediate
+        # waypoint blinded the robot in exactly the places it had room to steer.
+        fade = (min(1.0, distance / self.dock_fade_m) if self._final_leg
+                else 1.0)
         (rx, ry), closest = self._repulsion()
         self._closest_obstacle = closest
         vx = ax + fade * rx
@@ -563,10 +669,11 @@ class SimRobot:
         if self.fleet is not None:
             self.fleet.release(self._from, self.name or "robot")
         self._leg = "deliver"
-        self._goal = self.stations[self._to]
         self._reset_stall()
+        self._set_route(self._to)
         self.node.get_logger().info(
-            f"{self._active_job}: leg 2/2 — carrying to {self._to} {self._goal}")
+            f"{self._active_job}: leg 2/2 — carrying to {self._to} {self._goal} "
+            f"via {len(self._waypoints)} waypoints")
 
     def _now(self):
         return self.node.get_clock().now().nanoseconds * 1e-9
