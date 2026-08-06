@@ -101,13 +101,31 @@ class Roads:
                 return False
         return True
 
+    #: Nodes that are DEAD ENDS: you go there to be served and reverse out the
+    #: way you came. Never somewhere to pass through, and never somewhere to
+    #: join the road.
+    TERMINAL = ("dock_", "park_")
+
     def entry_node(self, pos):
         """Cheapest waypoint to join the network from an arbitrary point.
 
-        A robot is not always on a lane. That first hop is the one leg no lane
-        check covers, so prefer the nearest node reachable in a straight line.
+        A robot is not always on a lane — it starts on a parking bay and it
+        finishes wherever its last job left it. That first hop is the one leg no
+        lane check covers, so prefer the nearest node reachable in a straight
+        line.
+
+        DOCKS AND PARKING BAYS ARE EXCLUDED. They were not, and the planner
+        happily used another station's dock as an on-ramp: amr2, sent to collect
+        from GRV1_ULD, was given a first waypoint of (-17.0, 4.8) — the ASRS
+        dock, 1.8 m up a spur, inside the bay where amr1 was working. It drove
+        in and hit it; closest approach 0.92 m between two robots 0.9 m wide,
+        which is contact.
+
+        A robot must never enter a station it has no job at. Joining the network
+        on an aisle or at a spur junction makes that structural rather than a
+        rule someone has to remember.
         """
-        order = sorted(self.nodes,
+        order = sorted((n for n in self.nodes if not n.startswith(self.TERMINAL)),
                        key=lambda n: math.hypot(self.nodes[n][0] - pos[0],
                                                 self.nodes[n][1] - pos[1]))
         for name in order:
