@@ -35,14 +35,19 @@
     steer_nodes: [3, 4]
 
     # ── 조향 0° (홈) ──────────────────────────────────────────────────────
-    # ⚠ 미실측 — 빈 값이면 GUI 가 기동 거부한다(설계 의도: foil 값 오적용 방지).
-    # 채우는 절차(선례: Big-AMR docs/homing/2026-08-03-can-relay-homing-assets.md):
-    #   1) LGIT-MOMA 실기 panda 를 SAFETY_SILENT·passthrough 로 열고(제어권 미취득)
-    #      0x6064(node3·4) 를 수집 — Tools/docking_field_kit/orin_steer_crosscheck.py 방식
-    #   2) 같은 시점 Seer API 조향각(기준 확정: 사용자 2026-08-06) 조회
-    #   3) 0° counts = CAN_0x6064 + Seer_deg × 48332.8  (기울기는 본 파일 값 — 57344 금지)
-    #   4) 2회 독립 실행이 counts 단위로 재현되면 채택, 본 파일에 [실측] 으로 기입
-    steer_home_counts: []
+    # [실측] 2026-08-06 19:4x KST, LGIT-MOMA 실기(AMB-01), panda #2(1e003e…) SILENT 수동
+    # 캡처(무송신, lgit-c6-4 에서 실행). 채택 = **Seer 가 내는 0x607A 조향 목표**(Big-AMR
+    # 선례와 동일 출처):
+    #   node3: 0x607A=6,634,168(σ0,n291) · 0x6064 실측 6,634,167(σ2.8,n628)
+    #   node4: 0x607A=6,621,151(σ0,n291) · 0x6064 실측 6,621,154(σ0,n629)
+    #   전제: 캡처 시 Seer 표시 조향각 ≈0° (API 1040 position |<1e-06|, 각도 보정 무시 수준)
+    #   재현: 독립 2회(open_loop 지령 중 / idle) counts 단위 동일.
+    # ⚠ 주의 1: Seer API 1040 의 encoder 필드는 이 값의 **부호 반전**(−6,634,169 등) — CAN
+    #   도메인(0x607A/0x6064)은 양수. can_relay 는 CAN 도메인을 쓴다.
+    # ⚠ 주의 2: 조향각→counts 부호 방향(deg 증가 시 counts 증감)과 기울기 48,332.8 은
+    #   아직 스윙 미실측(모터 switch-on-disabled 상태로 조향 불가였음) — 구동 가능해진 뒤
+    #   ±20° 스윙 1회로 검증할 것.
+    steer_home_counts: [6634168, 6621151]
 
     # ── 참고 (GUI 미사용, 크로스체크·후속 이식 시 참조) ────────────────────
     # [정본] TR_Nav: direction walk/steer 전축 -1 · steer_offset_front/rear_deg -1.676
