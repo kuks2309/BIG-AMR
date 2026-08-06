@@ -443,7 +443,8 @@ class SimRobot:
         # waiting — otherwise a robot politely queueing would fail its own job
         # after eight seconds.
         target = self._from if self._leg == "collect" else self._to
-        if self.fleet is not None and distance < self.entry_request_range:
+        if (self.fleet is not None and self._final_leg
+                and distance < self.entry_request_range):
             if not self.fleet.request_entry(target, self.name or "robot"):
                 if not self._noted_hold:
                     self._noted_hold = True
