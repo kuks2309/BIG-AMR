@@ -38,27 +38,26 @@ from rclpy.node import Node
 
 from .adapters.base import StationStatus
 from .adapters.mock import MockEquipment
-from .adapters.sim_acs import STATION_POSES, SimAcs
+from . import plant
+from .adapters.sim_acs import SimAcs
 from .runtime import FsmTask, build_mes
 
-#: Who feeds whom, in the customer's naming — polarity + type + number, so
-#: 1A01 is "anode line, gravure machine 01".
+#: Who feeds whom, built from the documented Big AGV material flow — see
+#: plant.SEGMENTS and the source list at the top of plant.py.
 #:
-#: Note the direction. A machine CALLS for material to be brought to it, and
-#: the call never says where that material is. Answering that is the CSM's job,
-#: so what we hold is the reverse route: for each machine, who supplies it.
-FEEDS = {
-    # Three gravure machines share the store, so three jobs can be servable at
-    # once and the fleet has something to do. They also all collect from the
-    # SAME place, which is what makes robots queue for the store — the entry
-    # interlock is only visible when two of them want one station.
-    "1A01": "ASRS",
-    "1A02": "ASRS",
-    "1A03": "ASRS",
-    "1T01": "1A01",     # the coater draws from gravure 1
-    "1L01": "1T01",     # cold press draws from the coater
-}
-STATIONS = ["ASRS"] + list(FEEDS)
+#: The previous table was invented and wrong in a way that changed which jobs
+#: exist at all: it fed the cold press directly from the coater, a link the real
+#: line does not have (Slitting and Calendering sit between them), and it gave
+#: every machine a single port instead of separate LD and ULD.
+#:
+#: Each LD port is fed from the ULD ports of the previous stage. A machine calls
+#: for material at its LD; the CSM answers by naming a source, exactly as before.
+FEEDS = {}
+for _seg in plant.SEGMENTS:
+    for _dest in _seg["to"]:
+        FEEDS[_dest] = _seg["from"][0]
+
+STATIONS = list(plant.DOCKS)
 
 #: The job FSM thinks in jobs, which last minutes — a few hertz is ample.
 MES_RATE_HZ = 4.0
@@ -123,7 +122,7 @@ class MesSimNode(Node):
         # one — a delivery notification to a station that is not in this list is
         # refused, which is what produced the "did not accept 'delivered'"
         # warnings before.
-        all_stations = list(STATION_POSES)
+        all_stations = list(plant.DOCKS)
         #: The machines that can call for material. The store never calls —
         #: it is a warehouse, it only supplies.
         self._callers = list(FEEDS)
