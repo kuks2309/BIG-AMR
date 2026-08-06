@@ -1,6 +1,15 @@
 // non-ROS 위치추정 어댑터 — mcl2d_core(2D 레이저 파티클필터)를 ROS 없이 직접 쓰는 파사드.
 // Seer 원본도 비-ROS(자체 zmq+protobuf 미들웨어)이므로, 본 어댑터는 어떤 전송계층에도
 // 묶이지 않는 순수 호출 인터페이스를 제공한다(파일/소켓/zmq 등은 호출측이 선택).
+//
+// 위 zmq+protobuf 서술의 근거 — 2026-08-06 원본 하드 직접 조회(amap-server
+// /media/amap/6ab6980d-…/usr/local/SeerRobotics/rbk): plugins/libMCLoc.so 의 DT_NEEDED 에
+// libzmq.so.5 + libprotobuf.so.17 이 있고, 같은 플러그인이 zmq C API 심볼 20개를 import 한다
+// (zmq_ctx_new·zmq_socket·zmq_bind·zmq_connect·zmq_msg_*·zmq_close 등). zmq 소켓으로 protobuf
+// 메시지를 나르는 래퍼 profiler::IO::TrySend/TryReceive(zmq::socket_t&, google::protobuf::Message)
+// 도 심볼에 그대로 있다. 동봉 3rdlib/libzmq.so.5.2.4 · proto/ 스키마 수십 개.
+// ※ [존재] 확정 / [동작] 미확정 — 그 zmq 경로가 "주 데이터 경로" 인지는 확인되지 않았다.
+//   상세: docs/claude-mistake/2026-08-06-004_zmq-claim-denied-without-checking-original.md
 #ifndef MCL2D_LOCALIZER_HPP
 #define MCL2D_LOCALIZER_HPP
 

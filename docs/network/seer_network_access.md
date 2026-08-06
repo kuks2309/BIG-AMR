@@ -90,28 +90,42 @@ sudo ip addr del 192.168.44.30/24 dev eth0
 1. Seer 설정을 다시 유선(MOXA 쪽)으로 전환.
 2. Seer 유선 IP/대역을 확인 → 해당 유선 포트를 그 대역에 맞추고, MOXA 가 그 대역을 브릿지하는지(ARP 응답) 확인.
 
-## amap-1 (분석 장비) 접근
+## amap-server (분석 장비) 접근
 
 Seer 리버스 엔지니어링(Reverse Engineering) 자산이 있는 별도 PC. **tailscale 경유**로 접속한다.
 
+> **2026-08-06 정정**: tailscale 호스트명이 `amap-1` → **`amap-server`** 로 바뀌었다(IP 동일).
+> 별개 장비 `amap-2`(`100.104.34.12`)와 혼동하지 말 것 — 63G 원본은 `amap-server` 에 있고
+> `amap-2` 는 자주 offline 이다. 아래 device 표기도 실측으로 정정했다(`/dev/sda2` → `/dev/sdb2`).
+
 | 항목 | 값 |
 |------|-----|
-| 호스트 | `amap-1` (tailscale IP `100.116.195.65`, 호스트명 `aMAP`) |
+| 호스트 | **`amap-server`** (tailscale IP `100.116.195.65`, 호스트명 `aMAP`) — 구 이름 `amap-1` |
 | **계정** | **`amap` 만 허용** — `nvidia`·`kuksauto`·`ubuntu` 는 `tailscale: tailnet policy does not permit …` 즉시 거부 |
-| 원본 하드(63G) | `/dev/sda2` → `/media/amap/6ab6980d-f090-4387-8753-a2251e75651d` (Seer AMR 루트파일시스템 전체 사본) |
+| 원본 하드(63G) | **`/dev/sdb2`**(59.1G ext4) → `/media/amap/6ab6980d-f090-4387-8753-a2251e75651d` (Seer AMR 루트파일시스템 전체 사본). 2026-08-06 `lsblk` 실측 |
+| (참고) 다른 Seer 이미지 | `/dev/sda3`(LVM 40.4G) → `/mnt/seer_128g_root` 도 마운트돼 있다 — 63G 사본과 별개이므로 경로를 섞지 말 것 |
 | rbk 자산 | `<하드>/usr/local/SeerRobotics/rbk/plugins/libMCLoc.so`, `<하드>/usr/local/etc/.SeerRobotics/rbk/resources/params/robot.param`(SQLite) |
 | 도구 | `objdump`·`nm`·`readelf`·`python3` 있음. **`sqlite3` CLI 없음** → `python3 -c "import sqlite3"` 사용 |
 
 ```bash
-ssh -o ConnectTimeout=15 amap@amap-1 'whoami'     # ← 타임아웃을 넉넉히
+ssh -o ConnectTimeout=60 amap@amap-server 'whoami'     # ← 타임아웃을 넉넉히
 ```
 
-> **⚠ 함정 — 첫 접속이 느리다. 타임아웃 15초로는 실패한다.**
-> `timeout 15 ssh amap@amap-1` 은 `Terminated`(exit 143)로 끝난다. 이는 **내가 건 타임아웃**이지
+> **⚠ 함정 1 — 첫 접속이 느리다. 타임아웃 15초로는 실패한다.**
+> `timeout 15 ssh amap@amap-server` 는 `Terminated`(exit 143)로 끝난다. 이는 **내가 건 타임아웃**이지
 > 서버의 거부가 아니다. 같은 시도를 60초로 늘리면 정상 접속된다(2026-07-31 실측).
 > 거부(`policy does not permit`)와 타임아웃(`Terminated`)을 같은 결론으로 묶지 말 것 —
 > 실제로 그렇게 오독해 "접근 차단" 을 5턴 확정 보고한 사건이 있다:
 > [docs/claude-mistake/2026-07-31-001](../claude-mistake/2026-07-31-001_ssh-denial-inferred-from-timeout.md).
+
+> **⚠ 함정 2 — Tailscale SSH 가 주기적으로 브라우저 재인증(check)을 요구한다** (2026-08-06 실측).
+> 비대화형 ssh 는 아래처럼 URL 만 출력하고 대기하다 끊긴다 — 이것도 **거부가 아니다**:
+> ```
+> # Tailscale SSH requires an additional check.
+> # To authenticate, visit: https://login.tailscale.com/a/xxxxxxxx
+> ```
+> 해소: 사용자가 터미널에서 `ssh amap@amap-server` 를 한 번 실행해 그 URL 을 브라우저로 승인하면,
+> 이후 일정 시간 동안 자동(비대화형) 조회가 정상 접속된다.
 
 **원본 하드 취급**: 읽기 전용으로만 쓴다(사용자 지시 2026-07-31). 현재 `rw` 로 마운트돼 있으므로
 쓰기 명령을 내지 않는 것으로 지킨다. SQLite 파일은 원본을 직접 열지 말고 `/tmp` 로 사본을 뜬 뒤
@@ -125,4 +139,5 @@ ssh -o ConnectTimeout=15 amap@amap-1 'whoami'     # ← 타임아웃을 넉넉�
   ① `:8` "Seer 설정이 WiFi 로 되어 있어" 원인 단정 → "이 PC 유선 세그먼트에서 ARP 무응답" 관측 서술로 완화(Seer 측 설정 미확인).
   ② 유선 포트 표의 `eth1 192.168.192.10` 은 비영속 수동 추가 주소이며 2026-07-27 현재 미설정임을 병기(`ip -br addr` 실측, session_log.md:225 원문).
   ③ `192.168.192.0/24` 스윕 음성 결과는 라우팅이 `dev tailscale0` 이므로 eth1 근거로 미확정 — 재판정 측정 절차 명시.
+- 2026-08-06: §amap-1 → **§amap-server 개칭**(tailscale 호스트명 변경, IP 동일). 실측 정정 — 63G 원본 device `/dev/sda2` → **`/dev/sdb2`**(59.1G ext4, lsblk), 별개 `/mnt/seer_128g_root` 병기, **함정 2(Tailscale SSH 브라우저 재인증)** 신설.
 - 2026-07-31: §amap-1(분석 장비) 접근 신설 — 계정 `amap` 전용·타임아웃 함정(15s 실패/60s 성공)·63G 원본 하드 경로·읽기 전용 취급 규칙.
