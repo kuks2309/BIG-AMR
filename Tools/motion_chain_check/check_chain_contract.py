@@ -446,7 +446,7 @@ def selftest() -> int:
     # 가드도 그 클램프에 맞춰야 한다 — 스핀 하한만 보는 시험이므로 가드를 함께 낮춘다.
     r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 0.0, clamp=92.0, guard=90.0)["C4"]
     cases.append(("clamp 92 ≥ 스핀 요구(가드 정합) → C4 PASS", r.ok is True))
-    g = {"w1_x": 0.6039, "w1_y": -0.0014}
+    g = {"w1_x": 0.6039, "w1_y": 0.0}
     cases.append(("스핀 요구 = 구조값 90° + |offset| (89.87 이 아니다)",
                   abs(spin_requirement_deg(g, -1.676) - 91.676) < 0.01))
     g2 = {"w1_x": 0.6039, "w1_y": 0.0014}   # y 잔차 부호가 반대면 90° 를 넘는다

@@ -12,9 +12,15 @@
     #   2) src/Actuators/motor_control/config/tongyi_amr.yaml (실물 driver: module_x/module_y)
     # W1 = Front(앞), W2 = Rear(뒤). 둘 다 y ≈ 0 (센터라인) — 대각(Carrier AGV) 아님.
     w1_x: 0.6039      # m  Front(앞)  (motor_control node2 = +0.6039)
-    w1_y: -0.0014     # m  (센터라인)
+    # ⚠ 2026-08-06 — y 를 **0 으로 확정**(사용자: 「2WS 는 구조상 제자리 스핀이므로 무조건 90도」).
+    #   종전 값 −0.0014 m 는 Seer live_models 추출 시의 **실측 잔차**이며 설계값이 아니다.
+    #   두 바퀴가 같은 y 를 가지면 그 값은 기구학에서 **가정하는 회전중심을 횡으로 y 만큼
+    #   옮기는** 역할만 한다 — 바퀴가 센터라인에 있으므로 자연스러운 회전중심도 그 선 위(y=0)다.
+    #   잔차를 남기면 제자리 스핀이 ±89.867° 로 나와 구조값 ±90° 와 어긋난다.
+    #   다른 기동 영향은 미미하다(turn R=1.0 m 에서 0.036°, R=0.2 m 에서 0.12°).
+    w1_y: 0.0
     w2_x: -0.5961     # m  Rear(뒤)   (motor_control node1 = -0.5961)
-    w2_y: -0.0014     # m  (센터라인)
+    w2_y: 0.0
     # wheelbase = 0.6039 + 0.5961 = 1.200 m  (tongyi_amr.yaml track_width: 1.2)
 
     wheel_radius: 0.125   # m  (chassis_kinematics r=0.125, driver_node WHEEL_RADIUS=0.125)

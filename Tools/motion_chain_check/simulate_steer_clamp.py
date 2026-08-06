@@ -545,7 +545,7 @@ def selftest() -> int:
     cases.append(("잘림 25° 의 잔존 성분 = cos25°",
                   abs(lateral_authority_loss(115.0, 90.0) - math.cos(math.radians(25.0))) < 1e-12))
 
-    wheels = [(0.6039, -0.0014), (-0.5961, -0.0014)]
+    wheels = [(0.6039, 0.0), (-0.5961, 0.0)]
     cases.append(("일반 IK 는 ±90° 를 넘지 않는다", probe_general_ik(wheels)["over_90"] == 0))
 
     print("=== selftest (이식 정합) ===")
