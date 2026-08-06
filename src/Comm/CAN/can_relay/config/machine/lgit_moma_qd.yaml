@@ -34,6 +34,16 @@
     # [정본] TR_Nav amr_motor_cmd_translator_qd.yaml: walk 1·2 / steer 3(front)·4(rear)
     steer_nodes: [3, 4]
 
+    # ── 차체·바퀴 기하 (GUI 그림용, 2026-08-06 사용자 지시 「바퀴 위치 확인·반영」) ──
+    # [실측] Seer 로봇 모델(API 1500, 섀시 AMB-150, lgit-c6-4 에서 조회 2026-08-06):
+    #   motor FrontWalk(1)·FrontSteer(3) x=0.33 y=0.135 / RearWalk(2)·RearSteer(4)
+    #   x=-0.33 y=-0.135 — **대각 배치**. TR_Nav robot_geometry_qd.yaml w1/w2 와 일치(교차 확인).
+    #   차체 rectangle: width 0.65 · head 0.575 · tail 0.575 → 길이 1.15.
+    wheel_positions: [[0.33, 0.135], [-0.33, -0.135]]   # [Front, Rear] (m, +x 전방 +y 좌)
+    body_length: 1.15
+    body_width: 0.65
+    wheel_radius_m: 0.08          # [정본] TR_Nav wheel Ø160mm
+
     # ── 조향 0° (홈) ──────────────────────────────────────────────────────
     # [실측] 2026-08-06 19:4x KST, LGIT-MOMA 실기(AMB-01), panda #2(1e003e…) SILENT 수동
     # 캡처(무송신, lgit-c6-4 에서 실행). 채택 = **Seer 가 내는 0x607A 조향 목표**(Big-AMR
