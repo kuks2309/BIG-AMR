@@ -25,7 +25,9 @@
 | `\|dθ\|>1°` · `w≥0.8` (거리 무관) | 5 | `force_extra_move` ? `force_extra_move_dist` : 고정 10mm | `force_extra_move_angle` 2° |
 
 원본 모드 6(멤버 오버라이드)은 원본에서도 writer 가 없어 미발동 — 이식하지 않음.
-`w`(우도) 스케일 정합은 미검증 → `docs/debt/registry.md` **debt-031**.
+`w`(우도) 스케일은 **원본과 동일함이 확인**됐다(2026-08-06) — 원본 `getParticleLikelihood` 가 `getPostProb` 를
+tail-call 하고 우리 `likelihoodAt` 도 같은 함수(비트 일치본)를 쓴다. 모드 5 가 드문 것은 원본과 같은 동작이다.
+→ 대조 문서 §7.2 #6. 잔여 부채: dθ 1 ulp(**debt-043**) · `moveRobotAccordingToMotion` 미이식(**debt-044**).
 
 ## 변경된 소비자
 
@@ -43,6 +45,12 @@
 | 함수 | 사유 |
 | --- | --- |
 | `applyMotion(p, prev, cur, params, rng)` | 원본에 대응물이 없는 합성 함수(예측+산포 혼합). 호출처는 `ParticleFilter2D::predict` 1곳뿐이었다 |
+
+## 원본 대조 (RE 오라클)
+
+`test/test_motion_oracle.cpp` — 원본 `libMCLoc.so` 를 `dlopen` 해 `supplyControlVar`·`doParticleMoveAction` 과
+비트 대조한다(`cmake -DMCL2D_MOTION_ORACLE=ON`, 분석 장비 전용). 2026-08-06 실측: **1,783/1,800 비트 일치**,
+잔여 17 은 `dθ` 1 ulp. `trans`·`direction`·파티클 `x/y/theta` 는 전량 일치.
 
 ## 전역변수
 

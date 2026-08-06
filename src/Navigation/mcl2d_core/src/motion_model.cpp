@@ -7,11 +7,14 @@ namespace mcl2d
 
 namespace
 {
-// 원본 난수: RangeRandom(-1000, 1000) 정수 균등 / 2000.0 → U{-0.5 .. +0.5}.
-//   (@0x33cba8·0x33cbde 인자, 나눗셈 상수 0x59fef0 = 2000.0 실측)
+// 원본 난수: RangeRandom(-1000, 1000) / 2000.0.
+//   원본 구현(libfoundation 0x18c60, 2026-08-06 실측): `rand() % (max - min) + min` — **+1 이 없어**
+//   상한이 배제된다. 즉 RangeRandom(-1000,1000) 은 [-1000, +999] 의 2000개 값이다(2001 아님).
+//   나눗셈 상수 0x59fef0 = 2000.0 실측. 시드는 원본이 최초 1회 srand(time(NULL)) — 재현 불가.
+//   우리는 재현성을 위해 mt19937 을 쓰되 **값 집합은 원본과 같게** 맞춘다.
 double rangeRandomHalf(std::mt19937 &rng)
 {
-    std::uniform_int_distribution<int> u(-1000, 1000);
+    std::uniform_int_distribution<int> u(-1000, 999);
     return static_cast<double>(u(rng)) / 2000.0;
 }
 
@@ -41,6 +44,11 @@ ControlIncrement2D supplyControlVar(const Pose2D &prev_odom, const Pose2D &cur_o
     ControlIncrement2D c;
     const double dx_b = dx * cs + dy * sn; // 로봇 전방 성분
     const double dy_b = dy * cs - dx * sn; // 로봇 좌측 성분
+    // dθ 정규화는 원본과 **1 ulp 수준에서만** 다르다(오라클 실측: 400표본 중 16건).
+    //   원본 경로: Normalize(d)(libfoundation 0x18750, floor 기반) → 조건부 atan2(sin,cos) 재정규화(33d91c→33dca3).
+    //   후보 5개를 원본과 비트 대조한 결과 이 while 루프가 최선(384/400)이었고, 원본 식을 그대로 옮긴
+    //   재현(349/400)·atan2 단독(300/400)은 오히려 낮았다 — 잔여 원인 미확정이라 추측으로 바꾸지 않는다.
+    //   추적: docs/debt/registry.md debt-032
     c.dtheta = normalizeAngle(cur_odom.theta - prev_odom.theta);
     c.trans = std::sqrt(dx_b * dx_b + dy_b * dy_b);
     c.direction = std::atan2(dy_b, dx_b);
