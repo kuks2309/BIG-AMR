@@ -52,10 +52,7 @@ from .runtime import FsmTask, build_mes
 #:
 #: Each LD port is fed from the ULD ports of the previous stage. A machine calls
 #: for material at its LD; the CSM answers by naming a source, exactly as before.
-FEEDS = {}
-for _seg in plant.SEGMENTS:
-    for _dest in _seg["to"]:
-        FEEDS[_dest] = _seg["from"][0]
+FEEDS = dict(plant.FEEDS)
 
 STATIONS = list(plant.DOCKS)
 
@@ -132,6 +129,13 @@ class MesSimNode(Node):
         # The store is a warehouse: always supplied, never processing. It is
         # the only thing that starts with something to give.
         self.equipment.mark_store("ASRS")
+        # A machine's output appears at its UNLOAD port, not where the material
+        # went in. Without this the line cannot fill past gravure: a coater job
+        # asks GRV_i_ULD for material and nothing ever puts any there, so the
+        # job is never created and amr2 and amr3 never move. Observed exactly
+        # that — 16 coater and slitter calls raised, zero jobs created.
+        for _load, _unload in plant.PORT_LINKS:
+            self.equipment.link_ports(_load, _unload)
         self.acs = SimAcs(self, robot_names=robot_names)
 
         self.app = build_mes(
