@@ -75,6 +75,15 @@ def generate_launch_description():
             FindPackageShare('translate_sim_odom'), 'config', 'sim_params.yaml'])],
     )
 
+    # SIL 전용 pose 어댑터 — PoseWithCovarianceStamped → PoseStamped(/robot_pose).
+    # ⚠ crab_linear 의 LocalizationMonitor 가 /robot_pose 를 쓴다. 빼면 크랩이
+    #   "TF2 map->base_link not available" 로 즉시 abort 한다(2026-08-06 실측).
+    #   spin·turn 은 IMU yaw 만 쓰므로 있어도 무해하다.
+    pose_adapter_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('sil_pose_adapter'), 'launch', 'sil_pose_adapter.launch.py'])),
+        condition=IfCondition(plant))
+
     # ── 체인 중간: mux → translator → can_relay ─────────────────────────
     mux_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
@@ -151,6 +160,7 @@ def generate_launch_description():
     return LaunchDescription([
         arg_link, arg_action, arg_source, arg_plant,
         plant_node,
+        pose_adapter_launch,
         mux_launch,
         translator_node,
         can_relay_node,

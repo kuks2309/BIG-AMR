@@ -53,6 +53,9 @@ template <typename ActionT> class TwoWsActionServerBase
 
         // Common params
         control_rate_hz_ = safe_param_d("control_rate_hz", 50.0);
+        // 상류 조향 가드 한계(도). 기본 = 하류 체인 클램프 115 − |영점 오프셋| 1.676.
+        // 0 이하 = 가드 해제. 근거는 publishWheelCmd 주석 참조.
+        steer_cmd_limit_rad_ = safe_param_d("steer_cmd_limit_deg", 113.32) * M_PI / 180.0;
         steer_tolerance_rad_ = safe_param_d("steer_tolerance_deg", 1.0) * M_PI / 180.0;
         steer_timeout_sec_ = safe_param_d("steer_timeout_sec", 5.0);
 
@@ -102,11 +105,44 @@ template <typename ActionT> class TwoWsActionServerBase
 
     // Provided by base — interface identical to legacy publishWheelCmd(vel_f,ang_f,vel_r,ang_r).
     // Internally repacks into WheelSetArray per configured RobotGeometry (Platform).
+    //
+    // ⚠ **상류 조향 가드** (2026-08-06 사용자 결정: 「115도면 최대 115도만 내면 됩니다」).
+    //   하류 can_relay 는 counts 로 클램프하는데, 그 사이 translator 가 영점 오프셋
+    //   (`steer_offset_*_deg`)을 빼므로 **여기서 낸 각보다 raw 가 |offset| 만큼 커진다**(+θ 쪽).
+    //   그래서 상류가 하류 한계를 그대로 믿고 내면 조용히 잘린다 — 실제로 크랩 최대 자세가
+    //   1.68도 잘렸다. 하류에서 자르지 말고 **여기서 내지 않는다.**
+    //
+    //   기본값 = 하류 체인 클램프(115도) − |영점 오프셋|(1.676도) = 113.32도.
+    //   두 값의 정합은 `Tools/motion_chain_check/check_chain_contract.py` C4 가 재도출해 대조한다.
+    //   0 이하로 두면 가드를 끈다(상류 무제한 — 하류 클램프에 맡긴다).
     void publishWheelCmd(double velocity_front, double angle_front, double velocity_rear, double angle_rear)
     {
+        angle_front = guardSteer(angle_front, "front");
+        angle_rear = guardSteer(angle_rear, "rear");
         auto msg = packer_.pack(velocity_front, angle_front, velocity_rear, angle_rear);
         msg.header.stamp = node_->get_clock()->now();
         wheel_cmd_pub_->publish(msg);
+    }
+
+    /// 조향 지령을 상류 한계로 포화시킨다. 거부가 아니라 포화 — 크랩 설계가 전제하는 동작이다.
+    double guardSteer(double angle_rad, const char *which)
+    {
+        if (steer_cmd_limit_rad_ <= 0.0)
+        {
+            return angle_rad;
+        }
+        const double lim = steer_cmd_limit_rad_;
+        if (angle_rad > lim || angle_rad < -lim)
+        {
+            const double capped = std::max(-lim, std::min(lim, angle_rad));
+            RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                                 "조향 상류 가드 — %s %.2f deg -> %.2f deg (한계 %.2f deg). "
+                                 "하류에서 잘리기 전에 여기서 포화시킨다",
+                                 which, angle_rad * 180.0 / M_PI, capped * 180.0 / M_PI,
+                                 lim * 180.0 / M_PI);
+            return capped;
+        }
+        return angle_rad;
     }
 
     void publishStopCmd()
@@ -148,6 +184,7 @@ template <typename ActionT> class TwoWsActionServerBase
     std::atomic<bool> imu_received_{false};
 
     double control_rate_hz_{50.0};
+    double steer_cmd_limit_rad_{113.32 * M_PI / 180.0};   // 상류 조향 가드 (0 이하 = 해제)
     double steer_tolerance_rad_{0.0175};
     double steer_timeout_sec_{5.0};
 

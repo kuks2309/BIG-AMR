@@ -54,6 +54,7 @@ TWOWS_PARAMS_DIR = REPO / "src/Control/Motion_Control/2WS/trnav_2ws_action_serve
 CRAB_SRC = REPO / "src/Control/Motion_Control/2WS/trnav_2ws_kinematics/src/qd_crab_inverse_kinematics.cpp"
 GEOMETRY_CANONICAL = REPO / "src/Control/Motion_Control/2WS/trnav_2ws_core/config/robot_geometry_2ws.yaml"
 SEER_GATE_SRC = REPO / "Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h"
+BASE_HPP = REPO / "src/Control/Motion_Control/2WS/trnav_2ws_motion/include/trnav_2ws_motion/qd_action_server_base.hpp"
 
 # 허용오차는 **대조 대상이 config 에 적힌 정밀도**로 정한다.
 #   C1 조향: 양쪽 다 정수로 떨어진다(57,344.0) → 사실상 완전일치를 요구한다.
@@ -154,6 +155,23 @@ def read_mech_limit_deg(counts_per_deg: float):
     return min(vals) / counts_per_deg, f"SEER_HOME_ZERO min={min(vals):,}"
 
 
+def read_upstream_guard_deg(twows: dict):
+    """상류 조향 가드 한계 — `<action>_params.yaml` 우선, 없으면 코드 기본값을 소스에서 읽는다.
+
+    가드는 `TwoWsActionServerBase::publishWheelCmd` 가 모든 액션의 지령을 지나보내는
+    단일 지점에서 건다(2026-08-06 사용자 결정: 「115도면 최대 115도만 내면 됩니다」).
+    """
+    for params in twows.values():
+        if "steer_cmd_limit_deg" in params:
+            return float(params["steer_cmd_limit_deg"]), "action params"
+    if BASE_HPP.exists():
+        m = re.search(r'safe_param_d\("steer_cmd_limit_deg",\s*([0-9.]+)\)',
+                      BASE_HPP.read_text(encoding="utf-8"))
+        if m:
+            return float(m.group(1)), "코드 기본값"
+    return None, "미검출"
+
+
 def spin_requirement_deg(geom: dict, offset_deg: float) -> float:
     """**제자리 스핀이 요구하는 raw 조향각** — 클램프가 이보다 작으면 스핀이 잘린다.
 
@@ -162,13 +180,19 @@ def spin_requirement_deg(geom: dict, offset_deg: float) -> float:
     translator 가 영점 오프셋을 빼므로 can_relay 가 보는 raw 는 그보다 |offset| 만큼 크다
     (+θ 쪽). 사용자 요구(2026-08-06): **스핀은 허용할 것.**
     """
-    th = math.degrees(math.atan2(float(geom["w1_x"]), -float(geom["w1_y"])))
-    return abs(abs(th) + abs(offset_deg))
+    # ⚠ **2WS inline 의 제자리 스핀은 구조상 정확히 90°** 다(2026-08-06 사용자 확인).
+    #   기하의 y 잔차(−0.0014 m)는 실측 잔차이지 설계값이 아니므로 89.87° 를 요구로 쓰면
+    #   구조값보다 **낮은** 하한이 된다. 둘 중 큰 쪽을 쓴다 — y 잔차 부호에 따라
+    #   atan2 가 90° 를 넘을 수도 있다(예: y = +0.0014 → 90.13°).
+    STRUCTURAL_SPIN_DEG = 90.0
+    th = abs(math.degrees(math.atan2(float(geom["w1_x"]), -float(geom["w1_y"]))))
+    return max(STRUCTURAL_SPIN_DEG, th) + abs(offset_deg)
 
 
 def check_steer_limits(clamp_deg: float, bench_deg: float, wrap_margin_deg,
                        mech_limit_deg, mech_note: str, twows_limits: dict,
-                       spin_req_deg=None) -> Result:
+                       spin_req_deg=None, offset_deg=None,
+                       guard_deg=None, guard_note: str = "") -> Result:
     """하류 클램프가 **상류 요구치 이상, 기구 한계 이하**인가.
 
         90° + WRAP_MARGIN  ≤  can_relay steer_limit_deg  ≤  기구 −리밋
@@ -216,6 +240,25 @@ def check_steer_limits(clamp_deg: float, bench_deg: float, wrap_margin_deg,
                      f"사람이 넣는 경로가 더 열려 있으면 분리한 의미가 없다")
     else:
         lines.append(f"         벤치 {bench_deg}° ≤ 체인 {clamp_deg}° — 직접 지령 가드 유지")
+    # 상류가 실제로 쓸 수 있는 폭 — translator 의 영점 오프셋이 +쪽에서 먹는다.
+    # 사용자 결정(2026-08-06): 클램프는 115° 로 두고 **상류가 그 안에서만 낸다.**
+    # 따라서 크랩의 실효 마진은 WRAP_MARGIN(25°) 이 아니라 그보다 |offset| 만큼 작다.
+    if offset_deg is not None and wrap_margin_deg is not None:
+        eff = clamp_deg - 90.0 - abs(offset_deg)
+        lines.append(f"         실효 크랩 마진 = {clamp_deg:.0f} − 90 − |{offset_deg}| = "
+                     f"**{eff:.2f}°** (WRAP_MARGIN {wrap_margin_deg:.0f}° 가 아니다 — "
+                     f"+θ 쪽에서 오프셋이 {abs(offset_deg):.2f}° 를 먹는다)")
+    # 상류 가드 ↔ 하류 클램프 정합 — 가드가 더 넓으면 가드가 무의미하고 하류가 자른다.
+    if guard_deg is not None and offset_deg is not None:
+        need = guard_deg + abs(offset_deg)
+        if need > clamp_deg + 1e-9:
+            ok = False
+            lines.append(f"         ⚠ 상류 가드 {guard_deg}° + |offset| {abs(offset_deg):.3f}° = "
+                         f"{need:.2f}° > 클램프 {clamp_deg}° — 하류가 {need-clamp_deg:.2f}° 자른다 "
+                         f"({guard_note})")
+        else:
+            lines.append(f"         상류 가드 {guard_deg}° (+오프셋 → raw {need:.2f}°) ≤ "
+                         f"클램프 {clamp_deg}° — 하류에서 잘리지 않는다 ({guard_note})")
     if twows_limits:
         lines.append(f"         (참고) 2WS <action>_params {len(twows_limits)}개 = "
                      f"{sorted(set(twows_limits.values()))} — 2WS 코드가 읽지 않는 키")
@@ -292,7 +335,9 @@ def run_checks() -> list:
         check_drive_scale(tr, machine),
         check_motor_ids(tr, relay),
         check_steer_limits(effective_clamp, effective_bench, read_wrap_margin_deg(CRAB_SRC),
-                           mech_limit, mech_note, collect_twows_limits(twows), spin_req),
+                           mech_limit, mech_note, collect_twows_limits(twows), spin_req,
+                           float(tr['steer_offset_front_deg']),
+                           *read_upstream_guard_deg(twows)),
     ]
     try:
         canonical = load_ros_params(GEOMETRY_CANONICAL)
@@ -335,11 +380,12 @@ _BASE_GEOM = {"w1_x": 0.6039, "w1_y": -0.0014, "w2_x": -0.5961, "w2_y": -0.0014,
 
 
 def _all(tr, machine, relay, limits, margin, clamp=115.0, mech=137.1, bench=90.0,
-         spin_req=91.55):
+         spin_req=91.55, offset=-1.676, guard=113.32):
     return {r.cid: r for r in [
         check_steer_scale(tr, machine), check_drive_scale(tr, machine),
         check_motor_ids(tr, relay),
-        check_steer_limits(clamp, bench, margin, mech, "시험", limits, spin_req),
+        check_steer_limits(clamp, bench, margin, mech, "시험", limits, spin_req, offset,
+                           guard, "시험"),
     ]}
 
 
@@ -397,11 +443,25 @@ def selftest() -> int:
     r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 0.0, clamp=91.0)["C4"]
     cases.append(("clamp 91 < 스핀 요구 91.55 → C4 FAIL", r.ok is False))
     cases.append(("스핀 잘림 경고 문구 포함", "스핀이 잘린다" in r.detail))
-    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 0.0, clamp=92.0)["C4"]
-    cases.append(("clamp 92 ≥ 스핀 요구 → C4 PASS", r.ok is True))
+    # 가드도 그 클램프에 맞춰야 한다 — 스핀 하한만 보는 시험이므로 가드를 함께 낮춘다.
+    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 0.0, clamp=92.0, guard=90.0)["C4"]
+    cases.append(("clamp 92 ≥ 스핀 요구(가드 정합) → C4 PASS", r.ok is True))
     g = {"w1_x": 0.6039, "w1_y": -0.0014}
-    cases.append(("스핀 요구 = |atan2(x,−y)| + |offset|",
-                  abs(spin_requirement_deg(g, -1.676) - 91.546) < 0.01))
+    cases.append(("스핀 요구 = 구조값 90° + |offset| (89.87 이 아니다)",
+                  abs(spin_requirement_deg(g, -1.676) - 91.676) < 0.01))
+    g2 = {"w1_x": 0.6039, "w1_y": 0.0014}   # y 잔차 부호가 반대면 90° 를 넘는다
+    cases.append(("y 잔차가 90° 를 넘기면 그쪽을 쓴다",
+                  spin_requirement_deg(g2, -1.676) > 91.676))
+
+    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0, clamp=115.0)["C4"]
+    cases.append(("실효 크랩 마진 23.32° 를 표시한다", "23.32" in r.detail))
+
+    # 상류 가드 ↔ 하류 클램프 정합
+    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0, clamp=115.0, guard=113.32)["C4"]
+    cases.append(("가드 113.32 + 오프셋 = 115.0 ≤ 클램프 → PASS", r.ok is True))
+    r = _all(_BASE_TR, _BASE_MACHINE, _BASE_RELAY, limits, 25.0, clamp=115.0, guard=115.0)["C4"]
+    cases.append(("가드 115 (오프셋 무시) → 하류가 자른다 FAIL", r.ok is False))
+    cases.append(("가드 초과 시 잘리는 양을 표시", "자른다" in r.detail))
 
     # C6 — 2WS 기하 ↔ 정본
     ok6 = check_2ws_geometry(_BASE_GEOM, {"a_params.yaml": dict(_BASE_GEOM)})
