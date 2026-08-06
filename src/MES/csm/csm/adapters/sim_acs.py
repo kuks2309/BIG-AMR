@@ -30,68 +30,43 @@ import math
 
 from geometry_msgs.msg import Twist
 from gazebo_msgs.msg import ModelStates
-from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import JointState, LaserScan
 
+from . import docking, roads
+from .. import plant
 from .base import AcsAdapter, TransportResult
 
-#: Where the machines physically stand in warehouse.world. These are SOLID —
-#: the robot must never drive to these coordinates.
-STATION_POSES = {
-    # Customer naming: polarity + equipment type + number.
-    #   1 = anode      A = gravure   T = coating   L = cold press
-    #
-    # THREE gravure machines, all fed from the store. A strict chain
-    # (store -> one machine -> next) has only ever one servable job, so a fleet
-    # has nothing to do; parallel machines at a stage are what make three
-    # robots necessary rather than decorative. The real line is the same shape —
-    # a 65 s station feeding four 260 s ones.
-    "ASRS": (-6.0, -6.0),     # the automated store — supplies, never calls
-    "1A01": (6.0, -6.0),      # gravure 1
-    "1A02": (7.0, -1.5),      # gravure 2
-    "1A03": (2.0, -2.5),      # gravure 3
-    "1T01": (6.0, 6.0),       # coater
-    "1L01": (-6.0, 6.0),      # cold press
-}
+#: THE PLANT. Positions, ports and material flow all come from plant.py, which
+#: is built from the customer documents — see its header for the source list.
+#: This module used to carry its own invented station table with one port per
+#: machine; the real line has separate LD and ULD ports and a different chain.
+STATION_POSES = dict(plant.OBSTACLES)      # solid machines
+APPROACH_POSES = dict(plant.DOCKS)         # where a robot stands to be served
 
-#: How far in front of a machine the robot parks to load or unload.
-#: station half-depth 0.5 + robot half-length 0.8 + clearance = 1.6 m.
-APPROACH_DISTANCE = 1.6
+#: Where a robot waits after backing out of a dock: straight back onto its own
+#: aisle. On the road by construction, unlike the sideways offset this replaced.
+EXIT_POSES = dict(plant.JOINS)
 
-#: Where a robot waits when it has nothing to do: further out than the approach
-#: point, so a finished robot is never standing in the bay the next one needs.
-#: Parking in the bay is what made robots push each other — the interlock frees
-#: on job completion, the next robot is let in, and drives into the one still
-#: sitting there. Avoidance cannot save it either: the dock fade deliberately
-#: switches repulsion off near a goal so the approach point stays reachable.
-EXIT_DISTANCE = 3.2
+#: PROTECTIVE FIELD for another robot: stop and wait rather than steer.
+#:
+#: Nothing in the avoidance field can stop this robot. max_repulsion is capped
+#: BELOW the goal attraction on purpose, so obstacles can only steer; and the
+#: dock fade scales it to zero near the goal. Between them, a robot whose path
+#: is occupied drives into whatever is there. The real Foil_A082 carries two
+#: SICK safety scanners for exactly this: a protective field that HALTS the
+#: vehicle. This is that behaviour.
+#:
+#: Chassis is 1.6 x 0.9, so two robots nose to tail touch at 1.6 m centre to
+#: centre. Stopping at 2.4 m leaves a clear gap to stop in.
+ROBOT_STOP_AHEAD = 2.4
+#: Half-width of the corridor checked ahead. Wider than the chassis so a robot
+#: squarely in the way stops us, but one passing to the side does not.
+ROBOT_STOP_SIDE = 1.2
 
-
-def _approach_point(sx, sy):
-    """Where the robot parks to serve the machine at (sx, sy).
-
-    Navigating to the station's own coordinates means driving into it — the
-    machine is a solid model sitting exactly there. On a real floor you dock at
-    a defined position beside the machine, never at it.
-
-    The approach point is offset toward the middle of the hall, which is the
-    open side on this layout.
-    """
-    d = math.hypot(sx, sy) or 1.0
-    return (sx - sx / d * APPROACH_DISTANCE,
-            sy - sy / d * APPROACH_DISTANCE)
-
-
-#: What the robot actually navigates to.
-def _exit_point(sx, sy):
-    """The waiting spot outside a station."""
-    d = math.hypot(sx, sy) or 1.0
-    return (sx - sx / d * EXIT_DISTANCE, sy - sy / d * EXIT_DISTANCE)
-
-
-EXIT_POSES = {name: _exit_point(x, y) for name, (x, y) in STATION_POSES.items()}
-
-APPROACH_POSES = {name: _approach_point(x, y)
-                  for name, (x, y) in STATION_POSES.items()}
+#: THE ROAD NETWORK. Built once, at import. roads.build() raises rather than
+#: returning a network with an obstructed lane, so a plant change that puts a
+#: machine on a lane fails loudly at startup instead of driving a robot into it.
+ROADS = roads.build()
 
 
 class SimRobot:
