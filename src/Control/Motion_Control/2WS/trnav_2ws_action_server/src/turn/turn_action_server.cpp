@@ -296,42 +296,11 @@ void TurnActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 
     if (std::abs(angle_error) > fine_correction_threshold_deg_)
     {
-        auto ik_spin = ik_->computeSpin(sign * 0.1);
-        const double spin_steer_front = ik_spin.wheels[0].steer_rad;
-        const double spin_steer_rear = ik_spin.wheels[1].steer_rad;
-
-        // ── Steer re-align ──
-        auto steer_align_start = node_->now();
-        while (rclcpp::ok())
-        {
-            if (goal_handle->is_canceling())
-            {
-                publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
-                result->status = -1;
-                this->reportResult(result->status); // 종료 코드 토픽 발행 (bag 기록용)
-                result->actual_angle = sign * accumulated_angle;
-                result->elapsed_time = (node_->now() - start_time).seconds();
-                goal_handle->canceled(result);
-                return;
-            }
-
-            publishWheelCmd(0.0, spin_steer_front, 0.0, spin_steer_rear);
-
-            bool front_ok = std::abs(last_angle_front_.load() - spin_steer_front) < steer_tolerance_rad_;
-            bool rear_ok = std::abs(last_angle_rear_.load() - spin_steer_rear) < steer_tolerance_rad_;
-            if (front_ok && rear_ok)
-            {
-                break;
-            }
-
-            if ((node_->now() - steer_align_start).seconds() > steer_timeout_sec_)
-            {
-                RCLCPP_WARN(node_->get_logger(), "Turn fine correction steer-align timeout");
-                break;
-            }
-
-            rate.sleep();
-        }
+        // 조향은 원호 자세(turn_steer_front/rear)를 그대로 쓴다 — 재정렬 없음.
+        // 종전에는 여기서 computeSpin 으로 ±90° 스핀 자세로 갈아탔는데, 그것은
+        // 별도 spin 액션과 같은 기동을 turn 안에서 다시 구현한 것이었다.
+        // R=5 m 기준 조향을 173° 더 움직였고, 그 자세가 translator 영점 오프셋을
+        // 거치며 raw 91.55° 가 되어 can_relay 클램프 상한을 밀어올린 원인이었다.
 
         // ── Fine correction loop ──
         auto fine_start = node_->now();
@@ -356,9 +325,14 @@ void TurnActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
                 break;
             }
 
-            double correction_sign = (angle_error > 0.0) ? sign : -sign;
-            double omega_rad = correction_sign * fine_omega_dps * M_PI / 180.0;
-            auto ik_out = ik_->computeSpin(omega_rad);
+            // 부족(+)이면 원호를 마저 진행, 초과(−)면 같은 조향각 그대로 후진해 되돌린다.
+            // v 와 ω 의 부호가 함께 뒤집히므로 v/ω = turn_radius 가 보존되고,
+            // IK 가 내는 조향각은 원호 자세와 동일하다 — 조향은 움직이지 않는다.
+            const double travel_dir = (angle_error > 0.0) ? 1.0 : -1.0;
+            double omega_mag = fine_omega_dps * M_PI / 180.0;
+            double omega_rad = travel_dir * sign * omega_mag;
+            double v_fine = travel_dir * omega_mag * turn_radius;
+            auto ik_out = ik_->compute({v_fine, 0.0, omega_rad});
 
             double vel_f = ik_out.wheels[0].wheel_speed * ik_out.wheels[0].direction;
             double ang_f = ik_out.wheels[0].steer_rad;
@@ -393,7 +367,7 @@ void TurnActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 
             feedback->phase = 3;
             feedback->current_angle = sign * accumulated_angle;
-            feedback->current_linear_speed = 0.0;
+            feedback->current_linear_speed = v_fine;
             feedback->current_angular_speed = sign * fine_omega_dps * (angle_error > 0 ? 1.0 : -1.0);
             feedback->remaining_angle = angle_error;
             feedback->w1_drive_rpm = ik_out.wheels[0].drive_rpm;
@@ -404,11 +378,12 @@ void TurnActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         }
     }
 
-    // Stop driving
-    {
-        auto ik_spin_stop = ik_->computeSpin(sign * 0.1);
-        publishWheelCmd(0.0, ik_spin_stop.wheels[0].steer_rad, 0.0, ik_spin_stop.wheels[1].steer_rad);
-    }
+    // Stop driving — 원호 자세를 유지한 채 구동만 0.
+    // 종전에는 computeSpin 으로 ±90° 를 실었고, 이 블록은 미세보정 if 밖이라
+    // **보정이 발동하지 않아도 매 turn 마다** 조향을 스핀 자세로 돌렸다.
+    // 2026-08-06 돌연변이 확인: 이 줄만 종전으로 되돌리면 같은 목표(45°, R=1.0 m)에서
+    // 조향 최대가 31.13°/30.80° → **90.00°/90.00°** 로 되돌아온다(결과각·소요시간은 동일).
+    publishWheelCmd(0.0, turn_steer_front, 0.0, turn_steer_rear);
 
     // ── Phase 4: Steer Return (if !hold_steer) ──
     if (!goal->hold_steer)
