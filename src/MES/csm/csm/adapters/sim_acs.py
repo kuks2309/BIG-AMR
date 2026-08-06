@@ -251,7 +251,15 @@ class SimRobot:
 
     @property
     def busy(self):
-        return self._active_job is not None
+        # A robot reversing out of a bay is NOT free, even though its job is
+        # already finished and _active_job cleared. drive() services _exit_goal
+        # first and returns, so a job handed over now is accepted and then
+        # never driven — it sits untouched until the MES times it out at 120 s.
+        #
+        # Measured 2026-08-06: both `timeout after 120s in RUNNING` failures in
+        # an eight-job run came from this, given to a robot that was still
+        # backing out and never finished doing so.
+        return self._active_job is not None or self._exit_goal is not None
 
     def accept(self, job):
         """Take this job. The FLEET decides whether to offer it; this only
