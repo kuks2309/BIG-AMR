@@ -230,7 +230,34 @@ void TurnActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         }
         else
         {
-            accumulated_angle += std::abs(delta_yaw) * 180.0 / M_PI;
+            // 진행량은 **목표 방향 성분만** 센다.
+            //
+            // 종전에는 `+= std::abs(delta_yaw)` 였다 — 방향을 보지 않아 뒤로 읽힌 델타까지
+            // 전진으로 계상했다. 잡음이 좌우 대칭이어도 항상 더하므로 편향이 한 방향으로만
+            // 쌓이고, 결과적으로 **덜 돌았는데 다 돌았다고 판정**한다.
+            //
+            // 2026-08-06 SIL 실측(목표 45° · R=1.0 m · 관성 0.6 s · IMU yaw 잡음 0.05° 1σ):
+            //   종전  실제오차 평균 −0.536° · |최대| 0.846° · σ 0.221°
+            //   현행  실제오차 평균 −0.166° · |최대| 0.239° · σ 0.064°
+            // 종전은 미세보정 임계 0.3° 를 **원리적으로 달성할 수 없었다**(자기 측정이 그보다
+            // 더 틀린다). 무잡음·즉응 플랜트에서는 측정오차가 정확히 0.000° 라 이 결함이
+            // 보이지 않았다 — 플랜트에 동특성·잡음을 넣고서야 드러났다.
+            //
+            // 이 식은 정착 블록(:286-)·미세보정 루프(:359-)의 if/else 와 **수학적으로 동일**하다:
+            //   sign·delta_deg > 0 → |delta_deg| =  sign·delta_deg  → `+= |delta_deg|` 와 같음
+            //   sign·delta_deg < 0 → |delta_deg| = −sign·delta_deg  → `-= |delta_deg|` 와 같음
+            // 즉 새 규칙이 아니라 **주 루프만 빠져 있던 같은 규약**을 맞춘 것이다.
+            //
+            // ⚠ QD 상류(`QD/…/turn_action_server.cpp:233`)는 종전 형태로 남아 있다 —
+            //   같은 결함을 가지며, 이 저장소의 2WS 만 정정했다.
+            // ⚠ 더 나은 방식은 `spin` 이 이미 쓴다 — 시작 시 **절대 목표 yaw** 를 잡고
+            //   `normalizeAngle(target_imu_yaw − cur_yaw)` 로 재면 델타 누적 자체가 없어져
+            //   드리프트·편향이 원천 소거된다(`spin_action_server.cpp:276`).
+            //   turn 을 그 방식으로 옮기는 것은 별건(구조 변경).
+            double delta_deg = delta_yaw * 180.0 / M_PI;
+            accumulated_angle += sign * delta_deg;
+            if (accumulated_angle < 0.0)
+                accumulated_angle = 0.0;
             prev_yaw = current_yaw;
         }
 

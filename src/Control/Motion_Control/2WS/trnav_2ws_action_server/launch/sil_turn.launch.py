@@ -21,21 +21,49 @@ turn 은 spin 과 마찬가지로 **IMU yaw 만** 쓰고 LocalizationMonitor 를
 
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.substitutions import PathJoinSubstitution
+from launch_ros.parameter_descriptions import ParameterValue
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
-from launch.actions import IncludeLaunchDescription, ExecuteProcess
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, ExecuteProcess
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 
 def generate_launch_description():
+    # ── 플랜트 동특성 인자 (2026-08-06 추가) ──
+    # 기본값 0 = 제한 없음 = **종전 즉응 거동 그대로**. 인자를 주지 않으면 이 런치의
+    # 결과는 추가 전과 동일하다. 잔여각 바닥값을 재려면 실기 유래값을 명시적으로 준다:
+    #   drive_decel:=0.0833 drive_accel:=0.0833 steer_rate:=57.1
+    # 근거는 translate_sim_odom_node.hpp 주석(감속=실측 역산 / 조향=설정 유도) 참조.
+    args = [
+        DeclareLaunchArgument('drive_accel', default_value='0.0',
+                              description='구동 가속 한계 m/s² (0=제한없음)'),
+        DeclareLaunchArgument('drive_decel', default_value='0.0',
+                              description='구동 감속 한계 m/s² (0=제한없음). 실기 유래 0.0833'),
+        DeclareLaunchArgument('steer_rate', default_value='0.0',
+                              description='조향 슬루율 deg/s (0=제한없음). 설정 유도 57.1'),
+        DeclareLaunchArgument('imu_yaw_noise', default_value='0.0',
+                              description='발행 yaw 잡음 1σ deg (0=무잡음). 지상진값은 불변'),
+    ]
+
+    def _f(name):
+        return ParameterValue(LaunchConfiguration(name), value_type=float)
+
     sim_node = Node(
         package='translate_sim_odom',
         executable='translate_sim_odom_node',
         name='translate_sim_odom_node',
         output='screen',
-        parameters=[PathJoinSubstitution([
-            FindPackageShare('translate_sim_odom'),
-            'config', 'sim_params.yaml'])],
+        parameters=[
+            PathJoinSubstitution([
+                FindPackageShare('translate_sim_odom'),
+                'config', 'sim_params.yaml']),
+            {   # YAML 뒤에 오므로 이 값이 우선한다
+                'drive_accel_mps2': _f('drive_accel'),
+                'drive_decel_mps2': _f('drive_decel'),
+                'steer_rate_dps': _f('steer_rate'),
+                'imu_yaw_noise_deg': _f('imu_yaw_noise'),
+            },
+        ],
     )
 
     mux_launch = IncludeLaunchDescription(
@@ -86,7 +114,7 @@ def generate_launch_description():
             'config', 'turn_params.yaml'])],
     )
 
-    return LaunchDescription([
+    return LaunchDescription(args + [
         sim_node,
         mux_launch,
         supervisor_node,
@@ -95,3 +123,4 @@ def generate_launch_description():
         dummy_lidar,
         turn_node,
     ])
+
