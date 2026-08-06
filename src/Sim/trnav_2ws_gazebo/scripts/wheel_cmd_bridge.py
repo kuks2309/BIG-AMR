@@ -72,6 +72,19 @@ def normalize_steer(angle_rad, direction):
     return angle_rad, direction
 
 
+
+# TOPIC NAMES ARE RELATIVE, DELIBERATELY (2026-08-06).
+#
+# A leading slash makes a topic ABSOLUTE and the node's namespace is ignored.
+# That is invisible with one robot, where the namespace is empty and the two
+# forms resolve identically — and fatal with several, because every robot's
+# bridge then listens on the same global /cmd_vel and publishes to controller
+# topics that do not exist for it. The robot spawns, its controllers load, and
+# it never moves.
+#
+# Relative names resolve under whatever namespace the node was launched in, so
+# one script serves both worlds.
+
 class WheelCmdBridge(Node):
 
     def __init__(self):
@@ -111,12 +124,12 @@ class WheelCmdBridge(Node):
 
         # ── 출력: ros2_control 컨트롤러 ──
         self.pub_steer = self.create_publisher(
-            Float64MultiArray, '/steer_position_controller/commands', 10)
+            Float64MultiArray, 'steer_position_controller/commands', 10)
         self.pub_drive = self.create_publisher(
-            Float64MultiArray, '/drive_velocity_controller/commands', 10)
+            Float64MultiArray, 'drive_velocity_controller/commands', 10)
 
         # ── 입력 1: /cmd_vel (실 motor_control 과 동일 경로) ──
-        self.create_subscription(Twist, '/cmd_vel', self.on_cmd_vel, 10)
+        self.create_subscription(Twist, 'cmd_vel', self.on_cmd_vel, 10)
         self.create_subscription(Bool, '/estop', self.on_estop, 10)
 
         # ── 입력 2: 액션서버 wheel_cmd ──
@@ -166,7 +179,7 @@ class WheelCmdBridge(Node):
             self.drive_speed[i] = direction * speed
 
         self.last_cmd_t = self.get_clock().now()
-        self.last_src = '/cmd_vel'
+        self.last_src = 'cmd_vel'
 
     def on_wheel_cmd(self, msg, topic):
         """WheelSetArray → 조인트 명령. IK 는 이미 액션서버가 끝냈다."""

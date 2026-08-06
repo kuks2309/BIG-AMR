@@ -372,12 +372,13 @@
            joints into their parent, so base_link is absorbed and only the root
            survives as a body. Naming base_link here fails with
            "body_name: base_link does not exist". -->
-      <!-- Scoped to THIS model. Gazebo resolves body_name across the whole
-           world, so with several robots an unscoped "base_footprint" binds
-           every p3d plugin to whichever model loaded first: one robot's topic
-           carries another's pose, and a third publishes nothing at all.
-           The model name is the namespace (see fleet.launch.py -entity). -->
-      <body_name>${NS + '::' if NS else ''}base_footprint</body_name>
+      <!-- Unscoped, deliberately. gazebo_ros_p3d looks the link up inside the
+           model it is attached to, so a bare name is already model-local and
+           prefixing it with the model name finds nothing.
+           The crossed poses seen on 2026-08-05 were a plugin NAME collision —
+           three models each declaring name="ground_truth" — not a body lookup
+           problem. That is fixed above; this stays simple. -->
+      <body_name>base_footprint</body_name>
       <update_rate>30.0</update_rate>
       <gaussian_noise>0.0</gaussian_noise>
     </plugin>

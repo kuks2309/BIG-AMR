@@ -294,6 +294,20 @@
         <pose>-6.5 -6.5 5.5 0 0.45 0.78</pose>
       </camera>
     </gui>
+    <!-- Ground truth for every model, on ONE topic.
+         The per-model p3d plugin does not survive multi-robot: each copy needs
+         its own ROS namespace and its own plugin name, and even then the
+         bindings came out crossed — two plugins on /amr1/odom_truth and none on
+         /amr2. This is a single world-level plugin publishing every model's
+         pose by NAME on /gazebo/model_states, so a robot looks itself up
+         instead of relying on per-model plumbing being right. -->
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros>
+        <namespace>/gazebo</namespace>
+      </ros>
+      <update_rate>30.0</update_rate>
+    </plugin>
+
 
   </world>
 </sdf>

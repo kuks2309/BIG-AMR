@@ -29,7 +29,7 @@ reads as "slow" rather than "wedged".
 import math
 
 from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
+from gazebo_msgs.msg import ModelStates
 from sensor_msgs.msg import LaserScan
 
 from .base import AcsAdapter, TransportResult
@@ -101,6 +101,9 @@ class SimRobot:
         self.node = node
         #: Topic namespace and log identity. "" means the single-robot world.
         self.name = name
+        #: The Gazebo model name, which is what -entity set at spawn. The
+        #: single-robot world spawns "foil_a082"; the fleet spawns amrN.
+        self.model_name = name or "foil_a082"
         self.tolerance = arrive_tolerance
         self.max_speed = max_speed
         self.stations = dict(stations or APPROACH_POSES)
@@ -124,7 +127,17 @@ class SimRobot:
         # is what the current world publishes.
         ns = f"/{self.name}" if self.name else ""
         self.pub_cmd = node.create_publisher(Twist, f"{ns}/cmd_vel", 10)
-        node.create_subscription(Odometry, f"{ns}/odom_truth", self._on_truth, 10)
+
+        # Ground truth comes from ONE world-level topic carrying every model's
+        # pose by name, and each robot picks itself out of it.
+        #
+        # The per-model p3d plugin did not survive going multi-robot: each copy
+        # needed its own ROS namespace AND its own plugin name, and even with
+        # both the bindings came out crossed — two publishers on
+        # /amr1/odom_truth and none at all on /amr2. Looking yourself up by name
+        # has no per-model plumbing to get wrong.
+        node.create_subscription(ModelStates, "/gazebo/model_states",
+                                 self._on_model_states, 10)
         node.create_subscription(LaserScan, f"{ns}/scan_front", self._on_front, 10)
         node.create_subscription(LaserScan, f"{ns}/scan_rear", self._on_rear, 10)
 
@@ -150,11 +163,22 @@ class SimRobot:
 
     # -------------------------------------------------------------- sensors
 
-    def _on_truth(self, msg):
-        q = msg.pose.pose.orientation
+    def _on_model_states(self, msg):
+        """Find this robot in the world state and take its pose.
+
+        A model that is not in the list yet leaves `pose` as it was — during
+        spawning the message arrives before the model does, and treating that
+        as "no pose" would make a robot look stalled the moment it appeared.
+        """
+        try:
+            i = msg.name.index(self.model_name)
+        except ValueError:
+            return
+        pose = msg.pose[i]
+        q = pose.orientation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-        self.pose = (msg.pose.pose.position.x, msg.pose.pose.position.y, yaw)
+        self.pose = (pose.position.x, pose.position.y, yaw)
 
     def _on_front(self, msg):
         self._front = msg

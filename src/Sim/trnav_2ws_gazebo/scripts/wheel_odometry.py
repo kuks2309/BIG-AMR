@@ -35,6 +35,19 @@ def yaw_to_quat(yaw):
     return (0.0, 0.0, math.sin(yaw / 2.0), math.cos(yaw / 2.0))
 
 
+
+# TOPIC NAMES ARE RELATIVE, DELIBERATELY (2026-08-06).
+#
+# A leading slash makes a topic ABSOLUTE and the node's namespace is ignored.
+# That is invisible with one robot, where the namespace is empty and the two
+# forms resolve identically — and fatal with several, because every robot's
+# bridge then listens on the same global /cmd_vel and publishes to controller
+# topics that do not exist for it. The robot spawns, its controllers load, and
+# it never moves.
+#
+# Relative names resolve under whatever namespace the node was launched in, so
+# one script serves both worlds.
+
 class WheelOdometry(Node):
 
     def __init__(self):
@@ -72,9 +85,9 @@ class WheelOdometry(Node):
         self.yaw = 0.0
         self.last_t = None
 
-        self.pub = self.create_publisher(Odometry, '/odom', 10)
+        self.pub = self.create_publisher(Odometry, 'odom', 10)
         self.tf_bc = TransformBroadcaster(self)
-        self.create_subscription(JointState, '/joint_states', self.on_joints, 10)
+        self.create_subscription(JointState, 'joint_states', self.on_joints, 10)
 
         self.get_logger().info(
             f'wheel_odometry up — {self.odom_frame} -> {self.base_frame} '

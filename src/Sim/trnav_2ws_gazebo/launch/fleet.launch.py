@@ -31,7 +31,8 @@ import xml.dom.minidom
 import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
+                            TimerAction)
 from launch.actions import RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
@@ -80,7 +81,7 @@ def _description(xacro_file, ns):
     return urdf
 
 
-def _one_robot(name, pose, xacro_file, steer_lag):
+def _one_robot(name, pose, xacro_file, steer_lag, delay=0.0):
     """Everything one robot needs. Independent of every other robot."""
     x, y, yaw = pose
     urdf = _description(xacro_file, name)
@@ -134,6 +135,15 @@ def _one_robot(name, pose, xacro_file, steer_lag):
         RegisterEventHandler(OnProcessExit(target_action=drive,
                                            on_exit=[bridge, odometry])),
     ]
+    # STAGGERED. Three robots starting together race: each brings up its own
+    # gazebo_ros2_control plugin, and they contend on the shared
+    # robot_state_publisher service and on Gazebo's model insertion. Observed
+    # with no delay: amr2 loaded all three controllers, amr1 loaded none, amr3
+    # loaded one — while the launch log claimed all three had activated.
+    #
+    # The delay is per robot, so the fleet still comes up in seconds.
+    if delay:
+        return [TimerAction(period=delay, actions=[rsp, spawn] + ordering)]
     return [rsp, spawn] + ordering
 
 
@@ -173,6 +183,7 @@ def generate_launch_description():
     robots = []
     for i in range(count):
         robots += _one_robot(f'amr{i + 1}', START_POSES[i],
-                             xacro_file, LaunchConfiguration('steer_lag'))
+                             xacro_file, LaunchConfiguration('steer_lag'),
+                             delay=i * 8.0)
 
     return LaunchDescription(args + [gzserver, gzclient] + robots)

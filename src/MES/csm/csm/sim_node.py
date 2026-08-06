@@ -109,7 +109,8 @@ class DriveTask(FsmTask):
 
 class MesSimNode(Node):
 
-    def __init__(self, batch_seconds, job_timeout, process_seconds):
+    def __init__(self, batch_seconds, job_timeout, process_seconds,
+                 robot_names=None):
         super().__init__("csm")
 
         # Every station the equipment layer knows about, INCLUDING the outbound
@@ -126,7 +127,7 @@ class MesSimNode(Node):
         # The store is a warehouse: always supplied, never processing. It is
         # the only thing that starts with something to give.
         self.equipment.mark_store("ASRS")
-        self.acs = SimAcs(self)
+        self.acs = SimAcs(self, robot_names=robot_names)
 
         self.app = build_mes(
             self.equipment, self.acs,
@@ -186,6 +187,8 @@ def main():
     parser = argparse.ArgumentParser(description="CSM against Gazebo")
     parser.add_argument("--batch-seconds", type=float, default=25.0,
                         help="how often the fake factory finishes a batch")
+    parser.add_argument("--robots", type=int, default=0,
+                        help="fleet size; 0 uses the single-robot world")
     parser.add_argument("--process-seconds", type=float, default=12.0,
                         help="how long a machine works before it has output")
     parser.add_argument("--job-timeout", type=float, default=120.0,
@@ -193,8 +196,11 @@ def main():
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
+    # Fleet names must match the Gazebo model names, which fleet.launch.py
+    # sets with -entity. None means the single-robot world.
+    names = [f"amr{i + 1}" for i in range(args.robots)] if args.robots else None
     node = MesSimNode(args.batch_seconds, args.job_timeout,
-                      args.process_seconds)
+                      args.process_seconds, robot_names=names)
     try:
         asyncio.run(_run(node))
     except KeyboardInterrupt:
