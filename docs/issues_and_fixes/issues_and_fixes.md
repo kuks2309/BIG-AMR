@@ -47,6 +47,60 @@
 
 ## 2026-08-06
 
+### [Fix] SIL 런치 4종이 시작 즉시 abort — `sil_pose_adapter` 누락 (한 번도 동작한 적 없음)
+
+- **문제**: `sil_translate_forward`·`sil_translate_reverse`·`sil_mpc`·`sil_mpc_reverse` 4종이
+  목표를 받은 지 **0.0003 초** 만에 `status −3` 로 ABORTED. 로그는
+  `TF2 map->base_link not available` 이었다.
+- **진단**: 메시지와 달리 **TF 문제가 아니다.** `LocalizationMonitor::lookupMapToBase` 는
+  TF 를 쓰지 않고 **`/robot_pose`(PoseStamped) 토픽 캐시**를 읽는다
+  (`localization_monitor.cpp:137-150`, 기본 토픽 `localization_monitor.hpp:27`).
+  실차는 `trnav_pose_publisher` 가 그 토픽을 내고, SIL 에선 `sil_pose_adapter` 가
+  `/rtabmap/localization_pose`(PoseWithCovarianceStamped) → `/robot_pose` 로 변환해 낸다.
+  `sil_crab_linear` 에는 그 어댑터가 있고 `sil_spin`·`sil_turn` 에는 **불필요 사유가 명시**돼
+  있는데, 이 4종만 **사유 없이 빠져 있었다.** ⇒ 이 4개 런치는 **작성 이후 한 번도 성공한 적이
+  없다.** (실차 경로는 정상 — 이건 SIL 하네스만의 결함이다.)
+- **수정**: 4개 런치에 `sil_pose_adapter` include 추가(crab 과 동일 방식, 파라미터 불요).
+- **검증** (`ROS_DOMAIN_ID=43`, 2 m 직선):
+
+  | 액션 | status | 이동거리 | 횡오차 | 소요 |
+  | --- | --- | --- | --- | --- |
+  | translate_forward | 0 | 1.980 m | −0.10 mm | 12.44 s |
+  | translate_reverse | 0 | 2.000 m | +0.10 mm | 11.16 s |
+  | mpc | 0 | 2.000 m | +0.23 mm | 11.16 s |
+  | mpc_reverse | 0 | 2.000 m | **−0.371~−0.390 m** | 12.48 s |
+
+  앞 3종은 정상. mpc_reverse 는 아래 [Diag] 참조.
+- **남은 것**: ① 에러 문구가 실제 기전(토픽 부재)과 다르다 ② `translate_pose_topic`·
+  `mpc_pose_topic` 설정 키를 **읽는 코드가 0건**(죽은 키) ③
+  `translate_forward_action_server.cpp:114` 주석 `(TF-only, topic 폐기 2026-05-18)` 이
+  현재와 정반대. 셋 다 런타임 동작 변화 없음 — 별건.
+
+### [Diag] mpc_reverse 가 후진 중 요(yaw) 발산 — 횡오차 0.39 m 인데 `status 0` 보고
+
+- **증상** (SIL, 2 m 후진, `ROS_DOMAIN_ID=43`, 2회 재현):
+
+  ```
+  t=+1.4s  yaw  +4.42°  횡편차 −0.047 m
+  t=+3.1s  yaw +18.93°  횡편차 −0.258 m
+  t=+4.9s  yaw +24.98°  횡편차 −0.445 m
+  최종     (x 2.950 ✓, y −2.720)  목표 y −2.33  → 0.390 m 이탈
+  ```
+
+  `actual_distance` 는 2.000 m 로 정확하고 x 는 목표에 닿는다 — **횡방향만 발산**한다.
+  그런데 결과는 **`status 0`(SUCCEEDED)** — 성공 판정이 횡오차를 보지 않는다.
+  `final_heading_error −177°` 는 전진 기준으로 계산한 **보고 아티팩트**다(실제 yaw −2.3°).
+- **좁힌 범위**:
+  - 코드는 **QD 상류와 완전히 동일** — 네임스페이스 정규화 후 diff hunk **0건**.
+  - 설정 차이는 **기하값뿐** — 휠베이스 0.66 → **1.20 m**(1.8배), 휠반경 0.08 → 0.125.
+    **제어 게인은 QD 값 그대로.**
+  - 같은 기하로 **forward `mpc` 는 정상**(횡오차 0.23 mm) ⇒ 단순 게인 문제가 아니라
+    **후진 전용 조향 배분**(`DualBicycleCommand{vx, 0.0, δ_f}` — 후륜 조향,
+    `mpc_reverse_action_server.cpp:662`)이 2WS inline 기하와 맞물리는 지점으로 좁혀진다.
+- **의미**: 「검증된 QD 를 2WS 로 이식」에서 **QD 에서 성립하던 것이 2WS 기하에서는 성립하지
+  않는 첫 사례**다. 제어 구조·게인 재조정이 필요하며 **미해결**.
+- **실기 검증 0회.**
+
 ### [Fix] turn 이 잡음 조건에서 **덜 돌고도 다 돌았다고 판정** — 주 루프 각도 계상이 방향 무시
 
 - **문제**: `turn` 이 목표 45° 를 지령받고 **44.15~44.66° 만 돌면서** 자기보고는 **45.19~45.30°**

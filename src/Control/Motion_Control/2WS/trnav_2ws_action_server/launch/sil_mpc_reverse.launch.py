@@ -29,6 +29,21 @@ def generate_launch_description():
             'config', 'sim_params.yaml'])],
     )
 
+    # SIL 전용 pose type adapter (2026-08-06 추가)
+    # /rtabmap/localization_pose (PoseWithCovarianceStamped, SensorDataQoS)
+    #   → /robot_pose (PoseStamped, RELIABLE depth=10)
+    # LocalizationMonitor 는 **TF 가 아니라 /robot_pose 토픽 캐시**만 쓴다
+    # (localization_monitor.cpp:137-150). 실차에선 trnav_pose_publisher 가 그 토픽을 내고,
+    # SIL 에선 이 어댑터가 낸다. 없으면 액션이 시작 즉시 abort(-3) 한다 —
+    # 에러 문구는 "TF2 map->base_link not available" 이지만 실제 원인은 이 토픽 부재다.
+    pose_adapter_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([
+                FindPackageShare('sil_pose_adapter'),
+                'launch', 'sil_pose_adapter.launch.py'])
+        )
+    )
+
     mux_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([
@@ -78,6 +93,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         sim_node,
+        pose_adapter_launch,
         mux_launch,
         supervisor_node,
         safety_watchdog_launch,
