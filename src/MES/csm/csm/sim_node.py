@@ -48,9 +48,15 @@ from .runtime import FsmTask, build_mes
 #: the call never says where that material is. Answering that is the CSM's job,
 #: so what we hold is the reverse route: for each machine, who supplies it.
 FEEDS = {
-    "1A01": "ASRS",     # gravure is fed from the automated store
-    "1T01": "1A01",     # coater is fed by gravure
-    "1L01": "1T01",     # cold press is fed by the coater
+    # Three gravure machines share the store, so three jobs can be servable at
+    # once and the fleet has something to do. They also all collect from the
+    # SAME place, which is what makes robots queue for the store — the entry
+    # interlock is only visible when two of them want one station.
+    "1A01": "ASRS",
+    "1A02": "ASRS",
+    "1A03": "ASRS",
+    "1T01": "1A01",     # the coater draws from gravure 1
+    "1L01": "1T01",     # cold press draws from the coater
 }
 STATIONS = ["ASRS"] + list(FEEDS)
 

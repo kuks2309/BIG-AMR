@@ -27,6 +27,12 @@
        moves under that prefix, which is what lets several robots share one
        Gazebo world without shouting over each other. -->
   <xacro:arg name="ns" default=""/>
+
+  <!-- Draw the laser fans in the Gazebo window. Useful with ONE robot, where
+       two fans show you what the scanners see. Unusable with three: six fans of
+       400 rays each fill the hall with colour and you cannot see the robots at
+       all. Off by default; turn it on when you are debugging the scanners. -->
+  <xacro:arg name="show_scan" default="false"/>
   <xacro:property name="NS" value="$(arg ns)"/>
   <xacro:property name="PFX" value="${NS + '/' if NS else ''}"/>
 
@@ -283,7 +289,7 @@
   <gazebo reference="scan_front_link">
     <sensor type="ray" name="scan_front_sensor">
       <pose>0 0 0 0 0 0</pose>
-      <visualize>true</visualize>
+      <visualize>$(arg show_scan)</visualize>
       <update_rate>25.0</update_rate>
       <ray>
         <scan>
@@ -312,7 +318,7 @@
   <gazebo reference="scan_rear_link">
     <sensor type="ray" name="scan_rear_sensor">
       <pose>0 0 0 0 0 0</pose>
-      <visualize>true</visualize>
+      <visualize>$(arg show_scan)</visualize>
       <update_rate>25.0</update_rate>
       <ray>
         <scan>

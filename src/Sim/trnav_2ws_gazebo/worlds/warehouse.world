@@ -86,31 +86,6 @@
       </link>
     </model>
 
-    <!-- ===== 파렛트 (라이다 표적 / 회피 대상) ===== -->
-    <model name="pallet_a">
-      <static>true</static>
-      <pose>2.0 -2.0 0.4 0 0 0</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>1.2 0.8 0.8</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>1.2 0.8 0.8</size></box></geometry>
-          <material><ambient>0.55 0.35 0.15 1</ambient><diffuse>0.65 0.42 0.18 1</diffuse></material>
-        </visual>
-      </link>
-    </model>
-
-    <model name="pallet_b">
-      <static>true</static>
-      <pose>-2.0 2.0 0.4 0 0 0.6</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>1.2 0.8 0.8</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>1.2 0.8 0.8</size></box></geometry>
-          <material><ambient>0.55 0.35 0.15 1</ambient><diffuse>0.65 0.42 0.18 1</diffuse></material>
-        </visual>
-      </link>
-    </model>
-
     <model name="pillar">
       <static>true</static>
       <pose>0 2.0 1.25 0 0 0</pose>
@@ -127,7 +102,7 @@
     <!-- station_3: a process station. Static, and low enough that the robot's
          scanners see it as an obstacle to be avoided, exactly as on a real
          floor where you drive up beside a machine, not into it. -->
-    <model name="station_3">
+    <model name="m_1A01">
       <static>true</static>
       <pose>6.0 -6.0 0 0 0 0</pose>
       <link name="link">
@@ -168,7 +143,7 @@
     <!-- station_5: a process station. Static, and low enough that the robot's
          scanners see it as an obstacle to be avoided, exactly as on a real
          floor where you drive up beside a machine, not into it. -->
-    <model name="station_5">
+    <model name="m_ASRS">
       <static>true</static>
       <pose>-6.0 -6.0 0 0 0 0</pose>
       <link name="link">
@@ -209,7 +184,7 @@
     <!-- station_9: a process station. Static, and low enough that the robot's
          scanners see it as an obstacle to be avoided, exactly as on a real
          floor where you drive up beside a machine, not into it. -->
-    <model name="station_9">
+    <model name="m_1T01">
       <static>true</static>
       <pose>6.0 6.0 0 0 0 0</pose>
       <link name="link">
@@ -250,7 +225,7 @@
     <!-- station_out: a process station. Static, and low enough that the robot's
          scanners see it as an obstacle to be avoided, exactly as on a real
          floor where you drive up beside a machine, not into it. -->
-    <model name="station_out">
+    <model name="m_1L01">
       <static>true</static>
       <pose>-6.0 6.0 0 0 0 0</pose>
       <link name="link">
@@ -308,6 +283,90 @@
       <update_rate>30.0</update_rate>
     </plugin>
 
+
+  
+
+    <!-- parallel gravure machine: three of them share the store,
+         which is what gives the fleet more than one job at a time -->
+    <model name="m_1A02">
+      <static>true</static>
+      <pose>7.0 -1.5 0 0 0 0</pose>
+      <link name="link">
+        <!-- table top -->
+        <collision name="top_c">
+          <pose>0 0 0.45 0 0 0</pose>
+          <geometry><box><size>1.0 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="top_v">
+          <pose>0 0 0.45 0 0 0</pose>
+          <geometry><box><size>1.0 0.8 0.1</size></box></geometry>
+          <material>
+            <ambient>0.85 0.25 0.20 1</ambient><diffuse>0.85 0.25 0.20 1</diffuse>
+          </material>
+        </visual>
+        <!-- legs, as one block: keeps the model cheap and still blocks the robot -->
+        <collision name="base_c">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>0.8 0.6 0.4</size></box></geometry>
+        </collision>
+        <visual name="base_v">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>0.8 0.6 0.4</size></box></geometry>
+          <material>
+            <ambient>0.30 0.32 0.35 1</ambient><diffuse>0.38 0.40 0.44 1</diffuse>
+          </material>
+        </visual>
+        <!-- post so the station is identifiable from across the hall -->
+        <visual name="post_v">
+          <pose>0 0 0.85 0 0 0</pose>
+          <geometry><cylinder><radius>0.05</radius><length>0.7</length></cylinder></geometry>
+          <material>
+            <ambient>0.85 0.25 0.20 1</ambient><diffuse>0.85 0.25 0.20 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- parallel gravure machine: three of them share the store,
+         which is what gives the fleet more than one job at a time -->
+    <model name="m_1A03">
+      <static>true</static>
+      <pose>2.0 -2.5 0 0 0 0</pose>
+      <link name="link">
+        <!-- table top -->
+        <collision name="top_c">
+          <pose>0 0 0.45 0 0 0</pose>
+          <geometry><box><size>1.0 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="top_v">
+          <pose>0 0 0.45 0 0 0</pose>
+          <geometry><box><size>1.0 0.8 0.1</size></box></geometry>
+          <material>
+            <ambient>0.85 0.25 0.20 1</ambient><diffuse>0.85 0.25 0.20 1</diffuse>
+          </material>
+        </visual>
+        <!-- legs, as one block: keeps the model cheap and still blocks the robot -->
+        <collision name="base_c">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>0.8 0.6 0.4</size></box></geometry>
+        </collision>
+        <visual name="base_v">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>0.8 0.6 0.4</size></box></geometry>
+          <material>
+            <ambient>0.30 0.32 0.35 1</ambient><diffuse>0.38 0.40 0.44 1</diffuse>
+          </material>
+        </visual>
+        <!-- post so the station is identifiable from across the hall -->
+        <visual name="post_v">
+          <pose>0 0 0.85 0 0 0</pose>
+          <geometry><cylinder><radius>0.05</radius><length>0.7</length></cylinder></geometry>
+          <material>
+            <ambient>0.85 0.25 0.20 1</ambient><diffuse>0.85 0.25 0.20 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
 
   </world>
 </sdf>

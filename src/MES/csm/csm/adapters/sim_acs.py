@@ -40,11 +40,15 @@ STATION_POSES = {
     # Customer naming: polarity + equipment type + number.
     #   1 = anode      A = gravure   T = coating   L = cold press
     #
-    # One station per corner of the 20 x 20 m hall. Spread deliberately: with
-    # several robots the approach points must not overlap, and a robot held
-    # outside a busy machine must not block the route to a different one.
+    # THREE gravure machines, all fed from the store. A strict chain
+    # (store -> one machine -> next) has only ever one servable job, so a fleet
+    # has nothing to do; parallel machines at a stage are what make three
+    # robots necessary rather than decorative. The real line is the same shape —
+    # a 65 s station feeding four 260 s ones.
     "ASRS": (-6.0, -6.0),     # the automated store — supplies, never calls
-    "1A01": (6.0, -6.0),      # gravure
+    "1A01": (6.0, -6.0),      # gravure 1
+    "1A02": (7.0, -1.5),      # gravure 2
+    "1A03": (2.0, -2.5),      # gravure 3
     "1T01": (6.0, 6.0),       # coater
     "1L01": (-6.0, 6.0),      # cold press
 }
@@ -52,6 +56,14 @@ STATION_POSES = {
 #: How far in front of a machine the robot parks to load or unload.
 #: station half-depth 0.5 + robot half-length 0.8 + clearance = 1.6 m.
 APPROACH_DISTANCE = 1.6
+
+#: Where a robot waits when it has nothing to do: further out than the approach
+#: point, so a finished robot is never standing in the bay the next one needs.
+#: Parking in the bay is what made robots push each other — the interlock frees
+#: on job completion, the next robot is let in, and drives into the one still
+#: sitting there. Avoidance cannot save it either: the dock fade deliberately
+#: switches repulsion off near a goal so the approach point stays reachable.
+EXIT_DISTANCE = 3.2
 
 
 def _approach_point(sx, sy):
@@ -70,6 +82,14 @@ def _approach_point(sx, sy):
 
 
 #: What the robot actually navigates to.
+def _exit_point(sx, sy):
+    """The waiting spot outside a station."""
+    d = math.hypot(sx, sy) or 1.0
+    return (sx - sx / d * EXIT_DISTANCE, sy - sy / d * EXIT_DISTANCE)
+
+
+EXIT_POSES = {name: _exit_point(x, y) for name, (x, y) in STATION_POSES.items()}
+
 APPROACH_POSES = {name: _approach_point(x, y)
                   for name, (x, y) in STATION_POSES.items()}
 
@@ -149,6 +169,17 @@ class SimRobot:
         self._goal = None
         #: Called with (job_id, result) when a job ends, however it ends.
         self.on_finished = None
+        #: Set by SimAcs. Owns the entry interlock, which is fleet-wide.
+        self.fleet = None
+        #: How far out a robot asks for entry. Beyond the approach point,
+        #: so the refusal arrives before the trip is wasted.
+        self.entry_request_range = 2.2
+        self._noted_hold = False
+        #: Set while reversing out of a bay after finishing.
+        self._exit_goal = None
+        self._exit_station = None
+        #: Previous logged position, for a speed estimate.
+        self._log_x = self._log_y = 0.0
 
         # A job is two journeys: collect at the source, then carry to the
         # destination, with a loading pause between them.
@@ -273,15 +304,44 @@ class SimRobot:
 
     def drive(self):
         """Step the controller once, from the node's timer."""
-        if self._active_job is None or self._goal is None:
-            return
         if self.pose is None:
             return              # no ground truth yet — never command blind
+
+        # Reversing out of a bay after finishing. Nothing else may happen until
+        # the robot is clear, including taking a new job — it still holds the
+        # interlock, and the next robot is waiting on it.
+        if self._exit_goal is not None:
+            self._drive_to_exit()
+            return
+
+        if self._active_job is None or self._goal is None:
+            return
 
         x, y, yaw = self.pose
         gx, gy = self._goal
         ex, ey = gx - x, gy - y
         distance = math.hypot(ex, ey)
+
+        # ENTRY INTERLOCK. Ask before approaching, and hold outside if refused.
+        #
+        # The waiting happens at the node BEFORE the machine, deliberately: a
+        # robot that drives up and then discovers the bay is taken has wasted
+        # the trip and is now in the way. Asking from a distance costs nothing.
+        #
+        # Standing still here is NOT a stall, so the stall clock is reset while
+        # waiting — otherwise a robot politely queueing would fail its own job
+        # after eight seconds.
+        target = self._from if self._leg == "collect" else self._to
+        if self.fleet is not None and distance < self.entry_request_range:
+            if not self.fleet.request_entry(target, self.name or "robot"):
+                if not self._noted_hold:
+                    self._noted_hold = True
+                    self.node.get_logger().info(
+                        f"{self._tag()}holding outside {target} — occupied")
+                self._reset_stall()
+                self._stop()
+                return
+            self._noted_hold = False
 
         # Loading and unloading take real time on a real line. Standing still
         # during a dwell is not a stall, so this is checked before _check_stall.
@@ -354,6 +414,38 @@ class SimRobot:
         cmd.linear.y = vy * speed
         self.pub_cmd.publish(cmd)
 
+    def _drive_to_exit(self):
+        """Back out to the waiting spot, then release the bay."""
+        x, y, _ = self.pose
+        gx, gy = self._exit_goal
+        distance = math.hypot(gx - x, gy - y)
+
+        if distance < self.tolerance:
+            if self.fleet is not None and self._exit_station:
+                self.fleet.release(self._exit_station, self.name or "robot")
+            self.node.get_logger().info(
+                f"{self._tag()}clear of {self._exit_station} — waiting outside")
+            self._exit_goal = None
+            self._exit_station = None
+            self._stop()
+            return
+
+        # Full avoidance on the way out: there is no goal near a machine to
+        # protect here, so nothing has to fade. This is the one leg where a
+        # robot is most likely to meet another coming in.
+        rep = self._repulsion()[0] if hasattr(self, "_repulsion") else (0.0, 0.0)
+        rx, ry = (rep if isinstance(rep, tuple) else (0.0, 0.0))
+        ex, ey = gx - x, gy - y
+        n = math.hypot(ex, ey) or 1.0
+        vx, vy = ex / n + rx, ey / n + ry
+        m = math.hypot(vx, vy) or 1.0
+        speed = min(self.max_speed, 0.8 * distance)
+
+        cmd = Twist()
+        cmd.linear.x = vx / m * speed
+        cmd.linear.y = vy / m * speed
+        self.pub_cmd.publish(cmd)
+
     def _on_arrival(self, distance):
         """Reached the current leg's goal."""
         self._stop()
@@ -370,6 +462,11 @@ class SimRobot:
 
     def _begin_delivery(self):
         """Loading finished — set off on leg 2."""
+        # Out of the source bay. Only now, not when the robot arrived: it was
+        # physically in the bay for the whole loading dwell, and releasing on
+        # arrival would invite the next robot in on top of it.
+        if self.fleet is not None:
+            self.fleet.release(self._from, self.name or "robot")
         self._leg = "deliver"
         self._goal = self.stations[self._to]
         self._reset_stall()
@@ -423,6 +520,16 @@ class SimRobot:
         # happened to carry it — and after the robot has moved on to the next.
         if self.on_finished:
             self.on_finished(job_id, result)
+
+        # BACK OUT before the bay is released. The robot is physically in it
+        # until it has driven clear, and freeing the interlock while it still
+        # stands there invites the next robot to drive into it. Only on arrival
+        # outside does the bay go free — see _arrive_at_exit.
+        station = self._to if self._leg == "deliver" else self._from
+        if station in EXIT_POSES:
+            self._exit_station = station
+            self._exit_goal = EXIT_POSES[station]
+
         self._active_job = None
         self._goal = None
         self._leg = None
@@ -431,7 +538,8 @@ class SimRobot:
         self._dwell_until = None
         self._stall_ref = None
         self._stall_since = None
-        self._stop()
+        if self._exit_goal is None:
+            self._stop()
 
     def _stop(self):
         self.pub_cmd.publish(Twist())
@@ -468,7 +576,11 @@ class SimAcs(AcsAdapter):
         self.robots = [SimRobot(node, name=n, **robot_kwargs) for n in names]
         for r in self.robots:
             r.on_finished = self._on_robot_finished
+            r.fleet = self
         self._results = {}
+        #: station_id -> robot holding it. One robot per bay.
+        self._occupied = {}
+        self._last_log = 0.0
         self.stations = self.robots[0].stations
         node.get_logger().info(
             f"ACS: fleet of {len(self.robots)} "
@@ -483,6 +595,31 @@ class SimAcs(AcsAdapter):
         if job.to_station not in self.stations:
             self.node.get_logger().warn(f"unknown destination {job.to_station}")
             return TransportResult.REJECTED
+
+        # Do not send a robot where another robot is already going.
+        #
+        # The entry interlock only guards the threshold. Without this, three
+        # jobs that all collect from the store send all three robots to the
+        # same point: one is let in and the other two crowd the approach,
+        # blocking the robot that was permitted. Everybody stalls, and the jobs
+        # fail one after another.
+        #
+        # Claiming the endpoints at ASSIGNMENT means the wasted trip never
+        # starts. The second job is told BUSY and waits its turn, which is the
+        # same answer it would get for any other fleet constraint.
+        # DESTINATIONS only. Two robots must not be sent to the same drop-off:
+        # there is nothing to arbitrate between them there, and both would wait
+        # for a bay only one can use.
+        #
+        # Sources are deliberately NOT claimed. Three machines fed by one store
+        # means three jobs that all collect from it, and claiming the source
+        # would serialise them completely — destroying the parallelism the extra
+        # machines exist to provide, and leaving two robots permanently idle.
+        # The shared pickup is arbitrated by the entry interlock instead: one
+        # robot in the bay, the others hold outside and enter as it frees.
+        taken = {r._to for r in self.robots if r.busy}
+        if job.to_station in taken:
+            return TransportResult.BUSY
 
         free = [r for r in self.robots if not r.busy]
         if not free:
@@ -524,6 +661,41 @@ class SimAcs(AcsAdapter):
         """One control cycle for every robot."""
         for r in self.robots:
             r.drive()
+        self._log_state()
+
+    def _log_state(self, period=2.0):
+        """Print what every robot is doing, at a readable rate.
+
+        Diagnosing a stalled fleet from job outcomes alone is guesswork: a job
+        that fails tells you a robot stopped, not where it was, what it was
+        aiming at, or whether it was moving at all. One line per robot per two
+        seconds is enough to see a robot creeping, circling, or held at a bay,
+        and cheap enough to leave on.
+        """
+        now = self.node.get_clock().now().nanoseconds * 1e-9
+        if now - self._last_log < period:
+            return
+        self._last_log = now
+
+        parts = []
+        for r in self.robots:
+            if r.pose is None:
+                parts.append(f"{r.name}: no pose")
+                continue
+            x, y, _ = r.pose
+            moved = math.hypot(x - r._log_x, y - r._log_y)
+            r._log_x, r._log_y = x, y
+            if not r.busy:
+                parts.append(f"{r.name}({x:+.1f},{y:+.1f}) idle")
+                continue
+            gx, gy = r._goal if r._goal else (x, y)
+            parts.append(
+                f"{r.name}({x:+.1f},{y:+.1f})"
+                f"->{r._to if r._leg == 'deliver' else r._from}"
+                f" d={math.hypot(gx - x, gy - y):.1f}"
+                f" v={moved / period:.2f}"
+                + (" HELD" if r._noted_hold else ""))
+        self.node.get_logger().info("STATE " + " | ".join(parts))
 
     def _stop(self):
         for r in self.robots:
@@ -531,3 +703,40 @@ class SimAcs(AcsAdapter):
 
     def _on_robot_finished(self, job_id, result):
         self._results[job_id] = result
+        # A robot that has finished must not keep holding a bay.
+        self.release_all(job_id)
+
+    # ------------------------------------------------------- entry interlock
+
+    def request_entry(self, station_id, robot_name):
+        """May this robot approach that station? One at a time, ever.
+
+        The protocol carries exactly one "AGV is inside" bit per docking axis,
+        so a second robot has nowhere to report itself even if it wanted to. It
+        is mutual exclusion built into the data, not a rule somebody has to
+        remember — and the safe way to model it is to refuse rather than to
+        queue silently.
+        """
+        holder = self._occupied.get(station_id)
+        if holder in (None, robot_name):
+            if holder is None:
+                self.node.get_logger().info(
+                    f"{station_id}: entry permitted -> {robot_name}")
+            self._occupied[station_id] = robot_name
+            return True
+        return False
+
+    def release(self, station_id, robot_name):
+        if self._occupied.get(station_id) == robot_name:
+            del self._occupied[station_id]
+            self.node.get_logger().info(
+                f"{station_id}: {robot_name} clear — bay free")
+
+    def release_all(self, _job_id=None):
+        """Free every bay held by a robot that no longer has a job."""
+        # A robot backing out still holds its bay, even though its job is done.
+        busy = {r.name for r in self.robots
+                if r.busy or r._exit_goal is not None}
+        for st in [k for k, v in self._occupied.items() if v not in busy]:
+            self.node.get_logger().info(f"{st}: bay released")
+            del self._occupied[st]
