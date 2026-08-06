@@ -99,6 +99,24 @@ geometry 를 실측 inline 값으로 교체:
 - QD config 만 실측값으로 교체(별도 2WS 없이) | QD 명칭("diagonal")·upstream 정체성과 충돌, 폴더 구조(QD/4IS/DD/2WS) 취지 위반. → 별도 2WS 스택.
 - 공유 패키지(interfaces/msgs/core) 는 QD 재사용 | 2WS 가 QD/ 빌드에 종속돼 독립성 상실. → 전 패키지 리네임(자립).
 
+> ### ⚠ 2026-07-31 부분 supersede — 위 기각안 중 **msgs 부분만** 뒤집힘 (원문은 이력 보존)
+>
+> `trnav_2ws_msgs` 는 **폐기**되고 `trnav_msgs` 하나로 통합됐다.
+> 정본: [ADR 2026-07-31 — 체인 상류 2노드 이식 + 메시지 패키지 통합](2026-07-31-motion-motor-chain-mux-translator-port.md).
+>
+> **뒤집힌 이유** — 위 기각 사유("QD/ 빌드에 종속")는 `trnav_msgs` 가 `Motion_Control/QD/` **아래**
+> 있다는 전제에서만 성립한다. 그것을 `Motion_Control/Common/` 으로 꺼내자 **종속 자체가 사라졌다.**
+> 더불어 상류 조사 결과 `trnav_msgs` 는 QD 전용이 아니라 **20개 패키지가 공유하는 워크스페이스
+> 공통 계약**이고(DD 스택 `trnav_motion_dd`·`trnav_dd_kinematics` 포함), `WheelSet.msg:1` 이
+> 스스로 「Per-wheel motion command (**platform-agnostic**)」라 선언하며 QD/DD/4WS/Ackermann
+> 해석을 나란히 적는다. 플랫폼별 사본은 **내용 동일·타입 비호환** 패키지를 플랫폼 수만큼 늘린다.
+>
+> **유효한 부분** — kinematics·core·motion·action_server 의 리네임(`trnav_2ws_*`,
+> 네임스페이스 `trnav::motion::two_ws`, 클래스 `TwoWs*`)과 geometry 교체 결정은 **그대로 유효하다.**
+> 이번 supersede 는 msgs 1개 패키지에 한정된다.
+>
+> **부작용** — 타입 불일치가 우연히 제공하던 「QD·2WS 동시 기동 차단」이 사라졌다 → **debt-024**.
+
 ## 영향·주의
 - Scope: 신규 6패키지(코드 로직 무변경, 리네임+geometry config 만). QD 스택 무영향.
 - **QD 와 공존**: 패키지명·네임스페이스·심볼 분리로 동일 workspace 빌드 가능. action 노드 실행파일명은
