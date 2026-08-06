@@ -1,0 +1,49 @@
+# 장비별 캘리브레이션 — LGIT-MOMA QD 주행 실기 (⚠ 기체명 가칭 — 사용자 확정 시 파일명 변경)
+#
+# 2026-08-06 사용자 지시: can relay GUI 를 QD 기체에서도 쓴다. 조향 기준은 **Seer API 조향값**
+# (사용자 확정: "SEER 의 API 에서 조향값을 읽을 수 있으므로 그것을 기준으로 잡고 진행",
+#  Seer API 는 Big-AMR 과 동일).
+#
+# ⚠ 값 등급: [실측]=기록 인용 / [정본]=참조 저장소 config 인용 / [도출⚠]=식으로 유도(실기 검증 전).
+#   출처 없는 값 기입 금지 — foil_a082.yaml 과 같은 규율.
+
+/**:
+  ros__parameters:
+    machine_name: "LGIT_MOMA_QD"        # ⚠ 가칭
+
+    # ── 스케일 ────────────────────────────────────────────────────────────
+    # [정본] 조향 counts/도 = gear_steer 265.5 × pulses_per_rev 65536 / 360 = 48332.8
+    #   출처: kuks2309/TR_Nav_ros2_ws amr_motor_cmd_translator_qd.yaml (gear_steer 265.5,
+    #   pulses_per_rev 65536). foil_a082.yaml:19 주석도 "상류 QD(Carrier AGV) 값 48,332.8" 로
+    #   동일값을 명시(교차 확인). ⚠ Big-AMR 57,344 와 다르다 — 서로 바꿔 쓰면 안 된다.
+    steer_counts_per_deg: 48332.8
+
+    # [도출⚠] 구동 raw 환산(0x60FF, 0.1 r/min 단위 가정 — Big-AMR 와 동일 가정, 실기 검증 전):
+    #   units/mmps = 10 × 60 × gear_walk / (2π × wheel_radius_mm)
+    #              = 600 × 20 / (2π × 80) = 23.8732
+    #   출처(입력값): TR_Nav amr_motor_cmd_translator_qd.yaml wheel_radius_m 0.08, gear_walk 20.0
+    drive_units_per_mmps: 23.8732
+
+    # [도출⚠] 안전 상한 ≈0.2 m/s 계승(Big-AMR 관례) × 23.8732 ≈ 4775. 실측 아님.
+    drive_max_units: 4775
+
+    # [도출⚠] 조향 한계 — Big-AMR 값 계승. QD 실기 가동범위 미확인, 실측 후 정정할 것.
+    steer_limit_deg: 90.0
+
+    # ── 노드 ──────────────────────────────────────────────────────────────
+    # [정본] TR_Nav amr_motor_cmd_translator_qd.yaml: walk 1·2 / steer 3(front)·4(rear)
+    steer_nodes: [3, 4]
+
+    # ── 조향 0° (홈) ──────────────────────────────────────────────────────
+    # ⚠ 미실측 — 빈 값이면 GUI 가 기동 거부한다(설계 의도: foil 값 오적용 방지).
+    # 채우는 절차(선례: Big-AMR docs/homing/2026-08-03-can-relay-homing-assets.md):
+    #   1) LGIT-MOMA 실기 panda 를 SAFETY_SILENT·passthrough 로 열고(제어권 미취득)
+    #      0x6064(node3·4) 를 수집 — Tools/docking_field_kit/orin_steer_crosscheck.py 방식
+    #   2) 같은 시점 Seer API 조향각(기준 확정: 사용자 2026-08-06) 조회
+    #   3) 0° counts = CAN_0x6064 + Seer_deg × 48332.8  (기울기는 본 파일 값 — 57344 금지)
+    #   4) 2회 독립 실행이 counts 단위로 재현되면 채택, 본 파일에 [실측] 으로 기입
+    steer_home_counts: []
+
+    # ── 참고 (GUI 미사용, 크로스체크·후속 이식 시 참조) ────────────────────
+    # [정본] TR_Nav: direction walk/steer 전축 -1 · steer_offset_front/rear_deg -1.676
+    #   (조향 영점 보정 — 홈 실측에 흡수되는지 실기에서 판단할 것)
