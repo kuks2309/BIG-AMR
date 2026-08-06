@@ -366,6 +366,16 @@ class SimRobot:
         self._docking = False
         self._stop()
 
+    def _in_a_bay(self):
+        """True while the robot is inside a station bay, past the spur junction.
+
+        Geometric rather than a flag, so it holds however the robot got there —
+        arriving, leaving, or recovering from a failed job.
+        """
+        x, y = self.pose[0], self.pose[1]
+        return any(math.hypot(mx - x, my - y) < plant.BAY_RADIUS
+                   for mx, my, _ in plant.MARKERS.values())
+
     def _plan(self, station):
         """Waypoints from where the robot is now to a station's dock.
 
@@ -581,7 +591,21 @@ class SimRobot:
         # not do that: commanding linear.y = 0.4 directly moved this robot 2.36 m
         # in 6 s, smoothly. The judder came from a heading error that kept
         # changing sign, not from the angle itself.
-        if self._final_leg:
+        # ... and equally on the way OUT. The first hop of the next leg is the
+        # spur junction, which is a normal leg, so the turn rule fired and the
+        # robot spun ~80 deg while still in the bay before driving out
+        # nose-first. Measured leaving the ASRS dock:
+        #
+        #   DOCK  (-17.00, 6.33)  yaw  -16.3
+        #   DOCK  (-17.12, 6.00)  yaw  -66.1
+        #   SPUR  (-17.30, 5.35)  yaw  -95.3
+        #
+        # That cannot be done without contact: rotating swings a corner 0.468 m
+        # further than the flat side, into a 0.229 m gap. It also explains why
+        # it only happened sometimes — the rule turns only when the heading
+        # error exceeds the crab window, so a robot already pointing roughly the
+        # right way crabbed out cleanly.
+        if self._final_leg or self._in_a_bay():
             cmd.angular.z = 0.0
         else:
             cmd.angular.z = max(-self.max_turn, min(self.max_turn,
