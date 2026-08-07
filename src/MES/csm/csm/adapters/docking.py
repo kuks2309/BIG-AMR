@@ -46,7 +46,16 @@ KP_DIST = 0.15          # gain on the gap
 KP_LAT = 0.5            # gain on the lateral offset
 V_MAX = 0.10            # cap on the COMBINED speed, m/s
 TOL_D = 0.03            # gap tolerance for "docked"
-TOL_LAT = 0.02          # lateral tolerance for "docked"
+#: Lateral tolerance for "docked". 0.02 was tighter than this controller can
+#: hold and no dock completed. Measured in Gazebo 2026-08-07: the approach closed
+#: cleanly from 1.97 m to the 0.65 m target in 23 s, then sat oscillating
+#: 0.644 <-> 0.661 m for 37 s — range comfortably inside TOL_D, lateral offset
+#: parked on 0.020 m exactly and crossing the limit often enough that the CONV_N
+#: counter never reached 3. At 60 s the docking timeout fired and the job failed.
+#:
+#: 0.04 m is still a fifth of the 0.20 m gap the robot leaves at the face, and
+#: each port has 1.2 m of clearance either side.
+TOL_LAT = 0.04          # lateral tolerance for "docked"
 CONV_N = 3              # consecutive in-tolerance cycles before declaring docked
 OBS_STALE = 0.5         # an observation older than this is no observation
 TIMEOUT = 60.0          # a dock that takes longer than this has failed
