@@ -29,6 +29,7 @@ reads as "slow" rather than "wedged".
 import math
 
 from geometry_msgs.msg import Twist
+from trnav_msgs.msg import WheelSet, WheelSetArray
 from gazebo_msgs.msg import ModelStates
 from sensor_msgs.msg import JointState, LaserScan
 
@@ -63,10 +64,170 @@ ROBOT_STOP_AHEAD = 2.4
 #: squarely in the way stops us, but one passing to the side does not.
 ROBOT_STOP_SIDE = 1.2
 
+# ------------------------------------------------------- LAYER 1: no contact
+#
+# ONE RULE, NO CASES. The old test asked "is another robot within 2.4 m ahead of
+# me and inside a +/-1.2 m corridor". That is built for one geometry — meeting or
+# following along a lane — and is blind to every crossing one: a robot pulling
+# out of a spur, turning in, or meeting at a corner. Measured 2026-08-07: two
+# robots touched at 1.50 m centre to centre while 1.3 m apart across the
+# corridor, i.e. 0.1 m outside a test that was itself narrower than the distance
+# at which these robots collide.
+#
+# So instead of looking down a corridor, PREDICT. Sample both robots forward at
+# their measured velocities and stop if the gap between the two bodies would
+# close below STOP_GAP. That covers head-on, following, crossing, corners and
+# spur mouths with the same arithmetic, including cases nobody enumerated.
+#
+# The body is modelled as a CAPSULE — a segment along the robot's length with a
+# radius — not a circle. That matters: a circle big enough to contain a 1.6 m
+# robot (0.92 m) would refuse to pass a robot correctly parked 1.5 m up a spur,
+# which is exactly the manoeuvre the traffic rules depend on. The capsule knows
+# the parked robot is side-on and lets it through.
+
+#: Half the straight part of the body: (length - width) / 2.
+ROBOT_SEG_HALF = (1.600 - 0.900) / 2.0
+#: The rounded end radius — half the body width.
+ROBOT_SEG_RADIUS = 0.900 / 2.0
+#: Bodies touch when the gap between their centre segments closes to this.
+CONTACT_GAP = 2.0 * ROBOT_SEG_RADIUS
+#: Stop here instead, leaving 0.3 m to spare.
+STOP_GAP = CONTACT_GAP + 0.30
+#: How far ahead to predict, and how finely. 2 s at 0.6 m/s is 1.2 m of travel,
+#: comfortably longer than it takes to stop.
+LOOKAHEAD_S = 2.0
+LOOKAHEAD_STEP_S = 0.25
+
+# ---------------------------------------------------------------- giving way
+#
+# THE AISLES ARE SINGLE FILE, SO SOMEBODY HAS TO LEAVE THE ROAD. Two robots
+# meeting head-on both stop, correctly, and then neither can move: there is no
+# width to pass in. Waiting longer cannot fix it and backing off cannot either —
+# retreat and the other simply advances into the space, so the meeting happens
+# again a few metres further on.
+#
+# The spurs are the answer. Every station already has one, they are perpendicular
+# to the aisle, and they are empty unless a robot is being served there. So the
+# robot that is nearer to a free spur pulls into it, the other drives past, and
+# the first rejoins. A lay-by, using geometry the plant already has.
+#
+# Both robots must reach the SAME conclusion without talking to each other, so
+# the decision is pure arithmetic on fleet state: nearer-to-a-spur yields, and a
+# tie is broken by name. Nothing is negotiated, so nothing can disagree.
+
+#: HOW FAR THE YIELDING ROBOT STEPS ASIDE — and it steps TOWARD THE MIDDLE OF
+#: THE HALL: south from the north aisle, north from the south aisle, inward from
+#: a cross aisle.
+#:
+#: An aisle is a line on the map, not a walled corridor. There is 6 m of open
+#: floor between the two main aisles and 4 m between an aisle and the machine
+#: faces, so a robot can simply crab off the lane. It needs no spur, no junction
+#: and no free bay — which is the whole point: reaching a spur meant crossing
+#: that spur's junction, so the lay-by and the red light arbitrated the same
+#: move independently and deadlocked on it, twice.
+#:
+#: Toward the hall centre is always open ground, and it is the same direction
+#: whichever way the robot happens to be pointing.
+SIDESTEP = 2.0
+
+#: A robot that has given way will not wait for ever.
+YIELD_LIMIT = 45.0
+
 #: THE ROAD NETWORK. Built once, at import. roads.build() raises rather than
 #: returning a network with an obstructed lane, so a plant change that puts a
 #: machine on a lane fails loudly at startup instead of driving a robot into it.
 ROADS = roads.build()
+
+
+# ----------------------------------------------------------- junction control
+#
+# EVERY PLACE A SPUR MEETS AN AISLE, AND EVERY CORNER, IS A JUNCTION — the only
+# points where two robots' paths cross rather than run alongside. Layer 1 keeps
+# them apart there, but layer 1 only ever says "stop": it cannot say who goes,
+# so two robots that both stop at a junction stay stopped. Measured 2026-08-07:
+# amr1 and amr2 held each other at a spur mouth for 45 s and both failed their
+# jobs.
+#
+# So a junction is a resource, held by one robot at a time — a red light. The
+# same shape as the bay interlock, which has been faultless: 58 grants, 58
+# releases, never confused. No speeds, no distances, no time-to-clear.
+#
+#   leaving a spur   claim -> WAIT until nothing is moving toward it -> go
+#   crossing it      claim on approach -> go (you are already on the road)
+#   past it          release
+#
+# ONE AT A TIME, ALWAYS RELEASED BEFORE THE NEXT IS CLAIMED. A robot holding one
+# junction while waiting for another is how a circular wait forms, and unlike a
+# collision that failure looks perfectly reasonable on screen.
+JUNCTIONS = {n: p for n, p in ROADS.nodes.items()
+             if n.startswith("join_") or n.startswith("aisle_")}
+
+#: Claim a junction from this far out — far enough to stop before reaching it.
+JUNCTION_CLAIM_RANGE = 3.0
+#: How far around a junction to look for traffic when deciding "road clear".
+JUNCTION_WATCH = 6.0
+#: Below this speed a robot counts as stopped. A robot halted AT the red light
+#: must not itself count as traffic, or the robot it stopped for would wait for
+#: it for ever and neither would move.
+MOVING_MIN = 0.05
+
+
+def _wrap(a):
+    return (a + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def _parallel_heading(marker_yaw, current_yaw):
+    """Heading PARALLEL to a machine face, whichever way round is nearer.
+
+    The marker normal points out of the face, so parallel is a quarter turn from
+    it — and there are two such headings, 180 deg apart. Both dock equally well
+    because the robot crabs, so take the nearer one and never turn 180 deg to
+    reach a symmetric result.
+    """
+    options = (_wrap(marker_yaw + math.pi / 2.0),
+               _wrap(marker_yaw - math.pi / 2.0))
+    return min(options, key=lambda h: abs(_wrap(h - current_yaw)))
+
+
+def _seg_gap(a, b):
+    """Closest distance between two robots' body segments.
+
+    Each robot is a segment of length 2*ROBOT_SEG_HALF along its own heading.
+    Subtracting nothing here — the caller compares against CONTACT_GAP, which is
+    the sum of the two radii.
+    """
+    def ends(p):
+        x, y, yaw = p
+        dx, dy = math.cos(yaw) * ROBOT_SEG_HALF, math.sin(yaw) * ROBOT_SEG_HALF
+        return (x - dx, y - dy), (x + dx, y + dy)
+
+    (a0, a1), (b0, b1) = ends(a), ends(b)
+
+    def point_seg(p, s0, s1):
+        vx, vy = s1[0] - s0[0], s1[1] - s0[1]
+        span = vx * vx + vy * vy
+        if span < 1e-12:
+            return math.hypot(p[0] - s0[0], p[1] - s0[1])
+        t = max(0.0, min(1.0, ((p[0] - s0[0]) * vx + (p[1] - s0[1]) * vy) / span))
+        return math.hypot(p[0] - (s0[0] + t * vx), p[1] - (s0[1] + t * vy))
+
+    # Segment-to-segment distance is the smallest of the four endpoint-to-other
+    # -segment distances whenever the segments do not cross, and these never
+    # cross without already being in contact.
+    return min(point_seg(a0, b0, b1), point_seg(a1, b0, b1),
+               point_seg(b0, a0, a1), point_seg(b1, a0, a1))
+
+
+def _to_body(ex, ey, yaw):
+    """Rotate a WORLD-frame error into the robot's BODY frame.
+
+    Twist.linear is a body velocity. Feeding it a world-frame direction happens
+    to work at yaw 0 and is exactly reversed at yaw 180, which is the sort of
+    bug that looks intermittent: the same code drove a robot correctly out of
+    one bay and into a wall out of the next.
+    """
+    c, s = math.cos(yaw), math.sin(yaw)
+    return ex * c + ey * s, -ex * s + ey * c
 
 
 class SimRobot:
@@ -125,6 +286,12 @@ class SimRobot:
         # is what the current world publishes.
         ns = f"/{self.name}" if self.name else ""
         self.pub_cmd = node.create_publisher(Twist, f"{ns}/cmd_vel", 10)
+        # DOCKING COMMANDS THE WHEELS DIRECTLY. A Twist is a body velocity and
+        # cannot say "point the wheels there and hold" — at zero speed it is all
+        # zeros and the steering angle is lost, which silently disabled the
+        # settle phase. A wheel command carries the angle explicitly.
+        self.pub_wheels = node.create_publisher(
+            WheelSetArray, f"{ns}/dock/wheel_cmd", 10)
 
         # Ground truth comes from ONE world-level topic carrying every model's
         # pose by name, and each robot picks itself out of it.
@@ -144,6 +311,9 @@ class SimRobot:
                                  self._on_joints, 10)
 
         self.pose = None            # (x, y, yaw) ground truth
+        #: Measured world velocity (m/s), for the collision predictor.
+        self.vel = (0.0, 0.0)
+        self._vel_stamp = None
         self._front = None
         self._rear = None
 
@@ -161,6 +331,22 @@ class SimRobot:
         self._noted_hold = False
         #: Set while stopped for another robot, so the wait is logged once.
         self._noted_yield = False
+        #: When this robot first stopped for another one. Bounds the wait.
+        self._yield_since = None
+        #: Where this robot is standing aside, or None.
+        self._standoff = None
+        #: Set once it has ARRIVED there and stopped — the all-clear the other
+        #: robot waits for. Nothing may pass until this is true.
+        self._stood_aside = False
+        #: Junction currently held by this robot (the red light), or None.
+        self._junction = None
+        self._junction_wait = None
+        #: Set while squaring up, so the turn is logged once.
+        self._noted_square = False
+        #: Set while driving back to the parking bay with no job.
+        self._homing = False
+        #: Lane waypoints for the drive home.
+        self._home_waypoints = []
         #: Marker-guided controller for the last couple of metres, or None.
         self._dock = None
         self._docking = False
@@ -201,7 +387,25 @@ class SimRobot:
         q = pose.orientation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-        self.pose = (pose.position.x, pose.position.y, yaw)
+        new_pose = (pose.position.x, pose.position.y, yaw)
+
+        # MEASURED velocity, not commanded. The collision predictor must know
+        # what a robot is actually doing: a robot parked in a spur has zero
+        # velocity however much its goal is elsewhere, and that is what lets
+        # another robot drive past it instead of stopping for it.
+        now = self._now()
+        if self.pose is not None and self._vel_stamp is not None:
+            dt = now - self._vel_stamp
+            if dt > 1e-3:
+                vx = (new_pose[0] - self.pose[0]) / dt
+                vy = (new_pose[1] - self.pose[1]) / dt
+                k = 0.4                       # light smoothing, keeps it honest
+                self.vel = (self.vel[0] + k * (vx - self.vel[0]),
+                            self.vel[1] + k * (vy - self.vel[1]))
+                self._vel_stamp = now
+        else:
+            self._vel_stamp = now
+        self.pose = new_pose
 
     def _on_joints(self, msg):
         for name, position in zip(msg.name, msg.position):
@@ -301,6 +505,12 @@ class SimRobot:
         # queued behind a robot that would never move.
         waypoints = self._plan(job.from_station)
 
+        self._homing = False
+        self._standoff = None
+        self._stood_aside = False
+        self._yield_since = None
+        self._noted_yield = False
+        self._junction_wait = None
         self._active_job = job.job_id
         self._leg = "collect"
         self._from = job.from_station
@@ -355,16 +565,217 @@ class SimRobot:
             self._finish(job, TransportResult.FAILED)
             return
 
-        # Crab: both wheels to one angle, one speed — pure translation.
-        cmd = Twist()
-        cmd.linear.x = speed * math.cos(steer)
-        cmd.linear.y = speed * math.sin(steer)
-        self.pub_cmd.publish(cmd)
+        # Crab: both wheels to one angle, one speed — pure translation. Sent as
+        # a WHEEL command, not a Twist, so a zero-speed steering command still
+        # steers. This is what the docking project publishes, and why its
+        # settle-then-drive works.
+        self._publish_wheels(speed, steer)
+
+    def _publish_wheels(self, speed, steer):
+        """Both wheels to one angle and one speed — pure translation."""
+        msg = WheelSetArray()
+        msg.header.stamp = self.node.get_clock().now().to_msg()
+        msg.header.frame_id = "base_link"
+        w1, w2 = WheelSet(), WheelSet()
+        w1.velocity = w2.velocity = float(speed)
+        w1.steering = w2.steering = float(steer)
+        msg.wheels = [w1, w2]
+        self.pub_wheels.publish(msg)
 
     def _end_docking(self):
         self._dock = None
         self._docking = False
+        self._noted_square = False
         self._stop()
+
+    #: How square is square enough. A degree of tilt costs about 14 mm of
+    #: reach, so 2 deg spends 28 mm of the 229 mm gap — comfortable.
+    SQUARE_TOL = math.radians(2.0)
+
+    def _dock_heading(self, station):
+        """Body heading that is PARALLEL to the machine face.
+
+        The marker normal points out of the face, so parallel is a quarter turn
+        from it — and there are two such headings. Take whichever is nearer, so
+        the robot never turns 180 degrees to achieve a symmetric result.
+        """
+        marker = plant.MARKERS.get(station)
+        if marker is None:
+            return None
+        return _parallel_heading(marker[2], self.pose[2])
+
+    def _square_up(self, yaw, station):
+        """Rotate to face along the machine. True while still turning.
+
+        Rotation only — no translation. At the approach point the face is
+        2.2 m away and the robot's half-diagonal is 0.918 m, so there is room
+        to turn here; there is none once it has crabbed in.
+        """
+        want = self._dock_heading(station)
+        if want is None:
+            return False
+        err = _wrap(want - yaw)
+        if abs(err) <= self.SQUARE_TOL:
+            return False
+        if not self._noted_square:
+            self._noted_square = True
+            self.node.get_logger().info(
+                f"{self._tag()}squaring up to {station}: "
+                f"{math.degrees(err):+.1f} deg off parallel")
+        cmd = Twist()
+        cmd.angular.z = max(-self.max_turn,
+                            min(self.max_turn, self.turn_gain * err))
+        self.pub_cmd.publish(cmd)
+        return True
+
+    #: Close enough to the parking bay to count as home. Loose: a bay is a
+    #: place to wait, not a dock, and creeping the last few centimetres wastes
+    #: the time the trip was meant to save.
+    HOME_TOL = 0.8
+
+    def _go_home(self):
+        """Drive an idle robot back to its parking bay, ON THE LANES.
+
+        Homing is an ordinary trip and takes ordinary roads. It used to be a
+        straight line at the bay, which put an idle robot on no road at all —
+        somewhere no traffic rule could apply to it, cutting across the hall and
+        stopping wherever it happened to arrive.
+        """
+        segment = plant.ROBOT_SEGMENT.get(self.name)
+        bay = plant.PARKING.get(segment)
+        if bay is None or self.pose is None:
+            return
+        x, y, yaw = self.pose
+        if math.hypot(bay[0] - x, bay[1] - y) <= self.HOME_TOL:
+            if self._homing:
+                self._homing = False
+                self._home_waypoints = []
+                self._stop()
+            return
+
+        if not self._homing:
+            self._homing = True
+            self._home_waypoints = list(
+                ROADS.route_to_node(self.pose[:2], f"park_{segment}")) or [bay]
+            self.node.get_logger().info(
+                f"{self._tag()}no work — returning to park via "
+                f"{len(self._home_waypoints)} waypoints")
+
+        while (len(self._home_waypoints) > 1
+               and math.hypot(self._home_waypoints[0][0] - x,
+                              self._home_waypoints[0][1] - y)
+               <= self.waypoint_tolerance):
+            self._home_waypoints.pop(0)
+
+        goal = self._home_waypoints[0] if self._home_waypoints else bay
+        # Layer 1 applies to a homing robot like any other.
+        if self._threat() is not None:
+            self._stop()
+            return
+        self._drive_toward(goal, x, y, yaw)
+
+    def _drive_toward(self, goal, x, y, yaw):
+        """Straight-line crab toward a point, with full obstacle avoidance."""
+        ex, ey = goal[0] - x, goal[1] - y
+        distance = math.hypot(ex, ey)
+        if self._robot_ahead(x, y, ex, ey) is not None:
+            self._stop()
+            return
+        ax, ay = _to_body(ex, ey, yaw)
+        n = math.hypot(ax, ay) or 1.0
+        (rx, ry), _ = self._repulsion()
+        vx, vy = ax / n + rx, ay / n + ry
+        m = math.hypot(vx, vy) or 1.0
+        speed = min(self.max_speed, 0.8 * distance)
+        cmd = Twist()
+        cmd.linear.x = vx / m * speed
+        cmd.linear.y = vy / m * speed
+        self.pub_cmd.publish(cmd)
+
+    def _junction_ahead(self, x, y, ex, ey):
+        """The junction this robot is about to cross, or None.
+
+        Ahead means ahead along the direction of travel — the goal vector, not
+        the nose, because the platform crabs.
+        """
+        n = math.hypot(ex, ey)
+        if n < 1e-9:
+            fx, fy = 0.0, 0.0
+        else:
+            fx, fy = ex / n, ey / n
+        best, best_d = None, JUNCTION_CLAIM_RANGE
+        for name, (jx, jy) in JUNCTIONS.items():
+            dx, dy = jx - x, jy - y
+            d = math.hypot(dx, dy)
+            if d > best_d:
+                continue
+            # Behind us and already passed: not ours to claim.
+            if n > 1e-9 and d > 0.5 and (dx * fx + dy * fy) < 0.0:
+                continue
+            best, best_d = name, d
+        return best
+
+    def _road_clear(self, node):
+        """Nothing is MOVING toward this junction.
+
+        Motion, not proximity. A robot stopped at the red light sits right
+        beside the junction; if it counted as traffic, the robot it stopped for
+        would wait for it for ever and neither would ever move.
+        """
+        jx, jy = JUNCTIONS[node]
+        for other in self.fleet.robots:
+            if other is self or other.pose is None:
+                continue
+            vx, vy = other.vel
+            if math.hypot(vx, vy) < MOVING_MIN:
+                continue                              # stopped: not traffic
+            dx, dy = jx - other.pose[0], jy - other.pose[1]
+            if math.hypot(dx, dy) > JUNCTION_WATCH:
+                continue
+            if dx * vx + dy * vy > 0.0:               # closing on the junction
+                return False
+        return True
+
+    def _junction_control(self, x, y, ex, ey):
+        """Red light. True if this robot must hold still.
+
+        Two entry conditions, deliberately different:
+
+          leaving a spur   we are stationary and want to join the road, so we
+                           claim AND wait until nothing is moving toward it
+          crossing         we are already driving the aisle and hold the claim,
+                           so we simply go — we ARE the thing moving toward it
+        """
+        if self.fleet is None:
+            return False
+        node = self._junction_ahead(x, y, ex, ey)
+        if node is None:
+            if self._junction is not None:
+                self.fleet.release_junction(self)
+                self._junction = None
+            return False
+
+        if not self.fleet.claim_junction(node, self):
+            self._reset_stall()
+            if self._junction_wait is None:
+                self._junction_wait = self._now()
+                self.node.get_logger().info(
+                    f"{self._tag()}holding at {node} — "
+                    f"{self.fleet.junction_holder(node).name} has it")
+            self._stop()
+            return True
+        self._junction = node
+        self._junction_wait = None
+
+        # Pulling out from rest: let the road empty before committing.
+        if (math.hypot(*self.vel) < MOVING_MIN
+                and math.hypot(JUNCTIONS[node][0] - x,
+                               JUNCTIONS[node][1] - y) > 1.0
+                and not self._road_clear(node)):
+            self._reset_stall()
+            self._stop()
+            return True
+        return False
 
     def _in_a_bay(self):
         """True while the robot is inside a station bay, past the spur junction.
@@ -433,7 +844,18 @@ class SimRobot:
             self._drive_to_exit()
             return
 
+        # GO HOME WHEN THERE IS NOTHING TO DO. A robot that simply stops where
+        # it finished stops ON A LANE, and then it is a road block: measured,
+        # amr1 ended a job on the north aisle, amr2 came along, its protective
+        # field correctly refused to drive into it, and the stall detector then
+        # failed amr2's job eight seconds later. Two idle robots 1.6 m apart,
+        # blocking the through-lane for everyone.
+        #
+        # Parking bays are already off the aisles, one per AGV class at the end
+        # of that class's own run. See the ADR
+        # docs/adr/2026-08-07-job-timeout-and-idle-parking.md
         if self._active_job is None or self._goal is None:
+            self._go_home()
             return
 
         # DOCKING OWNS THE TICK once it has started. It is a distinct mode with
@@ -503,33 +925,119 @@ class SimRobot:
         # drew the machine; the last stretch is closed against the marker fixed
         # to the real machine instead. See adapters/docking.py.
         if self._final_leg and distance <= self.tolerance:
+            # SQUARE UP BEFORE ENTERING. The robot must be PARALLEL to the
+            # machine face before it crabs in, and nothing made it so: heading
+            # is held inside a bay, so whatever tilt it carried up the spur was
+            # preserved all the way to the dock.
+            #
+            # A tilt costs reach. Square on, the robot presents its half-width,
+            # 0.45 m, into a 0.229 m gap. At 11.4 deg the corner reaches
+            #   0.45*cos(11.4) + 0.8*sin(11.4) = 0.599 m
+            # so it TOUCHES the machine while its centre still reads 0.60 m —
+            # measured exactly that, then 40 s of no motion and a timeout. It
+            # was not stuck for want of command: 0.0075 m/s moves this robot
+            # 0.0067 m/s, so the correction was executable. It was in contact.
+            #
+            # The source project aligns first (the ICR arc) and only then
+            # crabs. This is that alignment, simplified: the spurs are
+            # perpendicular to the face, so "parallel" is one rotation.
+            if self._square_up(yaw, target):
+                return
             self._begin_docking(target)
             return self._run_docking(target)
+
+        # GIVING WAY IS A HANDSHAKE, NOT A GUESS.
+        #
+        # The passer used to start moving as soon as layer 1 stopped objecting —
+        # which happens PART WAY through the other robot's move aside. It drove
+        # into a robot that was still getting out of its way. Measured twice.
+        #
+        # So the passer does not move at all until the yielder has actually
+        # stopped and said so. One robot moves at a time:
+        #
+        #   1. fleet picks the yielder            passer holds, completely
+        #   2. yielder crabs toward the hall centre
+        #   3. yielder stops and reports clear    only now may the passer go
+        #   4. passer drives past
+        #   5. passer is beyond                   encounter ends
+        #   6. yielder returns to the lane
+        threat = self._threat()
+        if threat is not None and self._head_on_with(threat):
+            self.fleet.who_yields(self, threat)      # decide once, remembered
+
+        if self.fleet is not None and self.fleet.yielding(self):
+            self._reset_stall()
+            if self._yield_since is None:
+                self._yield_since = self._now()
+            if self._now() - self._yield_since >= YIELD_LIMIT:
+                self.node.get_logger().warn(
+                    f"{self._tag()}{self._active_job}: gave way for "
+                    f"{YIELD_LIMIT:.0f}s and nobody passed — giving up")
+                self.fleet.encounter_over(self)
+                self._finish(self._active_job, TransportResult.FAILED)
+                return
+            if self._standoff is None:
+                self._standoff = self._sidestep_target()
+                self.node.get_logger().info(
+                    f"{self._tag()}stepping aside to "
+                    f"({self._standoff[0]:+.1f},{self._standoff[1]:+.1f})")
+            if math.hypot(self._standoff[0] - x, self._standoff[1] - y) > 0.25:
+                self._stood_aside = False
+                self._drive_toward(self._standoff, x, y, yaw)
+                return
+            if not self._stood_aside:
+                self._stood_aside = True
+                self.node.get_logger().info(f"{self._tag()}clear — you may pass")
+            self._stop()
+            return
+
+        partner = self.fleet.partner_of(self) if self.fleet else None
+        if partner is not None:
+            # I am the passer. Wait for the explicit all-clear, not for the gap.
+            if not partner._stood_aside:
+                self._reset_stall()
+                self._stop()
+                return
+            # PAST IT means BEHIND ME, not merely far away.
+            #
+            # Distance alone is true before the passer arrives just as much as
+            # after it has gone by, so the encounter ended the instant the
+            # yielder reported clear — while the passer was still five metres
+            # short. The yielder then rejoined and began turning to face its
+            # goal, and turning swings its corner out to 0.92 m where standing
+            # side-on presents 0.45 m. It gave way and then took the space back
+            # while the other robot was still arriving.
+            px, py = partner.pose[0] - x, partner.pose[1] - y
+            d = self._travel_dir()
+            behind = d is None or (px * d[0] + py * d[1]) < 0.0
+            if behind and math.hypot(px, py) > 3.0:
+                self.node.get_logger().info(
+                    f"{self._tag()}past {partner.name} — road is yours")
+                self.fleet.encounter_over(self)
+
+        # Standing aside is finished: rebuild the route from where we now are.
+        if self._standoff is not None:
+            self._standoff = None
+            self._stood_aside = False
+            self._yield_since = None
+            self.node.get_logger().info(f"{self._tag()}rejoining")
+            self._set_route(target)
+
+        # RED LIGHT. AFTER the give-way decision, deliberately.
+        #
+        # Deciding who yields also grants the yielder the junction it needs, so
+        # that decision has to be made before the light is consulted. The other
+        # way round, the yielder was stopped by a light it was about to be given
+        # — it never reached the code that would have handed it the junction.
+        if self._junction_control(x, y, ex, ey):
+            return
 
         if self._check_stall(x, y):
             return
 
-        # PROTECTIVE STOP. Deliberately AFTER _check_stall: a robot held here
-        # keeps accumulating stall time, so two robots that stop facing each
-        # other give up on their jobs after stall_seconds instead of waiting on
-        # one another for ever. Failing a job is recoverable — the MES re-raises
-        # it while the station still holds material — and, unlike a collision,
-        # it leaves both robots free to take the next one rather than wedged
-        # together where they stopped.
-        blocker = self._robot_ahead(x, y, ex, ey)
-        if blocker is not None:
-            if not self._noted_yield:
-                self._noted_yield = True
-                self.node.get_logger().info(
-                    f"{self._tag()}waiting — {blocker} is in the way")
-            self._stop()
-            return
-        self._noted_yield = False
-
         # Attraction: goal direction in the body frame. The platform crabs, so
         # this becomes vx/vy directly with no heading change.
-        ax = ex * math.cos(yaw) + ey * math.sin(yaw)
-        ay = -ex * math.sin(yaw) + ey * math.cos(yaw)
+        ax, ay = _to_body(ex, ey, yaw)
         norm = math.hypot(ax, ay) or 1.0
         ax, ay = ax / norm, ay / norm
 
@@ -622,7 +1130,13 @@ class SimRobot:
 
     def _drive_to_exit(self):
         """Back out to the waiting spot, then release the bay."""
-        x, y, _ = self.pose
+        x, y, yaw = self.pose
+        # Reversing out of a bay ends ON the junction, so it is a spur exit
+        # like any other and takes the same light.
+        if self._junction_control(x, y,
+                                  self._exit_goal[0] - x,
+                                  self._exit_goal[1] - y):
+            return
         gx, gy = self._exit_goal
         distance = math.hypot(gx - x, gy - y)
 
@@ -657,7 +1171,24 @@ class SimRobot:
         # robot is most likely to meet another coming in.
         rep = self._repulsion()[0] if hasattr(self, "_repulsion") else (0.0, 0.0)
         rx, ry = (rep if isinstance(rep, tuple) else (0.0, 0.0))
-        ex, ey = gx - x, gy - y
+
+        # ROTATE THE ERROR INTO THE BODY FRAME. cmd.linear is a BODY velocity;
+        # the error is in world coordinates. This leg used the world error
+        # directly, and the repulsion it added is already body-frame, so two
+        # frames were being summed.
+        #
+        # At yaw 0 the two frames coincide and it worked, which is why it looked
+        # fine sometimes. At yaw 180 the command is exactly REVERSED: the robot
+        # drives away from the spot it is trying to reach. Measured — amr2, exit
+        # goal at (-11.2, -3) to the south-east, yaw -178.5:
+        #
+        #   t+319  (-16.4, +3.0) ->None  v=0.62      job ends, exit leg starts
+        #   t+325  (-18.7, +5.6) ->None  v=0.56      driving away from it
+        #   t+344  (-21.8, +12.5)->None  v=0.00      stopped by the corner
+        #
+        # It also explains the "could not clear ... in 8s" failures: a robot
+        # driving the wrong way never arrives, so it always stalled out.
+        ex, ey = _to_body(gx - x, gy - y, yaw)
         n = math.hypot(ex, ey) or 1.0
         vx, vy = ex / n + rx, ey / n + ry
         m = math.hypot(vx, vy) or 1.0
@@ -669,7 +1200,11 @@ class SimRobot:
         self.pub_cmd.publish(cmd)
 
     def _robot_ahead(self, x, y, ex, ey):
-        """Name of another robot inside the protective field, or None.
+        """The other robot inside the protective field, or None.
+
+        Returns the ROBOT, not its name: giving way has to ask where the other
+        one is going, not merely that it is there. Callers wanting a label use
+        `.name`.
 
         Fleet poses, not the scanners, and on purpose: a range reading cannot
         tell a robot from the machine being docked to, and the approach point
@@ -695,8 +1230,76 @@ class SimRobot:
             if along <= 0.0 or along >= ROBOT_STOP_AHEAD:
                 continue                      # behind us, or far enough off
             if abs(-dx * fy + dy * fx) < ROBOT_STOP_SIDE:
-                return other.name or "robot"
+                return other
         return None
+
+    # ------------------------------------------------------------ giving way
+
+    def _travel_dir(self):
+        """Unit vector this robot is currently travelling along, or None.
+
+        The goal vector, not the nose: the platform crabs, so where it points
+        and where it moves are different things.
+        """
+        if self.pose is None or self._goal is None:
+            return None
+        ex, ey = self._goal[0] - self.pose[0], self._goal[1] - self.pose[1]
+        n = math.hypot(ex, ey)
+        return (ex / n, ey / n) if n > 1e-9 else None
+
+    def _head_on_with(self, other):
+        """True if we are approaching each other, rather than one following.
+
+        Only a head-on meeting needs a lay-by. A robot merely catching up with
+        one going the same way just waits — it will clear on its own, and
+        pulling aside for it would be wasted travel.
+        """
+        a, b = self._travel_dir(), other._travel_dir()
+        if a is None or b is None:
+            return True      # unknown: treat as head-on, the safe reading
+        return a[0] * b[0] + a[1] * b[1] < 0.0
+
+    def _sidestep_target(self):
+        """Where to stand to let the other robot past — toward the hall centre.
+
+        Perpendicular to whichever aisle this robot is on. No spur, no junction,
+        no bay: open floor.
+        """
+        x, y, _ = self.pose
+        for ay, sign in ((plant.AISLE_N_Y, -1.0), (plant.AISLE_S_Y, +1.0)):
+            if abs(y - ay) < 1.5:
+                return (x, ay + sign * SIDESTEP)
+        for ax, sign in ((plant.AISLE_W_X, +1.0), (plant.AISLE_E_X, -1.0)):
+            if abs(x - ax) < 1.5:
+                return (ax + sign * SIDESTEP, y)
+        return (x, y - math.copysign(SIDESTEP, y or 1.0))
+
+    def _threat(self):
+        """The robot we are on course to touch, or None. LAYER 1.
+
+        Samples both bodies forward at their MEASURED velocities and reports the
+        first whose gap would close below STOP_GAP. No cases and no corridor:
+        head-on, following, crossing a junction and meeting at a corner are all
+        the same arithmetic, and a robot standing still is ignored because a
+        constant separation never closes — which is what lets another robot
+        drive past one parked in a spur.
+        """
+        if self.fleet is None or self.pose is None:
+            return None
+        steps = int(LOOKAHEAD_S / LOOKAHEAD_STEP_S) + 1
+        for other in self.fleet.robots:
+            if other is self or other.pose is None:
+                continue
+            for k in range(steps):
+                t = k * LOOKAHEAD_STEP_S
+                pa = (self.pose[0] + self.vel[0] * t,
+                      self.pose[1] + self.vel[1] * t, self.pose[2])
+                pb = (other.pose[0] + other.vel[0] * t,
+                      other.pose[1] + other.vel[1] * t, other.pose[2])
+                if _seg_gap(pa, pb) < STOP_GAP:
+                    return other
+        return None
+
 
     def _release_exit(self):
         """Let go of the bay and stop. The only way out of the exit leg."""
@@ -823,6 +1426,14 @@ class SimRobot:
         self._dwell_until = None
         self._stall_ref = None
         self._stall_since = None
+        self._standoff = None
+        self._stood_aside = False
+        self._yield_since = None
+        self._noted_yield = False
+        self._junction_wait = None
+        if self.fleet is not None:
+            self.fleet.release_junction(self)
+        self._junction = None
         if self._exit_goal is None:
             self._stop()
 
@@ -865,6 +1476,10 @@ class SimAcs(AcsAdapter):
         self._results = {}
         #: station_id -> robot holding it. One robot per bay.
         self._occupied = {}
+        #: pair of robot names -> the one that must give way.
+        self._giving_way = {}
+        #: junction node -> the robot holding it (the red light).
+        self._junctions = {}
         self._last_log = 0.0
         self.stations = self.robots[0].stations
         node.get_logger().info(
@@ -1017,6 +1632,72 @@ class SimAcs(AcsAdapter):
         self.release_all(job_id)
 
     # ------------------------------------------------------- entry interlock
+
+    def claim_junction(self, node, robot):
+        """Take the red light at this junction. True if it is ours.
+
+        One robot at a time. A robot always releases the junction it holds
+        before claiming another, so no robot ever waits on a junction while
+        holding one — which is what makes a circular wait impossible.
+        """
+        holder = self._junctions.get(node)
+        if holder is not None and holder is not robot:
+            return False
+        if holder is None:
+            self.release_junction(robot)          # never hold two
+            self._junctions[node] = robot
+            self.node.get_logger().info(
+                f"{node}: held by {robot.name or 'robot'}")
+        return True
+
+    def junction_holder(self, node):
+        return self._junctions.get(node)
+
+    def release_junction(self, robot):
+        for node in [n for n, r in self._junctions.items() if r is robot]:
+            del self._junctions[node]
+
+    def who_yields(self, a, b):
+        """Which robot steps aside. Decided ONCE, then remembered.
+
+        Any robot can step aside anywhere now, so there is nothing to compare —
+        the rule is simply name order, which is total and cannot flip. It used
+        to be "nearer to a free spur", recomputed every tick from live
+        positions, and it flipped the moment either robot moved: both gave way,
+        both rejoined, both met again, and they touched inside that loop.
+        """
+        key = frozenset((a.name or "a", b.name or "b"))
+        if key in self._giving_way:
+            return self._giving_way[key]
+        chosen = a if (a.name or "") > (b.name or "") else b
+        self._giving_way[key] = chosen
+        self.node.get_logger().info(
+            f"{chosen.name} gives way to {(b if chosen is a else a).name}")
+        return chosen
+
+    def partner_of(self, robot):
+        """The other robot in this robot's active encounter, or None."""
+        name = robot.name or "a"
+        for key, chosen in self._giving_way.items():
+            if name in key:
+                other_name = next(n for n in key if n != name) if len(key) > 1 else name
+                for r in self.robots:
+                    if (r.name or "a") == other_name and r is not robot:
+                        return r
+        return None
+
+    def yielding(self, robot):
+        """True if this robot is the one that must stand aside."""
+        name = robot.name or "a"
+        return any(chosen is robot for key, chosen in self._giving_way.items()
+                   if name in key)
+
+    def encounter_over(self, robot):
+        """Forget every decision involving this robot — it is clear again."""
+        name = robot.name or "a"
+        for key in [k for k in self._giving_way if name in k]:
+            chosen = self._giving_way.pop(key)
+            chosen._stood_aside = False
 
     def request_entry(self, station_id, robot_name):
         """May this robot approach that station? One at a time, ever.
