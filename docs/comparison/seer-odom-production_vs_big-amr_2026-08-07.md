@@ -145,7 +145,7 @@ vtable 슬롯은 `_ZTV19MultiSteersOdometer`(0x4046c0)의 **재배치 항목 실
 | `+0x30`/`+0x38` 의 정체 | **해소(2026-08-07)** — `.proto` 정본에 `position=5`(m)·`speed=6`(m/s) 둘 다 존재(§1.1). 단 *어느 슬롯이 어느 필드인지*의 최종 대조는 구조 정합(같은 사상, 다른 슬롯)까지다 |
 | `JudgeStop()`(0x15a3d0) | **해소** — 전 구간에 `ucomisd`/`cvtss2sd` **0건**. 모터별 `stop`(필드 9) 취합 구조 |
 | `CalOdoCoef` 행렬 형태 | **해소** — `Eigen::PartialPivLU` 로 역행렬 사전계산, 크기 인자 3(§2) |
-| `CaldPosVenc()`(0x15adb0) 의 역할 | **부분** — 0x2360 크기인데 `mulsd` 1·`addsd` 2·`divsd` 5·`movsd` 5, `cos`/`sin`/`ucomisd` 0. 내부 점프 341·`stringstream` 4벌·Logger 큐 push 4회로 **대부분 로깅·맵 순회**다. `divsd` 는 모터별 `Δt/1e9` 환산으로 보인다. **진단 성격으로 판단하나, 산출물 소비처를 추적하지 않았다** |
+| `CaldPosVenc()`(0x15adb0) 의 역할 | **부분 해소** — 0x2360 크기지만 산술은 8줄뿐(`divsd` 5·`addsd` 2·`mulsd` 1, `cos`/`sin`/`ucomisd` 0). 내부 점프 341·`stringstream` 4벌·Logger 큐 push 4회로 대부분 로깅·맵 순회다. 쓰는 상수는 **π**(0x1a17f0)와 **1e9**(0x19c0a0, = `Δt_ns`→s), 결과는 멤버 **`0x70`·`0x78`** 에 저장한다(`15bbb3`·`15bbc3`). 그 두 멤버를 읽는 함수는 `DualDiffOdometer::CaldPose`(4) · `SkidSteerOdometer::CheckModelParam`(4) · `FilterMotorParam`(1) · 자기 자신(2)뿐이고 **`MultiSteersOdometer` 경로에는 없다** ⇒ 이 기체의 자세 계산에는 쓰이지 않는다. ⚠ 한계: 오프셋만으로 매칭했고(클래스별 같은 오프셋이 같은 필드라는 가정) 필드 의미 자체는 미확정 |
 
 ## 7. 분석 이력 정정 (숨기지 않는다)
 
