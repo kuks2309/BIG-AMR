@@ -86,7 +86,19 @@ PORT_OFFSET = 1.2                      # A4: LD/ULD either side of centre
 
 ROW_N_Y = 8.0                          # north machine row centre
 ROW_S_Y = -8.0                         # south machine row centre
-DOCK_INSET = 2.2                       # A6: dock this far in front of the face
+#: A6: how far in front of the machine face the lane network hands over to
+#: docking. This is a THROUGHPUT number, not a clearance one.
+#:
+#: The crab closes from here to DOCK_TARGET at 0.10 m/s under a P law, so the
+#: distance sets the dock time directly: 2.2 m took ~30 s, and a job has to fit
+#: TWO docks inside its 120 s budget plus the travel between them. It did not —
+#: every delivery dock was still closing when the job timed out, so no job ever
+#: completed, no gravure ever produced output, and amr2 and amr3 were starved of
+#: work entirely. Measured: 3 successful collections, ZERO deliveries.
+#:
+#: 1.5 m closes in ~23 s and still leaves 0.58 m of clearance for the robot to
+#: square up at the hand-over, against a 0.918 m half-diagonal.
+DOCK_INSET = 1.5
 AISLE_N_Y = 3.0                        # north aisle
 AISLE_S_Y = -3.0                       # south aisle
 AISLE_W_X = -20.0                      # west cross aisle
@@ -146,22 +158,42 @@ for i, x in enumerate(_CTR_X, 1):
 
 # Slitter: one machine at the west end of the south row with 4 LD ports [S16].
 # Its ULD is served by the Small AGV fleet and is out of scope.
+#: SLITTER PORT SPACING. The four ports were pitched 1.3 m apart — closer than
+#: the robot is LONG (1.6 m) — so two robots docked at neighbouring slitter
+#: ports overlapped by 0.30 m. The entry interlock is per station and happily
+#: permits both, so four ports existed that could never all be used. Measured
+#: 2026-08-07; harmless only because a single robot serves this segment today,
+#: and a real fault at the documented fleet size of six.
+#:
+#: 2.0 m is what fits. The westmost port must clear the west cross aisle at
+#: x = -20 and the eastmost must stay clear of CTR1_LD at x = -11.2, which
+#: leaves 6.0 m of span for four ports. That gives 0.4 m between docked robots —
+#: less than the 0.8 m the gravure and coater LD/ULD pairs enjoy, but positive,
+#: which 1.3 m was not.
+_SLT_PITCH = 2.0
+_SLT_PORT_X0 = AISLE_W_X + 0.7          # westmost port, clear of the cross aisle
+
 _add("SLT", "MACHINE", (_SLT_X, ROW_S_Y), _dock_s(_SLT_X))
 for i in range(1, 5):
     _add(f"SLT_LD{i}", "LD", (_SLT_X, ROW_S_Y),
-         _dock_s(_SLT_X + (i - 2.5) * 1.3), machine=False)
+         _dock_s(_SLT_PORT_X0 + (i - 1) * _SLT_PITCH), machine=False)
 
 # WIP buffer racks — optional overflow when the destination is full [S16][TR].
 # Each sits at the east end of its own row, so a robot diverting to a buffer
 # stays in its own segment's aisle and never queues in front of a machine.
+# Ports are named "<machine>_<n>", the SAME convention the machines use, so a
+# port can be matched to the machine it belongs to. They were "WIP_GRV1", which
+# does not start with "WIP_GRV_", so roads._owner_of never recognised them and
+# the buffer spurs were never exempt from their own rack. Harmless at the old
+# hand-over distance and an instant build failure once it shortened.
 _WIP_X = 13.0
 _add("WIP_GRV", "MACHINE", (_WIP_X, ROW_N_Y), _dock_n(_WIP_X))
 for i in (1, 2):
-    _add(f"WIP_GRV{i}", "BUFFER", (_WIP_X, ROW_N_Y),
+    _add(f"WIP_GRV_{i}", "BUFFER", (_WIP_X, ROW_N_Y),
          _dock_n(_WIP_X + (i - 1.5) * 2 * PORT_OFFSET), machine=False)
 _add("WIP_CTR", "MACHINE", (_WIP_X, ROW_S_Y), _dock_s(_WIP_X))
 for i in (1, 2):
-    _add(f"WIP_CTR{i}", "BUFFER", (_WIP_X, ROW_S_Y),
+    _add(f"WIP_CTR_{i}", "BUFFER", (_WIP_X, ROW_S_Y),
          _dock_s(_WIP_X + (i - 1.5) * 2 * PORT_OFFSET), machine=False)
 
 #: Solid bodies robots must never drive through.
