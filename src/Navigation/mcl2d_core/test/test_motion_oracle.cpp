@@ -156,9 +156,22 @@ int main(int argc, char **argv)
         supply(buf.data(), &c, 0.0);
 
         const mcl2d::ControlIncrement2D ours = mcl2d::supplyControlVar(prev, cur);
+        const int before = g_fail;
         compare("trans", member(buf.data(), kOffTrans), ours.trans);
         compare("direction", member(buf.data(), kOffDir), ours.direction);
         compare("dtheta", member(buf.data(), kOffDTheta), ours.dtheta);
+        if (g_fail > before && g_fail <= 12)
+        {
+            // 3자 대조: 하네스에서 같은 식을 직접 계산해 우리 함수 결과와 가른다
+            const double ddx = cur.x - prev.x, ddy = cur.y - prev.y;
+            const double kcs = std::cos(prev.theta), ksn = std::sin(prev.theta);
+            const double xb = ddx * kcs + ddy * ksn, yb = ddy * kcs - ddx * ksn;
+            std::printf("       ↳ 표본 %d prev=(%a, %a, %a) cur=(%a, %a, %a)\n"
+                        "         하네스직접 trans=%.17g dir=%.17g | 우리함수 trans=%.17g dir=%.17g | 원본 trans=%.17g\n",
+                        i, prev.x, prev.y, prev.theta, cur.x, cur.y, cur.theta,
+                        std::sqrt(xb * xb + yb * yb), std::atan2(yb, xb), ours.trans, ours.direction,
+                        member(buf.data(), kOffTrans));
+        }
         ++n1;
     }
 

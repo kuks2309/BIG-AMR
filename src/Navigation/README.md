@@ -73,8 +73,9 @@ cd Tools/mcl2d_standalone && cmake -B build -S . && cmake --build build -j6 && .
 2026-07-31 이식은 구조를 디스어셈블로 맞췄을 뿐 **비트 대조를 하지 않았다**(RE 제1원칙 §1 미충족).
 오라클(`test/test_motion_oracle.cpp`, `-DMCL2D_MOTION_ORACLE=ON`)로 원본을 `dlopen` 해 실제로 대조했다.
 
-- **1,783 / 1,800 비트 일치(99.06 %)** — `trans`·`direction`·파티클 `x/y/theta` 전량 일치,
-  잔여 17 은 `dθ` **1 ulp**(원본은 `Normalize`+조건부 `atan2` 재정규화 — 분기 조건 미확정 → **debt-043**).
+- **1,798 / 1,800 비트 일치(99.89 %)** — `dθ`·파티클 `x/y/theta` 전량 일치.
+  dθ 는 원본이 `Normalize(d)` 결과를 `atan2(sin,cos)` 로 **한 번 더** 통과시킨다는 것을 원본 `Normalize`
+  직접 호출로 확인해 맞췄다(불일치 17 → 0). 잔여 2 는 한 표본의 `trans`·`direction` 1 ulp → **debt-043**.
 - **난수 정정**: 원본 `RangeRandom` 은 `rand() % (max−min) + min` 이라 **상한이 배제**된다
   (libfoundation 0x18c60 실측). `[-1000,+1000]` → `[-1000,+999]` 로 맞췄다.
 - **우도 스케일 의문 해소**: 원본 `getParticleLikelihood` → `computeLikelihood` → `getPostProb` tail-call.

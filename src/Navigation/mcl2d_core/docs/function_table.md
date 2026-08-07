@@ -49,8 +49,9 @@ tail-call 하고 우리 `likelihoodAt` 도 같은 함수(비트 일치본)를 �
 ## 원본 대조 (RE 오라클)
 
 `test/test_motion_oracle.cpp` — 원본 `libMCLoc.so` 를 `dlopen` 해 `supplyControlVar`·`doParticleMoveAction` 과
-비트 대조한다(`cmake -DMCL2D_MOTION_ORACLE=ON`, 분석 장비 전용). 2026-08-06 실측: **1,783/1,800 비트 일치**,
-잔여 17 은 `dθ` 1 ulp. `trans`·`direction`·파티클 `x/y/theta` 는 전량 일치.
+비트 대조한다(`cmake -DMCL2D_MOTION_ORACLE=ON`, 분석 장비 전용). 2026-08-07 실측: **1,798/1,800 비트 일치**. `dθ`·파티클 `x/y/theta` 전량 일치,
+잔여 2 는 한 표본의 `trans`·`direction` 1 ulp(debt-043).
+dθ 는 원본이 `Normalize(d)` 를 `atan2(sin,cos)` 에 **한 번 더** 통과시키는 것을 찾아 맞췄다(17 → 0).
 
 ## 전역변수
 

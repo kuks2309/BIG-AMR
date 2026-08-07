@@ -38,18 +38,22 @@ ControlIncrement2D supplyControlVar(const Pose2D &prev_odom, const Pose2D &cur_o
 {
     const double dx = cur_odom.x - prev_odom.x;
     const double dy = cur_odom.y - prev_odom.y;
-    const double cs = std::cos(prev_odom.theta);
-    const double sn = std::sin(prev_odom.theta);
+    // 원본은 회전용 sin/cos 인자에도 Normalize 를 먹인다(33dcd3 · 33dcec) — 범위 밖 각이 들어오면
+    //   같은 각이라도 sin/cos 의 부동소수점 결과가 갈리므로 동일하게 맞춘다.
+    const double prev_theta = normalizeAngle(prev_odom.theta);
+    const double cs = std::cos(prev_theta);
+    const double sn = std::sin(prev_theta);
 
     ControlIncrement2D c;
     const double dx_b = dx * cs + dy * sn; // 로봇 전방 성분
     const double dy_b = dy * cs - dx * sn; // 로봇 좌측 성분
-    // dθ 정규화는 원본과 **1 ulp 수준에서만** 다르다(오라클 실측: 400표본 중 16건).
-    //   원본 경로: Normalize(d)(libfoundation 0x18750, floor 기반) → 조건부 atan2(sin,cos) 재정규화(33d91c→33dca3).
-    //   후보 5개를 원본과 비트 대조한 결과 이 while 루프가 최선(384/400)이었고, 원본 식을 그대로 옮긴
-    //   재현(349/400)·atan2 단독(300/400)은 오히려 낮았다 — 잔여 원인 미확정이라 추측으로 바꾸지 않는다.
-    //   추적: docs/debt/registry.md debt-032
-    c.dtheta = normalizeAngle(cur_odom.theta - prev_odom.theta);
+    // dθ 는 **정규화 후 atan2 로 한 번 더** 통과시킨다 — 원본이 그렇게 한다:
+    //   supplyControlVar 가 Normalize(cur.angle − prev.angle) 를 부르고(33d91c),
+    //   그 결과를 atan2(sin, cos) 에 다시 넣는다(33dca3 sin → 33dcba cos → 33dcc8 atan2).
+    //   원본 Normalize 를 dlopen 해 직접 대조한 결과 **while 루프와 비트 동일**(2000/2000)이었고,
+    //   이 조합이 원본 dθ 와 **400/400 비트 일치**한다(단독 Normalize·단독 atan2 는 각각 384·300).
+    const double dtheta_normalized = normalizeAngle(cur_odom.theta - prev_odom.theta);
+    c.dtheta = std::atan2(std::sin(dtheta_normalized), std::cos(dtheta_normalized));
     c.trans = std::sqrt(dx_b * dx_b + dy_b * dy_b);
     c.direction = std::atan2(dy_b, dx_b);
     return c;
