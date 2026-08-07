@@ -97,9 +97,24 @@ class MockEquipment(EquipmentAdapter):
             self._busy_until[station_id] = self._clock() + self._process_seconds
             return True
         if command == "collected":
-            # The source handed its material over, so it now has nothing.
-            self._status[station_id] = StationStatus.IDLE
+            # The source handed its material over, so it now has nothing —
+            # UNLESS it is a warehouse. A store is always supplied; that is what
+            # makes it a store, and it is why `mark_store` exists.
+            #
+            # Without the exemption the store emptied on the FIRST completed job
+            # and was never restocked, so no ASRS-sourced job could be created
+            # again. Measured in Gazebo 2026-08-07 with one robot: 18 calls
+            # raised, 4 jobs created. GRV1_LD and GRV2_LD were served only
+            # because both jobs existed before the first one finished; GRV3_LD
+            # and GRV4_LD called repeatedly and were never served, and amr1 sat
+            # at its parking bay with nothing it could legally do.
+            #
+            # The `delivered` branch below already had this exemption. The
+            # asymmetry between the two was the whole bug.
             self._busy_until.pop(station_id, None)
+            self._status[station_id] = (
+                StationStatus.FINISHED if station_id in self._store_ids
+                else StationStatus.IDLE)
             return True
 
         if command == "delivered":
