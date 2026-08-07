@@ -202,7 +202,14 @@ def main():
                         help="fleet size; 0 uses the single-robot world")
     parser.add_argument("--process-seconds", type=float, default=12.0,
                         help="how long a machine works before it has output")
-    parser.add_argument("--job-timeout", type=float, default=120.0,
+    # 600 s, matching job.py and mes_app.py. The old 120 s appears in no
+    # customer document and contradicted the CSM's own default; the meeting
+    # files give PROCESS times (30 s gluing, 65/130/260 s stations) and no
+    # transport timeout at all. It was too short to cover a job's two docks
+    # plus travel, so every delivery was guillotined mid-dock: 3 collections
+    # and zero deliveries, which starved amr2 and amr3 of work entirely.
+    # See docs/adr/2026-08-07-job-timeout-and-idle-parking.md
+    parser.add_argument("--job-timeout", type=float, default=600.0,
                         help="seconds a job may spend in one state before t5")
     args, ros_args = parser.parse_known_args()
 
