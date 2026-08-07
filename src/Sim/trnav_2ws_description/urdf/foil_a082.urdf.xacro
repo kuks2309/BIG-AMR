@@ -87,7 +87,17 @@
   <xacro:property name="W2_Y" value="-0.0014"/>
   <xacro:property name="WHEEL_R" value="0.125"/>
   <xacro:property name="WHEEL_W" value="0.080"/>
-  <xacro:property name="STEER_LIMIT" value="1.5707963267948966"/>  <!-- +/-90 deg -->
+  <!-- TEST 2026-08-07: +/-115 deg, not 90.
+       Both drive wheels are on the centreline, so a pure sideways crab — which
+       is exactly what docking does — needs both wheels at +/-90 deg. At a 90 deg
+       limit that is the HARD STOP, and docking froze there: two robots reached
+       range 0.45 m against a 0.65 m target, sat perfectly still for 90 s and
+       timed out. The docks that succeeded were the ones a few degrees OFF
+       parallel, where the demand stays inside travel.
+       115 deg leaves 25 deg of margin at the crab. Session memory records the
+       real limit being changed from 90 to 115; if this run docks cleanly that
+       is confirmed, and if not the limit was never the problem. -->
+  <xacro:property name="STEER_LIMIT" value="2.0071286397934789"/>  <!-- +/-115 deg -->
 
   <!-- PLACEHOLDER - change here and the whole model follows -->
   <xacro:property name="BODY_L" value="1.600"/>
