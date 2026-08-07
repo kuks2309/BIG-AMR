@@ -68,6 +68,22 @@ cd Tools/mcl2d_standalone && cmake -B build -S . && cmake --build build -j6 && .
   비-ROS2 데모 최종 오차 **0.007 m** · `colcon build --packages-select mcl2d_ros2` 성공.
 - 남은 위험: 모드 판정에 쓰는 우도 스케일이 원본과 같은지 미검증 → `docs/debt/registry.md` **debt-031**.
 
+### 2026-08-06 — 원본 대조 오라클 신설, "동일한가"에 답함
+
+2026-07-31 이식은 구조를 디스어셈블로 맞췄을 뿐 **비트 대조를 하지 않았다**(RE 제1원칙 §1 미충족).
+오라클(`test/test_motion_oracle.cpp`, `-DMCL2D_MOTION_ORACLE=ON`)로 원본을 `dlopen` 해 실제로 대조했다.
+
+- **1,798 / 1,800 비트 일치(99.89 %)** — `dθ`·파티클 `x/y/theta` 전량 일치.
+  dθ 는 원본이 `Normalize(d)` 결과를 `atan2(sin,cos)` 로 **한 번 더** 통과시킨다는 것을 원본 `Normalize`
+  직접 호출로 확인해 맞췄다(불일치 17 → 0). 잔여 2 는 한 표본의 `trans`·`direction` 1 ulp → **debt-043**.
+- **난수 정정**: 원본 `RangeRandom` 은 `rand() % (max−min) + min` 이라 **상한이 배제**된다
+  (libfoundation 0x18c60 실측). `[-1000,+1000]` → `[-1000,+999]` 로 맞췄다.
+- **우도 스케일 의문 해소**: 원본 `getParticleLikelihood` → `computeLikelihood` → `getPostProb` tail-call.
+  우리 `likelihoodAt` 과 **같은 함수**다 ⇒ 임계 0.8 의 의미도 같고, 모드 5 가 드문 것은 원본과 같은 동작.
+- **미이식 확정**: `moveRobotAccordingToMotion`(원본은 파티클과 별개로 자세를 오도로 전진) → **debt-044**.
+- `ParticleFilter2D::step` 도 파사드와 같은 누적 기준점을 쓰도록 통일.
+- 상세: [대조 문서 §7](../../docs/comparison/seer-libmcloc-odom_vs_mcl2d-port_2026-07-31.md)
+
 ### 2026-07-28 추가 — .smap 로더 회귀 테스트 등록 + assert 무력화 수정
 
 - `test_smap` 을 CMake 타깃·ctest 로 등록. 이전에는 소스만 있고 **어느 CMakeLists 에도 없어 한 번도 실행되지 않았다.**

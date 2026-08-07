@@ -46,6 +46,18 @@ if(MCL2D_TEST_SMAP AND EXISTS ${MCL2D_TEST_SMAP})
   add_test(NAME test_smap_realmap COMMAND test_smap ${MCL2D_TEST_SMAP})
 endif()
 
+# RE 오라클(모션모델, 선택): 원본 MCLMotionModel2D 의 결정론 함수를 dlopen 으로 직접 구동해
+#   supplyControlVar·doParticleMove 출력을 **비트 대조**한다(principle.md §1 의 유일한 정당 검증).
+#   원본 libMCLoc.so 필요 → 분석 장비 전용. 2026-08-06 실측: 1,800 값 중 1,783 비트 일치,
+#   잔여 17 은 dθ 1 ulp(원인 미확정 → debt-032).
+#   실행: LD_LIBRARY_PATH=<rbk>/lib:<rbk>/3rdlib ./test_motion_oracle <rbk>/plugins/libMCLoc.so
+option(MCL2D_MOTION_ORACLE "Build motion-model RE oracle (needs original libMCLoc.so at runtime)" OFF)
+if(MCL2D_MOTION_ORACLE)
+  add_executable(test_motion_oracle test/test_motion_oracle.cpp src/motion_model.cpp)
+  target_include_directories(test_motion_oracle PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(test_motion_oracle PRIVATE ${CMAKE_DL_LIBS})
+endif()
+
 # RE 오라클 검증(선택): ObservationField ↔ 원본 getPostProb 비트 대조 Δ=0.
 # 원본 libMCLoc.so + protobuf 3.6.1 헤더 필요 → 검증환경에서만 빌드(자산 부재 시 미빌드).
 #   -DMCL2D_OBS_ORACLE=ON -DSEER_RBK=<rbk 경로> -DPROTOBUF_361_SRC=/tmp/protobuf-3.6.1/src

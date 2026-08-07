@@ -86,6 +86,8 @@ class ParticleFilter2D
     std::mt19937 rng_;
     std::vector<Particle> particles_;
     double mean_weight_ = 0.0;
+    Pose2D accum_odom_;      // step() 의 산포 모드 판정 기준점 (원본 accumu 대응)
+    bool has_accum_ = false;
 };
 
 } // namespace mcl2d

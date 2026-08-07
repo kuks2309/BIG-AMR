@@ -263,8 +263,16 @@ Pose2D ParticleFilter2D::step(const Pose2D &prev_odom, const Pose2D &cur_odom, c
     //   kMove(결정론) → kExtraMove(산포) → 우도갱신 → 추정 → 리샘플.
     //   우도를 먼저 구하는 이유: 모드 판정이 "지금 얼마나 믿을 만한가"를 입력으로 쓰기 때문.
     applyScan(scans); // updateWeights 가 한 번 더 부르지만 비용은 빔 수 선형(파티클 루프 대비 무시 가능)
-    const ControlIncrement2D c = supplyControlVar(prev_odom, cur_odom);
-    const ExtraMoveParams e = selectExtraMove(c.trans, c.dtheta, likelihoodAt(estimate()), params_);
+    // 모드 판정은 **직전 판정 이후 누적** 이동량으로 한다(원본 DoNormalUpdateAction 의 정적 accumu 대응).
+    //   파사드(Mcl2dLocalizer)와 같은 규칙 — 두 경로가 갈리면 같은 입력에 다른 산포가 나온다.
+    if (!has_accum_)
+    {
+        accum_odom_ = prev_odom;
+        has_accum_ = true;
+    }
+    const ControlIncrement2D accum = supplyControlVar(accum_odom_, cur_odom);
+    accum_odom_ = cur_odom;
+    const ExtraMoveParams e = selectExtraMove(accum.trans, accum.dtheta, likelihoodAt(estimate()), params_);
     predict(prev_odom, cur_odom);
     extraMove(e);
     updateWeights(scans);
