@@ -196,7 +196,7 @@ Skidding → `setError(0xcdee=52718)` 'Detect skid and stop AGV(Automated Guided
 `SetInitValFrom_odo()`·`run()` 에서만 불리는 **시작 시 초기화** 경로다.
 ⇒ 위치추정 결과를 오도에 되먹여 드리프트를 리셋하는 구조가 아니다. 오도는 계속 흘러가고 소비자가 증분만 떠 쓴다.
 
-### 8.6 프로토콜에는 슬립 관측 틀이 있다 ⚠
+### 8.6 프로토콜에는 슬립 관측 틀이 있으나 **이 배포에서는 쓰이지 않는다** ✓
 
 `message_odometer.proto` 에 정의가 존재한다:
 ```protobuf
@@ -206,7 +206,22 @@ message Message_SlipSensor {
   repeated Message_Slip motor = 5;
 }
 ```
-그리고 `Message_Odometer.detect_skid = 10`. **이 배포에서 실제로 채워지는지는 확인하지 않았다** — 정의 존재까지가 확인 범위다.
+그리고 `Message_Odometer.detect_skid = 10`.
+
+**2026-08-08 확인 — 정의만 있고 아무도 안 쓴다.** rbk 트리의 모든 `.so` 를 대상으로 동적 심볼을 대조한 결과:
+
+```
+SlipSensor 심볼:  libprotocol.so  정의 88 / 참조 0
+                  그 외 전 라이브러리  정의 0 / 참조 0
+```
+
+프로토콜 생성 코드(`libprotocol.so`)가 클래스를 정의만 하고 **어떤 플러그인도 참조하지 않는다**(undefined 참조 0).
+`OdoCalculator::SetMsgOdo`(0x90bf0–0x90eb0) 안에도 `SlipSensor` 참조가 없다.
+⇒ 슬립 대응은 §8.4 의 `CheckWheelSkid`(위치추정 쪽) **한 갈래로만** 돈다.
+
+> 한계: `nm -D` 동적 심볼 대조라 인라인 확장돼 심볼이 남지 않는 접근자는 잡히지 않는다.
+> 다만 `Message_SlipSensor` 는 메시지 클래스라 생성자·`Clear`·`CopyFrom` 등이 심볼로 남아야 정상이고,
+> 그것이 **0** 이라는 점이 근거다.
 
 ### 8.7 Big-AMR 에 주는 함의
 
