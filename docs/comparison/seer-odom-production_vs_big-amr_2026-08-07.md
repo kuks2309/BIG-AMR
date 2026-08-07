@@ -39,6 +39,40 @@ OdoCalculator::SetMsgOdo → Message_Odometer{x, y, angle(float), is_stop, times
 MCLoc::DoMoveAction  (위치추정 입력 — 앞 문서 §1)
 ```
 
+### 1.1 측정량·발행량은 `.proto` 정본으로 확정 ✓
+
+원본 트리의 `rbk/proto/` 에 정의가 그대로 있다 — 오프셋 추정이 아니라 **정본 인용**이다.
+
+`message_motorinfos.proto` — 드라이브가 올려보내는 값:
+```protobuf
+message Message_MotorInfo {
+  enum MotorType { WALK=0; STEER=1; SPIN=2; LINEAR=3; ROTATION=4; DO=5; }
+  string motor_name = 2;
+  float  position   = 5;    // m      ← 주행륜 누적 이동거리 / 조향륜 각도
+  float  speed      = 6;    // m/s
+  bool   stop       = 9;
+  int32  encoder    = 14;   // cnt
+  MotorType type    = 15;
+  float  raw_position = 19; // steer angle without .cp value
+}
+```
+⇒ `speed`(6)와 `position`(5)이 **둘 다** 올라온다. 오도메터 구조체의 두 슬롯
+`+0x30`(CalSpeed 입력)·`+0x38`(CaldPose 입력)이 이 둘에 대응한다.
+`stop`(9)이 모터 단위로 이미 오므로 `JudgeStop()`(0x15a3d0)에 **부동소수 비교가 0건**인 것도 설명된다
+(속도를 임계와 비교하는 것이 아니라 드라이브 보고 플래그를 취합).
+
+`message_odometer.proto` — 위치추정으로 나가는 값:
+```protobuf
+message Message_Odometer {
+  uint32 cycle = 2;  double x = 3;  double y = 4;  float angle = 5;   // m, m, rad
+  bool is_stop = 6;  float vel_x = 7; vel_y = 8; vel_rotate = 9;      // m/s, rad/s
+  bool detect_skid = 10;  repeated Message_MotorInfo motor_info = 11;  bool follow_err = 12;
+}
+```
+⇒ `MCLoc::DoMoveAction` 이 읽던 오프셋과 일치한다 — `x@0x30`·`y@0x40`(double), **`angle@0x3c` 를
+`movss`+`cvtss2sd` 로 읽던 것**이 여기 `float angle = 5` 다. 서로 다른 두 바이너리의 관측이 정본에서 맞물렸다.
+**위치는 double, 각도는 float** 이라 각도만 단정밀도로 잘려 전달된다.
+
 vtable 슬롯은 `_ZTV19MultiSteersOdometer`(0x4046c0)의 **재배치 항목 실측**이다(파일에는 0, `R_X86_64_64` 로 채워짐):
 `+0x78 = MultiSteersOdometer::CalSpeed`(0x14d690) · `+0x80 = MultiSteersOdometer::CaldPose`(0x14f300) ·
 `+0x88 = AbstractOdometer::CalPose`(0x15d490).
@@ -47,7 +81,10 @@ vtable 슬롯은 `_ZTV19MultiSteersOdometer`(0x4046c0)의 **재배치 항목 실
 
 `robot.model` 의 `chassis.mode = combo=multiSteers` → `MultiSteersOdometer` 가 선택된다.
 
-- **`CalOdoCoef()`** @0x14c9f0 — 모터 맵을 돌며 각 바퀴 좌표(+오프셋)로 계수행렬 구성(`14cc1c`·`14cc60`).
+- **`CalOdoCoef()`** @0x14c9f0 — 모터 맵을 돌며 각 바퀴 좌표(+오프셋)로 계수행렬을 구성하고
+  (`14cc1c`·`14cc60`, 크기 인자 3 = `vx,vy,ω` — `14ca41`·`14ca50`), **`Eigen::PartialPivLU` 로 역행렬을
+  미리 만든다**. 역행렬을 쓰는 함수는 `Omni`·`DualDiff`·`MultiDiff`·`MultiSteers` 의 `CalOdoCoef` 네 곳뿐이다.
+  ⇒ 런타임에는 분해를 다시 하지 않고 **행렬–벡터 곱 한 번**으로 끝난다(기하는 굳히고 입력만 바꿔 끼운다).
 - **`CalSpeed()`** @0x14d690 — 유닛마다 `v·cos δ`, `v·sin δ` 를 관측벡터에 적재(`14d942` cos → `14d94c` mul,
   `14d968` sin → `14d972` mul) 후 `Eigen::general_matrix_vector_product` → **(vx, vy, ω)**.
 - **`CaldPose()`** @0x14f300 — **완전히 같은 구조**인데 입력 슬롯만 다르다: `+0x30`(속도) 대신 **`+0x38`**(변위)
@@ -105,10 +142,10 @@ vtable 슬롯은 `_ZTV19MultiSteersOdometer`(0x4046c0)의 **재배치 항목 실
 
 | 항목 | 상태 |
 | --- | --- |
-| `+0x30`/`+0x38` 필드를 채우는 지점 | `ExtractMotorInfo`(0x1596a0) 미조사 — 속도/변위 해석은 구조 정합까지 |
-| `CaldPosVenc()`(0x15adb0) 의 역할 | 매 주기 호출되지만(`+0x70`) 산출물이 어디 쓰이는지 미확인 |
-| `JudgeStop()`(0x15a3d0) | `is_stop` 판정 근거 미조사 |
-| `CalOdoCoef` 가 만드는 행렬의 정확한 형태 | 의사역행렬 여부 미확인 |
+| `+0x30`/`+0x38` 의 정체 | **해소(2026-08-07)** — `.proto` 정본에 `position=5`(m)·`speed=6`(m/s) 둘 다 존재(§1.1). 단 *어느 슬롯이 어느 필드인지*의 최종 대조는 구조 정합(같은 사상, 다른 슬롯)까지다 |
+| `JudgeStop()`(0x15a3d0) | **해소** — 전 구간에 `ucomisd`/`cvtss2sd` **0건**. 모터별 `stop`(필드 9) 취합 구조 |
+| `CalOdoCoef` 행렬 형태 | **해소** — `Eigen::PartialPivLU` 로 역행렬 사전계산, 크기 인자 3(§2) |
+| `CaldPosVenc()`(0x15adb0) 의 역할 | **부분** — 0x2360 크기인데 `mulsd` 1·`addsd` 2·`divsd` 5·`movsd` 5, `cos`/`sin`/`ucomisd` 0. 내부 점프 341·`stringstream` 4벌·Logger 큐 push 4회로 **대부분 로깅·맵 순회**다. `divsd` 는 모터별 `Δt/1e9` 환산으로 보인다. **진단 성격으로 판단하나, 산출물 소비처를 추적하지 않았다** |
 
 ## 7. 분석 이력 정정 (숨기지 않는다)
 
