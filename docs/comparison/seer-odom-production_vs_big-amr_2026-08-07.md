@@ -158,3 +158,64 @@ vtable 슬롯은 `_ZTV19MultiSteersOdometer`(0x4046c0)의 **재배치 항목 실
 | 2026-08-07 오후 | "적분이다, 앞 정정이 틀렸다" | 틀림 | `CalPose` 의 **속도 경로만** 보고 플래그 분기를 못 봄 |
 
 기록: [docs/claude-mistake/2026-08-07-001](../claude-mistake/2026-08-07-001_narrow-scope-double-reversal.md).
+
+---
+
+## 8. 누적 오차를 다루는 방식 — 네 겹 (2026-08-08)
+
+휠 오도는 원리상 드리프트가 누적된다. 원본은 **오도를 보정하지 않고, 오도를 신뢰하지 않는 구조**로 감당한다.
+
+### 8.1 위치추정이 오도의 **절대값을 쓰지 않는다** ✓
+
+`MCLoc::supplyControlVar` 는 두 시점을 받아 **차분만** 취한다(`33cf1e` `cur.x−prev.x`, `33cf2d` `cur.y−prev.y`).
+오도가 수 미터 드리프트해도 그 누적값은 위치추정 자세로 전파되지 않는다 — 전파되는 것은
+"직전 주기에 얼마나 움직였나"뿐이고, 그 짧은 구간의 오차만 들어간다.
+`ControlVar2D` 는 절대 자세처럼 생겼지만 **증분 추출용 원재료**다.
+
+### 8.2 매 스캔 주기에 관측이 흡수 ✓
+
+가중치 갱신 → 리샘플이 매 주기 돈다. 드리프트로 어긋난 파티클은 우도가 떨어져 리샘플에서 죽는다.
+드리프트 보정은 별도 로직이 아니라 **파티클 필터 자체**다.
+
+### 8.3 오도를 많이 쓴 주기일수록 불확실성을 넓힌다 ✓
+
+`selectExtraMove` 6모드(§ 위치추정 문서 §1.1.2)가 이 일을 한다 — 이동량이 크면 40 mm·3°,
+미세 이동이면 10 mm·1°. **오도 증분이 클수록 그 주기의 오차 가능성도 크므로 파티클을 더 넓게 뿌려
+관측이 교정할 여지를 만든다.** 드리프트를 지우는 게 아니라 들어올 만큼만 문을 여는 설계다.
+
+### 8.4 크게 틀어지면 멈춘다 ✓
+
+`CheckWheelSkid`: 오도 이동량과 위치추정 이동량이 **2배** 이상 벌어지거나 회전이 **30°** 이상 어긋나면
+Skidding → `setError(0xcdee=52718)` 'Detect skid and stop AGV(Automated Guided Vehicle)', 복구는 정지 후 `recoverTime` 1 s.
+배포값 `CheckDistance 1.0` m · `CheckAngle 30.0°` · `recoverTime 1.0` s.
+
+### 8.5 오도 자체를 되돌리는 경로는 **없다** ✓
+
+`OdoCalculator` 가 구독하는 것은 `NavSpeed`·`Controller`·`MotorInfos` **셋뿐**이고
+**위치추정을 구독하지 않는다**(`setSubscriberCallBack` 계열 심볼 전수). `SetInitVal(OdometerOutput)` 은
+`SetInitValFrom_odo()`·`run()` 에서만 불리는 **시작 시 초기화** 경로다.
+⇒ 위치추정 결과를 오도에 되먹여 드리프트를 리셋하는 구조가 아니다. 오도는 계속 흘러가고 소비자가 증분만 떠 쓴다.
+
+### 8.6 프로토콜에는 슬립 관측 틀이 있다 ⚠
+
+`message_odometer.proto` 에 정의가 존재한다:
+```protobuf
+message Message_SlipSensor {
+  enum Type { IMU = 0; LOC = 1; OPT = 2; }   // 관성 · 위치추정 · 광학
+  Message_Slip vx = 2; vy = 3; vw = 4;       // slip dist(m) · slip_time(s) · name
+  repeated Message_Slip motor = 5;
+}
+```
+그리고 `Message_Odometer.detect_skid = 10`. **이 배포에서 실제로 채워지는지는 확인하지 않았다** — 정의 존재까지가 확인 범위다.
+
+### 8.7 Big-AMR 에 주는 함의
+
+| 겹 | 우리 상태 |
+| --- | --- |
+| 8.1 증분만 사용 | **그대로 작동** — 이식 완료(`supplyControlVar`) |
+| 8.2 관측 보정 | **그대로 작동** — 이식 완료 |
+| 8.3 적응 산포 | **그대로 작동** — `selectExtraMove` 이식 완료 |
+| 8.4 슬립 감지 | **무력** — 오도가 `icp_odometry`(레이저)라 레이저↔레이저 비교가 되어 휠 미끄러짐을 검출하지 못한다 → **debt-044** |
+
+즉 원본이 누적 오차를 감당하는 방식은 "정밀한 적분"이 아니라
+**증분만 사용 + 관측 보정 + 불확실성 적응 + 이상 시 정지** 네 겹이고, 우리는 그중 셋을 갖췄다.
