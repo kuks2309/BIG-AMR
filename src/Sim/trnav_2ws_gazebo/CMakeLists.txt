@@ -11,6 +11,7 @@ install(
 install(
   PROGRAMS
     scripts/wheel_cmd_bridge.py
+    scripts/fleet_wheel_bridge.py
     scripts/wheel_odometry.py
     scripts/teleop_gui.py
     scripts/show_roads.py
