@@ -25,8 +25,20 @@ pkill -9 -f 'gzserver'                      2>/dev/null
 pkill -9 -f 'gzclient'                      2>/dev/null
 
 # 2) 시뮬 노드 (python3 절대경로로 실행됨)
-pkill -9 -f 'trnav_2ws_gazebo/wheel_cmd_bridge.py' 2>/dev/null
-pkill -9 -f 'trnav_2ws_gazebo/wheel_odometry.py'   2>/dev/null
+#
+# Match the package's SCRIPT DIRECTORY, not individual filenames. Listing names
+# one by one is what failed: fleet_wheel_bridge.py was added and never added
+# here, so every launch left its bridge behind. Measured 2026-08-07 — six
+# bridges alive at once, four of them publishing to /amr1's steer and drive
+# command topics simultaneously at 100 Hz. The robot was driven 9 m out of its
+# parking bay before the MES had even started, then thrashed between +0.9 and
+# -0.9 rad/s because four nodes were commanding different wheel angles. It
+# looked exactly like a navigation bug and was not one.
+#
+# This is the same trap fleet.launch.py already documents: "ten leftover
+# wheel_cmd_bridge nodes per robot were publishing wheel commands the whole
+# time". A directory match cannot go stale when a new script is added.
+pkill -9 -f 'trnav_2ws_gazebo/(lib|scripts)/'      2>/dev/null
 pkill -9 -f 'gazebo_ros/spawn_entity.py'           2>/dev/null
 
 # 3) 스포너·상태발행 (이전 실행분이 남아 새 controller_manager 를 가로채면
