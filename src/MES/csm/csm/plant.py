@@ -247,14 +247,14 @@ SEGMENTS = [
         "payload": 1.5,
         "from": ["ASRS"],
         "to": [f"GRV{i}_LD" for i in range(1, 5)],
-        "buffer": ["WIP_GRV1", "WIP_GRV2"],
+        "buffer": ["WIP_GRV_1", "WIP_GRV_2"],
     },
     {
         "name": "B",                       # 1.5T-Big AGV B
         "payload": 1.5,
         "from": [f"GRV{i}_ULD" for i in range(1, 5)],
         "to": [f"CTR{i}_LD" for i in range(1, 5)],
-        "buffer": ["WIP_CTR1", "WIP_CTR2"],
+        "buffer": ["WIP_CTR_1", "WIP_CTR_2"],
     },
     {
         "name": "C",                       # 3.5T-Big AGV
