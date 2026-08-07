@@ -47,14 +47,16 @@ KP_LAT = 0.5            # gain on the lateral offset
 V_MAX = 0.10            # cap on the COMBINED speed, m/s
 TOL_D = 0.03            # gap tolerance for "docked"
 #: Lateral tolerance for "docked". 0.02 was tighter than this controller can
-#: hold and no dock completed. Measured in Gazebo 2026-08-07: the approach closed
-#: cleanly from 1.97 m to the 0.65 m target in 23 s, then sat oscillating
+#: hold and no dock ever completed. Measured in Gazebo 2026-08-07: the approach
+#: closed cleanly from 1.97 m to the 0.65 m target in 23 s, then sat oscillating
 #: 0.644 <-> 0.661 m for 37 s — range comfortably inside TOL_D, lateral offset
-#: parked on 0.020 m exactly and crossing the limit often enough that the CONV_N
-#: counter never reached 3. At 60 s the docking timeout fired and the job failed.
+#: parked on 0.020 m exactly, crossing the limit often enough that the CONV_N
+#: counter never reached 3. At 60 s the docking timeout fired and the job was
+#: failed. Every dock in that run ended the same way.
 #:
 #: 0.04 m is still a fifth of the 0.20 m gap the robot leaves at the face, and
-#: each port has 1.2 m of clearance either side.
+#: each port has 1.2 m of clearance either side, so the looser limit costs
+#: nothing that matters and lets the dock actually converge.
 TOL_LAT = 0.04          # lateral tolerance for "docked"
 CONV_N = 3              # consecutive in-tolerance cycles before declaring docked
 OBS_STALE = 0.5         # an observation older than this is no observation
@@ -67,6 +69,10 @@ SETTLE_TIMEOUT = 14.0   # ... or after this long, whichever comes first
 #: values; in the source project those single samples tripped the over-approach
 #: guard and stopped docking early. A real approach moves ~0.002 m per sample.
 JUMP_REJECT = 0.10
+#: Consecutive rejections before the estimate is re-seeded from the raw
+#: reading. One or two rejections are noise; three in a row means the
+#: range genuinely moved and the filter must follow it rather than latch.
+JUMP_REJECT_N = 3
 LOWPASS = 0.85          # heavy, for the same reason
 
 
@@ -138,6 +144,7 @@ class DockController:
         # the source project declare "docked" immediately on the next attempt,
         # and the robot simply never moved.
         self.d_filt = None
+        self._rejects = 0
         self.reason = None
 
     # ------------------------------------------------------------------ step
@@ -226,9 +233,27 @@ class DockController:
     def _filter(self, raw):
         if self.d_filt is None:
             self.d_filt = raw
+            self._rejects = 0
             return raw
         if abs(raw - self.d_filt) > JUMP_REJECT:
-            return self.d_filt                  # single wild sample: ignore it
+            # ONE wild sample is noise and must be ignored — that is what this
+            # guard is for. A SUSTAINED disagreement is not noise: it means the
+            # estimate is wrong, and refusing to update leaves it wrong for
+            # ever. The rejector never re-seeded, so once the true range stepped
+            # more than JUMP_REJECT away, every later sample was rejected too
+            # and the filter latched. Demonstrated 2026-08-07: the true range
+            # walked 1.17 -> 0.30 m while the filter kept reporting 1.192.
+            #
+            # That is not cosmetic. The over-approach guard compares THIS value
+            # against d_min, so a latched filter blinds it completely, and the
+            # P-law keeps closing a gap that has already closed.
+            self._rejects += 1
+            if self._rejects < JUMP_REJECT_N:
+                return self.d_filt
+            self.d_filt = raw               # sustained: it is real, follow it
+            self._rejects = 0
+            return self.d_filt
+        self._rejects = 0
         self.d_filt = LOWPASS * self.d_filt + (1.0 - LOWPASS) * raw
         return self.d_filt
 
