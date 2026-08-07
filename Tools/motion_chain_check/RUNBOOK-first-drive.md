@@ -7,18 +7,37 @@
 
 ## 0. 전제 — 이 값들이 다르면 계획을 다시 짜야 한다
 
-2026-08-07 09:30 실측:
+> ⚠ **이 절은 매 구동 전에 다시 측정한다.** 2026-08-07 초판 값은 **하루 만에 무효가 됐다** —
+> 맵 md5 가 바뀌고 **스테이션이 전부 교체**됐다(LM3001·LM3002 → LM1~LM4).
+> 「지난번 값」으로 시작하지 말 것.
+>
+> | | 2026-08-07 09:30 (무효) | 2026-08-08 07:40 (현행) |
+> | --- | --- | --- |
+> | 맵 md5 | `79e59a5ac112551ab7f1dea192230a94` | `a20cbe5cb35fe90bde5685174220ffd5` |
+> | 스테이션 | LM3001(−12.5, 2.4) · LM3002(−16.5, 2.4) | LM1~LM4 (아래) |
+
+2026-08-08 07:40 실측:
 
 ```
 기체            model Foil_A082 · vehicle_id Foil_A082
-맵              current_map 260709_test · md5 79e59a5ac112551ab7f1dea192230a94
-측위            x −12.236 · y 2.320 · angle −3.1198 rad(−178.75°) · confidence 0.838 · loc_state 0
-알람            fatals 0 · errors 0 · warnings 1 (54029 ManualBlock is False, 08-05 발생)
-스테이션        LM3001(−12.5, 2.4) · LM3002(−16.5, 2.4) — 두 점 사이 등록 경로 4 m 직선
-판다            연결됨 (bbaa:ddcc comma.ai panda)
+맵              current_map 260709_test · md5 a20cbe5cb35fe90bde5685174220ffd5
+측위            x −11.988 · y 2.412 · angle 3.1413 rad(179.98°) · confidence 0.805 · loc_state 0
+                in_forbidden_area False
+작업            task_status 4 · task_type 3 · target_id LM1
+알람            fatals 0 · errors 0 · warnings 1 (54029 ManualBlock is False, 08-07 22:54 발생)
+스테이션        LM1(−15.927,  2.412)   LM2(−15.927, 15.572)
+                LM3(−11.712, 15.572)   LM4(−11.988,  2.412)  r=3.1413
+판다            연결됨 (bbaa:ddcc comma.ai panda, Bus 003 Device 009)
 ```
 
-로봇은 **LM3001 옆에서 −x 방향을 보고 있다.** LM3002 는 −x 로 4 m. 즉 **정면이 진행 방향**이다.
+**로봇은 LM4 에 정확히 주차돼 있다**(좌표·각도 모두 일치). 이는 타 세션의 결정
+`docs/adr/2026-08-07-…-idle robots must go home` 에 따른 홈 대기 상태다.
+
+⚠ **구동은 로봇을 홈에서 이탈시킨다.** 다른 세션이 그 위치를 전제하고 있을 수 있으므로
+시작 전 조율하고, 종료 시 LM4 로 되돌린다.
+
+주행 대상: **LM4 → LM1** — 같은 y(2.412) 위 **−x 방향 3.939 m 직선**이고,
+로봇이 **이미 그 방향을 보고 있다**(angle 179.98° ≈ −x). 즉 정면이 진행 방향이다.
 
 ## ⚠ 시작 전 반드시 아는 사실 4가지
 
@@ -43,7 +62,7 @@
 ```bash
 export ROS_DOMAIN_ID=0                     # 실 운용 도메인
 ros2 launch seer_pose_publisher seer_pose.launch.py \
-     expected_map_md5:=79e59a5ac112551ab7f1dea192230a94
+     expected_map_md5:=a20cbe5cb35fe90bde5685174220ffd5   # ⚠ §0 에서 재측정한 값으로
 python3 Tools/seer_viz/seer_map_viz.py \
      --smap map/260709_test_2026-08-06_79e59a5a.smap --no-tf
 rviz2 -d Tools/seer_viz/seer_map.rviz
@@ -130,7 +149,7 @@ ros2 topic pub --once /can_relay_node/steer_axis_deg \
 ros2 launch trnav_2ws_action_server translate_forward.launch.py
 ros2 action send_goal /amr_motion_translate_forward_abstract \
   trnav_2ws_interfaces/action/AMRMotionTranslateForward \
-  "{start_x: -12.236, start_y: 2.320, end_x: -12.736, end_y: 2.320,
+  "{start_x: -11.988, start_y: 2.412, end_x: -12.488, end_y: 2.412,
     max_linear_speed: 0.05, acceleration: 0.05, hold_steer: false,
     exit_steer_angle: 0.0, exit_speed: 0.0, entry_speed: 0.0, has_next: false,
     control_mode: 0, enable_localization_watchdog: true, skip_initial_pose_check: false}"
@@ -150,12 +169,12 @@ ros2 action send_goal /amr_motion_translate_forward_abstract \
 
 **중단 기준** — 횡방향으로 밀림, 조향이 흔들림, 오차 0.1 m 초과, 정지 안 함.
 
-## 6단계 — 등록 경로 주행 LM3001 → LM3002 (4 m)
+## 6단계 — 등록 경로 주행 LM4 → LM1 (3.94 m)
 
 5단계 통과 후에만. 속도 0.1 → 0.2 m/s 로 **두 번에 나눠** 올린다.
 
 **통과 기준**
-- [ ] 종점이 LM3002(−16.5, 2.4) 기준 **0.1 m 이내**
+- [ ] 종점이 LM1(−15.927, 2.412) 기준 **0.1 m 이내**
 - [ ] 주행 중 `confidence` 가 0.5 아래로 떨어지지 않는다
 - [ ] `/robot_pose` 끊김 없음 (0.5 s 넘게 끊기면 워치독이 액션을 중단시킨다 — 정상 동작)
 

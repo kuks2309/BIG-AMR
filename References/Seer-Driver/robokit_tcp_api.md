@@ -141,11 +141,28 @@ def unpackHead(data):                    # 응답 16B 헤더 파싱
 | 3001 | robot_task_pause_req | 현재 작업 일시정지 |
 | 3002 | robot_task_resume_req | 현재 작업 계속 |
 | 3003 | robot_task_cancel_req | 현재 작업 취소 |
-| 3050 | robot_task_gonav_req | 자유 내비게이션 |
+| 3050 | robot_task_gopoint_req | 자유 내비게이션 |
 | 3051 | robot_task_gotarget_req | **고정 경로 내비게이션**(id=사이트) |
-| 3052 | robot_task_translate_req | 평동(translate) |
-| 3053 | robot_task_turn_req | 회전(turn) |
-| — | (巡检 patrol) | 순회 |
+| 3052 | robot_task_patrol_req | **순찰**(경로 목록 반복) |
+| **3055** | robot_task_translate_req | 평동(translate) — 고정 속도·고정 거리 |
+| **3056** | robot_task_turn_req | 회전(turn) — 고정 각속도·고정 각도 |
+
+> ❌ **2026-08-08 정정 — 위 표의 번호 2개가 틀려 있었다.** 원문 대조로 고쳤다.
+>
+> | 정정 전(틀림) | 벤더 원문 v1.2.1 `github_sdk/robotkit-netprotocol-l-1.2.1.txt:2851-2859` |
+> | --- | --- |
+> | `3052 = translate` | **`3052 = robot_task_patrol_req`(순찰)** |
+> | `3053 = turn` | **`3053` 은 정의 자체가 없다** |
+> | (없음) | **`3055 = translate` · `3056 = turn`** |
+> | `3050 = gonav` | `3050 = gopoint` |
+>
+> ⚠ **`3052` 를 「평동」인 줄 알고 보내면 순찰이 시작된다.** 실기에 보내기 전 반드시
+> 원문(`:2851-2859`, 상세는 `:3192`·`:3248`)을 확인할 것.
+>
+> **3055/3056 의 `mode` 필드** — `0 = 里程(오도메트리, 기본)` / `1 = 自定位(자기측위)`.
+> 원문이 **「自定位模式目前不可用」(자기측위 모드 현재 사용 불가)** 이라고 명시한다.
+> 즉 이 두 원시 기동은 **오도메트리 개루프**다. 또 3055 와 3056 은 **동시 수행 불가**.
+> 분석: [docs/seer/2026-08-08-seer-path-control.md](../../docs/seer/2026-08-08-seer-path-control.md)
 
 ### 4-4. Robot Configuration API (port 19207)
 | ID | 이름 | 설명 |
