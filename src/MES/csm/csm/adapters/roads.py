@@ -137,6 +137,16 @@ class Roads:
         """Waypoints from an arbitrary point to a station's dock."""
         return self._route_nodes(self.entry_node(pos), f"dock_{to_station}")
 
+    def route_to_node(self, pos, node):
+        """Waypoints from an arbitrary point to any named node.
+
+        Parking bays need this. Driving home used to be a straight line at the
+        bay, which is the one thing this module exists to prevent — and it also
+        put an idle robot on no road at all, where no traffic rule could apply
+        to it. Homing is an ordinary trip and takes ordinary roads.
+        """
+        return self._route_nodes(self.entry_node(pos), node)
+
     def route(self, from_station, to_station):
         return self._route_nodes(f"dock_{from_station}", f"dock_{to_station}")
 
