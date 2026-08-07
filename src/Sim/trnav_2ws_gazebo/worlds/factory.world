@@ -1181,7 +1181,7 @@
     </model>
     <model name="marker_SLT_LD1">
       <static>true</static>
-      <pose>-18.950 -6.980 0.675 0 0 0</pose>
+      <pose>-19.300 -6.980 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1194,7 +1194,7 @@
     </model>
     <model name="markerdot_SLT_LD1">
       <static>true</static>
-      <pose>-18.950 -6.970 0.675 0 0 0</pose>
+      <pose>-19.300 -6.970 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1207,7 +1207,7 @@
     </model>
     <model name="markerbit_SLT_LD1_1">
       <static>true</static>
-      <pose>-18.935 -6.960 0.675 0 0 0</pose>
+      <pose>-19.285 -6.960 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1220,7 +1220,7 @@
     </model>
     <model name="markerbit_SLT_LD1_4">
       <static>true</static>
-      <pose>-18.980 -6.960 0.675 0 0 0</pose>
+      <pose>-19.330 -6.960 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1233,7 +1233,7 @@
     </model>
     <model name="marker_SLT_LD2">
       <static>true</static>
-      <pose>-17.650 -6.980 0.675 0 0 0</pose>
+      <pose>-17.300 -6.980 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1246,7 +1246,7 @@
     </model>
     <model name="markerdot_SLT_LD2">
       <static>true</static>
-      <pose>-17.650 -6.970 0.675 0 0 0</pose>
+      <pose>-17.300 -6.970 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1259,7 +1259,7 @@
     </model>
     <model name="markerbit_SLT_LD2_0">
       <static>true</static>
-      <pose>-17.620 -6.960 0.675 0 0 0</pose>
+      <pose>-17.270 -6.960 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1272,7 +1272,7 @@
     </model>
     <model name="markerbit_SLT_LD2_1">
       <static>true</static>
-      <pose>-17.635 -6.960 0.675 0 0 0</pose>
+      <pose>-17.285 -6.960 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1285,7 +1285,7 @@
     </model>
     <model name="markerbit_SLT_LD2_4">
       <static>true</static>
-      <pose>-17.680 -6.960 0.675 0 0 0</pose>
+      <pose>-17.330 -6.960 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1298,7 +1298,7 @@
     </model>
     <model name="marker_SLT_LD3">
       <static>true</static>
-      <pose>-16.350 -6.980 0.675 0 0 0</pose>
+      <pose>-15.300 -6.980 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1311,7 +1311,7 @@
     </model>
     <model name="markerdot_SLT_LD3">
       <static>true</static>
-      <pose>-16.350 -6.970 0.675 0 0 0</pose>
+      <pose>-15.300 -6.970 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1324,7 +1324,7 @@
     </model>
     <model name="markerbit_SLT_LD3_2">
       <static>true</static>
-      <pose>-16.350 -6.960 0.675 0 0 0</pose>
+      <pose>-15.300 -6.960 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1337,7 +1337,7 @@
     </model>
     <model name="markerbit_SLT_LD3_4">
       <static>true</static>
-      <pose>-16.380 -6.960 0.675 0 0 0</pose>
+      <pose>-15.330 -6.960 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1350,7 +1350,7 @@
     </model>
     <model name="marker_SLT_LD4">
       <static>true</static>
-      <pose>-15.050 -6.980 0.675 0 0 0</pose>
+      <pose>-13.300 -6.980 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1363,7 +1363,7 @@
     </model>
     <model name="markerdot_SLT_LD4">
       <static>true</static>
-      <pose>-15.050 -6.970 0.675 0 0 0</pose>
+      <pose>-13.300 -6.970 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1376,7 +1376,7 @@
     </model>
     <model name="markerbit_SLT_LD4_0">
       <static>true</static>
-      <pose>-15.020 -6.960 0.675 0 0 0</pose>
+      <pose>-13.270 -6.960 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1389,7 +1389,7 @@
     </model>
     <model name="markerbit_SLT_LD4_2">
       <static>true</static>
-      <pose>-15.050 -6.960 0.675 0 0 0</pose>
+      <pose>-13.300 -6.960 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1402,7 +1402,7 @@
     </model>
     <model name="markerbit_SLT_LD4_4">
       <static>true</static>
-      <pose>-15.080 -6.960 0.675 0 0 0</pose>
+      <pose>-13.330 -6.960 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1413,7 +1413,7 @@
         </visual>
       </link>
     </model>
-    <model name="marker_WIP_GRV1">
+    <model name="marker_WIP_GRV_1">
       <static>true</static>
       <pose>11.800 6.980 0.675 0 0 0</pose>
       <link name="link">
@@ -1426,7 +1426,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerdot_WIP_GRV1">
+    <model name="markerdot_WIP_GRV_1">
       <static>true</static>
       <pose>11.800 6.970 0.675 0 0 0</pose>
       <link name="link">
@@ -1439,7 +1439,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerbit_WIP_GRV1_3">
+    <model name="markerbit_WIP_GRV_1_3">
       <static>true</static>
       <pose>11.815 6.960 0.675 0 0 0</pose>
       <link name="link">
@@ -1452,7 +1452,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerbit_WIP_GRV1_4">
+    <model name="markerbit_WIP_GRV_1_4">
       <static>true</static>
       <pose>11.830 6.960 0.675 0 0 0</pose>
       <link name="link">
@@ -1465,7 +1465,7 @@
         </visual>
       </link>
     </model>
-    <model name="marker_WIP_GRV2">
+    <model name="marker_WIP_GRV_2">
       <static>true</static>
       <pose>14.200 6.980 0.675 0 0 0</pose>
       <link name="link">
@@ -1478,7 +1478,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerdot_WIP_GRV2">
+    <model name="markerdot_WIP_GRV_2">
       <static>true</static>
       <pose>14.200 6.970 0.675 0 0 0</pose>
       <link name="link">
@@ -1491,7 +1491,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerbit_WIP_GRV2_0">
+    <model name="markerbit_WIP_GRV_2_0">
       <static>true</static>
       <pose>14.170 6.960 0.675 0 0 0</pose>
       <link name="link">
@@ -1504,7 +1504,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerbit_WIP_GRV2_3">
+    <model name="markerbit_WIP_GRV_2_3">
       <static>true</static>
       <pose>14.215 6.960 0.675 0 0 0</pose>
       <link name="link">
@@ -1517,7 +1517,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerbit_WIP_GRV2_4">
+    <model name="markerbit_WIP_GRV_2_4">
       <static>true</static>
       <pose>14.230 6.960 0.675 0 0 0</pose>
       <link name="link">
@@ -1530,7 +1530,7 @@
         </visual>
       </link>
     </model>
-    <model name="marker_WIP_CTR1">
+    <model name="marker_WIP_CTR_1">
       <static>true</static>
       <pose>11.800 -6.980 0.675 0 0 0</pose>
       <link name="link">
@@ -1543,7 +1543,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerdot_WIP_CTR1">
+    <model name="markerdot_WIP_CTR_1">
       <static>true</static>
       <pose>11.800 -6.970 0.675 0 0 0</pose>
       <link name="link">
@@ -1556,7 +1556,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerbit_WIP_CTR1_1">
+    <model name="markerbit_WIP_CTR_1_1">
       <static>true</static>
       <pose>11.815 -6.960 0.675 0 0 0</pose>
       <link name="link">
@@ -1569,7 +1569,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerbit_WIP_CTR1_2">
+    <model name="markerbit_WIP_CTR_1_2">
       <static>true</static>
       <pose>11.800 -6.960 0.675 0 0 0</pose>
       <link name="link">
@@ -1582,7 +1582,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerbit_WIP_CTR1_4">
+    <model name="markerbit_WIP_CTR_1_4">
       <static>true</static>
       <pose>11.770 -6.960 0.675 0 0 0</pose>
       <link name="link">
@@ -1595,7 +1595,7 @@
         </visual>
       </link>
     </model>
-    <model name="marker_WIP_CTR2">
+    <model name="marker_WIP_CTR_2">
       <static>true</static>
       <pose>14.200 -6.980 0.675 0 0 0</pose>
       <link name="link">
@@ -1608,7 +1608,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerdot_WIP_CTR2">
+    <model name="markerdot_WIP_CTR_2">
       <static>true</static>
       <pose>14.200 -6.970 0.675 0 0 0</pose>
       <link name="link">
@@ -1621,7 +1621,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerbit_WIP_CTR2_0">
+    <model name="markerbit_WIP_CTR_2_0">
       <static>true</static>
       <pose>14.230 -6.960 0.675 0 0 0</pose>
       <link name="link">
@@ -1634,7 +1634,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerbit_WIP_CTR2_1">
+    <model name="markerbit_WIP_CTR_2_1">
       <static>true</static>
       <pose>14.215 -6.960 0.675 0 0 0</pose>
       <link name="link">
@@ -1647,7 +1647,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerbit_WIP_CTR2_2">
+    <model name="markerbit_WIP_CTR_2_2">
       <static>true</static>
       <pose>14.200 -6.960 0.675 0 0 0</pose>
       <link name="link">
@@ -1660,7 +1660,7 @@
         </visual>
       </link>
     </model>
-    <model name="markerbit_WIP_CTR2_4">
+    <model name="markerbit_WIP_CTR_2_4">
       <static>true</static>
       <pose>14.170 -6.960 0.675 0 0 0</pose>
       <link name="link">
