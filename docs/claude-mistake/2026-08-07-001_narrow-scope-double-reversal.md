@@ -5,7 +5,7 @@ category: verify-skip
 status: closed
 reflected_assets:
   - docs/comparison/seer-odom-production_vs_big-amr_2026-08-07.md#7-분석-이력-정정-숨기지-않는다
-  - References/seer/libOdoCalculator/PROVENANCE.md
+  - docs/comparison/seer-odom-production_vs_big-amr_2026-08-07.md#3-자세-갱신--두-경로-플래그가-고른다
 ---
 
 # 2026-08-07 23:2x (KST) — 좁은 범위만 보고 같은 사안을 두 번 뒤집었다

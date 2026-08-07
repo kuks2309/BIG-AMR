@@ -3,7 +3,9 @@
 > 2026-08-07 (KST) · 대상: rbk(Robokit) 3.4.5.20 `libOdoCalculator.so` (63G SATA 원본, 읽기 전용)
 > 질문: **"Seer 는 odom 을 어떻게 만드는가"** — 앞선 [위치추정 분석](seer-libmcloc-odom_vs_mcl2d-port_2026-07-31.md)이
 > *소비* 쪽이었다면 본 문서는 *생산* 쪽이다.
-> 1차 산출물: [References/seer/libOdoCalculator/](../../References/seer/libOdoCalculator/PROVENANCE.md)
+> 1차 산출물: `References/seer/libOdoCalculator/`(`update.asm`·`calpose.asm`·`multisteers_calspeed_caldpose.asm`
+> + `PROVENANCE.md`) — **`References/` 는 `.gitignore:12` 대상이라 저장소에 올라가지 않는다(로컬 전용).**
+> 재현은 아래 §0 의 명령으로 언제든 다시 뜰 수 있다.
 
 ## 0. 검증 등급
 
@@ -11,6 +13,12 @@
 | --- | --- |
 | **✓** | 이 세션이 원본 바이너리·배포 자산에서 직접 확인(주소·문자열 인용) |
 | **⚠** | 추론·미확정 |
+
+**재현 명령**(원본 하드가 붙어 있을 때):
+```bash
+Tools/seer_re/amap_server.sh ssh \
+  "objdump -d --start-address=0x15d490 --stop-address=0x15dd40 <하드>/usr/local/SeerRobotics/rbk/plugins/libOdoCalculator.so"
+```
 
 배포 자산은 `robot.model`(model `Roll_A084`, chassis `basic.name` `Foil_A085` — **두 이름이 다르며 합치지 않는다**)과
 `robot.param`(SQLite)이다.
