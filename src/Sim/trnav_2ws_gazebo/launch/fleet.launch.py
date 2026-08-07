@@ -125,8 +125,11 @@ def _one_robot(name, pose, xacro_file, steer_lag, delay=0.0):
     drive = spawner('drive_velocity_controller')
 
     bridge = Node(
-        package='trnav_2ws_gazebo', executable='wheel_cmd_bridge.py',
-        name='wheel_cmd_bridge', namespace=name, output='screen',
+        # OUR bridge, not scripts/wheel_cmd_bridge.py — that one is another
+        # author's file. Same kinematics, plus a per-robot dock/wheel_cmd input
+        # so docking can command a steering angle at zero speed.
+        package='trnav_2ws_gazebo', executable='fleet_wheel_bridge.py',
+        name='fleet_wheel_bridge', namespace=name, output='screen',
         parameters=[{'use_sim_time': True, 'steer_tau': steer_lag}],
     )
     odometry = Node(
