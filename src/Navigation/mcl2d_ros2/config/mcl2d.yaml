@@ -1,0 +1,37 @@
+# mcl2d_localization 파라미터.
+#
+# ⚠ 여기 값은 **전부 노드 기본값과 동일**하다. 즉 이 파일을 그대로 쓰면 거동이 바뀌지 않는다.
+#    코어 값들은 원본 Seer libMCLoc 대조로 고정된 충실도 기준선이므로, 바꾸면 노드가 기동 시
+#    WARN 으로 "충실도 기준선 이탈" 을 남긴다. 바꿀 때는 그 로그와 함께 근거를 남길 것.
+# 노출하지 않은 코어 파라미터(산포 모드 임계·재측위·슬립 등 20여 개)는 의도적으로 고정이다 —
+#    필요해지면 그때 근거와 함께 연다.
+
+/mcl2d_localization:
+  ros__parameters:
+    # 프레임 (frame) — 측위는 map→odom 보정항만 발행한다. odom→base_link 는 오도메트리 소유.
+    map_frame: "map"
+    odom_frame: "odom"
+    base_frame: "base_link"
+    publish_tf: true
+
+    # 초기 자세 (initial pose)
+    init_x: 0.0                      # m
+    init_y: 0.0                      # m
+    init_theta: 0.0                  # rad
+    init_dist_scatter: 0.7           # m,   초기 파티클 위치 산포 반경
+    init_angle_scatter: 3.1416       # rad, 초기 파티클 각도 산포(π=전방향 미지)
+
+    # 라이다 장착 [x,y,yaw] 반복 — 정값은 Seer 컨트롤러 설정(1500 robot_status_model_req)이다.
+    #   아래는 Foil_A082 기체 실측값(2026-08-07 조회). 기체가 바뀌면 같은 조회로 다시 받을 것.
+    laser_mounts: [ 0.881676, -0.578664, -0.785398,   # FrontLiDAR  m, m, rad(-45.000°)
+                   -0.857000,  0.597100,  2.361256]   # RearLiDAR   m, m, rad(135.290°)
+
+    # 처리율 손잡이 (throughput) — 노드는 단일 스레드로 1코어를 포화시킨다. 이 값이 곧 처리율이다.
+    init_particle_number: 10000      # 개, 초기 표본 수
+    min_particle_number: 500         # 개, 적응 표본 하한
+    max_particle_number: 3000        # 개, 적응 표본 상한
+    beams_used: 541                  # 개, 우도 계산에 쓰는 최대 빔 수
+
+    # 판정 게이트 (gate)
+    motor_stop_threshold: 0.02       # m/s·rad/s, 이하이면 정지로 보고 예측(kMove)을 생략한다
+    stop_confidence: 0.02            # 파티클 평균 가중치가 이 아래면 LowConfidence 로 보고

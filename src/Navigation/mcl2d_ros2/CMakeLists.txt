@@ -43,6 +43,7 @@ target_link_libraries(mcl2d_localization_node mcl2d_core_lib)
 ament_target_dependencies(mcl2d_localization_node ${DEPS})
 
 install(TARGETS mcl2d_localization_node DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest QUIET)  # 미사용 — 자체 assert 하니스

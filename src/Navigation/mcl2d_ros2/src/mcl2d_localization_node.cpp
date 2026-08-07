@@ -35,7 +35,22 @@ class Mcl2dLocalizationNode : public rclcpp::Node
         base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
         publish_tf_ = declare_parameter<bool>("publish_tf", true);
 
+        // 코어 파라미터 일부를 노출한다(코드리뷰 2026-08-07 M6). **기본값은 전부 현행 이식값**이라
+        //   아무것도 주지 않으면 거동이 바뀌지 않는다. 전 항목(30개)을 열지 않는 이유는 대부분이
+        //   원본 libMCLoc 대조로 고정된 충실도 값이어서, 임의로 여는 순간 그 기준선이 흔들리기
+        //   때문이다. 여기 연 것은 **처리율 손잡이**(표본 수·빔 수)와 **현장 조정이 필요한 게이트**뿐이다.
+        //   노드는 단일 스레드로 1코어를 포화시키므로 표본 수·빔 수가 곧 처리율이다(ADR 2026-07-28).
+        declareTuned("init_particle_number", params_.init_particle_number);
+        declareTuned("min_particle_number", params_.min_particle_number);
+        declareTuned("max_particle_number", params_.max_particle_number);
+        declareTuned("beams_used", params_.beams_used);
+        declareTuned("motor_stop_threshold", params_.motor_stop_threshold);
+        declareTuned("stop_confidence", params_.stop_confidence);
+        declareTuned("init_dist_scatter", params_.init_dist_scatter);
+        declareTuned("init_angle_scatter", params_.init_angle_scatter);
+
         // 파라미터는 노드가 단일 소유한다 — 로컬라이저에 넘긴 것과 정지 판정에 쓰는 것이 갈리지 않도록.
+        //   위 declareTuned 가 params_ 를 먼저 확정한 뒤에 생성해야 로컬라이저가 같은 값을 받는다.
         loc_ = std::make_unique<Mcl2dLocalizer>(params_, /*seed=*/17);
 
         // 맵은 필수다. 예전에는 빈 경로면 조용히 통과했는데, 그러면 파티클필터가 생성되지 않아
@@ -104,6 +119,20 @@ class Mcl2dLocalizationNode : public rclcpp::Node
     }
 
   private:
+    // 코어 파라미터 하나를 ROS 파라미터로 노출한다. 기본값은 **현행 이식값**이므로 지정하지 않으면
+    //   거동이 그대로다. 값이 바뀌면 원본 대조로 고정된 충실도 기준선을 벗어나는 것이므로 WARN 으로
+    //   남긴다 — 나중에 결과를 해석할 때 무엇이 기준과 달랐는지 로그만 보고 알 수 있어야 한다.
+    template <typename T> void declareTuned(const std::string &name, T &field)
+    {
+        const T fidelity = field;
+        field = declare_parameter<T>(name, fidelity);
+        if (field != fidelity)
+        {
+            RCLCPP_WARN(get_logger(), "%s = %s (이식 기준값 %s 에서 변경 — 충실도 기준선 이탈)",
+                        name.c_str(), std::to_string(field).c_str(), std::to_string(fidelity).c_str());
+        }
+    }
+
     // 정지 판정. 원본은 오도 메시지의 is_stop 플래그를 쓰지만(DoMoveAction @0x3d7d13 의 kMove 생략 분기)
     //   nav_msgs/Odometry 에는 그 필드가 없다. **pose 증분을 1차 근거**로 쓰고 twist 는 보조로만 쓴다 —
     //   twist 는 선택 필드라 채우지 않는 발행자에서 0 으로 오고, twist 만 믿으면 항상 정지로 판정해
