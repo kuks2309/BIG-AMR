@@ -871,14 +871,26 @@ class RelayBackend:
         self.tx_count += len(frames)
 
     def _write_bringup(self):
-        """브링업 시퀀스. ⚠ 실기 검증 이력이 없는 구간이다(기본 비활성)."""
+        """브링업 시퀀스 — **구동축만**. (기본 비활성)
+
+        구동축은 이것이 필요하다: 프로세스 재시작 뒤 `node1` 이 `0x60FF` 를 받고도 돌지
+        않는 상태가 재현됐고(2026-08-08 실기: 지령 −4816 인데 실속도 0.1 rpm, 반대편
+        node2 는 78.2 rpm), 이 시퀀스를 보내자 두 축이 함께 정상 복귀했다
+        (node1 +0.0830 m / node2 +0.0794 m). ROS 경로·UI 직결 백엔드가 **둘 다** 실패했고
+        Seer 가 몰면 복구된 것과 정합한다 — 두 PC 경로 모두 브링업을 보내지 않기 때문이다
+        (`protocol.py:160-162`: gui.py 는 Seer 가 세워 둔 축에 올라타 0x60FF 만 덮어쓴다).
+
+        ⚠ **조향축에는 보내지 않는다.** 같은 날 조향축까지 보냈더니 fault reset 이
+        위치 카운터를 지워 **조향 0° 기준이 무효**가 됐다(판독이 −(홈) 으로 떨어지고,
+        그 상태의 「0° 로 가라」 지령에 전륜이 실제로 움직였다). 조향 기준 복구는
+        `~/home`(호밍) 소관이며 브링업이 대신할 수 있는 일이 아니다.
+        """
         frames = []
         for n in self.cfg.drive_nodes:
             frames.extend(P.drive_init_frames(n, self.cfg.bus))
-        for n in self.cfg.steer_nodes:
-            frames.extend(P.steer_init_frames(n, self.cfg.bus))
         self._send(frames)
-        self._log(f"브링업 {len(frames)} 프레임 송신 (⚠ 실기 미검증 경로)")
+        self._log(f"구동축 브링업 {len(frames)} 프레임 송신 "
+                  f"(조향축 제외 — fault reset 이 조향 0° 기준을 지운다)")
 
     def _loop(self):
         cfg = self.cfg
