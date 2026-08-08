@@ -51,6 +51,13 @@ IKResult TwoWsCrabIK::compute(double vx_path, double theta_body, double delta_ct
 
     // base steer = theta_body + delta_cte (front wheel)
     // rear steer = base - delta_heading
+    //
+    // ⚠ 헤더 :25 는 `rear_steer_offset = −dir × delta_heading` 이라 적혀 있으나 여기엔 dir 이
+    //   없다 — 문서와 구현의 불일치는 실재한다(2026-08-08 확인). 다만 `dir` 을 넣어 SIL 로
+    //   재어 보니 거동이 유의미하게 바뀌지 않았다(2 m·목표 yaw 10° 오차: 10.13° → 10.47°).
+    //   crab 은 base steer 가 90° 부근이라 `omega ∝ Δ·cos(base)`, `cos(89.3°)=0.012` 로
+    //   **heading 보정의 권한 자체가 거의 0** 이기 때문이다. 어느 쪽이 옳은지는 미결이므로
+    //   검증 없는 변경을 남기지 않고 원형을 유지한다.
     double base_raw = theta_body + delta_cte;
     double rear_raw = base_raw - delta_heading;
 
