@@ -68,10 +68,29 @@ def generate_launch_description():
                     {'laser_2_x_offset': 0.0},
                     {'laser_2_y_offset': 0.0},
                     {'laser_2_yaw_offset': 0.0},
-                    {'tolerance': 0.01},
-                    {'queue_size': 5},
+                    # ── 쌍 동기화 ──
+                    # tolerance 는 시간 허용오차가 아니다. message_filters 의 setAgePenalty 가중치로,
+                    # "후보를 얼마나 오래 붙들 것인가"를 매칭 비용에 반영할 뿐이다.
+                    {'tolerance': 0.01},                  # s, age penalty (상한 아님)
+                    {'queue_size': 5},                    # 개, 동기화 입력 덱 깊이
+                    # 실제 상한. 0.0 = 무제한(상류 기본 동작).
+                    # ⚠ 실기 실측(2026-08-08, 507초): 두 SICK 은 자유구동이라 쌍 어긋남이
+                    #    0.5 ms ↔ 14.2 ms 를 주기 260초로 왕복한다. 좁게 걸면 역위상 구간에서
+                    #    발행이 멈춘다 — 값 변경 전 `~/sync_skew` 로 분포를 먼저 재라.
+                    #    docs/issues_and_fixes/issues_and_fixes.md 2026-08-08 항목 참조.
+                    {'max_pair_skew': 0.0},               # s, 0 = 무제한
+                    # 출력 스탬프 출처. laser_1 = 상류 기본 동작(전방 스탬프, 후방 시각은 버려짐).
+                    # 도킹처럼 시각 정합이 중요한 경로에서는 latest 를 검토할 것.
+                    {'output_stamp': 'laser_1'},          # laser_1|laser_2|latest|earliest|midpoint
+                    {'publish_sync_diagnostics': True},   # ~/sync_skew 발행 + 주기 통계 로그
+                    {'sync_report_period': 5.0},          # s, 통계 로그 주기
                     {'angle_increment': 0.00436332},
-                    {'scan_time': 0.067},
+                    # 실측 정정(2026-08-08): SICK 자기신고 scan_time 은 0.030 s, merged 발행 주기는
+                    # 0.0293 s(34.1 Hz)인데 0.067(=14.9 Hz)을 실어 보내고 있었다. scan_time 은 하류의
+                    # 모션 왜곡 보정 입력이므로 2배 이상 틀리면 보정이 어긋난다.
+                    # 근거: bag 0528_speed_1.5_test_20260530_125451 및 2026-08-08 실기 507초 관측
+                    #       (merged.scan_time 0.067 vs front.scan_time 0.030, 스탬프 간격 중앙 29.3 ms)
+                    {'scan_time': 0.0293},
                     {'range_min': 0.05},
                     {'range_max': 40.0},
                     {'min_height': -1.0},

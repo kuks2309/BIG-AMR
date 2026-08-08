@@ -16,16 +16,43 @@
 
 namespace merger_node
 {
+namespace
+{
+// Throttle for the two "this keeps happening" warnings. 2 s keeps them readable at 34 Hz.
+constexpr int kWarnThrottleMs = 2000;
+// A reporting window longer than this multiple of the nominal period means the clock jumped
+// (e.g. use_sim_time attaching to /clock after construction) rather than that we were slow.
+constexpr double kClockJumpFactor = 10.0;
+} // namespace
+
 MergerNode::MergerNode(const rclcpp::NodeOptions &options)
     : Node("dual_laser_merger", options), calibration_loaded_(false), m2f_tx_(0), m2f_ty_(0), m2f_cos_(1), m2f_sin_(0),
-      m2r_tx_(0), m2r_ty_(0), m2r_cos_(1), m2r_sin_(0), laser_1_flipped_(false), laser_2_flipped_(false)
+      m2r_tx_(0), m2r_ty_(0), m2r_cos_(1), m2r_sin_(0), laser_1_flipped_(false), laser_2_flipped_(false),
+      max_pair_skew_param(0.0), publish_sync_diagnostics_param(true), output_stamp_param("laser_1"),
+      sync_report_period_param(5.0), pair_count_(0), skew_reject_count_(0), skew_reject_window_(0), in_count_1_(0),
+      in_count_2_(0), merge_fail_count_(0), skew_sum_(0.0), skew_max_(0.0),
+      skew_report_last_(this->get_clock()->now())
 {
     declare_param();
+    // validate_params() used to be reachable only through refresh_param(), which sub_callback()
+    // guards with `enable_dynamic_param_refresh && !calibration_loaded_`. The canonical launch
+    // supplies a calibration file, so calibration_loaded_ is true and validation never ran —
+    // every range/whitelist check in it was dead code. Validate once here, before any parameter
+    // is consumed (setMaxIntervalDuration below reads max_pair_skew_param).
+    validate_params();
 
     merged_scan_pub = this->create_publisher<sensor_msgs::msg::LaserScan>(
         this->get_parameter("merged_scan_topic").as_string(), rclcpp::SensorDataQoS());
     merged_cloud_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>(
         this->get_parameter("merged_cloud_topic").as_string(), rclcpp::SensorDataQoS());
+    // Always advertise; publish_sync_diagnostics only gates whether we write to it. Creating the
+    // publisher conditionally made the parameter un-toggleable at runtime and forced a second
+    // null-check at the publish site.
+    // RELIABLE on purpose: SensorDataQoS is BEST_EFFORT, which `ros2 topic echo` (RELIABLE by
+    // default) refuses to connect to — the first thing anyone investigating skew would try.
+    // 34 Hz x 8 bytes is 272 B/s, so reliability costs nothing here.
+    sync_skew_pub =
+        this->create_publisher<std_msgs::msg::Float64>("~/sync_skew", rclcpp::QoS(rclcpp::KeepLast(50)).reliable());
     laser_1_sub.subscribe(this, this->get_parameter("laser_1_topic").as_string(),
                           rclcpp::SensorDataQoS().get_rmw_qos_profile());
     laser_2_sub.subscribe(this, this->get_parameter("laser_2_topic").as_string(),
@@ -38,9 +65,35 @@ MergerNode::MergerNode(const rclcpp::NodeOptions &options)
         message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::LaserScan, sensor_msgs::msg::LaserScan>(
             input_queue_size_param),
         laser_1_sub, laser_2_sub);
+    // NOTE: setAgePenalty is *not* a time tolerance. It weights "how old is the candidate" against
+    // "how tight is the interval" in the matching cost, i.e. it trades latency for match quality.
+    // The only stamp-distance bound the policy owns is setMaxIntervalDuration(), which defaults to
+    // INT32_MAX seconds. Leaving it at the default means any two scans can be paired.
     message_filter->setAgePenalty(tolerance_param);
+    if (max_pair_skew_param > 0.0)
+    {
+        message_filter->setMaxIntervalDuration(rclcpp::Duration::from_seconds(max_pair_skew_param));
+    }
     message_filter->registerCallback(
         std::bind(&MergerNode::sub_callback, this, std::placeholders::_1, std::placeholders::_2));
+    // Count what arrives, not just what pairs up. The policy can drop a scan before sub_callback
+    // ever runs, so without these the log cannot distinguish "input stopped" from "pairing failed".
+    laser_1_sub.registerCallback(
+        std::function<void(const sensor_msgs::msg::LaserScan::ConstSharedPtr &)>(
+            [this](const sensor_msgs::msg::LaserScan::ConstSharedPtr &) { in_count_1_++; }));
+    laser_2_sub.registerCallback(
+        std::function<void(const sensor_msgs::msg::LaserScan::ConstSharedPtr &)>(
+            [this](const sensor_msgs::msg::LaserScan::ConstSharedPtr &) { in_count_2_++; }));
+
+    // Time-driven, not callback-driven. Reporting from sub_callback() meant that the one failure
+    // the diagnostic exists to catch — the synchroniser stops producing pairs — also stopped the
+    // reporting, so silence read as "healthy". The timer joins the node's default callback group,
+    // the same MutuallyExclusive group as the scan callbacks, so the counters stay serialised.
+    if (publish_sync_diagnostics_param)
+    {
+        sync_report_timer_ = this->create_wall_timer(std::chrono::duration<double>(sync_report_period_param),
+                                                     std::bind(&MergerNode::report_sync_stats, this));
+    }
     tf2_broadcaster = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
     static_tf_broadcaster = std::make_shared<tf2_ros::StaticTransformBroadcaster>(*this);
 
@@ -88,7 +141,11 @@ void MergerNode::declare_param()
     tolerance_param = this->declare_parameter("tolerance", 0.01);
     input_queue_size_param =
         this->declare_parameter("queue_size", static_cast<int>(std::thread::hardware_concurrency()));
-    min_height_param = this->declare_parameter("min_height", std::numeric_limits<double>::min());
+    // NOTE: not numeric_limits<double>::min() — that is the smallest *positive* normal (2.2e-308),
+    // so the old default rejected every point (projectLaser emits z = 0, and 0 < 2.2e-308).
+    // Running the node without a parameter file produced an all-inf scan; the canonical launches
+    // only hid it by setting min_height explicitly.
+    min_height_param = this->declare_parameter("min_height", -std::numeric_limits<double>::max());
     max_height_param = this->declare_parameter("max_height", std::numeric_limits<double>::max());
     angle_min_param = this->declare_parameter("angle_min", -M_PI);
     angle_max_param = this->declare_parameter("angle_max", M_PI);
@@ -111,7 +168,11 @@ void MergerNode::declare_param()
 
     // Calibration YAML parameters
     calibration_file_param = this->declare_parameter("calibration_file", "");
-    merged_scan_frame_param = this->declare_parameter("merged_scan_frame", "merged_scan");
+    // "scan_merged", not "merged_scan": the canonical launch publishes base_link -> scan_merged and
+    // passes merged_scan_frame:=scan_merged. With the old default the node broadcast
+    // merged_scan -> scan_front/scan_rear while nobody published base_link -> merged_scan, so the
+    // TF tree silently split in two.
+    merged_scan_frame_param = this->declare_parameter("merged_scan_frame", "scan_merged");
     laser_1_frame_param = this->declare_parameter("laser_1_frame", "scan_front");
     laser_2_frame_param = this->declare_parameter("laser_2_frame", "scan_rear");
 
@@ -126,6 +187,37 @@ void MergerNode::declare_param()
     enable_mapping_mode_param = this->declare_parameter("enable_mapping_mode", false);
     mapping_keep_angle_min_param = this->declare_parameter("mapping_keep_angle_min", -2.356194); // -135 deg (= -3*PI/4)
     mapping_keep_angle_max_param = this->declare_parameter("mapping_keep_angle_max", 2.356194);  //  135 deg (= 3*PI/4)
+
+    // Pair synchronisation. Defaults reproduce the legacy behaviour exactly:
+    //   max_pair_skew = 0.0  → no bound on |t_front - t_rear| (what the node always did)
+    //   output_stamp  = "laser_1" → merged stamp is laser 1's stamp (what the node always did,
+    //                   as a side effect of pcl_cloud_out being copy-constructed from cloud 1)
+    // For pose-critical consumers (docking, ICP odometry) set max_pair_skew to a fraction of the
+    // scan period and output_stamp to "latest".
+    // max_pair_skew is baked into the synchroniser policy by setMaxIntervalDuration() at
+    // construction, so a runtime change would only move the callback-side gate and leave the policy
+    // on the old value — half-applied, while `ros2 param set` reports success. Refuse the write
+    // instead.
+    rcl_interfaces::msg::ParameterDescriptor skew_desc;
+    skew_desc.description = "[s] Upper bound on |t_front - t_rear| for a pair to be published. "
+                            "0 disables the bound (legacy behaviour). Read-only: applied at startup.";
+    skew_desc.read_only = true;
+    max_pair_skew_param = this->declare_parameter("max_pair_skew", 0.0, skew_desc);
+
+    rcl_interfaces::msg::ParameterDescriptor diag_desc;
+    diag_desc.description = "Publish ~/sync_skew and log the periodic sync statistics line. "
+                            "Read-only: the report timer is created at startup.";
+    diag_desc.read_only = true;
+    publish_sync_diagnostics_param = this->declare_parameter("publish_sync_diagnostics", true, diag_desc);
+
+    rcl_interfaces::msg::ParameterDescriptor period_desc;
+    period_desc.description = "[s] Period of the sync statistics log line. Read-only: timer period "
+                              "is fixed at startup.";
+    period_desc.read_only = true;
+    sync_report_period_param = this->declare_parameter("sync_report_period", 5.0, period_desc);
+
+    // output_stamp is consumed per-callback, so it is safe to change at runtime.
+    output_stamp_param = this->declare_parameter("output_stamp", std::string("laser_1"));
 }
 
 void MergerNode::refresh_param()
@@ -155,6 +247,9 @@ void MergerNode::refresh_param()
     this->get_parameter("enable_mapping_mode", enable_mapping_mode_param);
     this->get_parameter("mapping_keep_angle_min", mapping_keep_angle_min_param);
     this->get_parameter("mapping_keep_angle_max", mapping_keep_angle_max_param);
+    // Only output_stamp is refreshed among the sync parameters — the other three are declared
+    // read_only precisely because re-reading them here could not take full effect.
+    this->get_parameter("output_stamp", output_stamp_param);
 
     validate_params();
 }
@@ -195,6 +290,149 @@ void MergerNode::validate_params()
         mapping_keep_angle_min_param = -3.0 * M_PI / 4.0;
         mapping_keep_angle_max_param = 3.0 * M_PI / 4.0;
     }
+    if (min_height_param >= max_height_param)
+    {
+        RCLCPP_WARN(this->get_logger(),
+                    "min_height (%.3g) must be < max_height (%.3g). Resetting to [-DBL_MAX, DBL_MAX].",
+                    min_height_param, max_height_param);
+        min_height_param = -std::numeric_limits<double>::max();
+        max_height_param = std::numeric_limits<double>::max();
+    }
+    if (enable_shadow_filter_param && range_max_param >= std::numeric_limits<double>::max())
+    {
+        // allowed_radius_scaled = allowed_radius / range_max collapses to 0, so radiusSearch finds
+        // only the point itself and every point is turned into inf. Refuse rather than silently
+        // blanking the scan.
+        RCLCPP_ERROR(this->get_logger(),
+                     "enable_shadow_filter requires a finite range_max (got %.3g) — the scaled radius "
+                     "would be 0 and every point would be discarded. Disabling the shadow filter.",
+                     range_max_param);
+        enable_shadow_filter_param = false;
+    }
+    if (max_pair_skew_param < 0.0)
+    {
+        RCLCPP_WARN(this->get_logger(), "max_pair_skew (%.4f) must be >= 0. Resetting to 0 (unbounded).",
+                    max_pair_skew_param);
+        max_pair_skew_param = 0.0;
+    }
+    if (output_stamp_param != "laser_1" && output_stamp_param != "laser_2" && output_stamp_param != "latest" &&
+        output_stamp_param != "earliest" && output_stamp_param != "midpoint")
+    {
+        RCLCPP_WARN(this->get_logger(),
+                    "output_stamp '%s' is not one of laser_1|laser_2|latest|earliest|midpoint. "
+                    "Resetting to 'laser_1'.",
+                    output_stamp_param.c_str());
+        output_stamp_param = "laser_1";
+    }
+}
+
+bool MergerNode::accept_pair_skew(const rclcpp::Time &t1, const rclcpp::Time &t2, double &skew_out)
+{
+    const double signed_skew = (t1 - t2).seconds(); // >0 means laser_1 is newer than laser_2
+    skew_out = std::fabs(signed_skew);
+
+    // Measure unconditionally, gate afterwards. A pair the gate rejects is precisely the pair whose
+    // skew you need in order to choose max_pair_skew — recording it only on the accept path made
+    // the log claim "max 0.00 ms" while every pair was being dropped for excessive skew.
+    skew_max_ = std::max(skew_max_, skew_out);
+    if (publish_sync_diagnostics_param)
+    {
+        std_msgs::msg::Float64 skew_msg;
+        skew_msg.data = signed_skew;
+        sync_skew_pub->publish(skew_msg);
+    }
+
+    if (max_pair_skew_param > 0.0 && skew_out > max_pair_skew_param)
+    {
+        skew_reject_count_++;
+        skew_reject_window_++;
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), kWarnThrottleMs,
+                             "Dropping scan pair: stamp skew %.1f ms > max_pair_skew %.1f ms (%lu dropped in total).",
+                             skew_out * 1e3, max_pair_skew_param * 1e3,
+                             static_cast<unsigned long>(skew_reject_count_));
+        return false;
+    }
+
+    pair_count_++;
+    skew_sum_ += skew_out;
+    return true;
+}
+
+rclcpp::Time MergerNode::resolve_output_stamp(const rclcpp::Time &t1, const rclcpp::Time &t2) const
+{
+    if (output_stamp_param == "laser_2")
+    {
+        return t2;
+    }
+    if (output_stamp_param == "latest")
+    {
+        return (t1 > t2) ? t1 : t2;
+    }
+    if (output_stamp_param == "earliest")
+    {
+        return (t1 < t2) ? t1 : t2;
+    }
+    if (output_stamp_param == "midpoint")
+    {
+        return t1 + rclcpp::Duration::from_seconds((t2 - t1).seconds() / 2.0);
+    }
+    return t1; // "laser_1" (default, legacy behaviour)
+}
+
+void MergerNode::report_sync_stats()
+{
+    const rclcpp::Time now = this->get_clock()->now();
+    double elapsed = (now - skew_report_last_).seconds();
+
+    // A clock jump (use_sim_time attaching to /clock after construction) can make elapsed negative
+    // or absurd. Resync and drop the window rather than reporting a bogus rate — or, worse,
+    // latching into a state where the window never closes again.
+    if (elapsed <= 0.0 || elapsed > kClockJumpFactor * sync_report_period_param)
+    {
+        RCLCPP_WARN(this->get_logger(), "sync: clock jumped (%.3f s window) — discarding this window.", elapsed);
+        pair_count_ = 0;
+        skew_reject_window_ = 0;
+        in_count_1_ = 0;
+        in_count_2_ = 0;
+        skew_sum_ = 0.0;
+        skew_max_ = 0.0;
+        skew_report_last_ = now;
+        return;
+    }
+
+    const uint64_t seen = pair_count_ + skew_reject_window_;
+    if (seen == 0)
+    {
+        // Silence is the symptom, so say it out loud. Reaching here means the synchroniser produced
+        // no pair at all for a whole window: an input stopped, or the two stamps never match.
+        RCLCPP_WARN(this->get_logger(),
+                    "sync: no scan pairs in %.1f s (inputs received %lu/%lu) — %s",
+                    elapsed, static_cast<unsigned long>(in_count_1_), static_cast<unsigned long>(in_count_2_),
+                    (in_count_1_ == 0 || in_count_2_ == 0)
+                        ? "an input topic is silent."
+                        : "both inputs are publishing but no pair could be formed (check stamps/max_pair_skew).");
+    }
+    else
+    {
+        // in/out lets the reader see losses the pair counters cannot: if in is 170/170 but pairs is
+        // 120 and dropped-by-skew is 0, the synchroniser policy discarded them internally.
+        RCLCPP_INFO(this->get_logger(),
+                    "sync: in %lu/%lu -> %lu pairs (%.2f/s) over %.1fs | skew(accepted) mean %.2f ms"
+                    " | skew(observed) max %.2f ms | dropped-by-skew %lu this window, %lu total",
+                    static_cast<unsigned long>(in_count_1_), static_cast<unsigned long>(in_count_2_),
+                    static_cast<unsigned long>(pair_count_), pair_count_ / elapsed, elapsed,
+                    pair_count_ > 0 ? (skew_sum_ / pair_count_) * 1e3 : 0.0, skew_max_ * 1e3,
+                    static_cast<unsigned long>(skew_reject_window_),
+                    static_cast<unsigned long>(skew_reject_count_));
+    }
+
+    pair_count_ = 0;
+    skew_reject_window_ = 0;
+    in_count_1_ = 0;
+    in_count_2_ = 0;
+    skew_sum_ = 0.0;
+    skew_max_ = 0.0;
+    skew_report_last_ = now;
 }
 
 bool MergerNode::load_calibration()
@@ -344,28 +582,18 @@ bool MergerNode::load_filter_config()
     }
 }
 
-void MergerNode::apply_exclusion_zones(pcl::PointCloud<pcl::PointXYZ> &cloud)
+// Shared skeleton for the point filters: reserve, test, keep, restore the cloud metadata. The two
+// callers below used to repeat all of it and differ only in the predicate, which is also how one of
+// them ended up with an early-out for the empty case and the other without.
+template <typename Predicate>
+static void filter_cloud(pcl::PointCloud<pcl::PointXYZ> &cloud, Predicate keep)
 {
-    if (exclusion_zones_.empty())
-    {
-        return;
-    }
-
     pcl::PointCloud<pcl::PointXYZ> filtered;
     filtered.points.reserve(cloud.points.size());
 
     for (const auto &pt : cloud.points)
     {
-        bool excluded = false;
-        for (const auto &zone : exclusion_zones_)
-        {
-            if (pt.x >= zone.x_min && pt.x <= zone.x_max && pt.y >= zone.y_min && pt.y <= zone.y_max)
-            {
-                excluded = true;
-                break;
-            }
-        }
-        if (!excluded)
+        if (keep(pt))
         {
             filtered.points.push_back(pt);
         }
@@ -378,26 +606,32 @@ void MergerNode::apply_exclusion_zones(pcl::PointCloud<pcl::PointXYZ> &cloud)
     cloud = std::move(filtered);
 }
 
-void MergerNode::apply_mapping_mode_filter(pcl::PointCloud<pcl::PointXYZ> &cloud)
+void MergerNode::apply_exclusion_zones(pcl::PointCloud<pcl::PointXYZ> &cloud)
 {
-    pcl::PointCloud<pcl::PointXYZ> filtered;
-    filtered.points.reserve(cloud.points.size());
-
-    for (const auto &pt : cloud.points)
+    if (exclusion_zones_.empty())
     {
-        double angle = std::atan2(pt.y, pt.x);
-        // Keep points within [keep_angle_min, keep_angle_max]; remove points outside (rear)
-        if (angle >= mapping_keep_angle_min_param && angle <= mapping_keep_angle_max_param)
-        {
-            filtered.points.push_back(pt);
-        }
+        return;
     }
 
-    filtered.width = filtered.points.size();
-    filtered.height = 1;
-    filtered.is_dense = cloud.is_dense;
-    filtered.header = cloud.header;
-    cloud = std::move(filtered);
+    filter_cloud(cloud, [this](const pcl::PointXYZ &pt) {
+        for (const auto &zone : exclusion_zones_)
+        {
+            if (pt.x >= zone.x_min && pt.x <= zone.x_max && pt.y >= zone.y_min && pt.y <= zone.y_max)
+            {
+                return false;
+            }
+        }
+        return true;
+    });
+}
+
+void MergerNode::apply_mapping_mode_filter(pcl::PointCloud<pcl::PointXYZ> &cloud)
+{
+    // Keep points within [keep_angle_min, keep_angle_max]; remove points outside (rear)
+    filter_cloud(cloud, [this](const pcl::PointXYZ &pt) {
+        const double angle = std::atan2(pt.y, pt.x);
+        return angle >= mapping_keep_angle_min_param && angle <= mapping_keep_angle_max_param;
+    });
 }
 
 static void apply_moving_average_3pt(const std::vector<float> &input_ranges, std::vector<float> &output_ranges)
@@ -684,6 +918,18 @@ void MergerNode::sub_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr 
         refresh_param();
     }
 
+    // Step 0: Pair quality gate. ApproximateTime hands us the best-matching pair it could form,
+    // not a pair that is guaranteed to be close in time. Measure the skew, optionally reject.
+    const rclcpp::Time stamp_1(lidar_1_msg->header.stamp);
+    const rclcpp::Time stamp_2(lidar_2_msg->header.stamp);
+    double pair_skew = 0.0;
+    if (!accept_pair_skew(stamp_1, stamp_2, pair_skew))
+    {
+        return;
+    }
+    RCLCPP_DEBUG(this->get_logger(), "pair skew %.3f ms (laser_1 %.6f, laser_2 %.6f)", pair_skew * 1e3,
+                 stamp_1.seconds(), stamp_2.seconds());
+
     // Step 1: Project LaserScans to PointCloud2 (with optional average filter)
     sensor_msgs::msg::PointCloud2 cloud_in_1;
     sensor_msgs::msg::PointCloud2 cloud_in_2;
@@ -691,19 +937,19 @@ void MergerNode::sub_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr 
 
     // Step 2: Transform and merge clouds
     pcl::PointCloud<pcl::PointXYZ> pcl_cloud_out;
-    if (calibration_loaded_)
+    const bool merged_ok = calibration_loaded_
+                               ? merge_clouds_calibration(cloud_in_1, cloud_in_2, pcl_cloud_out)
+                               : merge_clouds_legacy(lidar_1_msg, lidar_2_msg, cloud_in_1, cloud_in_2, pcl_cloud_out);
+    if (!merged_ok)
     {
-        if (!merge_clouds_calibration(cloud_in_1, cloud_in_2, pcl_cloud_out))
-        {
-            return;
-        }
-    }
-    else
-    {
-        if (!merge_clouds_legacy(lidar_1_msg, lidar_2_msg, cloud_in_1, cloud_in_2, pcl_cloud_out))
-        {
-            return;
-        }
+        // Used to return silently. An empty input cloud or a TF failure would stop /scan_merged with
+        // no trace at all, which is indistinguishable from "no input" at the consumer.
+        merge_fail_count_++;
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), kWarnThrottleMs,
+                             "Merge produced no cloud (empty input or transform failure) — no output for this "
+                             "pair. %lu such pairs so far.",
+                             static_cast<unsigned long>(merge_fail_count_));
+        return;
     }
 
     // Step 2.5a: Exclusion zone filter (remove body reflections)
@@ -724,13 +970,23 @@ void MergerNode::sub_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr 
         apply_shadow_filter(pcl_cloud_out);
     }
 
-    // Step 4: Publish merged PointCloud2
+    // Step 4: Publish merged PointCloud2.
+    // The stamp carried this far comes from cloud 1 alone (pcl_cloud_out was copy-constructed from
+    // it) and, on the way through PCL, was truncated to microseconds. Restore an explicit,
+    // policy-selected stamp on both outputs so consumers are not silently given laser 1's clock.
+    const std::string output_frame = calibration_loaded_ ? merged_scan_frame_param : target_frame_param;
     sensor_msgs::msg::PointCloud2 cloud_out;
     pcl::toROSMsg(pcl_cloud_out, cloud_out);
+    // Both header fields have to be set explicitly. The stamp arrives here as laser 1's, truncated
+    // to microseconds by the PCL round-trip; the frame_id arrives as laser 1's *sensor* frame even
+    // though merge_clouds_calibration() already moved the points into the merged frame. The
+    // LaserScan output was never affected because convert_to_laserscan() overwrites frame_id, so
+    // only the PointCloud2 carried the mismatch.
+    cloud_out.header.stamp = resolve_output_stamp(stamp_1, stamp_2);
+    cloud_out.header.frame_id = output_frame;
     merged_cloud_pub->publish(cloud_out);
 
     // Step 5: Convert to LaserScan and publish
-    std::string output_frame = calibration_loaded_ ? merged_scan_frame_param : target_frame_param;
     sensor_msgs::msg::LaserScan merged;
     convert_to_laserscan(cloud_out, output_frame, merged);
     merged_scan_pub->publish(merged);
