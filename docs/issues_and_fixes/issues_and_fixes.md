@@ -47,6 +47,84 @@
 
 ## 2026-08-08
 
+### [Diag+Fix] 「호밍하면 조향이 0° 로 돌아온다」가 사실이 아니었다 — 두 경로 모두 0° 복귀 지령을 내지 않는다
+
+- **문제**: 사용자 질문 「펌웨어에서 호밍 후에 조향각을 0도로 돌리는 기능이 왜 빠졌는지?」
+- **원인**: **기능이 제거된 것이 아니라, 「0° 복귀」라고 불러 온 것이 0° 복귀가 아니었다.**
+  - **펌웨어 경로** — 시퀀서에 복귀 단계는 있다(`safety_seer_gate.h:474-526`
+    `RESTORE` → `GOZERO` → `GOZERO_W`). 그러나 `GOZERO` 가 쓰는 목표
+    `SEER_HOME_ZERO_N3/N4`(`:212-213` = `7882020` / `7859062`)는 **호밍 후 정착값**이고
+    실측 0°(`[7871815, 7840086]`)에서 **+0.178° / +0.331°** 떨어져 있다.
+    도달 허용오차 `SEER_HOME_ZERO_TOL = 57344`(정확히 **1.0°**)가 그 편차보다 3~5배 커서
+    **펌웨어는 「0° 가 아니다」를 원리적으로 검출하지 못한다.**
+    2026-08-03 커밋 `1acc354` 가 `orin_homing_run.py` 의 「0° 복귀」 라벨을 **오라벨로 판정해 정정**했다.
+  - **`Tools/amr_test_gui/gui.py` 경로** — `GOZERO` 에 해당하는 단계가 **아예 없다**.
+    `_wait_homed()` 성공 메시지가 `"…초 소요. 조향 0° 복귀까지 확인하세요."` 였다 —
+    지령이 아니라 **육안 확인 요청**이었다.
+  - 부수 발견: 펌웨어 경로에는 `GOZERO` 를 **건너뛰는 분기**가 있다(`:449-460`) —
+    전 노드가 「이미 홈」이면 `done_mask == 0` 이라 `RESTORE`/`GOZERO` 없이 곧장 `DONE` 이다.
+- **해결**(사용자 결정: 「0복귀 명령을 내리면 됩니다」 — 펌웨어 상수 교체·재플래시 기각):
+  호밍 완료 후 **호스트가 0° 복귀 지령**(`0x607A = steer_home_counts` → `0x6040=0x3F`)을 이어서 낸다.
+  - `can_relay` — `RelayBackend.home()` 이 래퍼가 되어 신규 `steer_to_zero()` 를 호출.
+    **0° 미도달은 전체 실패**로 보고한다. 파라미터 `steer_zero_after_home`(기본 true)로 끌 수 있고,
+    method 35 경로에는 붙이지 않는다(그쪽은 현재 위치를 홈으로 재선언 — 0° 지령이 그 설계와 충돌).
+  - `gui.py` — `_homing_run` 이 원점 신호 확인 후 신규 `_steer_zero_return()` 호출.
+  - 0° 값은 **새로 만들지 않았다** — 정본 `config/machine/foil_a082.yaml` `steer_home_counts` 를 그대로 쓴다.
+  - 판정 허용오차는 전용 상수(`steer_zero_tol_deg`·`STEER_ZERO_TOL_DEG` = 0.1°)다.
+    기존 정착 허용치(3.0° / 슬라이더 0.5~10°)로는 **바로잡으려는 편차가 그 안에 들어가 판정이 무의미**해진다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/backend.py`·`driver_node.py` ·
+  `Tools/amr_test_gui/gui.py` · 회귀 `test_steer_zero_return.py`(양쪽 신규 12·10건) ·
+  `src/Comm/CAN/can_relay/test/conftest.py`(`FeedingLink`) ·
+  `src/Comm/CAN/can_relay/mutation_check.py`(신규) · `Tools/amr_test_gui/mutation_check.py`(Z1~Z4) ·
+  ADR `docs/adr/2026-08-08-steer-zero-return-after-homing.md`
+- **상태**: **코드 완료 · 실기 미검증.** 검출력 확인 — can_relay **Z1~Z5 5/5**, amr_test_gui **Z1~Z4 4/4**
+  (돌연변이 미검출 0). 회귀 통과: amr_test_gui 141 · can_relay 400(선존재 실패 8건은 별건, 아래).
+  ⚠ **남은 것**: ① 실기 확인은 **이동구역 확보 또는 잭업 상태**에서 할 것 — 특히 gui.py 경로는
+  `GOZERO` 가 없어 호밍 직후 축 위치를 본 세션이 실측하지 않았다. ② `steer_zero_tol_deg` 0.1° 와
+  `steer_zero_timeout_s` 10초는 **선택값**이며 실측 근거가 없다. ③ **debt-034 · debt-016 은 유지** —
+  상수명 오인과 펌웨어 미검출 문제는 그대로다(본 조치는 「0° 로 보내는 것」만 해결).
+  ④ `Tools/amr_test_gui/amr_test_gui/`(리팩터 진행분)의 상태 라벨은 여전히 GOZERO 를
+  「0° 지령」·「완료 (조향 0°)」로 적는다 — 범위 밖.
+
+> ### ⚠ 2026-08-08 16:20 정정 — 실기 기록 확인(사용자 요청) 결과 위 「상태」를 아래로 바꾼다
+>
+> **오늘 실기 호밍 3회(14:35 · 15:31~15:33 · 15:42)는 전부 수정 전 동작이었다.
+> 본 수정은 실기에서 한 번도 실행되지 않았다.** 실기 노드가 **다른 워크트리**에서 돌기 때문이다 —
+> `ps` → `Big-AMR-ses-c9ea2414/install/can_relay/lib/can_relay/can_relay_node`. 그 트리에는
+> `steer_to_zero`·`steer_zero_after_home` 이 0건이고, 실기 노드 기동 로그가 모두
+> `조향 한계 체인 ±115.0° / 벤치 ±90.0°`(그 트리 `driver_node.py:158-160` 전용 문구)다.
+> 15:42 호밍은 `DONE` 후 종료 로그가 `조향 목표 해제 — (걸어 둔 목표 없음)` 이라 **조향 목표가
+> 한 번도 걸리지 않았음**이 확인된다.
+> (조사 중 15:25~15:32 로그에서 신규 문구를 보고 「실기에서 돌았다」고 잠시 읽었으나 그것은
+>  **이 세션의 pytest 가 띄운 노드**였다.)
+>
+> **추가 반영 2건**
+> 1. 사용자 요구 「**호밍후에 반드시 0도 조향을 줘야 함**」 ⇒ `steer_zero_after_home` 기본 True 유지 +
+>    **끄면 기동 시 경고**.
+> 2. **`~/home` 결과를 노드 로그에 남긴다** — 위 조사에서 `DONE` 뒤 로그가 한 줄도 없어 0° 복귀가
+>    나갔는지 거부됐는지 판정할 수 없었다(결과가 `res.message` 에만 있었다). 회귀 `Z6` 로 고정.
+>
+> **검사기 자체의 거짓 통과도 잡았다** — `mutation_check.py` 가 rclpy 미소싱으로 시험이
+> `1 skipped` 된 것을 **「검출」로 집계**했다. 부모 환경을 물려주고 **실패 1건 이상일 때만**
+> 검출로 인정하도록 고쳤다(0건 실행·전량 skip 은 `검사 불가`).
+
+### [해결] can_relay 워킹트리가 HEAD 보다 옛 판이었다 — `test_steer_origin.py` 7건 실패
+
+- **문제**: `src/Comm/CAN/can_relay` 회귀에서 `TypeError: RelayConfig.__init__() got an unexpected
+  keyword argument 'steer_limit_bench_deg'` 로 7건 실패.
+- **원인**: 공유 워킹트리 `Big-AMR` 의 `backend.py`·`driver_node.py` 가 **HEAD 보다 옛 판**이었다.
+  빠진 것은 둘 — ① **체인/벤치 이중 조향 한계**(`steer_limit_bench_deg`, 2026-08-05: 체인 ±115° /
+  벤치 직접지령 ±90°) ② `release_steer_target` 의 2026-08-05 판(조향축에 프레임을 보내지 않는다).
+  시험(`test_steer_origin.py`)은 HEAD 판이라 어긋났다. 본 세션이 편집하지 않은 구역이며
+  (본 세션 변경은 `RelayConfig` 필드 추가와 `home()` 분할뿐) 8개 세션 공유 트리의 잔재로 보인다.
+- **해결**(사용자 결정 「내 트리를 먼저 동기화」): `git checkout HEAD -- backend.py driver_node.py`
+  로 되돌린 뒤 0° 복귀 변경을 재적용. 이중 한계 보존 확인(`grep -c steer_limit_bench_deg` →
+  backend 5 · driver_node 3).
+- **상태**: **해결** — 7건 전부 통과(**377 → 384 passed**, ROS 미소싱 기준. 남은 4건은 `rclpy` 미소싱).
+  ⚠ 이 동기화가 없었다면 커밋 시 c9ea2414 세션의 이중 한계 기능을 **되돌릴 뻔했다**.
+- 부수: ROS 소싱 실행에서 `test_gui_node.py::test_measured_angle_expires` 1건이 전체 실행에서만
+  실패하고 단독 실행은 통과(타이밍 플레이크), 종료 시 PyQt5+rclpy 코어덤프 관측 — 둘 다 별건.
+
 ### [Fix] 재시작 후 전륜 구동축(node1)이 지령을 받고도 안 돈다 — PC 경로 어디도 구동축 브링업을 보내지 않았다
 
 - **문제**: can_relay 프로세스를 재시작하면 `node1 walk_front` 가 `0x60FF` 를 정상 수신하고도

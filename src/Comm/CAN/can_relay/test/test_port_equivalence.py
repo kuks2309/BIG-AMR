@@ -240,6 +240,11 @@ def test_homing_path_differs_by_design():
 
     link, be = _port_backend()
     be.cfg.homing_method = "firmware"
+    # 이 시험의 대상은 **호밍 경로의 바이트**(0xea 대 SDO 직접)뿐이다. 호밍 뒤에 이어지는
+    # 조향 0° 복귀(ADR 2026-08-08)는 별개 계약이고 회귀도 별도다
+    # (`test_steer_zero_return.py`) — 여기서 켜 두면 대역 피드백을 갖추는 부담만 늘고
+    # 경로 대조에는 보태는 것이 없다.
+    be.cfg.steer_zero_after_home = False
     be.start()
     try:
         link.homing_script = [MockLink.homing_state(5, elapsed_s=31, reached_mask=3)]

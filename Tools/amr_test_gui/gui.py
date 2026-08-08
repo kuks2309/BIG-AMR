@@ -1150,6 +1150,13 @@ class MainWindow(QWidget):
     HOMING_SPEED = 2500        # 0x6099:00, 0.1 r/min 단위 → 250 r/min
     HOMING_TIMEOUT_S = 90.0    # 실측 소요 약 31 s
     HOMING_START_S = 10.0      # 개시(bit15=0) 를 기다리는 창
+    # 호밍 완료(bit15 1) 만으로는 축이 조향 0° 에 서지 않는다 — 이 경로는 0° 지령을
+    # 한 번도 내지 않았고, 완료 메시지가 "조향 0° 복귀까지 확인하세요"라고 육안에 위임했다.
+    # 결정: `docs/adr/2026-08-08-steer-zero-return-after-homing.md`
+    STEER_ZERO_TOL_DEG = 0.1   # ⚠ 선택값. 정착 재현성 σ≈3 counts(≈0.00005°) 대비 여유를 둔 수치다.
+    #   사용자 설정 정착 허용치(sld_tol, 0.5~10°)를 쓰지 않는다 — 그 폭은 바로잡으려는
+    #   편차(펌웨어 GOZERO 정착값 대비 +0.178°/+0.331°)보다 커서 판정이 무의미해진다.
+    STEER_ZERO_TIMEOUT_S = 10.0
 
     def _homing_clicked(self):
         """호밍 버튼. 실제로 로봇이 크게 움직이므로 한 번 확인을 받는다."""
@@ -1193,7 +1200,12 @@ class MainWindow(QWidget):
                 self._sdo_write(n, 0x60FB, 1, 1, sub=4)             # 여기서 움직이기 시작한다
             self.log_line.emit("호밍 개시 — 조향 2축. 완료까지 30초 이상 걸립니다.")
             ok, why = self._wait_homed()
-            self.log_line.emit(f"호밍 완료 — {why}" if ok else f"호밍 미확인 — {why}")
+            if not ok:
+                self.log_line.emit(f"호밍 미확인 — {why}")
+                return
+            self.log_line.emit(f"원점 확인 — {why}")
+            zok, zwhy = self._steer_zero_return()
+            self.log_line.emit(f"호밍 완료 — {zwhy}" if zok else f"호밍 미확인 — {zwhy}")
         except Exception as exc:
             self.log_line.emit(f"호밍 중단: {type(exc).__name__}: {exc}")
         finally:
@@ -1224,9 +1236,32 @@ class MainWindow(QWidget):
                            f"움직이지 않았는지 육안으로 확인하세요.")
         while time.time() - t0 < self.HOMING_TIMEOUT_S:
             if all((self._status.get(n) or 0) & BIT15 for n in (3, 4)):
-                return True, f"{time.time() - t0:.0f}초 소요. 조향 0° 복귀까지 확인하세요."
+                return True, f"원점 신호 확인({time.time() - t0:.0f}초 소요)."
             time.sleep(0.1)
         return False, f"{self.HOMING_TIMEOUT_S:.0f}초 안에 완료 신호가 오지 않았습니다."
+
+    def _steer_zero_return(self) -> tuple:
+        """호밍 후 **조향 0° 복귀** — 지령을 내고 정착까지 확인한다. 반환 `(성공, 사유)`.
+
+        ⚠ 이 단계가 없으면 축은 0° 에 서지 않는다. `0x60FB:04` 호밍은 원점(리밋)을 잡을 뿐이고,
+        완료 시점의 위치는 0° 가 아니다 — 펌웨어 시퀀서 경로에서 실측된 정착 지점은
+        조향 0°(`STEER_HOME`)에서 **+0.178° / +0.331°** 벗어나 있다
+        (`safety_seer_gate.h:212-213` `SEER_HOME_ZERO_N3/N4`, 호밍 10회 실측
+         `Log/home_experiment_260803_153319_summary.json`).
+        종전에는 이 자리에서 "조향 0° 복귀까지 확인하세요"라고 **육안에 위임**했다.
+
+        0° 는 `STEER_HOME`(정본 YAML)에서 나온다 — `_steer_to(0.0)` 이 그 값을 그대로 낸다.
+        새 상수를 만들지 않는다. 결정: `docs/adr/2026-08-08-steer-zero-return-after-homing.md`
+        """
+        self._steer_to(0.0)
+        if self._wait_settle(0.0, self.STEER_ZERO_TOL_DEG, self.STEER_ZERO_TIMEOUT_S):
+            return True, f"조향 0° 복귀 완료(±{self.STEER_ZERO_TOL_DEG}° 안)."
+        cur = [self._meas_angle(n) for n in (3, 4)]
+        shown = " · ".join(f"N{n} " + ("실측없음" if c is None else f"{c:+.3f}°")
+                           for n, c in zip((3, 4), cur))
+        return False, (f"조향 0° 복귀 미확인 — {self.STEER_ZERO_TIMEOUT_S:.0f}초 안에 "
+                       f"±{self.STEER_ZERO_TOL_DEG}° 안에 들어오지 않았습니다 ({shown}). "
+                       f"목표는 걸려 있으므로 축이 계속 움직이는 중일 수 있습니다.")
 
     def _wait_settle(self, target: float, tol: float, timeout: float = 6.0) -> bool:
         """조향 정착 대기 — **두 축(N3·N4) 모두** 허용치 안에 들어와야 한다.

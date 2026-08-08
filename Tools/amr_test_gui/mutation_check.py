@@ -73,6 +73,19 @@ MUTATIONS = [
     ("L3", "로그 위젯 쓰기 경로를 하나 더 만듦 — 단일 기록자 붕괴", [
         ("    def log(self, msg: str):",
          "    def log(self, msg: str):\n        self.txt_log.appendPlainText(msg)")]),
+    # ── 2026-08-08 조향 0° 복귀 (ADR 2026-08-08-steer-zero-return-after-homing) ──
+    ("Z1", "호밍 뒤 0° 복귀 호출 제거 — 종전처럼 육안에 위임", [
+        ("            zok, zwhy = self._steer_zero_return()",
+         "            zok, zwhy = (True, '조향 0° 복귀까지 확인하세요.')")]),
+    ("Z2", "0° 지령을 빼고 대기만 함 — 「기다리면 알아서 온다」 복귀", [
+        ("        self._steer_to(0.0)\n"
+         "        if self._wait_settle(0.0, self.STEER_ZERO_TOL_DEG, self.STEER_ZERO_TIMEOUT_S):",
+         "        if self._wait_settle(0.0, self.STEER_ZERO_TOL_DEG, self.STEER_ZERO_TIMEOUT_S):")]),
+    ("Z3", "판정 허용오차를 사용자 정착 허용치로 되돌림 — GOZERO 정착값이 0° 로 통과", [
+        ("    STEER_ZERO_TOL_DEG = 0.1", "    STEER_ZERO_TOL_DEG = 3.0")]),
+    ("Z4", "0° 미도달을 완료로 적음 — 실패를 성공으로 보고", [
+        ('            self.log_line.emit(f"호밍 완료 — {zwhy}" if zok else f"호밍 미확인 — {zwhy}")',
+         '            self.log_line.emit(f"호밍 완료 — {zwhy}")')]),
 ]
 
 

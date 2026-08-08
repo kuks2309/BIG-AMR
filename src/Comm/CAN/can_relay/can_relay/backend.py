@@ -108,6 +108,20 @@ class RelayConfig:
     home_profile_vel: int = 2500            # 상류 HomeVelocity 와 동일
     home_search_range: tuple = (-10_000_000, 10_000_000)
     require_homed_for_steer: bool = True
+    steer_zero_after_home: bool = True
+    #   호밍 완료 후 조향 0°(= `steer_home`) 복귀 지령을 **반드시** 낸다.
+    #   ⚠ **호밍만으로는 축이 0° 에 서지 않는다.** 펌웨어 시퀀서의 `GOZERO` 목표
+    #   (`safety_seer_gate.h:212-213` `SEER_HOME_ZERO_N3/N4` = 7882020 / 7859062)는
+    #   **호밍 후 정착값**이고 실측 0°(`[7871815, 7840086]`)에서 +0.178° / +0.331° 떨어져 있다.
+    #   그 편차는 펌웨어 도달 허용오차 1.0°(`SEER_HOME_ZERO_TOL`) 안이라 펌웨어가 검출하지 못한다.
+    #   사용자 요구(2026-08-08): 「호밍 후에 반드시 0도 조향을 줘야 함」 ⇒ 기본 True.
+    #   결정·근거: `docs/adr/2026-08-08-steer-zero-return-after-homing.md` · debt-016 · debt-034
+    steer_zero_tol_deg: float = 0.1
+    #   ⚠ **선택값이다 — 실측에서 나온 수가 아니다.** 실측이 주는 것은 정착 재현성
+    #   σ ≈ 3 counts(≈ 0.00005°, 호밍 10회 `Log/home_experiment_260803_153319_summary.json`)뿐이다.
+    #   `settle_tol_deg`(3.0°)를 쓰지 않는 이유: 바로잡으려는 편차(0.178°/0.331°)보다 커서
+    #   **지령을 내기 전에도 「도달」로 읽힌다** — 판정이 무의미해진다.
+    steer_zero_timeout_s: float = 10.0      # 0° 정착 대기 상한
     stationary_tol_counts: int = 200
     #   `NodeState.stationary` 의 정지 판정 허용치. 200 counts = 0.0035°.
     #   ⚠ 2026-08-05 이후 조향 정지 경로는 이 값을 쓰지 않는다(프레임을 안 보낸다).
@@ -695,7 +709,72 @@ class RelayBackend:
 
     def home(self, speed: int = 0, poll_s: float = 0.2,
              timeout_s: float = 180.0) -> tuple[bool, str]:
-        """조향 호밍. **물리 스윙 100°+ 가 발생한다** — 이동구역 확인 후 호출할 것.
+        """조향 호밍 + **0° 복귀**. **물리 스윙 100°+ 가 발생한다** — 이동구역 확인 후 호출할 것.
+
+        호밍 시퀀스(`_home_sequence`)만으로는 축이 조향 0° 에 서지 않는다 — 펌웨어 `GOZERO` 는
+        **호밍 후 정착값**(`SEER_HOME_ZERO_N3/N4`)까지만 보내고 그 지점은 실측 0° 에서
+        +0.178° / +0.331° 떨어져 있다. 그래서 성공한 뒤 `steer_to_zero()` 를 이어 붙인다.
+        사용자 요구(2026-08-08): 「호밍 후에 반드시 0도 조향을 줘야 함」.
+
+        **0° 복귀 실패는 전체를 실패로 보고한다.** 「호밍은 됐는데 축이 어디 서 있는지 모른다」를
+        성공으로 적으면 그 다음 구동이 열린다. 호출부(`_srv_home`)가 반환 사유를 **로그로 남긴다** —
+        2026-08-08 실기에서 호밍 DONE 뒤 아무 줄도 없어 사유를 추적할 수 없었던 전례가 있다.
+
+        ⚠ **method 35 경로에는 붙이지 않는다.** 그쪽은 `0x6098=35` 로 현재 위치를 홈으로
+        **재선언**하므로 완료 시점의 위치가 곧 0° 이고, 좌표계가 바뀌었으니 구 절대목표를
+        일부러 비운다(`_home_method35` — 안 비우면 다음 틱에 수십 도로 재해석된다).
+        거기에 0° 지령을 얹으면 그 설계와 충돌한다. 바로잡으려는 편차는 **펌웨어 시퀀서의
+        `GOZERO` 목표**에서만 생긴다.
+        근거: `docs/adr/2026-08-08-steer-zero-return-after-homing.md`
+        """
+        ok, why = self._home_sequence(speed, poll_s, timeout_s)
+        if (not ok or not self.cfg.steer_zero_after_home
+                or str(self.cfg.homing_method) == "35"):
+            return ok, why
+        zok, zwhy = self.steer_to_zero()
+        return zok, f"{why} · {zwhy}"
+
+    def steer_to_zero(self, timeout_s: Optional[float] = None) -> tuple[bool, str]:
+        """조향 0° 복귀 지령 — 목표를 0° 로 세우고 두 축이 들어올 때까지 기다린다.
+
+        0° 의 정본은 `cfg.steer_home`(= `config/machine/<기체>.yaml` `steer_home_counts`)
+        하나다. 여기서 새 상수를 만들지 않는다 — `set_steer_deg(0.0)` 이 그 값을 그대로 낸다.
+
+        **기존 안전 게이트를 그대로 지난다** — `set_steer_deg` 를 부르므로 E-stop 거부·
+        호밍 중 거부·`homed_effective()`·±limit 클램프가 모두 적용된다. 우회로를 만들지 않는다.
+        거부되면 그 사유를 반환값에 실어 호출부가 **로그로 남긴다**(조용한 실패 금지).
+
+        판정 허용오차는 `cfg.steer_zero_tol_deg` 이며 `settle_tol_deg`(3.0°)가 **아니다** —
+        그 값은 바로잡으려는 편차보다 커서 지령 전에도 「도달」로 읽힌다.
+        """
+        tol = float(self.cfg.steer_zero_tol_deg)
+        limit = float(timeout_s if timeout_s is not None else self.cfg.steer_zero_timeout_s)
+        try:
+            self.set_steer_deg(0.0)
+        except S.UnsafeCommand as exc:
+            return False, f"조향 0° 복귀 지령 거부 — {exc}"
+        self._log(f"조향 0° 복귀 지령 — 목표 {dict(self.cfg.steer_home)} counts")
+        t0 = time.monotonic()
+        while True:
+            measured = {n: v for n, v in self.steer_angles_deg().items() if v is not None}
+            missing = [n for n in self.cfg.steer_nodes if n not in measured]
+            if not missing and all(abs(measured[n]) <= tol for n in self.cfg.steer_nodes):
+                return True, ("조향 0° 복귀 완료 — "
+                              + ", ".join(f"N{n} {measured[n]:+.3f}°"
+                                          for n in self.cfg.steer_nodes))
+            if time.monotonic() - t0 > limit:
+                detail = (f"피드백 없음 N{missing}" if missing else
+                          ", ".join(f"N{n} {measured[n]:+.3f}°" for n in self.cfg.steer_nodes))
+                return False, (f"조향 0° 복귀 미확인 — {limit:.0f}초 안에 ±{tol:.3f}° 안에 "
+                               f"들어오지 않았다 ({detail}). 목표는 걸려 있으므로 축이 계속 "
+                               f"움직이는 중일 수 있다")
+            if not self._running:
+                return False, "조향 0° 복귀 미확인 — 백엔드가 내려갔다"
+            time.sleep(0.05)
+
+    def _home_sequence(self, speed: int = 0, poll_s: float = 0.2,
+                       timeout_s: float = 180.0) -> tuple[bool, str]:
+        """호밍 시퀀스만 수행한다(0° 복귀는 `home()` 이 이어 붙인다).
 
         **펌웨어 시퀀서(`0xea`/`0xeb`)를 쓴다** — SDO 로 `0x60FB:04=1` 을 직접 보내지 않는다.
         이유는 하나: 그래야 `cancel_home()` 이 **호스트 생사와 무관하게** 성립한다.

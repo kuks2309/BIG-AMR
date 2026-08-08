@@ -38,6 +38,7 @@ def win(app):
     w = gui.MainWindow()
     w.HOMING_START_S = 1.0          # 테스트를 초 단위로 유지
     w.HOMING_TIMEOUT_S = 3.0
+    w.STEER_ZERO_TIMEOUT_S = 0.5    # 호밍 뒤 0° 복귀 대기(회귀는 test_steer_zero_return.py)
     yield w
     w._seer_run = False
     w._run = False

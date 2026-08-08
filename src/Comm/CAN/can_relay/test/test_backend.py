@@ -27,6 +27,28 @@ def make(**kw):
     return link, RelayBackend(link, cfg)
 
 
+def make_homed(**kw):
+    """호밍 **성공 경로**를 끝까지 도는 백엔드.
+
+    `home()` 은 완료 후 조향 0° 복귀까지 확인하므로(ADR 2026-08-08), 폴마다 응답하는
+    대역이 필요하다 — `MockLink.inbox` 는 한 번 소비되면 비어 「피드백 없음」이 된다.
+    두 조향축을 0°(= `steer_home`)에 세워 둔다. 0° 복귀 자체의 회귀는
+    `test_steer_zero_return.py` 소관이고, 여기서는 **호밍 경로가 막히지 않는 것**만 본다.
+    """
+    from conftest import FeedingLink
+
+    kw.setdefault("require_homed_for_steer", False)
+    home = kw.setdefault("steer_home", {3: 7871815, 4: 7840086})
+    kw.setdefault("steer_zero_timeout_s", 1.0)
+    cfg = RelayConfig(cmd_hz=100.0, poll_hz=50.0, cmd_timeout_s=0.15, **kw)
+    link = FeedingLink()
+    link.open()
+    link.acquire()
+    for n, counts in home.items():
+        link.hold(n, counts)
+    return link, RelayBackend(link, cfg)
+
+
 def idx_of(frame):
     return frame.data[1] | (frame.data[2] << 8)
 
@@ -334,7 +356,7 @@ HOME_KW = dict(poll_s=0.01, timeout_s=2.0)
 
 def test_home_uses_firmware_sequencer_not_direct_sdo():
     """SDO 로 0x60FB 를 직접 보내면 취소가 불가능해진다 — 그 경로를 쓰지 않는다."""
-    link, be = make(homing_method="firmware")
+    link, be = make_homed(homing_method="firmware")
     be.start()
     try:
         link.homing_script = [MockLink.homing_state(1), MockLink.homing_state(4),
@@ -390,7 +412,7 @@ def test_home_times_out_and_cancels_instead_of_hanging():
 
 @pytest.mark.parametrize("state,ok", [(5, True), (6, False), (7, False), (10, False)])
 def test_only_done_is_success(state, ok):
-    link, be = make(homing_method="firmware")
+    link, be = make_homed(homing_method="firmware")
     be.start()
     try:
         link.homing_script = [MockLink.homing_state(state, elapsed_s=5)]

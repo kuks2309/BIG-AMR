@@ -103,6 +103,14 @@ class CanRelayNode(Node):
             ("home_profile_vel", 2500),
             ("home_search_range", [-10_000_000, 10_000_000]),
             ("require_homed_for_steer", True),
+            # 호밍 완료 후 조향 0°(= steer_home_counts) 복귀 지령을 **반드시** 낸다.
+            # ⚠ 끄면 축은 펌웨어 GOZERO 정착값에 선다 — **0° 가 아니다**(실측 0° 대비
+            #   +0.178° / +0.331°). 사용자 요구는 「호밍 후에 반드시 0도 조향을 줘야 함」이므로
+            #   기본 true 이고, 끄는 것은 진단 목적 예외로만 쓴다(기동 시 경고를 낸다).
+            #   근거: docs/adr/2026-08-08-steer-zero-return-after-homing.md
+            ("steer_zero_after_home", True),
+            ("steer_zero_tol_deg", 0.1),
+            ("steer_zero_timeout_s", 10.0),
         ])
         g = {d.name: d.value for d in p}
         self._g = g
@@ -152,6 +160,9 @@ class CanRelayNode(Node):
             home_profile_vel=int(g["home_profile_vel"]),
             home_search_range=(rng[0], rng[1]),
             require_homed_for_steer=bool(g["require_homed_for_steer"]),
+            steer_zero_after_home=bool(g["steer_zero_after_home"]),
+            steer_zero_tol_deg=float(g["steer_zero_tol_deg"]),
+            steer_zero_timeout_s=float(g["steer_zero_timeout_s"]),
         )
         self._cfg = cfg
         self.get_logger().info(
@@ -162,6 +173,12 @@ class CanRelayNode(Node):
             self.get_logger().warn(
                 "호밍 비활성 — steer_home_offset 이 실측 확정되지 않았습니다. "
                 "캘리브레이션 YAML 을 확인하세요(config/machine/<기체>.yaml)")
+        if not g["steer_zero_after_home"]:
+            # 기본값을 끈 것은 요구사항(「호밍 후에 반드시 0도 조향을 줘야 함」) 이탈이므로
+            # 기동 시점에 드러낸다 — 나중에 축이 0° 가 아닌 이유를 로그에서 찾을 수 있어야 한다.
+            self.get_logger().warn(
+                "⚠ steer_zero_after_home=false — 호밍 후 조향 0° 복귀 지령을 내지 않습니다. "
+                "축은 0° 가 아니라 펌웨어 GOZERO 정착값(실측 0° 대비 +0.178°/+0.331°)에 섭니다")
 
         logger = self.get_logger().info
         if g["link"] == "mock":
@@ -355,10 +372,17 @@ class CanRelayNode(Node):
         self.get_logger().warn(
             "호밍 요청 — 조향이 100° 이상 스윙합니다. 진행 중 중단은 "
             "`~/home_cancel` 로 가능합니다(펌웨어 시퀀서가 취소 프레임을 냅니다). "
-            "그래도 이동구역이 비어 있는지 먼저 확인하세요.")
+            "그래도 이동구역이 비어 있는지 먼저 확인하세요."
+            + (" 완료 후 조향 0° 복귀 지령이 이어집니다."
+               if self._cfg.steer_zero_after_home else
+               " ⚠ steer_zero_after_home=false — 축은 0° 가 아니라 GOZERO 정착값에 섭니다."))
         ok, why = self.backend.home(speed=int(self._g["homing_speed"]))
         res.success = ok
         res.message = why
+        # ⚠ **결과를 반드시 로그에 남긴다.** 예전에는 서비스 응답에만 담겨서, 0° 복귀가
+        #   게이트(E-stop·호밍 미완료)에 거부돼도 노드 로그가 조용했다 — 2026-08-08 실기
+        #   기록(15:42 호밍 DONE 뒤 아무 줄도 없음)을 조사할 때 사유를 찾을 수 없었다.
+        (self.get_logger().info if ok else self.get_logger().error)(f"호밍 결과 — {why}")
         return res
 
     def _srv_home_cancel(self, _req, res: Trigger.Response):

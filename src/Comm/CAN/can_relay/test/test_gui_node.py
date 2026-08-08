@@ -379,3 +379,26 @@ def test_stop_wins_over_republish(rig):
     while time.monotonic() - t0 < driver.backend.cfg.cmd_timeout_s * 3:
         assert driver.backend.snapshot()["drive_units"] == 0, "정지 후 구동이 되살아났다"
         time.sleep(0.05)
+
+
+# ── 호밍 결과가 로그에 남는가 (2026-08-08 실기 조사 실패의 재발 방지) ──────
+def test_home_result_is_logged_not_only_returned(rig, monkeypatch):
+    """`~/home` 결과는 **서비스 응답만이 아니라 노드 로그에도** 남아야 한다.
+
+    실기 근거: 2026-08-08 15:42 호밍이 `DONE` 까지 갔는데 그 뒤로 노드 로그가 한 줄도
+    없었다. 결과가 `res.message` 에만 담겨 있어서, 0° 복귀가 나갔는지 거부됐는지를
+    로그만으로 판정할 수 없었다. 조용한 실패는 조사할 수 없다.
+    """
+    driver, client = rig
+    _engage(client)
+    lines = []
+    for lvl in ("info", "error"):
+        monkeypatch.setattr(driver.get_logger(), lvl,
+                            lambda m, _l=lines: _l.append(str(m)))
+    driver.link.homing_script = [MockLink.homing_state(5, elapsed_s=31, reached_mask=3)]
+    ok, why = client.call(client.cli_home, Trigger.Request(), timeout_s=40.0)
+    assert ok is not None
+    assert any("호밍 결과" in m for m in lines), (
+        f"호밍 결과가 로그에 남지 않았다 — 응답({why!r})만으로는 조사할 수 없다: {lines}")
+    # 0° 복귀 성패가 그 줄에 실려 있어야 한다(둘 중 하나는 반드시 나온다).
+    assert any("0° 복귀" in m for m in lines if "호밍 결과" in m), lines
