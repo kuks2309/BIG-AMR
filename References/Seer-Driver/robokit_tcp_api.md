@@ -186,6 +186,77 @@ def unpackHead(data):                    # 응답 16B 헤더 파싱
 
 > 원본 데모: `rbkDemoTurn.py`(2010 motion), `rbkDemoReloc.py`(2002 reloc), `gotarget.py`(3051), `rbkApiSetDO.py`(6001), `rbkApiStatusTaskReq.py`(1020), `rbkApiQueryIO.py`(1013). 전부 `github_sdk/Robokit_TCP_API_py/` 에 보존.
 
+## 4-7. 조향(steering) — **직접 지령 API 는 없다** (2026-08-08 조사)
+
+지시: 「seer api로 각도에 따른 엔코더 값 테이블 있나요?」·「조향 명령어 api 알려주세요 번호라던지」
+
+### 4-7-1. 지령 — 조향각을 직접 주는 API 가 §4-2 에 없다
+
+문서화된 제어 API(19205) 9개 중 조향 항목은 **0개**다. 가장 가까운 것:
+
+| ID | 이름 | 조향과의 관계 |
+| --- | --- | --- |
+| **2010** | `robot_control_motion_req` | **개루프 운동 `vx, vy, w`**. 조향각이 아니라 **속도 벡터**를 주면 Seer 가 내부에서 조향을 계산한다 — `vy` → crab 자세, `w` → 회전 자세 |
+| 2000 | `robot_control_stop_req` | 운동 정지 |
+
+원본 데모: `github_sdk/Robokit_TCP_API_py/rbkDemoTurn.py` (2010 사용, §5 참조).
+
+⇒ **「조향을 몇 도로 세워라」는 이 API 집합으로 표현할 수 없다.** 각도별 자세를 만들려면
+`vy`/`w` 를 바꿔 가며 Seer 가 만든 조향을 **관측**하는 방식이어야 한다.
+
+### 4-7-2. 판독 — 값은 있으나 CAN 과 **독립이 아니다**
+
+| ID | 필드 | 성격 |
+| --- | --- | --- |
+| **1005** `robot_status_speed_req` | `steer_angles` | "The **current** steering angle … unit: rad". 듀얼이면 `[front, rear]` |
+| 1005 | `r_steer_angles` | "Steering angles **received**" ⇒ **지령값이지 실측이 아니다** |
+| **1040** / 1100 `motor_info[]` | `encoder` · `position` | 축별 엔코더. `motor_name` = `FrontWalk`/`RearWalk`/`FrontSteer`/`RearSteer` |
+| 1101 | `steer` · `r_steer` | 배치 데이터의 조향각(rad) |
+
+> 벤더 정의 출처: `T-Robot_seer_gui/references/seer/robokit-api/robot-status-api/005-query-robot-speed.md:40-41`
+> (타 저장소 github kuks2309/T-Robot_seer_gui — 본 저장소 `References/` 아님).
+
+⚠ **1005·1040 은 판다가 엿듣는 바로 그 `0x6064` 의 아핀 변환이다** — 기울기 × 57,344 가
+1040 = **1.000001**, 1005 = **1.000130**. 근거·상세: `docs/homing/2026-08-03-can-relay-homing-assets.md:608`.
+
+### 4-7-3. ⇒ 「각도 ↔ 엔코더 표」는 만들어도 교차검증이 되지 않는다
+
+두 채널이 같은 원천의 아핀 변환이므로 표를 만들면 `angle = (enc − 영점)/57,344` 라는
+**항등식**을 되읽는 것이다. 자세와 무관하게 항상 맞으므로 **정합의 근거가 되지 못한다**
+(같은 문서가 「인용 금지」로 못박아 둔 항목).
+
+**표에서 실제로 뽑을 수 있는 값은 「영점」 하나뿐**이다:
+
+```
+0° 엔코더 = enc − angle × 57,344
+```
+
+2026-08-08 실측(제어권 반환 상태): 전륜 `−13,040,386 counts @ −90.132°` → 0° 엔코더
+**−7,871,857**. `foil_a082.yaml` 의 `steer_home_counts[0] = 7,871,815`(부호 반대 규약)와
+**42 counts = 0.0007°** 차이로 일치한다.
+
+### 4-7-4. ⚠ 제어권을 쥐면 이 판독은 **얼어붙는다**
+
+`can_relay` 가 intercept 하는 동안 판다 펌웨어가 emulate 로 들어가
+(`safety_seer_gate.h:164` `emulate = cover || pc_authority`), Seer 에게는 **engage 시점
+스냅샷**이 전달된다. 2026-08-08 실측 — 조향을 10°·20° 실제로 움직였는데
+**Seer `motor_info.encoder` 가 1 count 도 변하지 않았다**.
+
+⇒ **Seer 를 계측기로 쓰려면 제어권을 반환**해야 한다. 그리고 반환하더라도 **우리가 제어권을
+쥐고 움직인 이력은 Seer 가 모른다.** 표를 만들려면 **Seer 가 직접 몰아야 한다**(2010).
+
+### 4-7-5. 관련 도구 (결과는 미산출)
+
+| 도구 | 목적 | 상태 |
+| --- | --- | --- |
+| `Tools/docking_field_kit/orin_steer_sweep_1005.py` | 1005 전달함수 실측 | 결과 표 저장소에 없음 |
+| `Tools/docking_field_kit/orin_steer_crosscheck.py` | `0x6064` ↔ Seer 1040 동시 기록 | 상동 |
+
+`docs/homing/2026-08-03-can-relay-homing-assets.md:786,801,830` 이 「1005 전달함수 미확정」으로
+닫히지 않은 채 남아 있다.
+
+---
+
 ## 5. 최소 사용 예 (원본 `rbkDemoTurn.py` 발췌) ✓
 
 ```python

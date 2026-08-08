@@ -268,6 +268,13 @@ steer_home_counts: [7871815, 7840086]
 | 체인 계약 점검 | `Tools/motion_chain_check/check_chain_contract.py` |
 | 스캔↔맵 정합(측위 배선 판정) | `Tools/seer_viz/mount_check.py` |
 | 결함 이력 | `docs/issues_and_fixes/issues_and_fixes.md` (2026-08-08 절) |
+| **Seer API 로 조향을 다루려 할 때** | `References/Seer-Driver/robokit_tcp_api.md` **§4-7** |
+| 조향 홈 정본·근거 | `docs/homing/2026-08-03-can-relay-homing-assets.md` §0-0 |
+
+⚠ **Seer API 로 조향 표를 만들려는 계획이 있다면 §4-7 을 먼저 읽을 것.** 요약:
+**조향각을 직접 주는 API 는 없고**(2010 `vx,vy,w` 가 유일한 경로), 판독값 1005·1040 은
+**`0x6064` 의 아핀 변환**이라 표를 만들어도 항등식을 되읽는 것이며, **제어권을 쥐면
+Seer 판독이 얼어붙는다**(§0 함정 2). 뽑을 수 있는 것은 **영점 하나**뿐이다.
 
 ---
 
