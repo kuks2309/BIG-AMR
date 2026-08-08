@@ -2,6 +2,10 @@
   ros__parameters:
     host: "192.168.44.82"
 
+    # ⚠ 참조 채널이다. `/robot_pose` 는 PC 측위(mcl2d)가 소유한다 —
+    #   여기에 물리면 제어 체인이 Seer 에 의존하게 되어 목적과 모순이다.
+    pose_topic: "/seer/robot_pose"
+
     # ⚠ 벤더 권장은 요청 간격 100~200 ms 이상이며 과빈번 시 로봇이 연결을 끊는다
     #   (References/Seer-Driver/seer_api_guide.md:28 — 실효 폴링 ~5~10 Hz).
     #   액션 제어 주기는 20 Hz 지만 LocalizationMonitor 신선도 임계가 0.5 s 이므로

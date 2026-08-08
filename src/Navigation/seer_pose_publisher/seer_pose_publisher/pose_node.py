@@ -1,7 +1,24 @@
 #!/usr/bin/env python3
-"""Seer 상태 API `1004` → `/robot_pose`(PoseStamped) 발행.
+"""Seer 상태 API `1004` → `/seer/robot_pose`(PoseStamped) 발행 — **참조·검증 채널**.
 
-# 왜 필요한가
+# 역할 (2026-08-08 변경 — 제어 입력이 아니다)
+
+**측위의 주인은 PC 다.** `/robot_pose` 는 PC 측위 스택(`mcl2d_ros2` → 어댑터)이 소유하고,
+본 노드는 **Seer 가 연결돼 있을 때만** 그 옆에서 같은 시각의 Seer 자세를 내보내
+**우리 측위를 대조**하는 데 쓴다.
+
+    mcl2d  → /robot_pose        ← 제어가 쓰는 자세 (PC)
+    이 노드 → /seer/robot_pose   ← 대조용 참조 (Seer 가 있을 때만)
+
+근거(사용자 지시 2026-08-08):
+- 「localization 은 PC 를 사용해야 합니다」
+- 「Seer 측위는 … 검증자로 쓰는 게 좋겠습니다 … **seer 가 연결되어 있을 때만**」
+
+⇒ **본 노드가 없어도 주행은 영향받지 않는다.** 비교를 못 할 뿐이다. 초판은 `/robot_pose` 를
+직접 발행해 제어 체인이 Seer 에 의존했는데, 그것은 「Seer 제어를 PC 로 대체한다」는 목적과
+모순이라 참조 채널로 분리했다.
+
+# 배경 — 왜 `/robot_pose` 공백이 문제였나
 
 `trnav_2ws_action_server` 의 `translate_forward`·`translate_reverse`·`mpc`·`mpc_reverse`
 네 액션은 `trnav_2ws_core::LocalizationMonitor` 로 `/robot_pose` 를 구독하며, **그 토픽이
@@ -9,9 +26,9 @@
 `TF2 map->base_link not available` 이지만 **TF 문제가 아니다** — `localization_monitor.cpp:137-150`
 은 TF 를 전혀 쓰지 않고 토픽 캐시를 읽는다(문구가 실제 기전과 어긋나 있다).
 
-이 저장소에는 `/robot_pose` 를 내는 노드가 **없었다.** QD 문서는
-`src/Navigation/trnav_pose_publisher` 를 가리키나 그 경로는 **부재**다. 본 노드가 그 공백을
-Seer 상태 API 로 메운다.
+그 토픽을 PC 측위가 채우는 것이 정본 구성이고, 본 노드는 그 옆의 참조다.
+(`pose_topic:=/robot_pose` 로 덮어쓰면 Seer 를 유일 측위원으로 쓰는 구성도 가능하나,
+그때는 노드가 의존성 경고를 남긴다.)
 
 # 좌표계
 
@@ -75,7 +92,14 @@ class SeerPosePublisher(Node):
         self._declare()
 
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
-        self._pose_pub = self.create_publisher(PoseStamped, "/robot_pose", qos)
+        # ⚠ 기본 발행 토픽은 `/seer/robot_pose` 이지 `/robot_pose` 가 **아니다**.
+        #   `/robot_pose` 는 **PC 측위**(mcl2d)가 소유한다. 이 노드를 거기에 물리면 제어 체인이
+        #   Seer 에 의존하게 되어, Seer 가 빠지면 주행이 멈춘다 — 그것은 Seer 제어를 대체한다는
+        #   목적과 모순이다(사용자 지시 2026-08-08: 「측위는 PC 를 사용해야 합니다」,
+        #   「Seer 측위는 검증자로 … seer 가 연결되어 있을 때만」).
+        #   따라서 이 노드는 **참조 채널**이다 — 없으면 비교를 못 할 뿐 주행은 영향받지 않는다.
+        #   Seer 를 유일한 측위원으로 쓰는 구성(초기 브링업 등)에서만 `pose_topic:=/robot_pose`.
+        self._pose_pub = self.create_publisher(PoseStamped, self._pose_topic, qos)
         self._conf_pub = self.create_publisher(Float64, "/seer/localization_confidence", qos)
 
         self._sock: SeerStatusClient | None = None
@@ -85,7 +109,12 @@ class SeerPosePublisher(Node):
 
         self.get_logger().info(
             f"Seer {self._host}:{PORT_STATUS} · {self._rate:.1f} Hz · frame '{self._frame}' · "
+            f"발행 '{self._pose_topic}' · "
             f"맵 게이트 {'ON' if self._expect_md5 else 'OFF(expected_map_md5 미설정)'}")
+        if self._pose_topic == "/robot_pose":
+            self.get_logger().warn(
+                "pose_topic 이 '/robot_pose' 다 — 제어 체인이 **Seer 에 의존**한다. "
+                "PC 측위(mcl2d)를 쓰는 구성에서는 기본값 '/seer/robot_pose' 로 둘 것.")
 
         self._connect()
         self._check_map()
@@ -98,6 +127,8 @@ class SeerPosePublisher(Node):
 
     def _declare(self) -> None:
         self._host = self.declare_parameter("host", "192.168.44.82").value
+        # 참조 채널 기본값. `/robot_pose` 는 PC 측위(mcl2d) 소유 — 위 발행자 주석 참조.
+        self._pose_topic = str(self.declare_parameter("pose_topic", "/seer/robot_pose").value)
         # 기본 10 Hz — 벤더 권장(≥100~200 ms) 안쪽. 모듈 docstring §폴링 주기 참조.
         self._rate = float(self.declare_parameter("rate_hz", 10.0).value)
         self._frame = self.declare_parameter("frame_id", "map").value

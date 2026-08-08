@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "mcl2d_core/motion_model.hpp" // normalizeAngle
 #include "mcl2d_localizer.hpp"
@@ -116,6 +117,10 @@ class Mcl2dLocalizationNode : public rclcpp::Node
             "scan_front", 10, [this](sensor_msgs::msg::LaserScan::SharedPtr m) { front_ = fromRosScan(*m); });
         sub_rear_ = create_subscription<sensor_msgs::msg::LaserScan>(
             "scan_rear", 10, [this](sensor_msgs::msg::LaserScan::SharedPtr m) { rear_ = fromRosScan(*m); });
+        // 기동 후 유일한 재초기화 경로. init_* 파라미터는 기동 시 1회만 적용된다.
+        sub_initpose_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+            "initialpose", 10,
+            [this](geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr m) { onInitialPose(*m); });
     }
 
   private:
@@ -151,6 +156,27 @@ class Mcl2dLocalizationNode : public rclcpp::Node
         if (v == 0.0 && w == 0.0)
             return false;
         return v < params_.motor_stop_threshold && w < params_.motor_stop_threshold;
+    }
+
+    /// 주어진 map 프레임 자세로 파티클을 다시 뿌린다.
+    /// @param m  PoseWithCovarianceStamped. frame_id 가 map 이 아니면 무시(빈 값은 허용).
+    ///
+    /// `prev_odom_` 은 건드리지 않는다 — update() 는 오도메트리 **증분**을 쓰므로
+    /// 여기서 초기화하면 다음 주기의 증분이 0 이 된다.
+    void onInitialPose(const geometry_msgs::msg::PoseWithCovarianceStamped &m)
+    {
+        const std::string &f = m.header.frame_id;
+        if (!f.empty() && f != map_frame_)
+        {
+            RCLCPP_WARN(get_logger(),
+                        "initialpose 무시 — frame_id '%s' 는 map 프레임('%s')이 아니다.",
+                        f.c_str(), map_frame_.c_str());
+            return;
+        }
+        const double yaw = yawFromQuat(m.pose.pose.orientation.z, m.pose.pose.orientation.w);
+        loc_->setInitialPose({m.pose.pose.position.x, m.pose.pose.position.y, yaw});
+        RCLCPP_INFO(get_logger(), "측위 재초기화 — x=%.3f y=%.3f theta=%.4f rad (%.1f°)",
+                    m.pose.pose.position.x, m.pose.pose.position.y, yaw, yaw * 180.0 / M_PI);
     }
 
     void onOdom(const nav_msgs::msg::Odometry &o)
@@ -251,6 +277,7 @@ class Mcl2dLocalizationNode : public rclcpp::Node
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_odom_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr sub_front_, sub_rear_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_initpose_;
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::unique_ptr<tf2_ros::TransformListener> tf_listener_;

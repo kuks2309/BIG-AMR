@@ -18,7 +18,11 @@ rclcpp_components_register_node(dual_laser_merger
   EXECUTABLE dual_laser_merger_node)
 
 install(DIRECTORY include DESTINATION include/dual_laser_merger)
-install(DIRECTORY bag DESTINATION share/dual_laser_merger)
+
+# `bag/` 은 git 미추적이라 깨끗한 체크아웃에는 없다 — 무조건 install 하면 빌드가 실패한다.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/bag")
+  install(DIRECTORY bag DESTINATION share/dual_laser_merger)
+endif()
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
