@@ -218,6 +218,8 @@
 
 | id | type | category | 제목 | owner | 등록일 |
 |----|------|----------|------|-------|--------|
+| 2026-08-08-002 | rule-violation | overclaim | `--ignore` 로 제외하고 돌린 시험을 「311 passed / 0 failed」로 전체인 것처럼 보고(실측 364 passed / 4 failed) + 회귀 0건인데 「검증」 선언 | claude | 2026-08-08 |
+| 2026-08-08-001 | rule-violation | overclaim | 「두 경로 다 실패 ⇒ 소프트웨어 배제」로 하드웨어 고장·물리 점검을 요구 — 두 「경로」는 같은 `RelayBackend` 인스턴스였고 실제 원인은 그 공유 구간 | claude | 2026-08-08 |
 | 2026-08-06-004 | rule-violation | verify-skip | 내 시험 입력을 검증하지 않고 「mpc_reverse 제어 결함」으로 단정해 공유 기록에 커밋 — 재현성과 그럴듯한 인과가 가림막 | claude | 2026-08-06 |
 | 2026-08-06-003 | rule-violation | verify-skip | coding SOP §2·§3·§5·§6 을 건너뛰고 자기승인으로 커밋·푸시 — 강제 훅은 있으나 **워크트리 미배포 + 표 부재로 빈 통과** | user | 2026-08-06 |
 | 2026-08-05-001 | rule-violation | tech-debt-shortcut | 매뉴얼에 있는 정지 명령(6040→0x03/0x05)을 안 찾고 없는 명령을 만들어 4일 소모 | user | 2026-08-05 |
