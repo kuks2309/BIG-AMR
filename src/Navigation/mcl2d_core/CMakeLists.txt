@@ -56,6 +56,12 @@ if(MCL2D_MOTION_ORACLE)
   add_executable(test_motion_oracle test/test_motion_oracle.cpp src/motion_model.cpp)
   target_include_directories(test_motion_oracle PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_link_libraries(test_motion_oracle PRIVATE ${CMAKE_DL_LIBS})
+  # 오라클은 원본과의 **소스 동치**를 재는 도구다 → 최적화를 끈다.
+  #   -O1 이상의 코드 생성이 드물게(1,800 값 중 2, 약 0.1%) 1 ulp 를 만들어 대조를 흐린다.
+  #   2026-08-08 격리 실측: 하네스 O2 + 모션모델 O0 → 불일치 0 / 하네스 O0 + 모션모델 O2 → 불일치 2.
+  #   (FMA 계약 아님 — `-ffp-contract=off` 로도 2건 유지. -O2 에서 normalizeAngle 이 인라인되며
+  #    호출 9→5·comisd 8 추가로 코드 구성이 바뀐다.)  근거: docs/debt/registry.md debt-043
+  target_compile_options(test_motion_oracle PRIVATE -O0)
 endif()
 
 # RE 오라클 검증(선택): ObservationField ↔ 원본 getPostProb 비트 대조 Δ=0.
