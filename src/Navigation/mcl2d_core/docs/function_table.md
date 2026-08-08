@@ -27,7 +27,9 @@
 원본 모드 6(멤버 오버라이드)은 원본에서도 writer 가 없어 미발동 — 이식하지 않음.
 `w`(우도) 스케일은 **원본과 동일함이 확인**됐다(2026-08-06) — 원본 `getParticleLikelihood` 가 `getPostProb` 를
 tail-call 하고 우리 `likelihoodAt` 도 같은 함수(비트 일치본)를 쓴다. 모드 5 가 드문 것은 원본과 같은 동작이다.
-→ 대조 문서 §7.2 #6. 잔여 부채: dθ 1 ulp(**debt-043**) · `moveRobotAccordingToMotion` 미이식(**debt-044**).
+→ 대조 문서 §7.2 #6. 부채 경과: dθ 1 ulp = 빌드 최적화 문제로 확정·오라클 `-O0` 고정(**debt-043 해결 2026-08-08**) ·
+`moveRobotAccordingToMotion` 이식 완료(**debt-044 해결 2026-08-08**, ADR `2026-08-08-mcl2d-two-rate-pose`).
+잔여: 스캔 두절 게이트 `ScanLostTimeThresh` 미이식(**debt-048**) · `doOffsetMove`·`getRealControlVar` 미이식.
 
 ## 변경된 소비자
 
@@ -37,7 +39,10 @@ tail-call 하고 우리 `likelihoodAt` 도 같은 함수(비트 일치본)를 �
 | `ParticleFilter2D::extraMove` | **신규** — 전 파티클에 `doExtraMove` | — |
 | `ParticleFilter2D::applyScan`·`likelihoodAt` | private → **public** | 모드 판정이 새 스캔 기준 우도를 요구(원본 순서) |
 | `ParticleFilter2D::step` | 순서 교체: 스캔적용 → 우도 → 모드선택 → predict → extraMove → 우도갱신 → 추정 → 리샘플 | — |
-| `Mcl2dLocalizer::update` | 위 순서를 조립. `stopped` 면 `predict` 생략 | 원본 `DoMoveAction` @0x3d7d13 의 `is_stop` 분기 |
+| `Mcl2dLocalizer::advanceWithOdom` | **신규(2026-08-08)** — 오도 주기: `predict`(kMove) + **발행 자세 전진**. `stopped` 면 둘 다 생략 | 원본 `DoMoveAction` @0x3d7d13 의 `is_stop` 분기 + `moveRobotAccordingToMotion` @0x33f4b0 |
+| `Mcl2dLocalizer::updateWithScan` | **신규(2026-08-08)** — 스캔 주기: 스캔적용 → 우도(현재 발행 자세) → 모드선택 → `extraMove` → 우도갱신 → 추정 → 리샘플 → 발행 자세 재설정 | 원본 `DoNormalUpdateAction` |
+| `Mcl2dLocalizer::update` | 위 둘을 순서대로 부르는 **얇은 래퍼**(하위 호환) | 오도·스캔이 같은 주기인 호출부(데모·시험)용 |
+| `Mcl2dLocalizer::pose()` | **신규** 접근자 — 발행 자세 | 오도 전진분 포함, 스캔 갱신 시 추정으로 재설정 |
 | `Mcl2dLocalizer::lastExtraMove()` | **신규** 접근자 | 진단용(원본 `MCLocUpdateMode` 로그 대응) |
 
 ## 삭제된 함수

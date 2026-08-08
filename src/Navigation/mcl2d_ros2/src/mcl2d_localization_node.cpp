@@ -113,10 +113,22 @@ class Mcl2dLocalizationNode : public rclcpp::Node
         odom_qos.best_effort();
         sub_odom_ = create_subscription<nav_msgs::msg::Odometry>(
             "odom", odom_qos, [this](nav_msgs::msg::Odometry::SharedPtr m) { onOdom(*m); });
+        // 스캔은 **도착할 때** 필터 보정을 돌린다(원본 DoNormalUpdateAction 대응, ADR 2026-08-08).
+        //   예전에는 /odom 콜백이 캐시된 스캔을 매번 다시 썼기 때문에, 스캔이 오도보다 느리면
+        //   같은 관측이 반복 가중됐다(코드리뷰 2026-07-31 D2). 이제 새 스캔이 양쪽 다 왔을 때만 1회 반영한다.
         sub_front_ = create_subscription<sensor_msgs::msg::LaserScan>(
-            "scan_front", 10, [this](sensor_msgs::msg::LaserScan::SharedPtr m) { front_ = fromRosScan(*m); });
+            "scan_front", 10,
+            [this](sensor_msgs::msg::LaserScan::SharedPtr m) {
+                front_ = fromRosScan(*m);
+                front_fresh_ = true;
+                maybeUpdateWithScan(m->header.stamp);
+            });
         sub_rear_ = create_subscription<sensor_msgs::msg::LaserScan>(
-            "scan_rear", 10, [this](sensor_msgs::msg::LaserScan::SharedPtr m) { rear_ = fromRosScan(*m); });
+            "scan_rear", 10, [this](sensor_msgs::msg::LaserScan::SharedPtr m) {
+                rear_ = fromRosScan(*m);
+                rear_fresh_ = true;
+                maybeUpdateWithScan(m->header.stamp);
+            });
         // 기동 후 유일한 재초기화 경로. init_* 파라미터는 기동 시 1회만 적용된다.
         sub_initpose_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
             "initialpose", 10,
@@ -179,13 +191,15 @@ class Mcl2dLocalizationNode : public rclcpp::Node
                     m.pose.pose.position.x, m.pose.pose.position.y, yaw, yaw * 180.0 / M_PI);
     }
 
+    // 오도 주기 — 원본 MCLoc::PublishLoc → DoMoveAction 대응. 파티클·발행 자세를 전진시키고 발행한다.
+    //   스캔은 쓰지 않는다(보정은 스캔 콜백 소관, ADR 2026-08-08-mcl2d-two-rate-pose).
     void onOdom(const nav_msgs::msg::Odometry &o)
     {
         const Pose2D cur = fromRosOdom(o);
         const rclcpp::Time stamp(o.header.stamp);
-        if (!prev_odom_ || !front_ || !rear_)
+        if (!prev_odom_)
         {
-            // 첫 샘플이거나 스캔 대기 — 기준만 세우고 반환한다(두 경로가 같은 상태를 남겨야 dt 가 어긋나지 않는다).
+            // 첫 샘플 — 증분을 만들 수 없으니 기준만 세운다.
             prev_odom_ = cur;
             prev_stamp_ = stamp;
             return;
@@ -194,10 +208,29 @@ class Mcl2dLocalizationNode : public rclcpp::Node
         const double dt = prev_stamp_ ? std::max(0.0, (stamp - *prev_stamp_).seconds()) : 0.0;
         const bool stopped = isStopped(o, cur, dt);
 
-        std::vector<LaserScan> scans = {*front_, *rear_};
-        const Pose2D est = loc_->update(*prev_odom_, cur, scans, stopped, dt);
+        const Pose2D est = loc_->advanceWithOdom(*prev_odom_, cur, stopped);
         prev_odom_ = cur;
         prev_stamp_ = stamp;
+        last_stopped_ = stopped;
+
+        publishPose(est, o.header.stamp);
+    }
+
+    // 스캔 주기 — 원본 MCLoc::DoNormalUpdateAction 대응. **양쪽 스캔이 모두 새로 왔을 때만** 1회 보정한다.
+    void maybeUpdateWithScan(const builtin_interfaces::msg::Time &stamp)
+    {
+        if (!front_ || !rear_ || !front_fresh_ || !rear_fresh_ || !prev_odom_)
+            return;
+        front_fresh_ = false;
+        rear_fresh_ = false;
+
+        const rclcpp::Time t(stamp);
+        // 슬립 판정에 쓰는 dt 는 **직전 보정 이후** 경과시간이다(오도 주기 dt 가 아니다).
+        const double dt = prev_scan_stamp_ ? std::max(0.0, (t - *prev_scan_stamp_).seconds()) : 0.0;
+        prev_scan_stamp_ = t;
+
+        std::vector<LaserScan> scans = {*front_, *rear_};
+        const Pose2D est = loc_->updateWithScan(scans, *prev_odom_, last_stopped_, dt);
 
         // 산포 모드 진단 — 원본 MCLocUpdateMode 로그 대응. 모드 5(신뢰 높음)는 임계 0.8 이 원본 스케일
         //   값이라 우리 우도(보통 0.0x)에서는 선택되지 않을 수 있다(debt-031). 어느 모드가 실제로
@@ -206,10 +239,15 @@ class Mcl2dLocalizationNode : public rclcpp::Node
         RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000,
                              "mode=%d radius=%.3fm angle=%.4frad w=%.4f (BPTT=%.2f) stopped=%d",
                              em.mode, em.radius, em.angle, loc_->lastModeLikelihood(),
-                             params_.best_particle_tolerant_threshold, stopped ? 1 : 0);
+                             params_.best_particle_tolerant_threshold, last_stopped_ ? 1 : 0);
 
+        publishPose(est, stamp);
+    }
+
+    void publishPose(const Pose2D &est, const builtin_interfaces::msg::Time &stamp)
+    {
         auto msg = toRosPose(est);
-        msg.header.stamp = o.header.stamp; // 관측 시각을 전파한다(발행 시각 now() 로 덮지 않는다)
+        msg.header.stamp = stamp; // 관측 시각을 전파한다(발행 시각 now() 로 덮지 않는다)
         msg.header.frame_id = map_frame_;
         // 공분산을 비워 두면 소비자가 "불확실도 0" 으로 읽는다(코드리뷰 2026-08-07 M1).
         //   파티클 평균 가중치(confidence)가 낮을수록 크게 잡는다 — 절대 스케일이 아니라 순서만
@@ -227,7 +265,7 @@ class Mcl2dLocalizationNode : public rclcpp::Node
         pub_->publish(msg);
 
         if (publish_tf_)
-            publishMapToOdom(est, o.header.stamp);
+            publishMapToOdom(est, stamp);
     }
 
     // map→odom 만 발행한다.
@@ -282,8 +320,11 @@ class Mcl2dLocalizationNode : public rclcpp::Node
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
     std::optional<Pose2D> prev_odom_;
-    std::optional<rclcpp::Time> prev_stamp_;
+    std::optional<rclcpp::Time> prev_stamp_;      // 직전 오도 스탬프
+    std::optional<rclcpp::Time> prev_scan_stamp_; // 직전 스캔 보정 스탬프(슬립 판정 dt 용)
     std::optional<LaserScan> front_, rear_;
+    bool front_fresh_ = false, rear_fresh_ = false; // 아직 보정에 쓰이지 않은 새 스캔인가
+    bool last_stopped_ = false;                     // 오도 콜백이 판정한 최신 정지 여부
     std::string map_frame_, odom_frame_, base_frame_;
     bool publish_tf_ = true;
 };

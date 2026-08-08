@@ -33,3 +33,8 @@ add_test(NAME non_ros_demo COMMAND mcl2d_non_ros_demo)
 add_executable(test_localizer_stopped test/test_localizer_stopped.cpp)
 target_link_libraries(test_localizer_stopped PRIVATE mcl2d_localizer)
 add_test(NAME test_localizer_stopped COMMAND test_localizer_stopped)
+
+# 2-rate 분리(오도 전진 ↔ 스캔 보정) 회귀 — ADR 2026-08-08-mcl2d-two-rate-pose (debt-044).
+add_executable(test_two_rate test/test_two_rate.cpp)
+target_link_libraries(test_two_rate PRIVATE mcl2d_localizer)
+add_test(NAME test_two_rate COMMAND test_two_rate)

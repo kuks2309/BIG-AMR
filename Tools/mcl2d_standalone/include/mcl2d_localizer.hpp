@@ -44,10 +44,29 @@ class Mcl2dLocalizer
     // 초기 자세(주변 산포로 파티클 생성). 맵·라이다 설정 후 호출.
     void setInitialPose(const Pose2D &mean);
 
-    // 한 주기: 직전/현재 오도 + 라이다 스캔들 → 추정 자세.
-    //  stopped: 로봇 정지 여부(슬립 복구 판정용), dt: 경과 시간(s).
+    // ── 원본과 같은 2-rate 구조 (ADR 2026-08-08-mcl2d-two-rate-pose) ────────────────
+    //   원본은 오도 주기와 스캔 주기가 하는 일이 다르다:
+    //     오도 주기 MCLoc::PublishLoc → DoMoveAction : kMove + 자세 전진 + 발행
+    //     스캔 주기 MCLoc::DoNormalUpdateAction      : 산포 + 우도갱신 + 추정 + 리샘플
+
+    // 오도 주기: 파티클을 결정론적으로 전진(kMove)시키고 **발행 자세도 같은 식으로 전진**시킨다
+    //   (원본 moveRobotAccordingToMotion @0x33f4b0). 스캔을 쓰지 않는다. stopped 면 둘 다 생략.
+    Pose2D advanceWithOdom(const Pose2D &prev_odom, const Pose2D &cur_odom, bool stopped = false);
+
+    // 스캔 주기: 산포 모드 선택 → kExtraMove → 우도갱신 → 추정 → 리샘플, 발행 자세를 파티클 평균으로 재설정.
+    //   cur_odom 은 산포 모드 판정의 누적 기준점 갱신용(원본 accumu). dt 는 슬립 복구 판정용 경과시간(s).
+    Pose2D updateWithScan(const std::vector<LaserScan> &scans, const Pose2D &cur_odom, bool stopped = false,
+                          double dt = 0.05);
+
+    // 하위 호환: 위 둘을 순서대로 수행(오도가 올 때마다 스캔도 함께 있는 단일 주기 사용처용).
     Pose2D update(const Pose2D &prev_odom, const Pose2D &cur_odom, const std::vector<LaserScan> &scans,
                   bool stopped = false, double dt = 0.05);
+
+    // 현재 발행 자세(오도 전진분 포함). 스캔 갱신 시 파티클 평균으로 재설정된다.
+    const Pose2D &pose() const
+    {
+        return pose_;
+    }
 
     // 전역 재위치추정(위치 손실 시). 성공하면 true + 상태 Normal 복귀.
     bool relocalize(const Pose2D &center, double radius, double angle_range, const std::vector<LaserScan> &scans);
@@ -89,6 +108,9 @@ class Mcl2dLocalizer
     bool has_prev_est_ = false;
     Pose2D accum_odom_;     // 산포 모드 판정용 기준점 (원본 DoNormalUpdateAction 의 정적 accumu 대응)
     bool has_accum_ = false;
+    Pose2D pose_;           // 발행 자세 — 오도 주기에 전진, 스캔 주기에 파티클 평균으로 재설정
+    double odo_trans_since_scan_ = 0.0;  // 슬립 판정용: 마지막 스캔 갱신 이후 오도 이동량
+    double odo_dtheta_since_scan_ = 0.0;
 };
 
 } // namespace mcl2d

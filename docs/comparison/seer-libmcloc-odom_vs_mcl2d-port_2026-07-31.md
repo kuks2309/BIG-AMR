@@ -276,7 +276,7 @@ odom 자체의 기구학(`*Odometer::CalSpeed`)은 이 테이블 밖이며 이�
 | --- | --- | --- |
 | 1 | 비트 대조 미수행 | **해소** — 오라클 신설·상시 재현 가능(§7.1). 2026-08-07 dθ 원인 규명으로 불일치 17 → **2**. 잔여는 debt-043 |
 | 2 | `RangeRandom` 구현 미확인 | **해소 + 코드 정정** — 원본은 `rand() % (max−min) + min`(libfoundation 0x18c60), **상한 배제**라 `RangeRandom(-1000,1000)` = `[-1000, +999]` 2000개 값이다. 우리는 `[-1000, +1000]` 2001개를 쓰고 있었다 → `uniform_int_distribution(-1000, 999)` 로 정정. 시드는 원본이 `srand(time(NULL))` 1회라 **재현 불가**(우리는 mt19937 고정 시드 유지 — 의도적 이탈) |
-| 3 | 미이식 함수 4개 | **판정 완료** — `moveRobotAccordingToMotion` 은 원본 정상 경로(오도 콜백)에서 매번 도는 구조적 차이 → **debt-044**. `doOffsetMove`/`setLaserMoveOffset` 은 라이다 오프셋 보정 조건부 경로, `getRealControlVar` 는 접근자(로봇좌표 증분 `m[0xf0]`·`m[0xf8]`·`m[0x100]` 반환) |
+| 3 | 미이식 함수 4개 | **1건 이식 완료(2026-08-08)** — `moveRobotAccordingToMotion` 은 원본 정상 경로(오도 콜백)에서 매번 도는 구조적 차이였다. 원본 `PublishLoc`(0x20b9e0)이 그 자세를 `Message_Localization` 으로 발행 ⇒ 우리 `/mcl_pose` 와 같은 소비자로 판정, 파사드를 `advanceWithOdom`/`updateWithScan` 2-rate 로 분리해 이식(**debt-044 해결**, ADR `2026-08-08-mcl2d-two-rate-pose`). 남은 3건: `doOffsetMove`/`setLaserMoveOffset` 은 라이다 오프셋 보정 조건부 경로, `getRealControlVar` 는 접근자(로봇좌표 증분 `m[0xf0]`·`m[0xf8]`·`m[0x100]` 반환) |
 | 4 | 스레딩 | **확정(미이식 유지)** — 원본은 `PfThreadNum=4` ThreadPool 로 파티클을 나눠 `ThreadFunc1/2` 실행. 게다가 난수원이 전역 `rand()` 라 **스레드 경쟁이 있다**(glibc `rand()` 는 내부 락 없음). 우리는 단일 루프 + 인스턴스별 `mt19937` — 재현성 면에서 의도적으로 다르게 둔다 |
 | 5 | 단위 | **확정(무해)** — 원본 내부는 mm, 우리 코어는 m. `supplyControlVar`·`doParticleMove` 는 순수 기하라 단위에 불변이며, 오라클도 같은 수치를 양쪽에 넣어 비트 일치를 확인했다 |
 | 6 | `w` 스케일 정합 | **해소** — `getParticleLikelihood`(0x347920) → `computeLikelihood`(0x357b00) → **`QuadGridSearchMap::getPostProb` tail-call**(357b13). 우리 `likelihoodAt` 은 그 함수와 비트 일치하는 `ObservationField::getPostProb` 를 쓴다. 배포도 `UseOpenCLWithPF=0` 이라 CPU 경로다 ⇒ **스케일 동일**. 임계 0.8 은 원본에서도 잘 성립하지 않는 값이고, 모드 5 가 드문 것은 **원본과 같은 동작**이다(debt-031 의 전제였던 "스케일 불일치" 는 성립하지 않음) |
@@ -287,6 +287,10 @@ odom 자체의 기구학(`*Odometer::CalSpeed`)은 이 테이블 밖이며 이�
 - **결정론 경로(예측)**: `trans`·`direction`·파티클 이동은 **비트 일치**. `dθ` 만 1 ulp 잔여(debt-043).
 - **난수 경로(산포)**: 값 집합은 이제 원본과 같으나(§7.2 #2) **난수원·시드가 다르므로 수열은 다르다** —
   원본이 `srand(time(NULL))` 인 이상 비트 재현은 원리적으로 불가능하다. 분포 수준 동일이 상한이다.
-- **구조**: 액션 분리·모드 트리·임계·정지 분기는 실측대로 이식. 미이식은 debt-044 의 4함수.
+- **구조**: 액션 분리·모드 트리·임계·정지 분기는 실측대로 이식. 2026-08-08 에 **2-rate 분리**(오도 주기 전진 ↔
+  스캔 주기 보정)까지 이식해 `moveRobotAccordingToMotion` 공백을 메웠다. 남은 미이식은 3함수
+  (`doOffsetMove`/`setLaserMoveOffset`·`moveAccordingToMotion`·`getRealControlVar`)와
+  스캔 두절 게이트 `ScanLostTimeThresh`(**debt-048**).
 
-⇒ 정직한 등급: **결정론 경로 = 검증된 동일(1 ulp 예외) · 난수 경로 = 분포 동일 · 구조 = 충실(4함수 미이식)**.
+⇒ 정직한 등급: **결정론 경로 = 소스 동치 확정(1,800/1,800 @ -O0, 배포 `-O2` 는 1 ulp 잔여) ·
+난수 경로 = 분포 동일 · 구조 = 충실(3함수 + 스캔 타임아웃 미이식)**.
