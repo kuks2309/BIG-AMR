@@ -92,7 +92,10 @@ class RelayConfig:
     #   ⚠ 비어 있으면 조향 지령이 **거부**된다. 코드 기본값을 두지 않는 것이 설계다 —
     #   정본은 `config/machine/<기체>.yaml`. (2026-08-02 사용자 지시)
     settle_tol_deg: float = 3.0
-    allow_bringup: bool = False     # 구동/조향 init 시퀀스 송신 여부(실기 미검증)
+    # 구동축 init 시퀀스 송신 여부. ⚠ 이 **코드 기본값은 False** 이지만 배포 설정
+    # `config/can_relay.yaml` 은 true 이며 launch 가 그것을 넣는다 — 실동작은 켜져 있다.
+    # 조향축에는 보내지 않는다(fault reset 이 조향 0° 기준을 지운다). 상세 `_write_bringup`.
+    allow_bringup: bool = False
 
     # ── 호밍 (장비별 캘리브레이션 — config/machine/<기체>.yaml) ──────────
     homing_method: str = "firmware"
@@ -871,19 +874,35 @@ class RelayBackend:
         self.tx_count += len(frames)
 
     def _write_bringup(self):
-        """브링업 시퀀스 — **구동축만**. (기본 비활성)
+        """브링업 시퀀스 — **구동축만**.
 
-        구동축은 이것이 필요하다: 프로세스 재시작 뒤 `node1` 이 `0x60FF` 를 받고도 돌지
-        않는 상태가 재현됐고(2026-08-08 실기: 지령 −4816 인데 실속도 0.1 rpm, 반대편
-        node2 는 78.2 rpm), 이 시퀀스를 보내자 두 축이 함께 정상 복귀했다
-        (node1 +0.0830 m / node2 +0.0794 m). ROS 경로·UI 직결 백엔드가 **둘 다** 실패했고
-        Seer 가 몰면 복구된 것과 정합한다 — 두 PC 경로 모두 브링업을 보내지 않기 때문이다
-        (`protocol.py:160-162`: gui.py 는 Seer 가 세워 둔 축에 올라타 0x60FF 만 덮어쓴다).
+        ⚠ 활성 여부: **코드 기본값은 False**(`RelayConfig.allow_bringup` · `driver_node` 선언).
+        배포 설정 `config/can_relay.yaml` 에서만 true 이며, launch 가 그 파일을 넣으므로
+        **launch 경로에서는 켜져 있다.** 「기본 비활성」이라고 읽지 말 것 — 층마다 다르다.
+
+        구동축은 이것이 필요하다. 2026-08-08 실기에서 can_relay **프로세스 재시작** 뒤
+        `node1` 이 `0x60FF` 를 받고도 돌지 않는 상태가 재현됐다(반대편 `node2` 는 정상):
+
+            ROS 체인 경로   지령 target_vel −4816 · node1 실속도 13~93 / node2 785~873 (0.1 rpm)
+            UI 직결 경로    node1 실측 0.1 rpm / node2 78.2 rpm
+
+        이 시퀀스를 보내자 두 축이 함께 복귀했다(지면 주행 2회):
+
+            1회  node1 +0.0830 m / node2 +0.0794 m  (차 3.6 mm)
+            2회  node1 −0.0888 m / node2 −0.0893 m  (차 0.5 mm)
+
+        ⚠ **`ui/backend_direct.py` 의 DirectBackend 는 아직 이 시퀀스를 보내지 않는다** —
+        그 경로는 같은 고장이 재현된다(debt 등록됨). 「PC 경로 전부 고쳤다」로 읽지 말 것.
+        ⚠ **`node2` 가 같은 조건에서 왜 멀쩡했는지는 미규명**이다. 「재시작이 축 상태를
+        지운다」는 관측이며 기전은 확정되지 않았다.
 
         ⚠ **조향축에는 보내지 않는다.** 같은 날 조향축까지 보냈더니 fault reset 이
         위치 카운터를 지워 **조향 0° 기준이 무효**가 됐다(판독이 −(홈) 으로 떨어지고,
         그 상태의 「0° 로 가라」 지령에 전륜이 실제로 움직였다). 조향 기준 복구는
         `~/home`(호밍) 소관이며 브링업이 대신할 수 있는 일이 아니다.
+
+        ⚠ **debt-017 부분 상환.** 그 부채가 요구한 잭업·E-STOP 상비·`0x6041`/`0x603F`/
+        SDO abort 전수 기록은 **미이행**이다. 근거는 지면 주행의 구동 복귀 관측뿐이다.
         """
         frames = []
         for n in self.cfg.drive_nodes:

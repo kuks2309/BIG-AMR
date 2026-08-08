@@ -32,13 +32,25 @@
     poll_hz: 5.0                  # 피드백 폴링
     settle_tol_deg: 3.0           # 조향 정착 허용치(양축 모두 만족해야 함)
 
-    # ⚠ 브링업(0x6060·0x100C/D·프로파일) 시퀀스는 실기 검증 이력이 없다.
+    # 브링업 = **구동축 전용** 기동 시퀀스(0x6040=0x86 · 0x60FF=0 · 0x100C/0x100D · 0x6060=3 PV).
     # gui.py 에는 이 시퀀스가 없고(근거: 2026-07-29 실행
     #   `grep -nE '0x6060|0x100C|0x100D|0x6081|0x6083|0x6084' Tools/amr_test_gui/gui.py` → 0건)
     # Seer 가 브링업한 축에 올라타는 방식이다. 단 gui.py 가 controlword 를 아예
     # 안 쓰는 것은 아니다 — `gui.py:942` 의 0x6040=0x86 은 조향축 호밍 전용이다.
-    # 잭업 상태에서 확인하기 전까지 false 로 둔다(debt-017).
-    allow_bringup: true      # 구동축 전용 브링업(2026-08-08 실기 검증) — 조향축은 제외
+    #
+    # 2026-08-08 전환(false → true, 커밋 a7420a6): can_relay 프로세스 재시작 뒤 node1 이
+    # 0x60FF 를 받고도 안 도는 고장이 이 시퀀스로 복구됐다(지면 주행 2회, node1/node2 이동차
+    # 0.5~3.6 mm). ⚠ **조향축은 제외** — fault reset 이 위치 카운터를 지워 조향 0° 기준을
+    # 무효화한다(같은 날 실증, `~/home` 으로 복구).
+    #
+    # ⚠ **debt-017 부분 상환일 뿐이다.** 그 부채가 요구한 검증 조건 중
+    #   ① 잭업(바퀴 공중) ② 하드웨어 E-STOP 상비 ③ `0x6041`·`0x603F`·SDO abort 전수 기록
+    #   **셋 다 미이행**이다. 위 근거는 지면 주행에서의 「구동 복귀 관측」뿐이다.
+    #   잔여 검증 전까지 지면 사용 시 감시할 것.
+    # ⚠ **코드 기본값은 여전히 False**(`backend.py` RelayConfig · `driver_node.py` 선언).
+    #   활성화는 이 배포 yaml 에서만 일어난다 — launch 가 이 파일을 params_file 로 넣는다.
+    # ⚠ **UI 직결 백엔드(`ui/backend_direct.py`)는 미수정**이라 그 경로는 같은 고장이 재현된다.
+    allow_bringup: true      # 구동축 전용 브링업 — 조향축 제외 · debt-017 부분 상환
 
     enable_cmd_vel: true          # false 면 직접 지령(~/steer_deg 등)만 연다
     vmax: 0.2                     # m/s
