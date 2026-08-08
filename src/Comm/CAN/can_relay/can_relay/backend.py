@@ -369,7 +369,12 @@ class RelayBackend:
                     notes.append(f"node{mid} 조향축에 mode={P.MODE_NAME.get(mode, mode)} "
                                  f"— POSITION 만 허용, 거부")
                     continue
-                if self.cfg.require_homed_for_steer and not self._homed:
+                # 호밍 출처를 가리지 않는다 — `set_steer_deg`(:271)·`set_steer_axis_deg`(:308)
+                # 와 같은 판정을 쓴다. 예전에는 `self._homed` 만 봐서, Seer 가 호밍해 둔
+                # 상태(bit15=1)인데도 **이 raw 경로만** 조향을 통째로 거부했다
+                # (2026-08-08 실기: ROS2 모션 체인의 crab Phase 0 이 87.65° 를 5초간
+                #  지령했으나 조향 엔코더 0 counts — `homed_effective` 도입 때 누락된 경로).
+                if self.cfg.require_homed_for_steer and not self.homed_effective():
                     notes.append(f"node{mid} 호밍 미완료 — 조향 거부")
                     continue
                 if not S.finite(tpos):
