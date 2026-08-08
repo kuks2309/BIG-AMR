@@ -54,7 +54,12 @@
 
     # -- 공용 (Stage1+Stage2) --
     min_speed_dps: 2.0              # |ω| 하한 (Stage1 floor; Stage2 fine 은 floor 없음)
-    # fine timeout 은 코드에서 진행시간(target/max_ω)×3 으로 적응 계산 (아래 값 미사용)
+    # ⚠ **이 값은 쓰이지 않는다.** 실제 fine timeout 은 코드가 기동 규모에 비례해 적응 계산한다
+    #   (`spin_action_server.cpp:353`  `max(2.0, 3.0 × target_abs / max_ω)`), 그리고 :377 이
+    #   그 계산값으로 판정한다. 여기 값은 `:20` 에서 멤버로 읽히기만 하고 어디서도 안 쓰인다.
+    # ⚠ 그런데 hot-reload 화이트리스트(`:80-81`)에는 **들어 있다** — `ros2 param set` 이
+    #   **성공을 반환하는데 거동은 하나도 바뀌지 않는다.** 단순 dead param 보다 속기 쉬우니
+    #   튜닝 시 이 값을 만지지 말 것. (2026-08-09 확인)
     fine_correction_timeout_sec: 3.0
 
     # -- 정착 판정 게이트 (Stage2 조기종료) — **실제로 쓰인다** --
