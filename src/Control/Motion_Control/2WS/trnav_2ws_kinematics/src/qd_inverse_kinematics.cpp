@@ -32,7 +32,48 @@ IKResult TwoWsDualSteerIK::compute(const VelocityCommand &cmd) const
 
 IKResult TwoWsDualSteerIK::computeSpin(double omega) const
 {
-    return compute({0.0, 0.0, omega});
+    // 인라인 배치(y=0)에서 제자리 회전 자세는 **풀 대상이 아니다** — 근거·사고 이력은 헤더 참조.
+    //   v_i = ω × r_i = (0, ω·x_i)  ⇒  조향 ±90°(부호는 x_i), 속도 |ω·x_i|
+    IKResult result;
+    result.wheels.reserve(wheels_.size());
+
+    for (const auto &wp : wheels_)
+    {
+        WheelOutput out{};
+        const double v = omega * wp.x;   // 바퀴 접점의 횡방향 속도 성분
+
+        if (std::abs(v) < 1e-6)
+        {
+            // ω≈0 이거나 바퀴가 회전축 위에 있다 — 자세를 주장하지 않는다(compute() 와 같은 규약).
+            out.steer_rad = 0.0;
+            out.wheel_speed = 0.0;
+            out.direction = 0;
+            out.drive_rpm = 0.0;
+        }
+        else
+        {
+            // ⚠ 강제. atan2 를 거치지 않으므로 기하가 어긋나도 자세가 흔들리지 않는다.
+            out.steer_rad = std::copysign(M_PI / 2.0, v);
+            out.wheel_speed = std::abs(v);
+            out.direction = 1;
+            out.drive_rpm = (out.wheel_speed / wheel_radius_) * 60.0 / (2.0 * M_PI) * gear_walk_;
+        }
+        result.wheels.push_back(out);
+    }
+
+    return result;
+}
+
+bool TwoWsDualSteerIK::isInline(double tol_m) const
+{
+    for (const auto &wp : wheels_)
+    {
+        if (std::abs(wp.y) > tol_m)
+        {
+            return false;
+        }
+    }
+    return !wheels_.empty();
 }
 
 WheelOutput TwoWsDualSteerIK::computeWheel(double vx, double vy) const

@@ -29,10 +29,13 @@ YawControlReverseActionServer::YawControlReverseActionServer(rclcpp::Node::Share
                                                                "/motion/wheel_cmd/yaw_control_reverse")
 {
     // BicycleModel — wheel positions from base params
-    double w1_x = safeParam("w1_x", 0.330);
-    double w1_y = safeParam("w1_y", 0.135);
-    double w2_x = safeParam("w2_x", -0.330);
-    double w2_y = safeParam("w2_y", -0.135);
+    // ⚠ 기본값은 이 기체(Foil_A082, 인라인 듀얼스티어 · y=0) 기준. QD 대각 기본값
+    //    (±0.330, ±0.135)이 남아 있어 params 없이 띄우면 조용히 QD 기하로 풀렸다
+    //    (2026-08-08 실증: spin 이 ±90° 대신 −67.75° 를 세워 187 mm 병진). 정본은 config/*_params.yaml.
+    double w1_x = safeParam("w1_x", 0.6039);
+    double w1_y = safeParam("w1_y", 0.0);
+    double w2_x = safeParam("w2_x", -0.5961);
+    double w2_y = safeParam("w2_y", 0.0);
     std::vector<WheelPosition> wheels = {{w1_x, w1_y}, {w2_x, w2_y}};
     bicycle_model_ = std::make_unique<BicycleModel>(wheels);
 

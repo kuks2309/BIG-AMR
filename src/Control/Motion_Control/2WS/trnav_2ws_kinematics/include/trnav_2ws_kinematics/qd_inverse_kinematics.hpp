@@ -73,13 +73,37 @@ class TwoWsDualSteerIK
     IKResult compute(const VelocityCommand &cmd) const;
 
     /**
-     * Pure spin convenience wrapper.
-     * Ported from: dual_steer_engine.py::compute_free_normalized(omega)
-     * Equivalent to: compute({0, 0, omega})
+     * 제자리 회전 자세 — **푸는 것이 아니라 강제한다.**
+     *
+     * 이 스택의 기체는 두 바퀴가 x 축 위에 있는 **인라인 듀얼스티어**(y=0)다. 그러면
+     *   v_i = ω × r_i = (−ω·y_i, ω·x_i) = (0, ω·x_i)
+     * 이므로 조향각은 **항상 ±90°** 이고 부호는 x_i 의 부호로 갈린다(앞뒤가 반대 부호).
+     * 바퀴마다 다른 것은 속도 |ω·x_i| 뿐이며 그것만 기하에서 계산한다.
+     *
+     * ⚠ **QD 대각 배치와 다르다.** QD 는 바퀴가 축에서 벗어나 있어 자세가 기하에 따라
+     *   달라지므로 범용 IK 가 필요하다. 이 클래스는 그 배치가 아니다.
+     *
+     * ⚠ 예전에는 `compute({0,0,omega})` 로 범용 IK 를 태웠다. 계산 자체는 맞지만 결과가
+     *   `wheels_[i].y == 0` 에 전적으로 의존해, 기하 파라미터가 어긋나면 **조용히 다른
+     *   자세**가 나왔다 — 2026-08-08 실증: QD 기본값(±0.330, ±0.135)이 흘러들어와
+     *   `atan2(0.330, −0.135) = 112.2°` → ±90° 반평면으로 접힌 **−67.75°(양 축 같은 부호)**
+     *   가 나왔고, 제자리 회전이 **187 mm 병진**이 됐다(SIL). 실기였다면 그대로 밀고 나갔다.
+     *   ⇒ 자세를 강제하고, 전제가 깨졌는지는 `isInline()` 으로 **기동 시 노출**한다.
      *
      * @param omega  Angular velocity (rad/s, +CCW)
      */
     IKResult computeSpin(double omega) const;
+
+    /**
+     * 인라인 전제 검사 — 모든 바퀴가 x 축 위(|y| ≤ tol)인가.
+     *
+     * `computeSpin` 이 ±90° 를 강제할 수 있는 근거이자, 이 클래스를 쓰는 스택 전체의 전제다.
+     * 액션 서버는 **기동 시 이것을 확인하고 거짓이면 소리 내어 막아야 한다** — 조용히
+     * 다른 자세로 도는 것보다 기동 실패가 낫다.
+     *
+     * @param tol_m  허용 오차(m). 기본 1 mm — 실측 휠 좌표의 유효숫자보다 작다.
+     */
+    bool isInline(double tol_m = 1e-3) const;
 
   private:
     /**

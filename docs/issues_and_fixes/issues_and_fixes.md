@@ -47,6 +47,49 @@
 
 ## 2026-08-08
 
+### [Fix] 2WS 액션의 기하 기본값이 QD 대각 잔재 — params 파일이 빠지면 spin 이 조용히 −67.75° 로 돈다
+
+- **문제**: `sil_spin.launch.py` 없이 `ros2 run amr_spin_node` 로 띄우고 spin 을 걸었더니 조향이
+  ±90° 가 아니라 **F=−67.75° / R=−67.75°(양 축 같은 부호)** 로 섰고, 제자리 회전이어야 할 기동이
+  **187 mm 병진**했다(SIL). 회전각 자체는 −44.72°(목표 −45°)로 맞아 **각도만 보면 정상으로 보인다.**
+- **원인**: `trnav_2ws_motion` 이 QD 에서 갈라져 나올 때 **기하 기본값만 안 고쳐졌다.**
+  `qd_action_server_base.hpp` 의 `get_d("w1_y", 0.135)` 등이 QD 대각 배치(±0.330, ±0.135 ·
+  `wheel_radius` 0.080 · `gear_walk` 20.0)를 그대로 들고 있었다. params 파일이 있으면 덮어써서
+  드러나지 않지만, 빠지면 조용히 QD 기하로 풀린다. 산술이 일치한다 —
+  `atan2(0.330, −0.135) = 112.2°` 를 ±90° 반평면으로 접으면 **−67.8°**.
+  같은 잔재가 `mpc`·`mpc_reverse`·`translate_forward`·`translate_reverse`·`yaw_control`·
+  `yaw_control_reverse` 6개 액션 서버에도 개별 복제돼 있었다.
+- **해결**: 세 겹으로 막았다.
+  1. **기하 기본값 정정** — 7곳 전부 이 기체(Foil_A082 인라인 듀얼스티어) 값으로:
+     `w1(0.6039, 0.0)` · `w2(−0.5961, 0.0)` · `wheel_radius 0.125` · `gear_walk 32.0`
+  2. **`computeSpin` 을 IK 풀이에서 강제로 전환** — 인라인 배치는 `v_i = ω × r_i = (0, ω·x_i)`
+     이라 조향각이 ±90° 하나뿐이다. `atan2` 를 거치지 않고 `copysign(π/2, ω·x_i)` 로 박았다.
+     속도 `|ω·x_i|` 만 기하에서 계산한다. **QD 대각 배치는 자세가 기하에 따라 달라져 IK 가
+     필요하지만 이 기체는 다른 조향이다** — 풀 대상이 아니었다.
+  3. **`isInline()` 전제 가드** — `qd_action_server_base` 생성자가 `|w_i.y| > 1 mm` 를 검사해
+     `RCLCPP_FATAL` 후 기동 실패시킨다. 2WS 액션 **9개 전부**에 걸린다.
+- **파일**: `src/Control/Motion_Control/2WS/trnav_2ws_kinematics/{include/.../qd_inverse_kinematics.hpp,
+  src/qd_inverse_kinematics.cpp}` · `trnav_2ws_motion/include/.../qd_action_server_base.hpp` ·
+  `trnav_2ws_action_server/src/{mpc,mpc_reverse,translate_forward,translate_reverse,yaw_control,
+  yaw_control_reverse}/*.cpp`
+- **상태**: 완료 — SIL 3조건 검증:
+
+  | 조건 | 조향 (F, R) | 회전 | 중심 이탈 |
+  | --- | --- | --- | --- |
+  | 수정 전(기본값 QD) | (−67.8, −67.8) | −44.72° | **187 mm** |
+  | 수정 후 · params 있음 | (−90.0, +90.0) | −44.74° (오차 +0.26°) | **0 mm** |
+  | 수정 후 · params 없음 | (−90.0, +90.0) | −44.72° (오차 +0.28°) | **0 mm** |
+  | 수정 후 · QD 기하 주입 | — | — | **기동 실패(FATAL)** |
+
+- ⚠ **미해결·범위 밖**:
+  - **실기 spin 재검증 미실시** — 본 수정은 SIL 로만 확인했다. 오늘 유일한 실기 spin 은 별건의
+    구동 고장 중이었으므로 정상 상태의 실기 spin 기록이 아직 없다.
+  - `compute()`(일반 주행 IK)는 **미변경** — crab·translate 는 자세가 실제로 기하에 의존하므로
+    푸는 것이 맞다. 강제로 바꾼 것은 spin 하나다.
+  - **QD 스택(`trnav_motion_qd`)은 미점검** — 별개 파일이라 이번 변경의 영향은 없으나, 같은
+    기하 기본값 잔재가 있는지는 확인하지 않았다.
+  - **회귀 시험 0건** — 이 변경을 덮는 시험이 없다(debt-047 와 같은 성격).
+
 ### [Fix] 재시작 후 전륜 구동축(node1)이 지령을 받고도 안 돈다 — PC 경로 어디도 구동축 브링업을 보내지 않았다
 
 - **문제**: can_relay 프로세스를 재시작하면 `node1 walk_front` 가 `0x60FF` 를 정상 수신하고도

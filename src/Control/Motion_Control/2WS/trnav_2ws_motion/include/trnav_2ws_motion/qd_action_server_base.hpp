@@ -64,6 +64,21 @@ template <typename ActionT> class TwoWsActionServerBase
         std::vector<WheelPosition> wheels = {{geom.w1_x, geom.w1_y}, {geom.w2_x, geom.w2_y}};
         ik_ = std::make_unique<TwoWsDualSteerIK>(wheels, geom.wheel_radius, geom.gear_walk);
 
+        // ⚠ 인라인 전제 검사 — 이 스택 전체가 「두 바퀴가 x 축 위(y=0)」를 전제로 한다.
+        //   제자리 회전 자세가 ±90° 로 고정인 근거이며, spin 이 그것을 강제한다.
+        //   전제가 깨진 채 돌면 **조용히 다른 자세**로 움직인다 — 2026-08-08 실증:
+        //   QD 대각 기하(±0.330, ±0.135)가 흘러들어와 spin 이 −67.75° 를 세웠고
+        //   제자리 회전이 187 mm 병진이 됐다(SIL). 조용히 도는 것보다 기동 실패가 낫다.
+        if (!ik_->isInline())
+        {
+            RCLCPP_FATAL(node_->get_logger(),
+                         "기하 전제 위반 — 이 스택은 인라인 듀얼스티어(y=0)만 지원한다. "
+                         "w1=(%.4f, %.4f) w2=(%.4f, %.4f). params 파일(`config/*_params.yaml`)이 "
+                         "빠졌거나 QD 대각 기하가 들어왔는지 확인할 것.",
+                         geom.w1_x, geom.w1_y, geom.w2_x, geom.w2_y);
+            throw std::runtime_error("2WS 인라인 전제 위반 — 기하 파라미터 확인 필요");
+        }
+
         // Publishers — trnav_motion_mux contract
         wheel_cmd_pub_ =
             node_->create_publisher<trnav_msgs::msg::WheelSetArray>(publish_topic, rclcpp::QoS(10).reliable());
@@ -221,14 +236,22 @@ template <typename ActionT> class TwoWsActionServerBase
             return node->get_parameter(name).as_string();
         };
 
+        // ⚠ 기본값은 **이 저장소의 기체(Foil_A082, 인라인 듀얼스티어)** 기준이다.
+        //    QD 에서 갈라져 나올 때 대각 배치 기본값(±0.330, ±0.135 · r 0.080 · gear 20)이
+        //    그대로 남아 있었고, params 파일 없이 노드를 띄우면 **조용히 QD 기하로 풀렸다.**
+        //    2026-08-08 실증: 그 상태의 spin 이 조향을 ±90° 가 아니라 **−67.75°(양 축 같은 부호)**
+        //    로 세웠고 — `atan2(0.330, −0.135) = 112.2°` 를 ±90° 반평면으로 접은 값 — 제자리
+        //    회전이 **187 mm 병진**이 됐다(SIL). 실기였다면 그대로 밀고 나갔다.
+        //    인라인 배치는 두 바퀴가 x 축 위(y=0)라 제자리 회전 자세가 ±90° 하나로 고정된다.
+        //    정본은 `config/*_params.yaml` 이며 아래는 그것과 같은 값으로 맞춘 안전한 기본값이다.
         trnav_2ws_core::RobotGeometry geom;
         geom.platform = trnav_2ws_core::parsePlatform(get_s("platform", "QD_DIAGONAL"));
-        geom.w1_x = get_d("w1_x", 0.330);
-        geom.w1_y = get_d("w1_y", 0.135);
-        geom.w2_x = get_d("w2_x", -0.330);
-        geom.w2_y = get_d("w2_y", -0.135);
-        geom.wheel_radius = get_d("wheel_radius", 0.080);
-        geom.gear_walk = get_d("gear_walk", 20.0);
+        geom.w1_x = get_d("w1_x", 0.6039);
+        geom.w1_y = get_d("w1_y", 0.0);
+        geom.w2_x = get_d("w2_x", -0.5961);
+        geom.w2_y = get_d("w2_y", 0.0);
+        geom.wheel_radius = get_d("wheel_radius", 0.125);
+        geom.gear_walk = get_d("gear_walk", 32.0);
         geom.num_wheels = 2; // QD default; other platforms override when added
         return geom;
     }
