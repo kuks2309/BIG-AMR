@@ -32,9 +32,12 @@ class SpinActionServer : public trnav::motion::two_ws::TwoWsActionServerBase<trn
     // Spin precision parameters (from YAML)
     double min_speed_dps_{2.0};
     double fine_correction_threshold_deg_{0.3};
-    double fine_correction_speed_dps_{3.0};
-    double fine_correction_timeout_sec_{3.0};
-    int settling_delay_ms_{200};
+    // ⚠ 제거됨(2026-08-09) — `fine_correction_speed_dps_` · `fine_correction_timeout_sec_` ·
+    //   `settling_delay_ms_`. 셋 다 값을 읽어 담기만 하고 **읽는 코드가 없었다.**
+    //   그중 `fine_correction_timeout_sec` 는 hot-reload 화이트리스트에까지 있어
+    //   `ros2 param set` 이 성공을 반환하면서 거동은 하나도 안 바뀌었다(실측 확인).
+    //   실제 fine timeout 은 기동 규모에 비례해 계산한다 — `.cpp` 의
+    //   `max(2.0, 3.0 × target_abs / max_ω)`. 죽은 손잡이를 남기지 않는다.
     double spin_max_timeout_sec_{60.0};
 
     // start_yaw 원형 이동평균 샘플 수 — 시작 1회 IMU 노이즈가 절대 target 기준 전체를

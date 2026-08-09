@@ -16,9 +16,6 @@ SpinActionServer::SpinActionServer(rclcpp::Node::SharedPtr node, trnav_2ws_core:
     // Spin precision parameters (safeParam handles declare-if-not-declared)
     min_speed_dps_ = safeParam("min_speed_dps", 2.0);
     fine_correction_threshold_deg_ = safeParam("fine_correction_threshold_deg", 0.3);
-    fine_correction_speed_dps_ = safeParam("fine_correction_speed_dps", 3.0);
-    fine_correction_timeout_sec_ = safeParam("fine_correction_timeout_sec", 3.0);
-    settling_delay_ms_ = safeParam("settling_delay_ms", 200);
     spin_max_timeout_sec_ = safeParam("spin_max_timeout_sec", 60.0);
     start_yaw_window_ = safeParam("start_yaw_avg_samples", 10);
 
@@ -77,8 +74,6 @@ SpinActionServer::SpinActionServer(rclcpp::Node::SharedPtr node, trnav_2ws_core:
                     ok = chk(p, 0.05, 5.0, fine_correction_threshold_deg_);
                 else if (n == "control_rate_hz")
                     ok = chk(p, 5.0, 200.0, control_rate_hz_); // 다음 goal 부터 적용
-                else if (n == "fine_correction_timeout_sec")
-                    ok = chk(p, 0.5, 30.0, fine_correction_timeout_sec_);
                 else if (n == "spin_max_timeout_sec")
                     ok = chk(p, 1.0, 300.0, spin_max_timeout_sec_);
                 if (!ok)

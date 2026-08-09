@@ -47,6 +47,31 @@
 
 ## 2026-08-09
 
+### [Fix] 죽은 파라미터 4개를 **주석이 아니라 코드에서** 제거 — set 이 성공을 반환하던 함정
+
+- **문제**: `fine_correction_timeout_sec` 는 값을 읽어 담기만 하고 **읽는 코드가 없는데**
+  hot-reload 화이트리스트에는 들어 있었다. 결과적으로 세 겹의 거짓 긍정 신호를 줬다 —
+  `ros2 param set` 이 **성공 반환**, `param get` 이 **바뀐 값 반환**, 범위 검사(0.5~30) 통과.
+  튜닝하는 사람은 적용됐다고 믿는데 **거동은 하나도 바뀌지 않는다.** 실제 fine timeout 은
+  기동 규모에 비례해 코드가 계산한다(`max(2.0, 3.0 × target_abs / max_ω)`).
+  같은 성격의 죽은 손잡이가 `fine_correction_speed_dps` · `settling_delay_ms` ·
+  `yaw_control_pose_qos` 에도 있었다(모두 코드 참조 0건).
+- **원인**: 고정 타이머를 적응 계산으로 바꾸면서(`:351-352` 주석에 경위 기록)
+  **파라미터·헤더 멤버·화이트리스트 항목을 함께 정리하지 않았다.** 기능은 사라지고 껍데기만 남았다.
+- **해결**: 처음에는 주석으로 함정을 **설명만** 했으나, 그것은 「읽는 사람이 주석을 본다」는
+  전제에 기대는 것이라 **손잡이 자체를 제거**했다 —
+  헤더 멤버 3개 · `safeParam` 선언 3개 · 화이트리스트 분기 1개 · yaml 키 4개.
+- **파일**: `src/Control/Motion_Control/2WS/trnav_2ws_action_server/`
+  `include/trnav_2ws_action_server/spin/spin_action_server.hpp` ·
+  `src/spin/spin_action_server.cpp` · `config/spin_params.yaml` · `config/yaw_control_params.yaml`
+- **상태**: 완료 — 재기동 후 실증:
+
+  ```
+  제거 전  set fine_correction_timeout_sec 10.0 → "Set parameter successful"   (거동 변화 0)
+  제거 후  같은 명령                            → "cannot be set because it was not declared"
+  살아있는 것  settle_rate_dps 판독 0.5 정상 · kp_spin set 정상 · 액션 정상 기동
+  ```
+
 ### [Fix] spin 정착 판정이 느슨해 액션 자기보고와 실제 자세가 어긋났다 — `settle_rate_dps` 2.0 → 0.5
 
 - **문제**: 실기 spin 이 끝난 뒤 **밖에서 잰 값이 액션 자기보고보다 나빴다.**
