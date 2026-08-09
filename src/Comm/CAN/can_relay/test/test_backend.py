@@ -1082,6 +1082,22 @@ def test_steer_allowed_when_drive_reports_homed():
     assert be.snapshot()["homed_effective"] is True
 
 
+def test_low_cmd_steer_allowed_when_drive_reports_homed():
+    """**raw 경로(set_motor_cmds)도** Seer 호밍(bit15=1)을 인정해야 한다.
+
+    set_steer_deg·set_steer_axis_deg 조향 경로는 homed_effective() 인데 raw 경로(backend.py
+    의 steer_nodes 분기)만 원시 self._homed 를 남겨, Seer 가 호밍해 둔 상태에서 상위 모션이
+    /motor/low_cmd 로 조향하면 통째로 거부됐다(crab Phase 0 조향 0 counts 실기 사고). 우리가
+    호밍하지 않아도 드라이브가 「완료」를 보고하면 raw 조향이 통과해야 한다.
+    """
+    link, be = make(require_homed_for_steer=True)
+    assert be._homed is False
+    _mark_homed_by_drive(be)                          # Seer 호밍(우리 호밍 아님)
+    notes = be.set_motor_cmds([mc(3, tpos=1000)])
+    assert not any("호밍 미완료" in n for n in notes)   # 거부되면 안 된다
+    assert 3 in be._steer_counts                       # 목표가 실제로 반영됐다
+
+
 def test_steer_still_blocked_when_drive_says_not_homed():
     """드라이브가 bit15=0 이면 여전히 막는다 — 게이트를 없앤 것이 아니다."""
     link, be = make(require_homed_for_steer=True)
