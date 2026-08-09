@@ -20,11 +20,15 @@ from motor_control.backend import (  # noqa: E402
 )
 from motor_control.kinematics import ModuleCommand  # noqa: E402
 
-# ⚠ 주석 정정 (2026-07-27): 아래 값은 테스트 픽스처일 뿐 '조향 0° 절대 원점'이 아니다.
-#   실기 호밍 완료 후 Seer 가 정착시킨 조향 0° 는 node3 7,882,020 / node4 7,859,062 counts
-#   (= +137.45° / +137.05°, 57344 counts/°; EasyDRIVE steerOffset 138.000 / 137.250 대응)
-#   — Log/homing_capture_220350.jsonl t=49.14. 여기 값과 +10,205 / +18,976 counts 차이가 있다(debt-007).
-#   값 자체는 backend 게이트 산술 검증용이므로 실측 대조 전까지 변경하지 않는다(동작 불변).
+# 조향 0° 정본. `src/Comm/CAN/can_relay/config/machine/foil_a082.yaml` `steer_home_counts`
+# 와 같은 값이며, 픽스처용 임의값이 아니라 저장소가 채택한 0° 그 자체다.
+#   · 「조향 0°」는 Seer 좌표계 기준이다. 물리 직진 앵커는 실재하나 정밀도가 ≈±1°(±57,344 counts)라
+#     counts 소수 자리 판정에는 불충분하다 — 그래서 이 값은 실측 확정값이 아니라 공학적 채택값이다
+#     (근거: `docs/code_review/motor_control/` 의 §물리 직진 앵커 절).
+#   · 혼동 주의: 펌웨어 GOZERO 상수 7,882,020 / 7,859,062
+#     (`Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h:212-213`)는 **0° 가 아니다.**
+#     호밍 후 정착값이며 0° 에서 +10,205 / +18,976 counts = +0.178° / +0.331° 떨어져 있다.
+#     이름에 ZERO 가 붙어 있을 뿐이다.
 HOME = {3: 7871815, 4: 7840086}
 M_S_PER_UNIT = 4.0906e-5
 COUNTS_PER_RAD = 57344.0 * 180.0 / math.pi
