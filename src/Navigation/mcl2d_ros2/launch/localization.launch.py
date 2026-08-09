@@ -32,13 +32,17 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'odom_topic', default_value='/odom',
             description='구독할 오도메트리 토픽'),
+        DeclareLaunchArgument(
+            'scan_topic', default_value='/scan_merged',
+            description='구독할 병합 LaserScan 토픽 (dual_laser_merger 출력)'),
         Node(
             package='mcl2d_ros2',
             executable='mcl2d_localization_node',
             name='mcl2d_localization',
             # YAML 을 먼저 깔고 map_path 를 나중에 얹는다 — 명령줄 인자가 파일 값을 이긴다.
             parameters=[params_file, {'map_path': map_path}],
-            remappings=[('odom', LaunchConfiguration('odom_topic'))],
+            remappings=[('odom', LaunchConfiguration('odom_topic')),
+                        ('scan', LaunchConfiguration('scan_topic'))],
             output='screen',
         ),
     ])

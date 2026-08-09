@@ -28,6 +28,15 @@ void Mcl2dLocalizer::setInitialPose(const Pose2D &mean)
         mounts_.emplace_back(); // 미설정 시 로봇중심 단일 라이다
     pf_ = std::make_unique<ParticleFilter2D>(params_, field_, mounts_, seed_);
     pf_->initialize(mean);
+
+    // 재초기화이므로 직전 추정·누적 기준점도 함께 버린다. 남겨두면 새 자세와 옛 자세의 차가
+    //   한 주기 이동량으로 잡혀 슬립 판정(휠↔레이저 불일치)이 거짓으로 뜨고, 산포 모드 판정의
+    //   누적 기준점도 옛 위치에 묶인다. RViz 의 2D Pose Estimate 처럼 런타임에 부를 수 있으므로
+    //   기동 시 1회 호출만 가정하면 안 된다.
+    has_prev_est_ = false;
+    has_accum_ = false;
+    skid_.reset();
+    report_state_ = LocReportState::Normal;
 }
 
 Pose2D Mcl2dLocalizer::update(const Pose2D &prev_odom, const Pose2D &cur_odom, const std::vector<LaserScan> &scans,

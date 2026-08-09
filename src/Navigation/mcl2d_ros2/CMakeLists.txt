@@ -42,7 +42,14 @@ target_include_directories(mcl2d_localization_node PRIVATE include)
 target_link_libraries(mcl2d_localization_node mcl2d_core_lib)
 ament_target_dependencies(mcl2d_localization_node ${DEPS})
 
-install(TARGETS mcl2d_localization_node DESTINATION lib/${PROJECT_NAME})
+# 맵 서버 — 측위와 책임이 다르다(맵 제공 vs 자세 추정). 내비게이션만 시험할 때 측위 없이
+#   맵만 띄울 수 있도록 별도 실행파일로 둔다. visualization_msgs 는 반사판 마커에만 쓴다.
+find_package(visualization_msgs REQUIRED)
+add_executable(smap_map_server src/smap_map_server.cpp)
+target_link_libraries(smap_map_server mcl2d_core_lib)
+ament_target_dependencies(smap_map_server rclcpp nav_msgs visualization_msgs)
+
+install(TARGETS mcl2d_localization_node smap_map_server DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
