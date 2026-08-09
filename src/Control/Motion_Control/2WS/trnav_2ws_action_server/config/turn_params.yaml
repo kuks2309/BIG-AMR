@@ -37,9 +37,34 @@
     steer_timeout_sec: 5.0    # Phase 0/4 타임아웃 (sec)
 
     # ── Turn precision parameters ──
-    imu_deadband_deg: 0.05              # IMU noise deadband (deg)
-    min_speed_dps: 2.0                  # Decel min speed clamp (deg/s)
-    fine_correction_threshold_deg: 0.3  # Fine correction entry threshold (deg)
-    fine_correction_speed_dps: 3.0      # Fine correction angular speed (deg/s)
-    fine_correction_timeout_sec: 3.0    # Fine correction timeout (sec)
-    settling_delay_ms: 200              # Settling delay between Phase 3 and fine correction (ms)
+    # 2026-08-09 구조 변경: 델타 누적 → 절대 목표 yaw, bang-bang 미세보정 → PD.
+    # 근거·설계: docs/adr/2026-08-09-turn-error-feedback.md
+    #
+    # ⚠ 삭제: imu_deadband_deg · fine_correction_speed_dps · fine_correction_timeout_sec ·
+    #   settling_delay_ms. 앞의 셋은 델타 누적/bang-bang 전용이라 쓸 곳이 없어졌고,
+    #   settling_delay 는 PD 가 연속 제어하므로 불필요하다. **주석으로 남기지 않고 지운다** —
+    #   값만 담고 읽히지 않는 손잡이는 `ros2 param set` 이 성공을 반환하면서 거동은 안 바뀌는
+    #   함정이 된다(2026-08-09 spin_params.yaml 실측 + 사용자 지시).
+    min_speed_dps: 2.0                  # Stage 1(coarse) 각속도 하한. fine 에는 걸지 않는다.
+    fine_correction_threshold_deg: 0.3  # Stage 2 정착 판정 각오차 tol (deg)
+
+    # -- 하이브리드: Stage1(사다리꼴 coarse) → |잔여| ≤ pid_band → Stage2(PD fine) --
+    # ⚠ 아래 3개는 **미검증 출발점**이다. spin 게인(kp 1.7 · band 30°)을 그대로 쓰지 않았다 —
+    #   spin 은 제자리 회전이라 병진 관성이 없고, turn 은 v = ω·R 로 차체가 진행해 플랜트가 다르다.
+    #   인계 지점에서 지령이 튀지 않도록 kp·band ≈ ω_max 가 되게 잡았다:
+    #     R=1.0 m · max_linear_speed 0.05 m/s ⇒ ω_max = 2.86 dps ,  kp·band = 0.6×5 = 3.0 dps
+    #   SIL 로 조정하고, 실기 재측정 전까지 규격을 주장하지 말 것.
+    pid_band_deg: 5.0                   # coarse→PD 인계 임계 (deg)
+    kp_turn: 0.6                        # 비례 게인 (deg/s per deg)
+    kd_turn: 0.1                        # 미분 게인 (derivative-on-error = −실측 회전율)
+    # ⚠ ki 는 **파라미터로도 두지 않는다.** 사용자 지시(2026-08-09):「ki 는 진동을 만들 수
+    #   있으므로 하지말고」. 항상 0 이어야 하는 게인은 손잡이가 아니라 함정이다.
+    #   대가로 정상오차는 남을 수 있다 — spin 과 같은 방침(ki_spin: 0.0).
+
+    # -- 정착 판정 게이트 (Stage2 조기종료) --
+    # 종료: |오차| ≤ fine_correction_threshold_deg AND |실측 회전율| ≤ settle_rate_dps
+    #       가 settle_count cycle 연속. |오차|만 보면 아직 돌고 있는데 도달로 판정한다
+    #       (2026-08-09 spin 실측: 자기보고 0.22° vs 2초 뒤 0.43°). 값은 spin 튜닝값 승계.
+    settle_rate_dps: 0.5
+    settle_count: 5
+    start_yaw_avg_samples: 10           # start_yaw 원형 이동평균 샘플 수 (윈도우 = N / control_rate_hz)

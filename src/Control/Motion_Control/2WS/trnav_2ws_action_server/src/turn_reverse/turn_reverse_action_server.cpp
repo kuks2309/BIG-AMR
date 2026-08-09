@@ -2,7 +2,9 @@
 #include "trnav_2ws_core/math_utils.hpp"  // normalizeAngleDeg — target_angle 입력 정규화
 #include "trnav_msgs/srv/select_motion_source.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <thread>
 
 namespace trnav_2ws_action_server::turn_reverse
@@ -13,13 +15,14 @@ TurnReverseActionServer::TurnReverseActionServer(rclcpp::Node::SharedPtr node, t
                                                   "/motion/wheel_cmd/turn_reverse")
 {
     // TurnReverse precision parameters (safeParam handles declare-if-not-declared)
-    double deadband_deg = safeParam("imu_deadband_deg", 0.05);
-    imu_deadband_rad_ = deadband_deg * M_PI / 180.0;
     min_speed_dps_ = safeParam("min_speed_dps", 2.0);
     fine_correction_threshold_deg_ = safeParam("fine_correction_threshold_deg", 0.3);
-    fine_correction_speed_dps_ = safeParam("fine_correction_speed_dps", 3.0);
-    fine_correction_timeout_sec_ = safeParam("fine_correction_timeout_sec", 3.0);
-    settling_delay_ms_ = safeParam("settling_delay_ms", 200);
+    pid_band_deg_ = safeParam("pid_band_deg", 5.0);
+    kp_turn_ = safeParam("kp_turn", 0.6);
+    kd_turn_ = safeParam("kd_turn", 0.1);
+    settle_rate_dps_ = safeParam("settle_rate_dps", 0.5);
+    settle_count_ = safeParam("settle_count", 5);
+    start_yaw_window_ = safeParam("start_yaw_avg_samples", 10);
 
     // mux active source — execute() 진입부에 select_motion_source service 호출 (정공법: action server 책임).
     motion_source_id_ = safeParam("motion_source_id", 12);
@@ -123,7 +126,6 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     const double turn_steer_rear = ik_steer.wheels[1].steer_rad;
 
     auto start_time = node_->now();
-    double accumulated_angle = 0.0;
 
     // ── Phase 0: Steer Align ──
     feedback->phase = 0;
@@ -186,83 +188,88 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         return;
     }
 
-    // ── Phase 1-3: Trapezoidal profile ──
-    trnav_2ws_core::TrapezoidalProfile profile(target_abs, max_omega_deg, accel_dps2);
-
-    double prev_yaw = last_yaw_rad_.load();
-
-    while (rclcpp::ok() && !profile.isComplete(accumulated_angle))
+    // ── 계상 기준: **절대 목표 yaw** (델타 누적 폐기) ──
+    // 종전에는 IMU yaw 델타를 누적(accumulated_angle)했고 그 누적기에 0 클램프가 있어
+    // 음의 델타가 영구 소실 → 편향이 한 방향으로만 쌓일 수 있었다(debt-048).
+    // 델타를 더하지 않으므로 드리프트·편향이 **원천 소거**된다.
+    // 근거·설계: docs/adr/2026-08-09-turn-error-feedback.md D1
+    //
+    // start_yaw 는 **원형 이동평균**이다. 1회 샘플로 잡으면 그 순간의 IMU 잡음이 기준 전체를
+    // 오프셋한다. yaw 는 ±π wrap 이므로 선형 평균은 ±180° 부근에서 오평균(179°,−179°→0°)
+    // → 반드시 atan2(Σsin, Σcos). 이 구간은 Phase 0 직후로 구동 0 이라 무해하다.
+    double sin_sum = 0.0, cos_sum = 0.0;
+    for (int i = 0; i < start_yaw_window_ && rclcpp::ok(); ++i)
     {
+        publishWheelCmd(0.0, turn_steer_front, 0.0, turn_steer_rear); // 조향 유지(cmd 끊김 방지)
+        double y = last_yaw_rad_.load();
+        sin_sum += std::sin(y);
+        cos_sum += std::cos(y);
+        rate.sleep();
+    }
+    const double start_yaw = std::atan2(sin_sum, cos_sum);
+    const double target_imu_yaw = start_yaw + sign * target_abs * M_PI / 180.0;
+
+    // 부호 있는 **전역** 잔여 회전[deg]. + 면 CCW 로 더, − 면 CW 로 되돌려야 한다.
+    // `sign * e` 가 「진행 방향 기준 잔여」로, 종전 `target_abs − accumulated_angle` 과 같은 의미다.
+    auto remaining_signed_deg = [&](double cur_yaw) -> double {
+        return trnav_2ws_core::normalizeAngle(target_imu_yaw - cur_yaw) * 180.0 / M_PI;
+    };
+    // 달성 회전량[deg] = 지령 − 잔여. **과회전도 정확히 반영**된다(e 가 반대부호가 되므로 커진다).
+    // ⚠ spin 은 `sign*(target_abs − |e|)` 를 쓰는데 그 식은 과회전을 부족처럼 줄여 보고한다.
+    //   여기서는 의도적으로 다르게 간다(spin 쪽은 별건).
+    auto achieved_deg = [&](double e) -> double { return sign * target_abs - e; };
+
+    const double dt = 1.0 / control_rate_hz_;
+
+    // ── 지령 변환 (Stage 1·2 공용) ──
+    // vx = −sign · ω · R ,  ωz = ω   ⇒  |v/ω| = R 보존 → IK 조향각 **불변**.
+    // ω 가 반대부호가 되면 vx 도 함께 뒤집혀 **같은 조향각 그대로 원호를 되짚는다** —
+    // 조향은 Phase 0 이후 Phase 4 까지 움직이지 않는다.
+    // ⚠ fine 에서 조향을 다시 세우는 것은 금지다(종전 computeSpin 전례 — 아래 Stop 주석 참조).
+    // 후진: vx 만 부호 반전(ω 는 유지) — ADR 2026-08-09-turn-reverse D2.
+    double vx = 0.0;
+    auto publish_arc = [&](double omega_rad_signed) {
+        vx = -sign * omega_rad_signed * turn_radius;
+        auto ik_out = ik_->compute({vx, 0.0, omega_rad_signed});
+        publishWheelCmd(ik_out.wheels[0].wheel_speed * ik_out.wheels[0].direction, ik_out.wheels[0].steer_rad,
+                        ik_out.wheels[1].wheel_speed * ik_out.wheels[1].direction, ik_out.wheels[1].steer_rad);
+        return ik_out;
+    };
+
+    // ── Stage 1 (coarse): Phase 1-3 사다리꼴 — |잔여| > pid_band 구간 ──
+    // 프로파일은 그대로 두고 **입력만** 누적각 → 절대오차에서 도출한 진행량으로 바꿨다.
+    trnav_2ws_core::TrapezoidalProfile profile(target_abs, max_omega_deg, accel_dps2);
+    double error_deg = remaining_signed_deg(last_yaw_rad_.load());
+
+    while (rclcpp::ok())
+    {
+        error_deg = remaining_signed_deg(last_yaw_rad_.load());
+        double remaining_abs = std::fabs(error_deg);
+        double progress_deg = target_abs - remaining_abs; // 0..target (프로파일 입력)
+        if (progress_deg < 0.0)
+            progress_deg = 0.0;
+
+        auto prof_out = profile.getSpeed(progress_deg);
+
+        // 인계: 남은 오차가 band 안으로 들어오면 Stage 2(PD)로 넘긴다.
+        if (remaining_abs <= pid_band_deg_ || prof_out.phase == trnav_2ws_core::ProfilePhase::DONE)
+            break;
+
         if (goal_handle->is_canceling())
         {
             publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
             result->status = -1;
             this->reportResult(result->status); // 종료 코드 토픽 발행 (bag 기록용)
-            result->actual_angle = sign * accumulated_angle;
+            result->actual_angle = achieved_deg(error_deg);
             result->elapsed_time = (node_->now() - start_time).seconds();
             goal_handle->canceled(result);
             return;
         }
 
-        auto prof_out = profile.getSpeed(accumulated_angle);
         double omega_dps = prof_out.speed;
-        if (prof_out.phase != trnav_2ws_core::ProfilePhase::DONE && omega_dps < min_speed_dps_)
-        {
-            omega_dps = min_speed_dps_;
-        }
-        double omega_rad = omega_dps * M_PI / 180.0;
-        double v = omega_rad * turn_radius;
-
-        auto ik_out = ik_->compute({-v, 0.0, sign * omega_rad}); // 후진: vx 반전(ω 유지)
-        double vel_f = ik_out.wheels[0].wheel_speed * ik_out.wheels[0].direction;
-        double ang_f = ik_out.wheels[0].steer_rad;
-        double vel_r = ik_out.wheels[1].wheel_speed * ik_out.wheels[1].direction;
-        double ang_r = ik_out.wheels[1].steer_rad;
-
-        publishWheelCmd(vel_f, ang_f, vel_r, ang_r);
-
-        double current_yaw = last_yaw_rad_.load();
-        double delta_yaw = current_yaw - prev_yaw;
-        if (delta_yaw > M_PI)
-            delta_yaw -= 2.0 * M_PI;
-        else if (delta_yaw < -M_PI)
-            delta_yaw += 2.0 * M_PI;
-        if (std::abs(delta_yaw) < imu_deadband_rad_)
-        {
-            // Skip noise
-        }
-        else
-        {
-            // 진행량은 **목표 방향 성분만** 센다.
-            //
-            // 종전에는 `+= std::abs(delta_yaw)` 였다 — 방향을 보지 않아 뒤로 읽힌 델타까지
-            // 전진으로 계상했다. 잡음이 좌우 대칭이어도 항상 더하므로 편향이 한 방향으로만
-            // 쌓이고, 결과적으로 **덜 돌았는데 다 돌았다고 판정**한다.
-            //
-            // 2026-08-06 SIL 실측(목표 45° · R=1.0 m · 관성 0.6 s · IMU yaw 잡음 0.05° 1σ):
-            //   종전  실제오차 평균 −0.536° · |최대| 0.846° · σ 0.221°
-            //   현행  실제오차 평균 −0.166° · |최대| 0.239° · σ 0.064°
-            // 종전은 미세보정 임계 0.3° 를 **원리적으로 달성할 수 없었다**(자기 측정이 그보다
-            // 더 틀린다). 무잡음·즉응 플랜트에서는 측정오차가 정확히 0.000° 라 이 결함이
-            // 보이지 않았다 — 플랜트에 동특성·잡음을 넣고서야 드러났다.
-            //
-            // 이 식은 정착 블록(:286-)·미세보정 루프(:359-)의 if/else 와 **수학적으로 동일**하다:
-            //   sign·delta_deg > 0 → |delta_deg| =  sign·delta_deg  → `+= |delta_deg|` 와 같음
-            //   sign·delta_deg < 0 → |delta_deg| = −sign·delta_deg  → `-= |delta_deg|` 와 같음
-            // 즉 새 규칙이 아니라 **주 루프만 빠져 있던 같은 규약**을 맞춘 것이다.
-            //
-            // ⚠ QD 상류(`QD/…/turn_action_server.cpp:233`)는 종전 형태로 남아 있다 —
-            //   같은 결함을 가지며, 이 저장소의 2WS 만 정정했다.
-            // ⚠ 더 나은 방식은 `spin` 이 이미 쓴다 — 시작 시 **절대 목표 yaw** 를 잡고
-            //   `normalizeAngle(target_imu_yaw − cur_yaw)` 로 재면 델타 누적 자체가 없어져
-            //   드리프트·편향이 원천 소거된다(`spin_action_server.cpp:276`).
-            //   turn 을 그 방식으로 옮기는 것은 별건(구조 변경).
-            double delta_deg = delta_yaw * 180.0 / M_PI;
-            accumulated_angle += sign * delta_deg;
-            if (accumulated_angle < 0.0)
-                accumulated_angle = 0.0;
-            prev_yaw = current_yaw;
-        }
+        if (omega_dps < min_speed_dps_)
+            omega_dps = min_speed_dps_; // coarse 전용 하한 (fine 에는 걸지 않는다)
+        auto ik_out = publish_arc(sign * omega_dps * M_PI / 180.0);
 
         uint8_t phase_id;
         switch (prof_out.phase)
@@ -273,18 +280,15 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         case trnav_2ws_core::ProfilePhase::CRUISE:
             phase_id = 2;
             break;
-        case trnav_2ws_core::ProfilePhase::DECEL:
-            phase_id = 3;
-            break;
         default:
             phase_id = 3;
             break;
         }
         feedback->phase = phase_id;
-        feedback->current_angle = sign * accumulated_angle;
-        feedback->current_linear_speed = v;
+        feedback->current_angle = achieved_deg(error_deg);
+        feedback->current_linear_speed = std::fabs(vx);
         feedback->current_angular_speed = sign * omega_dps;
-        feedback->remaining_angle = target_abs - accumulated_angle;
+        feedback->remaining_angle = sign * error_deg;
         feedback->w1_drive_rpm = ik_out.wheels[0].drive_rpm;
         feedback->w2_drive_rpm = ik_out.wheels[1].drive_rpm;
         goal_handle->publish_feedback(feedback);
@@ -292,123 +296,76 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         rate.sleep();
     }
 
-    // ── Settling Delay ──
-    publishWheelCmd(0.0, turn_steer_front, 0.0, turn_steer_rear);
-    rclcpp::sleep_for(std::chrono::milliseconds(settling_delay_ms_));
+    // ── Stage 2 (fine): **PD 오차 피드백** ──
+    // ω = kp·e + kd·ė   (ė = (e − e_prev)/dt = −실측 yaw rate)
+    // ki 는 두지 않는다 — 사용자 지시(2026-08-09):「ki 는 진동을 만들 수 있으므로 하지말고」.
+    // |ω| 상한만 clamp하고 **하한 floor 는 걸지 않는다** — 목표 근처에서 ≥min 을 강제하면
+    // 한계진동이 된다(spin 과 같은 규약).
+    // 타임아웃은 파라미터가 아니라 기동 규모에 비례해 계산한다.
+    const double fine_timeout_sec = std::max(2.0, 3.0 * target_abs / std::max(max_omega_deg, 1e-6));
+    auto fine_start = node_->now();
+    double prev_error = remaining_signed_deg(last_yaw_rad_.load());
+    int settle_cnt = 0;
 
-    // IMU update during settling
+    while (rclcpp::ok())
     {
-        double current_yaw = last_yaw_rad_.load();
-        double delta_yaw = current_yaw - prev_yaw;
-        if (delta_yaw > M_PI)
-            delta_yaw -= 2.0 * M_PI;
-        else if (delta_yaw < -M_PI)
-            delta_yaw += 2.0 * M_PI;
-        if (std::abs(delta_yaw) >= imu_deadband_rad_)
+        error_deg = remaining_signed_deg(last_yaw_rad_.load());
+        double derivative = (error_deg - prev_error) / dt; // = −(실측 회전율)[deg/s]
+        prev_error = error_deg;
+
+        if (goal_handle->is_canceling())
         {
-            double delta_deg = delta_yaw * 180.0 / M_PI;
-            if (sign * delta_deg > 0.0)
-            {
-                accumulated_angle += std::abs(delta_deg);
-            }
-            else
-            {
-                accumulated_angle -= std::abs(delta_deg);
-                if (accumulated_angle < 0.0)
-                    accumulated_angle = 0.0;
-            }
-            prev_yaw = current_yaw;
+            publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
+            result->status = -1;
+            this->reportResult(result->status); // 종료 코드 토픽 발행 (bag 기록용)
+            result->actual_angle = achieved_deg(error_deg);
+            result->elapsed_time = (node_->now() - start_time).seconds();
+            goal_handle->canceled(result);
+            return;
         }
-    }
 
-    // ── Phase 3.5: Fine Correction ──
-    double angle_error = target_abs - accumulated_angle;
-
-    if (std::abs(angle_error) > fine_correction_threshold_deg_)
-    {
-        // 조향은 원호 자세(turn_steer_front/rear)를 그대로 쓴다 — 재정렬 없음.
-        // 종전에는 여기서 computeSpin 으로 ±90° 스핀 자세로 갈아탔는데, 그것은
-        // 별도 spin 액션과 같은 기동을 turn 안에서 다시 구현한 것이었다.
-        // R=5 m 기준 조향을 173° 더 움직였고, 그 자세가 translator 영점 오프셋을
-        // 거치며 raw 91.55° 가 되어 can_relay 클램프 상한을 밀어올린 원인이었다.
-
-        // ── Fine correction loop ──
-        auto fine_start = node_->now();
-        double fine_omega_dps = fine_correction_speed_dps_;
-
-        while (rclcpp::ok() && std::abs(angle_error) > fine_correction_threshold_deg_)
+        // ── 정착 게이트 ──
+        // |오차| ≤ tol **AND** |실측 회전율| ≤ settle_rate 가 settle_count cycle 연속.
+        // |오차|만 보고 끝내면 **아직 돌고 있는데 도달로 판정**해, 액션이 값을 읽은 뒤 차체가
+        // 더 움직인다 — 2026-08-09 spin 에서 실측한 함정(자기보고 0.22° vs 2초 뒤 0.43°).
+        if (std::fabs(error_deg) <= fine_correction_threshold_deg_ && std::fabs(derivative) <= settle_rate_dps_)
         {
-            if (goal_handle->is_canceling())
+            if (++settle_cnt >= settle_count_)
             {
-                publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
-                result->status = -1;
-                this->reportResult(result->status); // 종료 코드 토픽 발행 (bag 기록용)
-                result->actual_angle = sign * accumulated_angle;
-                result->elapsed_time = (node_->now() - start_time).seconds();
-                goal_handle->canceled(result);
-                return;
-            }
-
-            if ((node_->now() - fine_start).seconds() > fine_correction_timeout_sec_)
-            {
-                RCLCPP_WARN(node_->get_logger(), "TurnReverse fine correction timeout, error=%.2f deg", angle_error);
+                RCLCPP_INFO(node_->get_logger(),
+                            "TurnReverse fine(PD) settled (e=%.2f deg, |rate|=%.2f<=%.2f dps, %d cyc) — early stop",
+                            error_deg, std::fabs(derivative), settle_rate_dps_, settle_count_);
+                publishWheelCmd(0.0, turn_steer_front, 0.0, turn_steer_rear);
                 break;
             }
-
-            // 부족(+)이면 원호를 마저 진행, 초과(−)면 같은 조향각 그대로 후진해 되돌린다.
-            // v 와 ω 의 부호가 함께 뒤집히므로 v/ω = turn_radius 가 보존되고,
-            // IK 가 내는 조향각은 원호 자세와 동일하다 — 조향은 움직이지 않는다.
-            const double travel_dir = (angle_error > 0.0) ? 1.0 : -1.0;
-            double omega_mag = fine_omega_dps * M_PI / 180.0;
-            double omega_rad = travel_dir * sign * omega_mag;
-            double v_fine = travel_dir * omega_mag * turn_radius;
-            // ⚠ 후진: v_fine **만** 반전한다. ω 는 travel_dir 로 이미 뒤집히므로
-            //   v/ω 가 주 루프와 같은 부호 반경(−R)이 되어 조향 자세가 보존된다.
-            //   둘 다 반전하면 +R 이 되어 조향이 전진 원호 자세로 튄다.
-            auto ik_out = ik_->compute({-v_fine, 0.0, omega_rad});
-
-            double vel_f = ik_out.wheels[0].wheel_speed * ik_out.wheels[0].direction;
-            double ang_f = ik_out.wheels[0].steer_rad;
-            double vel_r = ik_out.wheels[1].wheel_speed * ik_out.wheels[1].direction;
-            double ang_r = ik_out.wheels[1].steer_rad;
-            publishWheelCmd(vel_f, ang_f, vel_r, ang_r);
-
-            double current_yaw = last_yaw_rad_.load();
-            double delta_yaw = current_yaw - prev_yaw;
-            if (delta_yaw > M_PI)
-                delta_yaw -= 2.0 * M_PI;
-            else if (delta_yaw < -M_PI)
-                delta_yaw += 2.0 * M_PI;
-
-            if (std::abs(delta_yaw) >= imu_deadband_rad_)
-            {
-                double delta_deg = delta_yaw * 180.0 / M_PI;
-                if (sign * delta_deg > 0.0)
-                {
-                    accumulated_angle += std::abs(delta_deg);
-                }
-                else
-                {
-                    accumulated_angle -= std::abs(delta_deg);
-                    if (accumulated_angle < 0.0)
-                        accumulated_angle = 0.0;
-                }
-                prev_yaw = current_yaw;
-            }
-
-            angle_error = target_abs - accumulated_angle;
-
-            feedback->phase = 3;
-            feedback->current_angle = sign * accumulated_angle;
-            feedback->current_linear_speed = v_fine;
-            feedback->current_angular_speed = sign * fine_omega_dps * (angle_error > 0 ? 1.0 : -1.0);
-            feedback->remaining_angle = angle_error;
-            feedback->w1_drive_rpm = ik_out.wheels[0].drive_rpm;
-            feedback->w2_drive_rpm = ik_out.wheels[1].drive_rpm;
-            goal_handle->publish_feedback(feedback);
-
-            rate.sleep();
         }
+        else
+        {
+            settle_cnt = 0;
+        }
+
+        if ((node_->now() - fine_start).seconds() > fine_timeout_sec)
+        {
+            RCLCPP_WARN(node_->get_logger(), "TurnReverse fine(PD) timeout (%.1f s), error=%.2f deg", fine_timeout_sec,
+                        error_deg);
+            publishWheelCmd(0.0, turn_steer_front, 0.0, turn_steer_rear);
+            break;
+        }
+
+        double omega_dps = kp_turn_ * error_deg + kd_turn_ * derivative;
+        omega_dps = std::max(-max_omega_deg, std::min(max_omega_deg, omega_dps));
+        auto ik_out = publish_arc(omega_dps * M_PI / 180.0);
+
+        feedback->phase = 3;
+        feedback->current_angle = achieved_deg(error_deg);
+        feedback->current_linear_speed = std::fabs(vx);
+        feedback->current_angular_speed = omega_dps;
+        feedback->remaining_angle = sign * error_deg;
+        feedback->w1_drive_rpm = ik_out.wheels[0].drive_rpm;
+        feedback->w2_drive_rpm = ik_out.wheels[1].drive_rpm;
+        goal_handle->publish_feedback(feedback);
+
+        rate.sleep();
     }
 
     // Stop driving — 원호 자세를 유지한 채 구동만 0.
@@ -432,14 +389,14 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
                 publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
                 result->status = -1;
                 this->reportResult(result->status); // 종료 코드 토픽 발행 (bag 기록용)
-                result->actual_angle = sign * accumulated_angle;
+                result->actual_angle = achieved_deg(error_deg);
                 result->elapsed_time = (node_->now() - start_time).seconds();
                 goal_handle->canceled(result);
                 return;
             }
 
             publishWheelCmd(0.0, exit_steer_rad, 0.0, exit_steer_rad);
-            feedback->current_angle = sign * accumulated_angle;
+            feedback->current_angle = achieved_deg(error_deg);
             feedback->current_linear_speed = 0.0;
             feedback->current_angular_speed = 0.0;
             feedback->remaining_angle = 0.0;
@@ -467,13 +424,13 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     // Success
     result->status = 0;
     this->reportResult(result->status); // 종료 코드 토픽 발행 (bag 기록용)
-    result->actual_angle = sign * accumulated_angle;
+    result->actual_angle = achieved_deg(error_deg);
     result->elapsed_time = (node_->now() - start_time).seconds();
     goal_handle->succeed(result);
-    double final_error = target_abs - accumulated_angle;
+    double final_error = sign * error_deg; // 진행 방향 기준 잔여(+ 부족 / − 과회전)
     RCLCPP_INFO(node_->get_logger(),
                 "TurnReverse complete: target=%.1f° (normalized=%.1f°), actual=%.1f, error=%.2f deg, R=%.2f m, time=%.1f s",
-                goal->target_angle, target_angle_deg, sign * accumulated_angle, final_error, goal->turn_radius,
+                goal->target_angle, target_angle_deg, achieved_deg(error_deg), final_error, goal->turn_radius,
                 result->elapsed_time);
     if (std::abs(final_error) > 2.0)
     {

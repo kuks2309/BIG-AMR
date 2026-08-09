@@ -23,9 +23,9 @@ Rotation)이 **차체 중심**에 선다. R=1.0 m 에서 전륜 +31.13°/후륜 
 
 | # | 함수 | 입력 | 출력 | 기능 | 위치(file:line) |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `TurnActionServer.TurnActionServer` | `node`, `action_mutex` | — | 베이스 초기화, `turn_params.yaml` 파라미터 로드(IMU 데드밴드·최소속도·미세보정 3종·정착지연) | `src/turn/turn_action_server.cpp:11` |
+| 1 | `TurnActionServer.TurnActionServer` | `node`, `action_mutex` | — | 베이스 초기화, `turn_params.yaml` 로드(coarse 하한·정착 tol·`pid_band_deg`·`kp_turn`·`kd_turn`·정착 게이트 2종·`start_yaw_avg_samples`) | `src/turn/turn_action_server.cpp:11` |
 | 2 | `TurnActionServer.validateGoal` | `Turn::Goal` | `bool` | `turn_radius > 0`·`max_linear_speed > 0`·`accel_angle > 0` 검사. 위반 시 거부 | `src/turn/turn_action_server.cpp:31` |
-| 3 | `TurnActionServer.execute` | `GoalHandle` | `void` | Phase 0 조향정렬 → Phase 1-3 사다리꼴 프로파일 → 정착 → Phase 3.5 미세보정 → 정지 → Phase 4 조향복귀 | `src/turn/turn_action_server.cpp:63` |
+| 3 | `TurnActionServer.execute` | `GoalHandle` | `void` | Phase 0 조향정렬 → **start_yaw 원형평균(절대 기준 확립)** → Stage 1 사다리꼴 coarse(진행량 = target−\|e\|) → \|e\|≤`pid_band` 인계 → **Stage 2 PD fine(오차 피드백)** + 정착 게이트 → Phase 4 조향복귀. 2026-08-09 구조 변경(ADR `2026-08-09-turn-error-feedback`) | `src/turn/turn_action_server.cpp:63` |
 
 베이스 클래스(`trnav_2ws_motion/qd_action_server_base.hpp`)의 `publishWheelCmd`·
 `guardSteer`·`wheelStateCallback`·`imuCallback` 등은 **별도 모듈**이므로 그 모듈의
@@ -58,12 +58,12 @@ Rotation)이 **차체 중심**에 선다. R=1.0 m 에서 전륜 +31.13°/후륜 
 | # | 멤버 | 사용처(함수) | 기능 | 위치(file:line) |
 | --- | --- | --- | --- | --- |
 | 1 | `motion_source_id_` (가변, 기동 후 불변) | 1, 3 | mux 소스 id = 5. 액션이 스스로 `/select_motion_source` 호출 | `include/…/turn_action_server.hpp:30` |
-| 2 | `imu_deadband_rad_` (가변, 기동 후 불변) | 3 | yaw 델타 잡음 임계. **스킵 시 `prev_yaw` 를 갱신하지 않으므로 각이 소실되지 않고 이월된다**(최종 미계상 ≤ 임계) | `include/…/turn_action_server.hpp:33` |
-| 3 | `min_speed_dps_` (가변, 기동 후 불변) | 3 | 감속 구간 각속도 하한 | `include/…/turn_action_server.hpp:34` |
-| 4 | `fine_correction_threshold_deg_` (가변, 기동 후 불변) | 3 | Phase 3.5 진입 임계(0.3°) | `include/…/turn_action_server.hpp:35` |
-| 5 | `fine_correction_speed_dps_` (가변, 기동 후 불변) | 3 | 보정 각속도(3.0 deg/s) | `include/…/turn_action_server.hpp:36` |
-| 6 | `fine_correction_timeout_sec_` (가변, 기동 후 불변) | 3 | 보정 타임아웃(3.0 s) | `include/…/turn_action_server.hpp:37` |
-| 7 | `settling_delay_ms_` (가변, 기동 후 불변) | 3 | 프로파일 종료 후 정착 대기(200 ms) | `include/…/turn_action_server.hpp:38` |
+| 2 | `min_speed_dps_` (가변, 기동 후 불변) | 3 | **Stage 1(coarse) 전용** 각속도 하한. Stage 2(PD)에는 걸지 않는다 — 목표 근처 강제 최소속도는 한계진동 | `include/…/turn_action_server.hpp:43` |
+| 3 | `fine_correction_threshold_deg_` (가변, 기동 후 불변) | 3 | Stage 2 정착 판정 각오차 tol. **잔여 오차를 사실상 이 값이 정한다** — SIL 에서 0.3→0.05 로 조이자 실제오차 −0.264°→−0.041° | `include/…/turn_action_server.hpp:44` |
+| 4 | `pid_band_deg_` (가변, 기동 후 불변) | 3 | coarse→PD 인계 임계. `kp·band ≈ ω_max` 가 되게 잡아 인계 지점에서 지령이 튀지 않게 한다 | `include/…/turn_action_server.hpp:47` |
+| 5 | `kp_turn_` · `kd_turn_` (가변, 기동 후 불변) | 3 | Stage 2 PD 게인. **`ki` 는 파라미터로도 없다**(사용자 지시 — 진동 위험; 항상 0 이어야 할 게인은 함정) | `include/…/turn_action_server.hpp:48-49` |
+| 6 | `settle_rate_dps_` · `settle_count_` (가변, 기동 후 불변) | 3 | 정착 게이트 — \|e\|≤tol **AND** \|실측 회전율\|≤rate 가 count cycle 연속. \|e\|만 보면 아직 도는 중에 도달로 판정한다 | `include/…/turn_action_server.hpp:53-54` |
+| 7 | `start_yaw_window_` (가변, 기동 후 불변) | 3 | `start_yaw` 원형 이동평균 샘플 수. 1회 샘플이면 그 순간 IMU 잡음이 절대 기준 전체를 오프셋 | `include/…/turn_action_server.hpp:55` |
 
 **전역 필요성 평가**: 전부 파라미터 캐시로 클래스 멤버가 적절.
 
@@ -156,7 +156,7 @@ QD 상류를 `--path` 로 지정하면 `:233` 을 잡고 `exit 1` 이 난다.
 | --- | --- | --- | --- | --- | --- |
 | 1 | `TurnReverseActionServer.TurnReverseActionServer` | `node`, `action_mutex` | — | 베이스 초기화, `turn_reverse_params.yaml` 로드. 액션명 `amr_motion_turn_reverse_abstract`, 발행 `/motion/wheel_cmd/turn_reverse` | `src/turn_reverse/turn_reverse_action_server.cpp:10` |
 | 2 | `TurnReverseActionServer.validateGoal` | `TurnReverse::Goal` | `bool` | `turn_radius > 0`·`max_linear_speed > 0`(**magnitude**)·`accel_angle > 0` 검사 | `src/turn_reverse/turn_reverse_action_server.cpp:31` |
-| 3 | `TurnReverseActionServer.execute` | `GoalHandle` | `void` | Phase 0 조향정렬 → Phase 1-3 사다리꼴 → 정착 → Phase 3.5 미세보정 → 정지 → Phase 4 조향복귀. 전진판과 동일 구조 | `src/turn_reverse/turn_reverse_action_server.cpp:63` |
+| 3 | `TurnReverseActionServer.execute` | `GoalHandle` | `void` | Phase 0 조향정렬 → start_yaw 원형평균 → Stage 1 사다리꼴 coarse → Stage 2 PD fine + 정착 게이트 → Phase 4 조향복귀. 전진판과 동일 구조(`vx` 부호만 반전) | `src/turn_reverse/turn_reverse_action_server.cpp:63` |
 
 ## 전진판과의 차이 — IK 입력 `vx` 부호 3곳
 
@@ -175,13 +175,13 @@ QD 상류를 `--path` 로 지정하면 `:233` 을 잡고 `exit 1` 이 난다.
 | # | 멤버 | 사용처(함수) | 기능 | 위치(file:line) |
 | --- | --- | --- | --- | --- |
 | 1 | `motion_source_id_` (가변, 기동 후 불변) | 1, 3 | mux 소스 id = **12**. 10·11 은 stanley 예약이라 침범하지 않는다. 계약 정본은 `trnav_motion_mux.yaml` 의 Reserved IDs 주석 | `include/…/turn_reverse_action_server.hpp:40` |
-| 2~7 | `imu_deadband_rad_` · `min_speed_dps_` · `fine_correction_threshold_deg_` · `fine_correction_speed_dps_` · `fine_correction_timeout_sec_` · `settling_delay_ms_` | 3 | 전진판과 같은 yaml 키·같은 의미 | `include/…/turn_reverse_action_server.hpp:44-49` |
+| 2~7 | `min_speed_dps_` · `fine_correction_threshold_deg_` · `pid_band_deg_` · `kp_turn_` · `kd_turn_` · `settle_rate_dps_` · `settle_count_` · `start_yaw_window_` | 3 | 전진판과 같은 yaml 키·같은 의미. 삭제된 이름: `imu_deadband_deg` · `fine_correction_speed_dps` · `fine_correction_timeout_sec` · `settling_delay_ms` | `include/…/turn_reverse_action_server.hpp:52-65` |
 
 ## 검증 이력 (2026-08-09)
 
 | 항목 | 도구·조건 | 결과 |
 | --- | --- | --- |
-| 각도 계상 회귀 | `turn_angle_accounting_check.py --path …/turn_reverse_action_server.cpp` | 계상 5곳 모두 방향 반영 · `exit 0` (자체시험 5/5) |
+| 각도 계상 회귀 | `turn_angle_accounting_check.py --path …/turn_reverse_action_server.cpp` | ⚠ **2026-08-09 무효** — 이 검사기는 델타 누적 계상을 보는데 그 계상이 사라졌다(절대 목표 yaw 로 교체). 검사기 갱신 전까지 결과를 근거로 쓰지 말 것 |
 | SIL 후진 | 헤딩 +20°, R=1.0 | 헤딩 +20.16° · 변위 350 mm · 차체기준 −170.0°(후진) · 반경 1.000 m · 조향 (−31.1, +30.8) |
 | SIL 전진 대조 | 같은 목표 | 차체기준 +10.0°(전진) · 조향 (+31.1, −30.8) — **부호만 반전, 나머지 동일** |
 | 실기 후진 | 헤딩 +10°, R=1.0, 0.05 m/s | 측위 +10.38° · IMU +10.30° · 변위 181 mm · −173.5°(후진) · 반경 0.998 m · 조향 (−31.13, +30.80) · 구동 2축 차 2.4 mm |
