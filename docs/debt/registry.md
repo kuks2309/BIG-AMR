@@ -820,3 +820,12 @@ SIL 에서 「자기보고 − 지상진값」 괴리가 **−0.001°** 로 사�
 | id | 유형 | 위치 | 사유 | 식별일 | 상태 | 상환계획 |
 | --- | --- | --- | --- | --- | --- | --- |
 | **debt-049** | 기술 | `src/Control/Motion_Control/2WS/trnav_2ws_action_server/` | **이 패키지에는 자동 시험이 0건이다** — `test/` 디렉터리도, `CMakeLists.txt` 의 시험 등록도 없다. 2026-08-09 의 구조 변경(델타 누적 → 절대 목표 yaw, bang-bang → PD)은 두 파일의 제어 루프를 통째로 갈았는데 **되돌려도 실패할 시험이 하나도 없다.** 검증은 전부 수동 SIL 프로브에 의존하며, 그 프로브조차 전진판 전용이라 후진은 이번에 즉석 변환본을 썼다(재현 불가) | 2026-08-09 | 미해결 | ① `turn_residual_probe.py` 에 `--action forward\|reverse` 를 넣어 후진을 정식 지원 ② 각 액션의 종료 오차·조향 부동(不動)·ICR 보존을 SIL 로 검사하는 회귀를 `test/` 에 추가 ③ `Tools/amr_test_gui/mutation_check.py` 방식의 돌연변이 확인으로 **검출됨을 증명**(통과 숫자는 커버리지 근거가 아니다 — mistake 2026-08-04-001 · 2026-08-08-002) |
+
+
+---
+
+## [2026-08-10 등록] debt-050 — `yaw_control_reverse` 의 pose 토픽
+
+| id | 유형 | 위치 | 사유 | 식별일 | 상태 | 상환계획 |
+| --- | --- | --- | --- | --- | --- | --- |
+| **debt-050** | 기술 | `trnav_2ws_action_server/config/yaw_control_reverse_params.yaml:48` | `yaw_control_reverse_pose_topic: "/rtabmap/localization_pose"` 를 구독하는데 **이 스택에 그 발행자가 0개**다(`rtabmap` 미가동, 측위는 `mcl2d` → `sil_pose_adapter` → `/robot_pose`). 그대로 실행하면 측위 입력이 오지 않아 헤딩 제어가 성립하지 않는다. 게다가 `yaw_control` 이 `vx_max` 음수로 후진을 지원하므로(`.action` 명시) **별도 액션의 존재 의의 자체가 불명확**하다 — 2026-08-10 후진 시험은 `yaw_control` 로 수행했다 | 2026-08-10 | 미해결 | ① 토픽을 `/robot_pose` 로 정정하고 실기 확인, 또는 ② `yaw_control` 이 양방향을 덮으므로 `yaw_control_reverse` 를 폐기(mux 소스 id 7 회수 포함). 결정 전 `yaw_control_reverse` 를 실기에 쓰지 말 것 |
