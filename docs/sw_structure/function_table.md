@@ -9,7 +9,7 @@
 | 모듈 | 권위본 | 함수 | 상태 | 최종 갱신 |
 | --- | --- | --- | --- | --- |
 | `translate_sim_odom` (SIL 플랜트) | [src/Sim/translate_sim_odom/docs/function_table.md](../../src/Sim/translate_sim_odom/docs/function_table.md) | 4 (+이너 2) | 전수 | 2026-08-06 |
-| `trnav_2ws_action_server` / **turn 한정** | [src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/function_table.md](../../src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/function_table.md) | 3 | **부분** — turn 만 | 2026-08-06 |
+| `trnav_2ws_action_server` / **turn · turn_reverse 한정** | [src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/function_table.md](../../src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/function_table.md) | 6 | **부분** — turn · turn_reverse 만 | 2026-08-09 |
 | `seer_pose_publisher` (Seer→/robot_pose) | [src/Navigation/seer_pose_publisher/docs/function_table.md](../../src/Navigation/seer_pose_publisher/docs/function_table.md) | 8 (+이너 0) | 전수 | 2026-08-06 |
 | `mcl2d_core` | [src/Navigation/mcl2d_core/docs/function_table.md](../../src/Navigation/mcl2d_core/docs/function_table.md) | — | (별도 세션 작성) | — |
 
@@ -21,12 +21,24 @@
 
 | 범위 | 규모 | 비고 |
 | --- | --- | --- |
-| `trnav_2ws_action_server` 의 나머지 8개 액션 | `translate_forward`·`translate_reverse`·`mpc`·`mpc_reverse`·`spin`·`crab_linear`·`yaw_control`·`yaw_control_reverse` | turn 과 같은 패키지 |
+| `trnav_2ws_action_server` 의 나머지 8개 액션 | `translate_forward`·`translate_reverse`·`mpc`·`mpc_reverse`·`spin`·`crab_linear`·`yaw_control`·`yaw_control_reverse` | turn·turn_reverse 와 같은 패키지 |
 | `trnav_2ws_motion` (액션 베이스) | `qd_action_server_base.hpp` — `publishWheelCmd`·`guardSteer` 등 | 상류 조향 가드가 여기 있다 |
 | `trnav_2ws_kinematics` | IK·dual bicycle·crab | |
 | `trnav_motion_mux` · `amr_motor_cmd_translator` | 체인 중간 | |
 | `can_relay` | `backend.py`·`driver_node.py`·`protocol.py`·`ui/` | |
 | `QD/trnav_motion_action_server` 전체 | 액션 9개 | 검증된 상류 — 2WS 대조 기준 |
+
+## ⚠ 2026-08-09 변경분 중 **표가 없어 등재하지 못한 것**
+
+아래는 오늘 실제로 수정했으나 해당 모듈에 함수표가 없어 §6 이중 기록을 못 했다.
+표를 만들기 전까지 이 파일들의 §2 선독 강제력은 0 이다(위 「미등재」와 같은 사유).
+
+| 파일 | 오늘 변경 내용 | 커밋 |
+| --- | --- | --- |
+| `trnav_2ws_kinematics/src/qd_inverse_kinematics.cpp` | `computeSpin` 을 범용 IK 경유 → **±90° 강제**로 전환. `isInline()` 신설 | `6d91297` |
+| `trnav_2ws_motion/include/…/qd_action_server_base.hpp` | 기하 기본값 QD 대각 잔재 정정(±0.330/±0.135 → 0.6039/0.0 등) · **인라인 전제 가드**(위반 시 FATAL 기동 실패) 추가 | `6d91297` |
+| `trnav_2ws_action_server/src/spin/spin_action_server.cpp` | 죽은 파라미터 3종 제거(`fine_correction_timeout_sec`·`fine_correction_speed_dps`·`settling_delay_ms`) + 화이트리스트 분기 제거 | `4c03c76` |
+| `can_relay/can_relay/backend.py` | `set_motor_cmds` 의 호밍 판정을 `homed_effective()` 로 통일 · `_write_bringup` 을 **구동축 전용**으로 축소 | `0b38966` · `a7420a6` |
 
 ## 배포 제약 (미해결)
 
