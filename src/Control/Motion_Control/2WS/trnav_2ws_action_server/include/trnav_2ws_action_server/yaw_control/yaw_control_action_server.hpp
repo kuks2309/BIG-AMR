@@ -56,6 +56,13 @@ class YawControlActionServer
     bool enable_heading_divergence_guard_{true};
     double heading_divergence_deg_{5.0};
     int heading_divergence_count_{10}; // 연속 cycle (50 Hz 기준 0.2 s) — 맵 순간 튐 오탐 방지
+
+    // ── 조향 미도달 지속 감시 ──
+    // TransientGuard 가 조향 오차로 구동을 0 으로 묶는 것(gate_blocked)은 정상 안전 동작이지만,
+    // 그 상태가 무한 지속돼도 아무도 보고하지 않아 전역 타임아웃(60 s)까지 조용히 대기했다.
+    // 임계는 **정상 조향 이동 시간보다 길어야** 오탐이 없다 — 실측상 0→31° 이동에 약 3 초.
+    // 근거·설계: docs/adr/2026-08-10-yaw-control-gate-blocked-guard.md
+    double gate_blocked_timeout_sec_{5.0};
 };
 
 } // namespace trnav_2ws_action_server::yaw_control

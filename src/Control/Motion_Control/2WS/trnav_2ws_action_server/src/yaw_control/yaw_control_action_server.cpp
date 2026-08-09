@@ -49,6 +49,7 @@ YawControlActionServer::YawControlActionServer(rclcpp::Node::SharedPtr node, Act
     enable_heading_divergence_guard_ = safeParam("yaw_control_enable_heading_divergence_guard", true);
     heading_divergence_deg_ = safeParam("yaw_control_heading_divergence_deg", 5.0);
     heading_divergence_count_ = safeParam("yaw_control_heading_divergence_count", 10);
+    gate_blocked_timeout_sec_ = safeParam("yaw_control_gate_blocked_timeout_sec", 5.0);
 
     // TransientGuard
     TransientGuard::Params tg_params;
@@ -258,6 +259,8 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 
     bool reached = false;
     int heading_diverge_cnt = 0; // 조대 헤딩 발산 연속 카운터
+    rclcpp::Time gate_blocked_since = node_->now(); // gate_blocked 연속 시작 시각
+    bool gate_blocked_active = false;
     double current_distance = 0.0;
     double current_yaw_deg = 0.0;
 
@@ -474,6 +477,34 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 
         auto guard_out = guard_->apply(guard_input);
         double speed_scale = guard_out.gate_blocked ? 0.0 : guard_out.drive_scale;
+
+        // ── 조향 미도달 지속 감시 ──
+        // gate_blocked 는 조향이 설 때까지 구동을 막는 **정상** 안전 동작이다. 다만 조향축이
+        // 비응답이면 영원히 풀리지 않는데, 종전에는 그 사실을 아무도 보고하지 않아 전역
+        // 타임아웃(60 s)까지 조용히 대기했다(실측: 지령 −20.2°, 실제 0.00°, 거리 0.001 m).
+        if (guard_out.gate_blocked)
+        {
+            if (!gate_blocked_active)
+            {
+                gate_blocked_active = true;
+                gate_blocked_since = node_->now();
+            }
+            else if ((node_->now() - gate_blocked_since).seconds() > gate_blocked_timeout_sec_)
+            {
+                RCLCPP_ERROR(node_->get_logger(),
+                             "YawControl 조향 미도달 %.1f s 지속 — 지령 F=%.2f°/R=%.2f° 대 실제 "
+                             "F=%.2f°/R=%.2f°. 조향축이 지령을 실행하지 못한다. abort(-8)",
+                             gate_blocked_timeout_sec_, delta_f * 180.0 / M_PI, delta_r * 180.0 / M_PI,
+                             last_angle_front_.load() * 180.0 / M_PI, last_angle_rear_.load() * 180.0 / M_PI);
+                finish_abort(-8, current_distance, current_yaw_deg,
+                             normalizeAngleDeg(goal->target_yaw_deg - current_yaw_deg), start_time);
+                return;
+            }
+        }
+        else
+        {
+            gate_blocked_active = false;
+        }
 
         // Wheel velocity from IK
         double vel_f = ik_result.wheels[0].wheel_speed * ik_result.wheels[0].direction * speed_scale;

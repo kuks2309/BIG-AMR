@@ -64,6 +64,13 @@
     yaw_control_heading_divergence_deg: 5.0
     yaw_control_heading_divergence_count: 10   # 연속 cycle (50 Hz 기준 0.2 s)
 
+    # ── 조향 미도달 지속 감시 ──
+    # gate_blocked(조향 오차로 구동 0)은 정상 안전 동작이지만 조향축이 비응답이면 영원히
+    # 안 풀린다. 임계는 **정상 조향 이동 시간보다 길게** — 실측상 0→31° 이동에 약 3 초.
+    # steer_timeout_sec 와 같은 의미(조향이 목표에 닿는 데 허용하는 시간)라 같은 값을 쓴다.
+    # 근거·설계: docs/adr/2026-08-10-yaw-control-gate-blocked-guard.md
+    yaw_control_gate_blocked_timeout_sec: 5.0
+
     yaw_control_pose_topic: "/robot_pose"  # Phase2(2026-06-09): 코드가 이제 사용(이전 dead, /rtabmap/localization_pose 는 타입불일치 미수신값이었음). 실차 fused 교체는 yaw_control.launch.py override
     # ⚠ 2026-08-09 제거: `yaw_control_pose_qos` — 코드 참조 0건인 죽은 손잡이였다.
     #   실제 pose 구독 QoS 는 RELIABLE 고정이며 yaml 로 바꿀 수 없다.
