@@ -47,6 +47,49 @@
 
 ## 2026-08-09
 
+### [Fix] 구동 지령을 넣어도 바퀴가 안 돎 — 구동축이 운전 가능 상태가 아니었다
+
+- **문제**: 조그를 눌러도 구동륜이 돌지 않았다. 로그는 정상으로 보였고
+  (`조향 정착 — 구동 raw=-1222`) **구동 재송신도 돌고 있었다.** 그런데 `0x60FF=-1222` 를
+  3 초 넣는 동안 두 구동축 엔코더가 **1 count 도 안 움직였다** — node1 `-516,397` 고정 /
+  node2 `222,376` 고정.
+- **원인**: 지령이 아니라 **드라이브 상태**.
+  - 양 구동축 **`operation enabled`(상태워드 bit2) = 0**, node1 은
+    **`0x603F = 0x0080` Motor overload alarm**(Handbook §6.6.4 p.7614)
+  - Seer 알람 `Motor Error:FrontWalk-0x80` 이 독립 경로로 동일 확인
+  - GUI 를 거치지 않은 맨 스크립트도 동일 → UI 배제. 드라이브가 **자기 상태워드로**
+    보고 → 판다 펌웨어 배제.
+  - **재송신은 이 상황을 못 고친다** — 지령을 반복할 뿐 꺼진 축을 켜지 못한다.
+    `Tools/amr_test_gui/gui.py` `MainWindow._drive` 는 `0x60FF` 만 보내고 조향
+    (`_steer_axis`)처럼 `0x6040` 을 동반하지 않아, Seer 가 켜 둔 상태를 물려받아
+    동작해 왔을 뿐이다.
+  - **제어권을 Seer 에 반환했다 되찾으면 node1 이 `Switch On Disabled` 로 떨어진다**
+    (node2 는 유지, fault 없음). 잡는 쪽이 상태를 갖추지 않으면 조향만 되고 구동이 취소된다.
+- **해결**: CiA402 상태 복구 경로 신설(Handbook §6.6.1 Controlword 명령표 근거).
+  - `_drives_ready()` · `_drive_faults()` — 상태워드 bit2/bit3 판정
+  - `_enable_drives()` — Fault Reset(bit7 **상승엣지**) → **fault 가 걷힐 때까지 대기**
+    → Shutdown `0x06` → Switch On `0x07` → Enable Operation `0x0F`
+  - `_ensure_drives_enabled()` — **제어권 획득 직후** 점검·복구. 단 **fault 가 있으면
+    자동으로 켜지 않고** 사유를 남긴다(원인 모른 채 재기동 금지)
+  - `_jog_run` 이 구동 직전 운전가능을 확인하고, 아니면 **사유를 남기고 취소**한다
+    (전에는 지령만 나가고 조용히 실패해 원인을 가렸다)
+  - `⚡ 구동축 활성화 (FAULT 해제)` 버튼 + 과부하 재발 경고 확인 대화상자
+  - ⚠ **대기 단계는 실기가 가르쳐 준 것** — 리셋 직후 50 ms 간격으로 전이를 몰아 보냈더니
+    node1 이 fault 만 걷히고 `Switch On Disabled`(`0x8050`)에 멈췄다.
+- **파일**: `Tools/amr_test_gui/gui.py` ·
+  `Tools/amr_test_gui/test/test_drive_enable.py`(신규 11건)
+- **상태**: 완료 — 실기 복구·주행 확인
+  - 상태 복구: n1 `0x8018`→`0x8037` · n2 `0x8050`→`0x8037` (양축 enabled=1 · fault=0)
+  - 제어권 획득 시 자동 복구: `n1 0x8050`→`0x8037`
+  - 주행: 전진 `raw=-1222` 19 초 · 후진 `raw=+1222` · 크랩 정상(사용자 확인)
+  - 시험: 기준선 `6 failed / 125 passed` → `6 failed / 136 passed`(**기존 실패 6건 불변**,
+    신규 11건 추가). 기존 6건은 본 변경과 무관한 선재 실패다.
+  - ⚠ `mutation_check.py` 는 12개 전부 「검출」로 나오지만 **그 판정은 근거가 되지 못한다** —
+    검출 근거로 지목된 시험이 선재 실패 3건뿐이라 어떤 변조에도 같은 결과가 나온다(**debt-046**).
+- **출처**: 별도 세션 브랜치 `origin/session/56a709a5-tools`(@`9100ebe`)에서 검증한 뒤
+  본 구조(단일 `gui.py`)에 맞춰 이식. 그 브랜치의 3계층 분할은 채택하지 않았다.
+- **미해결**: 과부하(`0x0080`)의 물리적 원인 미규명 — **debt-045**.
+
 ### [Verify] `turn`·`turn_reverse` 90° 실기 검증 — 왕복 폐합 14 mm / +0.64°
 
 - **배경**: `turn_reverse` 는 ADR `docs/adr/2026-08-09-turn-reverse.md` 로 신설했고 SIL 과

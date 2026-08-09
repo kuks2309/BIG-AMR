@@ -83,6 +83,14 @@ VEL_PER_MMPS, VEL_MAX_UNITS = 24.447, 4889   # 구동 raw 환산, 상한(≈0.2 
 STEER_LIMIT_DEG = 90.0              # 조향 지령 허용 범위 ±90°
 MEAS_TTL_S = 1.0                    # 이보다 오래된 실측은 없는 것으로 친다
 STEER_NODES = (3, 4)                # 조향축(전/후). 구동축은 (1, 2)
+DRIVE_NODES = (1, 2)                # 구동축
+
+# CiA402 상태기계 — Handbook §6.6.1 Controlword(0x6040) 명령표
+#   Bit0 Switch on · Bit1 Enable voltage · Bit2 Quick stop · Bit3 Enable Operation · Bit7 Fault Reset
+CW_FAULT_RESET = 0x80               # bit7 **상승엣지**로 fault 를 지운다
+DRIVE_ENABLE_SEQ = (0x06, 0x07, 0x0F)   # Shutdown → Switch On → Enable Operation
+SW_OPERATION_ENABLED = 1 << 2       # 상태워드 bit2 — 0 이면 0x60FF 를 받아도 안 움직인다
+SW_FAULT = 1 << 3                   # 상태워드 bit3
 SEER_MATCH_TOL_DEG = 3.0            # CAN 실측 ↔ Seer 판독 허용 차(정착 허용치와 같은 스케일)
 SEER_MATCH_STREAK = 5               # 이만큼 **연속** 어긋나야 경보 — 과도 표본으로 떠들지 않는다
 SEER_MATCH_REWARN_S = 30.0          # 같은 축 재경보 최소 간격
@@ -262,6 +270,7 @@ class MainWindow(QWidget):
     alarm_counts = pyqtSignal(int, int)
     log_line = pyqtSignal(str)
     homing_done = pyqtSignal()
+    enable_done = pyqtSignal()
     poll_died = pyqtSignal()        # 폴링 스레드 사망 — UI 상태를 되돌린다
 
     def __init__(self):
@@ -328,6 +337,7 @@ class MainWindow(QWidget):
         self.alarm_counts.connect(self._set_alarm_color)
         self.log_line.connect(self._append_log)
         self.homing_done.connect(lambda: self.btn_home.setEnabled(True))
+        self.enable_done.connect(lambda: self.btn_enable.setEnabled(True))
         self.poll_died.connect(self._on_poll_died)
         threading.Thread(target=self._seer_loop, daemon=True, name='seer').start()
         self.log("GUI 기동 — 실기 전용")
@@ -447,7 +457,49 @@ class MainWindow(QWidget):
             "QPushButton:disabled { background:#e8edf2; color:#8894a2; }")
         self.btn_home.clicked.connect(self._homing_clicked)
         v.addWidget(self.btn_home)
+
+        # 구동축 운전 가능 복구. 조향과 달리 구동은 지령(0x60FF)만으로 켜지지 않아,
+        # fault 나 disable 로 떨어지면 이 버튼 말고는 되살릴 방법이 없다.
+        self.btn_enable = QPushButton("⚡  구동축 활성화 (FAULT 해제)")
+        self.btn_enable.setMinimumHeight(32)
+        self.btn_enable.setStyleSheet(
+            "QPushButton { background:#7d6608; color:white; font-weight:bold;"
+            " border:1px solid #5e4d06; border-radius:4px; margin-top:4px; }"
+            "QPushButton:disabled { background:#e8edf2; color:#8894a2; }")
+        self.btn_enable.clicked.connect(self._enable_drives_clicked)
+        v.addWidget(self.btn_enable)
         return g
+
+    def _enable_drives_clicked(self):
+        """구동축을 운전 가능 상태로 되돌린다 (CiA402 — Handbook §6.6.1).
+
+        fault 원인을 지우는 것이 아니라 **상태만** 되돌린다. 과부하로 떨어진 것이면
+        원인을 두고 다시 켤 때 재발하거나 모터를 상하게 할 수 있어 확인을 받는다.
+        """
+        if not self._run:
+            self.log("구동축 활성화 불가 — 제어권을 먼저 획득하세요")
+            return
+        ready, faults = self._drives_ready(), self._drive_faults()
+        if QMessageBox.question(
+                self, "구동축 활성화",
+                f"구동축을 운전 가능 상태로 되돌립니다.\n\n"
+                f"· 현재 operation enabled: {ready}\n"
+                f"· 현재 fault: {faults}\n\n"
+                "⚠ 이 조작은 **상태만** 되돌립니다. FAULT 의 원인(과부하·물림 등)이\n"
+                "  남아 있으면 곧 재발하거나 모터를 상하게 할 수 있습니다.\n"
+                "  부하·기구 상태를 먼저 확인하셨습니까?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            self.log("구동축 활성화 취소")
+            return
+        self.btn_enable.setEnabled(False)
+        threading.Thread(target=self._enable_drives_run, name="enable",
+                         daemon=True).start()
+
+    def _enable_drives_run(self):
+        try:
+            self._enable_drives()
+        finally:
+            self.enable_done.emit()
 
     def _build_wheel_adj(self) -> QGroupBox:
         """앞뒤 바퀴 조향각 조정.
@@ -953,6 +1005,7 @@ class MainWindow(QWidget):
                          (", ".join(f"N{n} {v:+.2f}°" for n, v in have.items()) if have
                           else "⚠ Seer 각도 없음 — 반환 시 복원할 기준이 없습니다"))
                 self.log("제어권 획득 완료 — 모터 값 폴링 시작")
+                self._ensure_drives_enabled()
             else:
                 self._jog_stop = True
                 try:
@@ -1081,6 +1134,96 @@ class MainWindow(QWidget):
         for n in (1, 2):
             self._sdo_write(n, 0x60FF, units, 4)
 
+    # ── 구동축 운전 상태 (CiA402) ────────────────────────────────────────
+    FAULT_CLEAR_S = 2.0        # fault 가 걷히기를 기다리는 창
+
+    def _drives_ready(self) -> dict:
+        """구동축이 **운전 가능**(상태워드 bit2)인가. 반환 `{node: True/False/None}`.
+
+        `None` 은 상태워드를 아직 못 받은 것이다. bit2 가 0 이면 `0x60FF` 를 아무리 보내도
+        바퀴가 돌지 않는다 — 재송신도 소용없다(지령을 반복할 뿐 상태를 켜지 못한다).
+        2026-07-29 실기: 그 상태로 3 초를 지령해 엔코더가 1 count 도 안 움직였다.
+        """
+        return {n: (None if self._status.get(n) is None
+                    else bool(self._status[n] & SW_OPERATION_ENABLED))
+                for n in DRIVE_NODES}
+
+    def _drive_faults(self) -> dict:
+        """구동축 fault(상태워드 bit3) 여부. 반환 `{node: True/False/None}`."""
+        return {n: (None if self._status.get(n) is None
+                    else bool(self._status[n] & SW_FAULT))
+                for n in DRIVE_NODES}
+
+    def _enable_drives(self, timeout: float = 3.0) -> bool:
+        """구동축을 운전 가능 상태로 만든다 — Handbook §6.6.1 상태기계.
+
+        fault 가 서 있으면 **Fault Reset**(bit7 0→1 상승엣지)을 먼저 보내고, **fault 가
+        걷힌 것을 확인한 뒤** Shutdown(0x06) → Switch On(0x07) → Enable Operation(0x0F).
+        대기 없이 몰아 보내면 드라이브가 아직 Fault 에 있어 무시하고 `Switch On Disabled`
+        (0x8050)에서 멈춘다 — 2026-07-29 실기에서 node1 이 그렇게 걸렸다.
+
+        ⚠ **fault 의 원인을 제거하지 않으면 곧 재발한다.** 그 사례는 node1
+        `0x603F=0x0080` Motor overload alarm 이었고 Handbook §6.6.4 는 "부하가 정격을
+        넘는지 확인" 을 먼저 요구한다. 이 함수는 상태만 되돌린다.
+        """
+        faulted = [n for n in DRIVE_NODES
+                   if self._status.get(n) is not None and (self._status[n] & SW_FAULT)]
+        for n in faulted:
+            self._sdo_write(n, 0x6040, 0x00, 2)              # bit7 를 내려 엣지를 만든다
+            self._sdo_write(n, 0x6040, CW_FAULT_RESET, 2)    # Fault Reset
+            self._sdo_write(n, 0x6040, 0x00, 2)
+            self.log_line.emit(f"구동축 N{n} fault 해제 시도")
+        if faulted:
+            t_f = time.time()
+            while time.time() - t_f < self.FAULT_CLEAR_S:
+                if not any(self._status.get(n, 0) & SW_FAULT for n in faulted):
+                    break
+                time.sleep(0.05)
+            still = [n for n in faulted if self._status.get(n, 0) & SW_FAULT]
+            if still:
+                self.log_line.emit(f"⚠ 구동축 {still} fault 가 걷히지 않습니다 — "
+                                   "원인 제거가 먼저입니다.")
+                return False
+        for cw in DRIVE_ENABLE_SEQ:
+            for n in DRIVE_NODES:
+                self._sdo_write(n, 0x6040, cw, 2)
+            time.sleep(0.05)
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            if all(v for v in self._drives_ready().values()):
+                self.log_line.emit("구동축 운전 가능 — 양축 operation enabled")
+                return True
+            time.sleep(0.05)
+        bad = [n for n, v in self._drives_ready().items() if not v]
+        self.log_line.emit(f"⚠ 구동축 활성화 실패 — 노드 {bad} 가 운전 가능 상태가 아닙니다. "
+                           f"fault {self._drive_faults()}")
+        return False
+
+    def _ensure_drives_enabled(self, delay: float = 0.8) -> None:
+        """제어권 획득 직후 구동축 운전 상태를 확인하고, **fault 가 없으면** 되살린다.
+
+        Seer 에게 제어권을 넘겼다 되찾으면 구동축이 `Switch On Disabled` 로 떨어져 있다 —
+        2026-07-29 실기: 13:24:35 반환 → 13:33:54 재획득 시 `enabled {1: False, 2: True}`
+        (node2 는 유지). 그 상태로 조그하면 조향만 되고 구동이 취소된다. 제어권을 잡는 쪽이
+        필요한 상태를 갖추는 것이 책임 분담이므로 여기서 갖춘다.
+
+        **fault 가 서 있으면 자동으로 켜지 않는다** — 원인을 모른 채 재기동하면 과부하 등이
+        재발하거나 모터를 상하게 한다. 그때는 운전자가 `구동축 활성화` 버튼으로 확인을 거친다.
+        """
+        def work():
+            time.sleep(delay)                    # 상태워드가 한 번 들어올 틈
+            ready, faults = self._drives_ready(), self._drive_faults()
+            if all(v for v in ready.values()):
+                return
+            if any(faults.values()):
+                self.log_line.emit(f"⚠ 구동축 fault {faults} — 자동 활성화하지 않습니다. "
+                                   f"원인 확인 후 '구동축 활성화' 를 누르세요.")
+                return
+            self.log_line.emit(f"구동축이 운전 가능 상태가 아닙니다 {ready} — 자동 활성화합니다.")
+            self._enable_drives()
+
+        threading.Thread(target=work, daemon=True, name="ensure-enable").start()
+
     def _steer_to(self, deg: float) -> float:
         """조향 두 축에 절대위치 지령(0x607A) + 즉시 적용(0x6040=0x3F).
 
@@ -1125,6 +1268,16 @@ class MainWindow(QWidget):
             if not self._wait_settle(tgt, tol):
                 self.log_line.emit(f"조향 정착 실패(실측 N3 {self._meas_angle(3)} / "
                                    f"N4 {self._meas_angle(4)}) — 구동 취소")
+                self._drive(0)
+                return
+            ready = self._drives_ready()
+            if not all(v for v in ready.values()):
+                # 이 확인이 없으면 지령만 나가고 바퀴는 가만히 있어 원인을 알 수 없다.
+                # 재송신도 소용없다 — 지령을 반복할 뿐 꺼진 축을 켜지 못한다(2026-07-29 실기).
+                self.log_line.emit(
+                    f"⚠ 구동 취소 — 구동축이 운전 가능 상태가 아닙니다 "
+                    f"(operation enabled {ready}, fault {self._drive_faults()}). "
+                    f"'구동축 활성화' 를 먼저 누르세요.")
                 self._drive(0)
                 return
             units = drive_units(mmps, raw_sign)
