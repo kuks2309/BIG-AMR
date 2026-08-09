@@ -9,24 +9,19 @@ install_info 는 2D(x/y/yaw)만 제공하므로 z/roll/pitch = 0 (z 는 파라�
 장착 캘리브는 거의 불변이므로 기본은 1회 읽어 latch(StaticTransformBroadcaster).
 poll_period > 0 이면 주기적으로 재조회하여 갱신한다.
 
+프로토콜 구현은 여기 있지 않다 — `src/Comm/TCP_IP/seer_api` 가 저장소에서 Seer 와 TCP 로
+말하는 유일한 지점이다(ADR docs/adr/2026-08-07-seer-api-tcp-hal.md).
 출처/프로토콜: References/Seer-Driver/robokit_tcp_api_laser.md
 """
 import math
-import socket
-import struct
-import json
 
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import TransformStamped
 from tf2_ros import StaticTransformBroadcaster
 
-# SEER NetProtocol
-_SYNC = 0x5A
-_VERSION = 0x01
-_HDR = ">BBHIH6s"  # sync, version, number(u16), length(u32), type(u16), reserved[6] = 16B
-_API_LASER_REQ = 1009
-_API_LASER_RES = 11009
+from seer_api import SeerApi
+from seer_api.api import API_LASER
 
 
 def _yaw_to_quat(yaw_rad):
@@ -56,6 +51,10 @@ class SeerLidarTf(Node):
 
         self.done = False  # main() 에서 one-shot 종료 판정
 
+        # 조회 전용(19204). 지령 포트를 쓸 일이 없으므로 allow_guarded 기본값(False) 유지 —
+        # seer_port 에 지령 포트를 넣으면 seer_api 게이트가 막는다(의도된 동작).
+        self._client = SeerApi(self.seer_ip, timeout=self.connect_timeout)
+
         if self.calibration_out:
             self.get_logger().info(
                 f"[write 모드] {self.seer_ip}:{self.seer_port} 조회 → {self.calibration_out} 기록 후 종료"
@@ -69,7 +68,7 @@ class SeerLidarTf(Node):
         period = self.poll_period if self.poll_period > 0.0 else self.retry_period
         self._timer = self.create_timer(period, self._tick)
         self.get_logger().info(
-            f"[publish 모드] {self.seer_ip}:{self.seer_port} API {_API_LASER_REQ} "
+            f"[publish 모드] {self.seer_ip}:{self.seer_port} API {API_LASER} "
             f"-> {self.parent_frame}->({self.front_frame},{self.rear_frame}), "
             f"{'1회 latch' if self.poll_period <= 0 else f'{self.poll_period}s 폴링'}"
         )
@@ -106,7 +105,7 @@ class SeerLidarTf(Node):
         fyaw_r, ryaw_r = math.radians(fyaw), math.radians(ryaw)
         text = (
             "# SEER install_info -> merger calibration (seer_lidar_tf write 모드 생성)\n"
-            f"# 출처: SEER {self.seer_ip}:{self.seer_port} API {_API_LASER_REQ}. "
+            f"# 출처: SEER {self.seer_ip}:{self.seer_port} API {API_LASER}. "
             "install_info 는 2D(x/y/yaw)만 제공 -> z/roll=0, icp=0.\n"
             "calibration:\n"
             "  reference_frame: merged_lidar\n"
@@ -145,34 +144,8 @@ class SeerLidarTf(Node):
             self._timer.cancel()  # latch 후 종료(static 은 계속 유지됨)
 
     def _query_lasers(self):
-        body = b""
-        hdr = struct.pack(_HDR, _SYNC, _VERSION, 1, len(body), _API_LASER_REQ, b"\x00" * 6)
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(self.connect_timeout)
-        try:
-            s.connect((self.seer_ip, self.seer_port))
-            s.sendall(hdr + body)
-            rhdr = self._recv_n(s, 16)
-            _, _, _, dlen, rtype, _ = struct.unpack(_HDR, rhdr)
-            data = self._recv_n(s, dlen)
-        finally:
-            s.close()
-        if rtype != _API_LASER_RES:
-            raise RuntimeError(f"예상치 못한 응답 type={rtype} (기대 {_API_LASER_RES})")
-        j = json.loads(data.decode("utf-8", "replace"))
-        if j.get("ret_code") not in (0, None):
-            raise RuntimeError(f"ret_code={j.get('ret_code')} err_msg={j.get('err_msg')}")
-        return j.get("lasers", [])
-
-    @staticmethod
-    def _recv_n(sock, n):
-        buf = b""
-        while len(buf) < n:
-            chunk = sock.recv(n - len(buf))
-            if not chunk:
-                raise ConnectionError(f"수신 중 연결 종료 ({len(buf)}/{n}B)")
-            buf += chunk
-        return buf
+        """레이저 목록 조회. 응답 편호·seq 대조와 부분 수신 처리는 seer_api 가 한다."""
+        return self._client.call(self.seer_port, API_LASER).get("lasers", [])
 
     def _frame_for(self, device_name):
         name = (device_name or "").lower()
@@ -224,6 +197,7 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        node._client.close()  # 소켓을 남기지 않는다 (19204 는 동시연결 10 — 누수는 한도를 먹는다)
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
