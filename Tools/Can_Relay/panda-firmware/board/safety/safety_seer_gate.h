@@ -209,11 +209,27 @@ extern uint16_t current_safety_mode;
 #define SEER_HOME_TIMEOUT_S 120U
 #define SEER_HOME_POLL_DIV  2U
 
+// ⚠ 이름에 ZERO 가 붙어 있으나 **이 값들은 조향 0° 가 아니다.** 이 파일 어디에도 0° 는 없다.
+//   · 조향 0° 정본 = [7871815, 7840086]
+//     (`src/Comm/CAN/can_relay/config/machine/foil_a082.yaml` `steer_home_counts`)
+//   · 아래 두 상수는 **호밍 후 축이 자연히 멈추는 자리**(정착값)다. 0° 에서
+//     node3 +10,205 counts = +0.178° · node4 +18,976 counts = +0.331° 떨어져 있다(57,344 counts/°).
+//     호밍 10회 실측 정착값 7,882,021 / 7,859,065 근방에 재현성 있게 정착한다
+//     (σ≈3 c, 최대 편차 6 c. **상수 적정성 자체는 실측 밖 — debt-016 소관**).
+//   ⇒ 따라서 `SEER_HOME_GOZERO` 는 "0° 로 간다"가 아니라 "이 두 상수로 간다"이며,
+//     이동 거리가 사실상 0 이라 **움직이지 않는 것을 「복귀했다」고 읽어 온 것**이다.
+//     「호밍하면 조향이 0° 로 돌아온다」는 상수 이름에서 온 서술이지 동작에서 온 것이 아니다.
+//   ⇒ 0° 로 보내려면 **호스트가 별도로 지령**해야 한다(can_relay `steer_to_zero()`).
+//   ※ 이름 변경은 재플래시를 요구하고 상태 라벨(`test_link.py`)이 값에 묶여 있어
+//     **값·이름은 그대로 두고 라벨만 정정**한다(라벨 정정 이력: 위 리뷰 #221·222).
 #define SEER_HOME_ZERO_N3   7882020
 #define SEER_HOME_ZERO_N4   7859062
 #define SEER_HOME_PROF_VEL  30000U
 #define SEER_HOME_PROF_ACC  250U
 #define SEER_HOME_PROF_DEC  250U
+// ⚠ 도달 판정 허용오차 = 57,344 counts = **정확히 1.000°**.
+//   위 정착값과 0° 의 편차(0.178° / 0.331°)보다 5.6배 / 3.0배 크다 ⇒ 이 펌웨어는
+//   **「0° 가 아니다」를 원리적으로 검출할 수 없다.** 항상 도달로 판정해 DONE 으로 넘어간다.
 #define SEER_HOME_ZERO_TOL  57344
 #define SEER_HOME_ZERO_TMO_S 30U
 // 「이미 홈」 판정 대기(초). 이 시간 안에 bit15 하강이 없고 위치가 목표 허용오차 이내면
@@ -246,6 +262,7 @@ uint8_t seer_home_reached_mask = 0U;
 // 「이미 홈이라 무동작 즉시 완료」로 판정된 노드 비트마스크. 2026-08-03 실기 확정 대응.
 uint8_t seer_home_athome_mask = 0U;
 
+// ⚠ 이름이 zero_target 이지만 **0° 목표가 아니다** — 호밍 후 정착값을 돌려준다(위 :212-217 참조).
 static int32_t seer_home_zero_target(uint8_t node) {
   return (node == SEER_HOME_NODE_LO) ? (int32_t)SEER_HOME_ZERO_N3 : (int32_t)SEER_HOME_ZERO_N4;
 }
@@ -481,6 +498,8 @@ void seer_homing_tick(void) {
       seer_home_state = SEER_HOME_GOZERO;
       break;
 
+    // ⚠ 이름과 달리 0° 로 보내지 않는다 — SEER_HOME_ZERO_N3/N4(정착값)로 보낸다(:212-217).
+    //   호밍 직후 축은 이미 그 근방이라 이동 거리가 사실상 0 이다.
     case SEER_HOME_GOZERO:
       for (uint8_t n = SEER_HOME_NODE_LO; n <= SEER_HOME_NODE_HI; n++) {
         seer_home_sdo_write(n, 0x607AU, 0U, (uint32_t)seer_home_zero_target(n), 4U);
