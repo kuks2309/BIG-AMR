@@ -65,7 +65,7 @@ def test_proc_scan_disabled_omits_those_fields(collect_sample):
 
 
 def test_fan_field_always_present_even_without_rpm_node(collect_sample):
-    # 본 하드웨어는 rpm 노드가 없다(ADR §Decision 5). 스키마에서 사라지면 안 된다.
+    # 본 하드웨어는 rpm 노드가 없다(ADR 2026-07-28 §Decision 5). 스키마에서 사라지면 안 된다.
     record, _ = collect_sample(None)
     assert set(record["fan"]) == {"pwm", "rpm"}
 
@@ -298,3 +298,47 @@ def test_swap_rate_present_on_second_sample(collect_sample):
     assert set(record["swap_rate_pages_s"]) == {"in", "out"}
     assert record["swap_rate_pages_s"]["in"] >= 0
     assert record["swap_rate_pages_s"]["out"] >= 0
+
+
+# ── CLI 인자 범위 검증 ───────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("argv", [
+    ["--interval", "0"],
+    ["--interval", "-1"],
+    ["--max-total-mb", "0"],
+    ["--max-age-days", "0"],
+    ["--top-rss", "-1"],
+    ["--proc-scan-every", "-1"],
+])
+def test_out_of_range_args_are_rejected(argv):
+    """0·음수 주기는 루프를 최대 속도로 돌려 감시기가 감시 대상의 부하가 된다."""
+    with pytest.raises(SystemExit) as exc:
+        sampler._parse_args(argv)
+    assert exc.value.code == 2  # argparse 표준 사용법 오류
+
+
+def test_valid_args_pass():
+    args = sampler._parse_args(["--interval", "0.5", "--top-rss", "0"])
+    assert args.interval == pytest.approx(0.5)
+    assert args.top_rss == 0
+
+
+# ── 설정 오류는 기동 시점에 끝낸다 ───────────────────────────────────────────
+
+
+@pytest.mark.parametrize("payload", [
+    {"temp_warn_c": "hot"},                          # 타입 오류
+    {"temp_warn_c": 90.0, "temp_error_c": 85.0},     # 순서 오류
+    {"temp_warm_c": 60.0},                           # 오타(미지 키)
+])
+def test_bad_threshold_file_exits_at_startup(tmp_path, payload):
+    """통과시키면 첫 판정에서 죽고, Restart=always 와 만나 재시작 루프가 된다.
+
+    그 상태는 '떠 있는데 기록이 0' 이라 감시기를 넣은 의미가 사라진다.
+    """
+    path = tmp_path / "thresholds.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        sampler.main(["--thresholds", str(path), "--once"])
+    assert "임계값 설정을 받아들일 수 없다" in str(exc.value)

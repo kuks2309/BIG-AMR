@@ -1,3 +1,5 @@
+from glob import glob
+
 from setuptools import setup
 
 package_name = "system_health"
@@ -9,10 +11,8 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
-        (
-            "share/" + package_name + "/systemd",
-            ["systemd/amr-health-sampler.service"],
-        ),
+        # 유닛은 glob 으로 싣는다. 파일명을 열거하면 새 유닛이 조용히 빠진다.
+        ("share/" + package_name + "/systemd", glob("systemd/*.service")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

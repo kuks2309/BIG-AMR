@@ -1,0 +1,82 @@
+<mxfile host="app.diagrams.net" type="device">
+  <diagram name="system_health-webview" id="shw1">
+    <mxGraphModel dx="1000" dy="700" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="700" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="req" value="do_GET&#10;webview.py:283" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="400" y="40" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="root" value="/ → PAGE&#10;webview.py:287" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="20" y="160" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="latest" value="/api/latest&#10;webview.py:289" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="220" y="160" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="hist" value="/api/history&#10;webview.py:294" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="420" y="160" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rep" value="/api/report&#10;webview.py:296" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="620" y="160" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="nf" value="404&#10;webview.py:299" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="820" y="160" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="tail" value="tail_records (꼬리 읽기)&#10;report.py:133" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="220" y="300" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="span" value="log_span (첫 줄만)&#10;report.py:54" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="20" y="300" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="full" value="format_report (전 로그 완독)&#10;report.py:285" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="600" y="300" width="240" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="resp" value="_send / _json&#10;webview.py:270,279" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="400" y="440" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="w1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="req" target="root">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="req" target="latest">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="req" target="hist">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="req" target="rep">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w5" value="그 외" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="req" target="nf">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="latest" target="tail">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="latest" target="span">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w8" value="n 개" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="hist" target="tail">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w9" value="평가 Low-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="rep" target="full">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="root" target="resp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="tail" target="resp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="span" target="resp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="full" target="resp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="nf" target="resp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

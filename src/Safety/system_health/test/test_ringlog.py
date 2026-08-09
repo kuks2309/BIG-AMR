@@ -130,3 +130,15 @@ def test_other_prefixes_are_untouched(tmp_path):
 def test_existing_files_is_empty_when_directory_absent(tmp_path):
     log = RingLog(tmp_path / "not-created-yet", clock=lambda: _T0)
     assert log.existing_files() == []
+
+
+def test_enforce_limits_deletes_oldest_until_under_cap(tmp_path):
+    """총량을 한 번만 재고 지운 만큼 차감해도 상한 판정 결과는 같아야 한다."""
+    ring = RingLog(tmp_path, max_total_mb=0.001, max_age_days=999, enforce_every=10**9)
+    for day in ("2026-07-01", "2026-07-02", "2026-07-03"):
+        ring.path_for_day(day).write_text("x" * 800 + "\n", encoding="utf-8")
+    deleted = ring.enforce_limits()
+    remaining = [p.name for p in ring.existing_files()]
+    assert deleted, "상한을 넘겼는데 아무것도 지우지 않았다"
+    assert "health-2026-07-03.jsonl" in remaining, "최신 파일은 어떤 경우에도 남긴다"
+    assert "health-2026-07-01.jsonl" not in remaining, "가장 오래된 파일부터 지워야 한다"

@@ -341,3 +341,102 @@ def test_history_includes_current_rail():
 
 def test_history_current_none_without_sensor():
     assert webview.history_payload([_rec(0)], 10)["curr"] == [None]
+
+
+# ── 목표 주기 0·음수 방어 ────────────────────────────────────────────────────
+
+
+def test_gap_stats_survives_zero_interval():
+    """0 을 나눗셈에 그대로 쓰면 보고서 생성이 통째로 중단된다."""
+    stats = report.gap_stats([5.0, 5.0], 0.0)
+    assert stats["missing_estimate"] == 0
+    assert stats["gaps_over"] == []
+
+
+def test_format_report_survives_zero_interval(tmp_path):
+    d = _write(tmp_path, [_rec(i) for i in range(5)])
+    text = report.format_report(d, 0.0)
+    assert "운영 결과" in text
+    assert "하루 추정" not in text   # 목표 주기가 없으면 추정도 내지 않는다
+
+
+# ── --since 와 로그 성장률의 구간 일치 ───────────────────────────────────────
+
+
+def test_growth_rate_is_not_inflated_by_since(tmp_path):
+    """분자는 파일 전체 바이트인데 분모만 잘리면 표본당 바이트가 부풀려진다."""
+    recs = [_rec(i) for i in range(10)]
+    d = _write(tmp_path, recs)
+    full = report.format_report(d, 5.0)
+    scoped = report.format_report(d, 5.0, since=recs[7]["iso_time"])
+
+    def per_sample(text):
+        line = [l for l in text.splitlines() if "표본당" in l][0]
+        return line.split("표본당")[1].split("B")[0].strip()
+
+    assert per_sample(full) == per_sample(scoped)
+    assert "전 구간 기준" in scoped
+
+
+# ── 표본 상한 (반복 호출 경로 보호) ──────────────────────────────────────────
+
+
+def test_max_samples_caps_read_and_says_so(tmp_path):
+    d = _write(tmp_path, [_rec(i) for i in range(50)])
+    text = report.format_report(d, 5.0, max_samples=10)
+    assert "최근 10개 표본만 읽었다" in text
+    assert "표본   : 10개" in text
+
+
+def test_report_api_uses_the_cap(tmp_path):
+    d = _write(tmp_path, [_rec(i) for i in range(webview.REPORT_MAX_SAMPLES + 5)])
+    srv = webview.make_server(d, bind="127.0.0.1", port=0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        port = srv.server_address[1]
+        body = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/report").read().decode()
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert f"최근 {webview.REPORT_MAX_SAMPLES}개 표본만 읽었다" in body
+
+
+# ── 로그 완독 횟수 ───────────────────────────────────────────────────────────
+
+
+def test_cli_reads_the_log_only_once(tmp_path, monkeypatch, capsys):
+    """보고문과 종료 코드를 위해 같은 디렉토리를 두 번 파싱하지 않는다."""
+    d = _write(tmp_path, [_rec(i) for i in range(5)])
+    calls = []
+    original = report.load_records
+    monkeypatch.setattr(report, "load_records",
+                        lambda *a, **k: (calls.append(1), original(*a, **k))[1])
+    assert report.main([str(d), "--interval", "5"]) == 0
+    capsys.readouterr()
+    assert len(calls) == 1, f"로그를 {len(calls)}회 완독했다"
+
+
+def test_cli_rejects_zero_interval(tmp_path):
+    d = _write(tmp_path, [_rec(0)])
+    with pytest.raises(SystemExit) as exc:
+        report.main([str(d), "--interval", "0"])
+    assert exc.value.code == 2
+
+
+# ── 대시보드 문자열 처리 ─────────────────────────────────────────────────────
+
+
+def test_page_injects_level_view_and_escapes(tmp_path):
+    """등급 표는 서버가 단일 근원으로 내려주고, 로그 문자열은 이스케이프해서 넣는다."""
+    d = _write(tmp_path, [_rec(0)])
+    srv = webview.make_server(d, bind="127.0.0.1", port=0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        port = srv.server_address[1]
+        page = urllib.request.urlopen(f"http://127.0.0.1:{port}/").read().decode()
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert "__LEVEL_VIEW__" not in page, "자리표시자가 치환되지 않았다"
+    assert '"OK"' in page and "정상" in page
+    assert "esc(f.message)" in page and "esc(f.key)" in page

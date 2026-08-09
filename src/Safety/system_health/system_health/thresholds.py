@@ -5,9 +5,12 @@
 깎기 시작하고 104.5 °C 에서 셧다운한다(2026-07-28 실측) — 99 °C 경보는 이미 성능이 무너진
 뒤이고 셧다운이 5.5 °C 앞이라 너무 늦다. 70 °C trip 은 표면온도 경보일 뿐 실리콘 여유와 무관하다.
 
-**⚠ 잠정치 (provisional)**: 온도·CPU 기본값은 램프 시험 전 잠정치다. `PROVISIONAL_KEYS` 에
-열거되어 있으며, 부하 램프 시험(ADR §Consequences 후속과제 1)으로 확정해야 한다. 지어낸 값을
-확정처럼 쓰지 않기 위해 코드에 명시적으로 표시한다.
+**⚠ 잠정치 (provisional)**: 온도·CPU 기본값은 램프 시험 전 잠정치이며 `PROVISIONAL_KEYS` 에
+열거되어 있다. 지어낸 값을 확정처럼 쓰지 않기 위해 코드에 명시적으로 표시한다.
+
+- **온도** 임계: 부하 램프 시험으로 확정한다
+  (ADR 2026-07-28 §Consequences 후속 과제 1 — 온도·`pwm1` 동시 기록 → 온도 임계 확정).
+- **CPU** 임계: 확정 절차가 아직 없다. 위 후속 과제는 온도만 대상으로 한다.
 
 판정 결과는 `Finding` 목록이다. 판정 대상은 `sampler.collect()` 가 만든 record dict 이며,
 **항목이 없으면 그 항목은 판정하지 않는다**(하드웨어마다 읽히는 노드가 다르므로 부재는 정상).
@@ -85,7 +88,8 @@ class Thresholds:
     # 살아 있어야 하는 프로세스 이름들(`/proc` comm — **15자에서 잘린다**).
     # **비어 있으면 판정하지 않는다.** 감시기가 "무엇이 정상인지" 를 스스로 정하지 않는다:
     # 운영 시나리오마다 띄우는 launch 가 다르고, 목록을 지어내면 실재하지 않는 것을 감시하게
-    # 된다(ADR 2026-08-01 §Decision 2 — 조사 시점에 ROS 노드가 0개였다).
+    # 된다(ADR 2026-08-01 §Decision 2 — 조사 시점에 ROS 노드가 0개였다.
+    # 근거: docs/adr/2026-08-01-system-health-phase3-sw-watchdog.md:53).
     expected_processes: tuple[str, ...] = ()
     # CAN 에러 **증가율**(건/초) 임계. 누계가 아니다 — 누계 기준은 한 번 오르면 계속 경보한다.
     # 기본 비활성: 이 장비에 socketcan 인터페이스가 아직 없어 정상 대역을 모른다.
@@ -96,13 +100,32 @@ class Thresholds:
     fan_daemon_name: str = "nvfancontrol"
 
     def __post_init__(self) -> None:
-        """JSON 에서 온 list 를 tuple 로 맞춘다.
+        """JSON 에서 온 list 를 tuple 로 맞추고, WARN/ERROR 대소 순서를 검증한다.
 
         설정 파일은 배열을 list 로 주는데 필드는 tuple 이라, 그대로 두면
         `from_mapping(x.to_mapping()) == x` 왕복 비교가 타입 때문에 깨진다.
+
+        순서 검증을 여기 두는 이유: 순서가 뒤집힌 임계값은 **WARN 대역을 통째로 없앤다**.
+        예를 들어 `temp_warn_c=90 / temp_error_c=85` 면 87 °C 가 WARN 을 건너뛰고 바로 ERROR 가
+        된다. 사용자는 90 °C 부터 경고를 받는다고 믿는데 실제로는 85 °C 부터 최고 등급이 뜬다.
+
+        Raises:
+            ValueError: WARN/ERROR 순서가 방향과 어긋날 때.
         """
         if not isinstance(self.expected_processes, tuple):
             object.__setattr__(self, "expected_processes", tuple(self.expected_processes))
+        for warn_key, error_key, higher_is_worse in THRESHOLD_PAIRS:
+            warn, error = getattr(self, warn_key), getattr(self, error_key)
+            if warn is None or error is None:
+                continue  # 한쪽이라도 비활성이면 판정 자체를 하지 않는다.
+            if higher_is_worse and warn > error:
+                raise ValueError(
+                    f"임계값 순서 오류: 값이 클수록 나쁜 항목이므로 "
+                    f"{warn_key}({warn}) <= {error_key}({error}) 여야 한다")
+            if not higher_is_worse and warn < error:
+                raise ValueError(
+                    f"임계값 순서 오류: 값이 작을수록 나쁜 항목이므로 "
+                    f"{warn_key}({warn}) >= {error_key}({error}) 여야 한다")
 
     @classmethod
     def from_mapping(cls, overrides: Mapping[str, Any]) -> "Thresholds":
@@ -118,6 +141,10 @@ class Thresholds:
         Raises:
             KeyError: 알 수 없는 필드명이 있을 때. **오타를 조용히 무시하면 사용자가 임계값을
                 바꿨다고 믿는데 실제로는 안 바뀐 상태가 되므로** 거부한다.
+            ValueError: 값의 타입이 필드와 맞지 않거나(`"75"` 같은 문자열 수치) WARN/ERROR
+                순서가 뒤집혔을 때. **로드 시점에 거부한다** — 통과시키면 첫 판정에서
+                `TypeError` 로 죽고, 유닛의 `Restart=always` 와 만나 5초 주기 재시작 루프가
+                되어 기록이 하나도 남지 않는다.
         """
         applied = {
             k: v for k, v in overrides.items() if not k.startswith(COMMENT_KEY_PREFIX)
@@ -135,7 +162,8 @@ class Thresholds:
             raise KeyError(
                 f"알 수 없는 임계값 항목: {sorted(unknown)} "
                 f"(사용 가능: {sorted(known)})")
-        return cls(**applied)
+        annotations = {f.name: f.type for f in fields(cls)}
+        return cls(**{k: _coerce(k, str(annotations[k]), v) for k, v in applied.items()})
 
     def to_mapping(self) -> dict[str, Any]:
         """현재 값을 JSON 직렬화 가능한 dict 로. `from_mapping` 의 역함수.
@@ -144,6 +172,67 @@ class Thresholds:
             필드명 → 값. 주석 키는 포함하지 않는다(호출자가 붙인다).
         """
         return asdict(self)
+
+
+#: (WARN 키, ERROR 키, 값이 클수록 나쁜가). `_grade` 의 `higher_is_worse` 와 같은 방향이며
+#: `__post_init__` 의 순서 검증과 `evaluate` 의 판정이 같은 근원을 보게 하려고 표로 둔다.
+THRESHOLD_PAIRS: tuple[tuple[str, str, bool], ...] = (
+    ("temp_warn_c", "temp_error_c", True),
+    ("cpu_warn_pct", "cpu_error_pct", True),
+    ("mem_available_warn_mb", "mem_available_error_mb", False),
+    ("swap_rate_warn_pages_s", "swap_rate_error_pages_s", True),
+    ("disk_free_warn_gb", "disk_free_error_gb", False),
+    ("gpu_warn_pct", "gpu_error_pct", True),
+    ("input_current_warn_ma", "input_current_error_ma", True),
+    ("can_error_rate_warn_s", "can_error_rate_error_s", True),
+)
+
+
+def _coerce(key: str, annotation: str, value: Any) -> Any:
+    """설정 파일에서 온 값 하나를 필드 타입에 맞춰 변환하거나 거부한다.
+
+    `from __future__ import annotations` 때문에 `fields()` 가 주는 타입은 **문자열**이다
+    (`"float | None"`). 실제 타입 객체를 얻으려면 `typing.get_type_hints` 가 필요한데, 그
+    한 줄을 위해 런타임 의존을 늘리는 대신 문자열을 그대로 판별한다 — 본 dataclass 의 필드
+    타입은 `float`·`float | None`·`str`·`tuple[str, ...]` 넷뿐이다.
+
+    Args:
+        key: 필드명(오류 메시지용).
+        annotation: 필드 타입 주석 문자열.
+        value: 설정 파일에서 온 값.
+    Returns:
+        필드 타입에 맞는 값.
+    Raises:
+        ValueError: 타입이 맞지 않을 때. 문자열 수치(`"75"`)를 조용히 숫자로 바꾸지 않는다 —
+            설정 파일이 JSON 이라 숫자를 숫자로 쓸 수 있고, 따옴표는 실수의 신호다.
+    """
+    optional = "None" in annotation
+    if value is None:
+        if optional:
+            return None
+        raise ValueError(f"임계값 '{key}' 는 null 을 받지 않는다")
+    if annotation.startswith("float") or annotation.startswith("int"):
+        # bool 은 int 의 하위형이라 그냥 두면 True 가 1.0 으로 통과한다.
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(
+                f"임계값 '{key}' 는 숫자여야 한다 — 받은 값 {value!r} ({type(value).__name__})")
+        return float(value)
+    if annotation.startswith("str"):
+        if not isinstance(value, str):
+            raise ValueError(
+                f"임계값 '{key}' 는 문자열이어야 한다 — 받은 값 {value!r} "
+                f"({type(value).__name__})")
+        return value
+    if annotation.startswith("tuple"):
+        if isinstance(value, str) or not isinstance(value, (list, tuple)):
+            raise ValueError(
+                f"임계값 '{key}' 는 문자열 배열이어야 한다 — 받은 값 {value!r} "
+                f"({type(value).__name__})")
+        bad = [v for v in value if not isinstance(v, str)]
+        if bad:
+            raise ValueError(f"임계값 '{key}' 의 원소는 전부 문자열이어야 한다 — {bad!r}")
+        return tuple(value)
+    return value
 
 
 #: 램프 시험 전까지 근거가 실측이 아닌 항목. 보고서·문서에서 `잠정` 으로 표기한다.
@@ -260,9 +349,9 @@ def evaluate(record: Mapping[str, Any], th: Thresholds) -> tuple[Finding, ...]:
                 )
             )
 
-    rate = record.get("swap_rate_pages_s")
-    if rate is not None:
-        total_rate = (rate.get("in") or 0.0) + (rate.get("out") or 0.0)
+    swap_rate = record.get("swap_rate_pages_s")
+    if swap_rate is not None:
+        total_rate = (swap_rate.get("in") or 0.0) + (swap_rate.get("out") or 0.0)
         level = _grade(
             total_rate,
             th.swap_rate_warn_pages_s,
@@ -278,7 +367,8 @@ def evaluate(record: Mapping[str, Any], th: Thresholds) -> tuple[Finding, ...]:
                     level=level,
                     value=total_rate,
                     message=f"스왑 활동 {total_rate:.0f} pages/s "
-                    f"(in {rate.get('in', 0):.0f} / out {rate.get('out', 0):.0f}{used_note}) — "
+                    f"(in {swap_rate.get('in', 0):.0f} / out "
+                    f"{swap_rate.get('out', 0):.0f}{used_note}) — "
                     f"지금 스왑을 쓰고 있다 = 실시간성 저하 (임계 WARN "
                     f"{th.swap_rate_warn_pages_s}/ERROR {th.swap_rate_error_pages_s} pages/s)",
                 )
@@ -381,18 +471,18 @@ def evaluate(record: Mapping[str, Any], th: Thresholds) -> tuple[Finding, ...]:
                     message=f"CAN 인터페이스 '{iface.get('name', '?')}' 가 down 이다",
                 )
             )
-        rate = iface.get("error_rate_s")
-        if (rate is not None and th.can_error_rate_warn_s is not None
+        can_rate = iface.get("error_rate_s")
+        if (can_rate is not None and th.can_error_rate_warn_s is not None
                 and th.can_error_rate_error_s is not None):
-            level = _grade(rate, th.can_error_rate_warn_s, th.can_error_rate_error_s,
+            level = _grade(can_rate, th.can_error_rate_warn_s, th.can_error_rate_error_s,
                            higher_is_worse=True)
             if level is not Level.OK:
                 findings.append(
                     Finding(
                         key=f"can_errors:{iface.get('name', '?')}",
                         level=level,
-                        value=rate,
-                        message=f"CAN '{iface.get('name', '?')}' 에러 {rate:.1f} 건/초 "
+                        value=can_rate,
+                        message=f"CAN '{iface.get('name', '?')}' 에러 {can_rate:.1f} 건/초 "
                         f"(누계 {iface.get('errors_total', 0)}) — 임계 WARN "
                         f"{th.can_error_rate_warn_s}/ERROR {th.can_error_rate_error_s} 건/초",
                     )

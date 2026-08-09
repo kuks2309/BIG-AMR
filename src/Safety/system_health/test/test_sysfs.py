@@ -216,6 +216,7 @@ def test_power_rails_have_labels_only():
 
     이 드라이버는 라벨 없는 `curr4_input`·`in4~in6_input`(shunt 전압)도 노출한다.
     그것까지 실으면 화면에 존재하지 않는 레일이 뜬다(2026-07-29 실제로 rail4 가 떴다).
+    채널별 라벨 유무 확인: ls /sys/class/hwmon/hwmon*/in*_label curr*_input
     """
     for rail in sysfs.read_power_rails():
         assert rail.name and not rail.name.startswith("rail")
@@ -234,3 +235,36 @@ def test_power_mw_is_voltage_times_current():
 
 def test_power_rails_returns_tuple_even_without_sensor():
     assert isinstance(sysfs.read_power_rails(), tuple)
+
+
+def test_cpu_usage_pct_joins_by_core_id_when_available():
+    """중간 번호 코어가 빠지면 인덱스는 밀린다 — 번호로 짝지어야 같은 코어를 비교한다."""
+    prev = sysfs.CpuSnapshot(
+        total=sysfs.CpuTimes(50, 100),
+        per_core=(sysfs.CpuTimes(90, 100), sysfs.CpuTimes(50, 100), sysfs.CpuTimes(10, 100)),
+        core_ids=(0, 1, 2),
+    )
+    cur = sysfs.CpuSnapshot(          # 코어 1 이 offline 되어 행이 사라졌다
+        total=sysfs.CpuTimes(100, 200),
+        per_core=(sysfs.CpuTimes(180, 200), sysfs.CpuTimes(20, 200)),
+        core_ids=(0, 2),
+    )
+    usage = sysfs.cpu_usage_pct(prev, cur)
+    # 코어 0: idle 90→180(+90) / total 100→200(+100) ⇒ 10 % · 코어 2: idle +10 ⇒ 90 %
+    assert usage.per_core_pct == pytest.approx((10.0, 90.0))
+
+
+def test_cpu_usage_pct_falls_back_to_index_without_core_ids():
+    """번호가 없는 스냅샷(옛 형식)은 종전대로 인덱스로 짝짓는다."""
+    prev = sysfs.CpuSnapshot(total=sysfs.CpuTimes(50, 100),
+                             per_core=(sysfs.CpuTimes(50, 100),))
+    cur = sysfs.CpuSnapshot(total=sysfs.CpuTimes(100, 200),
+                            per_core=(sysfs.CpuTimes(100, 200),))
+    assert sysfs.cpu_usage_pct(prev, cur).per_core_pct == pytest.approx((50.0,))
+
+
+def test_read_cpu_times_fills_core_ids():
+    snapshot = sysfs.read_cpu_times()
+    assert snapshot is not None
+    assert len(snapshot.core_ids) == len(snapshot.per_core)
+    assert list(snapshot.core_ids) == sorted(snapshot.core_ids)

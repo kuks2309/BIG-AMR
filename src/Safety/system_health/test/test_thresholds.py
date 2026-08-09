@@ -235,3 +235,52 @@ def test_missing_rail_is_not_judged():
     th = Thresholds.from_mapping({"input_current_warn_ma": 100.0,
                                   "input_current_error_ma": 200.0})
     assert evaluate({"power": {}}, th) == ()
+
+
+# ── 설정 값 검증 (로드 시점 거부) ────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("override, needle", [
+    ({"temp_warn_c": "hot"}, "숫자"),
+    ({"temp_warn_c": "75"}, "숫자"),          # JSON 에서 따옴표는 실수의 신호다
+    ({"temp_warn_c": True}, "숫자"),          # bool 은 int 하위형이라 그냥 두면 1.0 이 된다
+    ({"gpu_warn_pct": "80"}, "숫자"),
+    ({"fan_daemon_name": 3}, "문자열"),
+    ({"expected_processes": "ros2"}, "문자열 배열"),   # 문자열 하나는 배열이 아니다
+    ({"expected_processes": ["ok", 7]}, "문자열"),
+    ({"temp_warn_c": None}, "null"),
+])
+def test_from_mapping_rejects_wrong_value_type(override, needle):
+    """타입 오류를 통과시키면 첫 판정에서 TypeError 로 죽는다 — 로드 시점에 거부해야 한다."""
+    with pytest.raises(ValueError, match=needle):
+        Thresholds.from_mapping(override)
+
+
+def test_optional_threshold_accepts_null():
+    """비활성(None)은 정상 입력이다 — 판정을 끄는 방법이 null 이기 때문이다."""
+    assert Thresholds.from_mapping({"gpu_warn_pct": None}).gpu_warn_pct is None
+
+
+@pytest.mark.parametrize("override", [
+    {"temp_warn_c": 90.0, "temp_error_c": 85.0},              # 클수록 나쁨: warn <= error
+    {"cpu_warn_pct": 99.0, "cpu_error_pct": 90.0},
+    {"disk_free_warn_gb": 5.0, "disk_free_error_gb": 10.0},   # 작을수록 나쁨: warn >= error
+    {"mem_available_warn_mb": 500.0, "mem_available_error_mb": 2000.0},
+])
+def test_from_mapping_rejects_inverted_order(override):
+    """순서가 뒤집히면 WARN 대역이 사라진다 — 사용자는 그 사실을 모른 채 운영하게 된다."""
+    with pytest.raises(ValueError, match="순서"):
+        Thresholds.from_mapping(override)
+
+
+def test_inverted_order_is_rejected_on_direct_construction():
+    """설정 파일 경로뿐 아니라 직접 생성도 같은 규칙을 받는다."""
+    with pytest.raises(ValueError, match="순서"):
+        Thresholds(temp_warn_c=90.0, temp_error_c=85.0)
+
+
+def test_ints_are_accepted_and_normalised():
+    """JSON 은 75 를 int 로 준다 — 거부 대상이 아니라 float 로 맞출 대상이다."""
+    th = Thresholds.from_mapping({"temp_warn_c": 70})
+    assert th.temp_warn_c == pytest.approx(70.0)
+    assert isinstance(th.temp_warn_c, float)

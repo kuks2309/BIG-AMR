@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+from .cliargs import positive_float
+
 _BYTES_PER_MB = 1 << 20
 #: 표본 간격이 목표의 이 배수를 넘으면 "결손 의심" 으로 센다. 1.5 배는 한 표본을 통째로
 #: 놓쳤다고 보기에 충분한 여유다(정상 지터는 0.1 % 수준 — 2026-07-28 실측).
@@ -196,15 +198,22 @@ def gap_stats(gaps: Sequence[float], interval_s: float) -> dict[str, Any]:
     """
     if not gaps:
         return {"count": 0, "gaps_over": [], "missing_estimate": 0}
-    threshold = interval_s * GAP_FACTOR
-    over = [g for g in gaps if g > threshold]
-    return {
+    stats = {
         "count": len(gaps),
         "mean": st.mean(gaps),
         "median": st.median(gaps),
         "min": min(gaps),
         "max": max(gaps),
         "stdev": st.pstdev(gaps) if len(gaps) > 1 else 0.0,
+    }
+    if interval_s <= 0:
+        # 목표 주기가 없으면 "결손"이 정의되지 않는다. 간격 통계는 그대로 내되 결손 판정만 뺀다 —
+        # 가드가 없으면 아래 `g / interval_s` 가 ZeroDivisionError 를 내 보고서가 통째로 끊긴다.
+        return {**stats, "gaps_over": [], "missing_estimate": 0}
+    threshold = interval_s * GAP_FACTOR
+    over = [g for g in gaps if g > threshold]
+    return {
+        **stats,
         "gaps_over": over,
         "missing_estimate": int(sum(round(g / interval_s) - 1 for g in over)),
     }
@@ -283,14 +292,39 @@ def filter_since(records: Sequence[dict[str, Any]], since: str | None) -> list[d
 
 
 def format_report(log_dir: str | Path, interval_s: float, prefix: str = "health",
-                  since: str | None = None) -> str:
-    """사람이 읽는 보고문. 판정은 하지 않고 수치만 낸다."""
-    files = load_files(log_dir, prefix)
-    recs = filter_since(load_records(log_dir, prefix), since)
+                  since: str | None = None, *,
+                  records: Sequence[dict[str, Any]] | None = None,
+                  files: Sequence[LogFileInfo] | None = None,
+                  max_samples: int | None = None) -> str:
+    """사람이 읽는 보고문. 판정은 하지 않고 수치만 낸다.
+
+    Args:
+        log_dir: JSONL 로그 디렉토리.
+        interval_s: 목표 표본 주기(초).
+        prefix: 로그 파일명 접두.
+        since: ISO 시각 접두. 이후 표본만 평가한다.
+        records: 이미 읽어 둔 표본. 주면 다시 읽지 않는다 — 호출자가 같은 로그를 두 번
+            완독하지 않게 하려는 주입점이다(`main` 이 종료 코드 판정에 재사용한다).
+        files: 이미 읽어 둔 파일 요약. 같은 이유의 주입점.
+        max_samples: 읽을 표본 수 상한. 주면 `tail_records` 로 **꼬리만** 읽는다.
+            반복 호출되는 경로(웹 `/api/report`)가 로그 전체를 파싱하지 않게 한다.
+    Returns:
+        보고문.
+    """
+    files = list(load_files(log_dir, prefix) if files is None else files)
+    if records is None:
+        all_recs = (tail_records(log_dir, max_samples, prefix) if max_samples
+                    else load_records(log_dir, prefix))
+    else:
+        all_recs = list(records)
+    capped = max_samples is not None and len(all_recs) >= max_samples
+    recs = filter_since(all_recs, since)
     lines: list[str] = []
     add = lines.append
 
     add(f"■ 운영 결과 — {log_dir}  (목표 주기 {interval_s:g}s)")
+    if capped:
+        add(f"  ⚠ 최근 {max_samples}개 표본만 읽었다(상한). 전 구간이 필요하면 CLI 로 실행할 것.")
     if not recs:
         add("  표본 없음 — 감시기가 기록하지 못했다.")
         return "\n".join(lines)
@@ -335,11 +369,14 @@ def format_report(log_dir: str | Path, interval_s: float, prefix: str = "health"
     for name, r in resource_ranges(recs).items():
         add(f"  {name:<16} {r['min']:>9.1f} → {r['max']:>9.1f}   (마지막 {r['last']:.1f})")
 
+    # 분자(총 바이트)는 파일 전체이므로 분모도 **전 구간 표본 수**를 쓴다. `--since` 로 잘린
+    # 표본 수를 분모에 넣으면 표본당 바이트가 구간을 자른 비율만큼 부풀려지고, 그 값이 그대로
+    # 하루 추정 → `--max-total-mb` 근거로 쓰인다.
     total = sum(i.bytes for i in files)
-    per_sample = total / len(recs)
-    add("⑥ 로그 성장률")
-    add(f"  총 {total/_BYTES_PER_MB:.2f} MB · 표본당 {per_sample:.0f} B"
-        f" · 하루 추정 {per_sample*86400/interval_s/_BYTES_PER_MB:.1f} MB")
+    per_sample = total / len(all_recs) if all_recs else 0.0
+    add("⑥ 로그 성장률" + ("  (전 구간 기준 — --since 로 자르지 않는다)" if since else ""))
+    daily = f" · 하루 추정 {per_sample*86400/interval_s/_BYTES_PER_MB:.1f} MB" if interval_s > 0 else ""
+    add(f"  총 {total/_BYTES_PER_MB:.2f} MB · 표본당 {per_sample:.0f} B{daily}")
     return "\n".join(lines)
 
 
@@ -349,7 +386,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         description="자원 감시 로그 요약 — 시험 운전·상주 운영 결과 확인용",
     )
     p.add_argument("log_dir", help="JSONL 로그 디렉토리 (예: Log/health)")
-    p.add_argument("--interval", type=float, default=5.0, help="목표 표본 주기(초)")
+    p.add_argument("--interval", type=positive_float, default=5.0, help="목표 표본 주기(초, 0 초과)")
     p.add_argument("--prefix", default="health", help="로그 파일명 접두")
     p.add_argument("--since", default=None,
                    help="이 ISO 시각 이후 표본만 평가 (예: 2026-07-28T16:36). 한 폴더에 여러 "
@@ -364,9 +401,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         표본이 하나라도 있으면 0, 없으면 1.
     """
     args = _parse_args(argv)
-    text = format_report(args.log_dir, args.interval, args.prefix, args.since)
-    print(text)
-    return 0 if filter_since(load_records(args.log_dir, args.prefix), args.since) else 1
+    # 로그는 **한 번만** 완독한다. 보고문을 만든 뒤 종료 코드를 정하려고 다시 읽으면 같은
+    # 디렉토리를 두 번 파싱하게 된다.
+    recs = load_records(args.log_dir, args.prefix)
+    print(format_report(args.log_dir, args.interval, args.prefix, args.since, records=recs))
+    return 0 if filter_since(recs, args.since) else 1
 
 
 if __name__ == "__main__":

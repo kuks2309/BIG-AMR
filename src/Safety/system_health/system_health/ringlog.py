@@ -123,20 +123,29 @@ class RingLog:
         now = self._clock()
         # 최신 파일은 후보에서 제외한다.
         candidates = files[:-1]
+        # 총량은 한 번만 재고 지운 만큼 차감한다. 반복마다 디렉토리를 다시 훑으면 삭제 k 건에
+        # O(k·n) 이 되고, 그 비용을 감시 대상 PC 가 낸다.
+        total = self._total_size()
 
         for path in list(candidates):
             try:
-                age_s = now - path.stat().st_mtime
+                stat = path.stat()
             except OSError:
                 continue
-            if age_s > self._max_age_s and self._unlink(path):
+            if now - stat.st_mtime > self._max_age_s and self._unlink(path):
                 deleted.append(path)
                 candidates.remove(path)
+                total -= stat.st_size
 
-        while candidates and self._total_size() > self._max_total_bytes:
+        while candidates and total > self._max_total_bytes:
             oldest = candidates.pop(0)
+            try:
+                size = oldest.stat().st_size
+            except OSError:
+                size = 0
             if self._unlink(oldest):
                 deleted.append(oldest)
+                total -= size
 
         return deleted
 

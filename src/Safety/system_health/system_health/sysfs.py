@@ -1,11 +1,12 @@
 """OS·하드웨어 자원 수치 읽기 — sysfs/procfs 직독. ROS·외부 패키지 의존 0.
 
-**왜 sysfs 직독인가** (ADR 2026-07-28 §Decision 3):
+**왜 sysfs 직독인가** (ADR 2026-07-28 §Decision 3·9):
   ① `tegrastats` 출력은 JetPack 버전마다 필드가 바뀌는 문자열이라 파서가 조용히 깨진다.
-     sysfs 노드는 커널 ABI 라 훨씬 안정적이다.
+     sysfs 노드는 커널 ABI 라 훨씬 안정적이다. (§Decision 3)
   ② 감시기는 다른 것이 다 깨져도 떠야 하므로 의존 표면을 최소로 유지한다(`psutil` 미사용).
+     (§Decision 9 — 의존성은 표준 라이브러리만)
   ③ `ros2 topic hz` 같은 서브프로세스 호출은 매번 새 DDS participant 를 만들어 전체 노드에
-     discovery 트래픽을 유발한다 — 관측이 대상을 바꾸면 안 된다.
+     discovery 트래픽을 유발한다 — 관측이 대상을 바꾸면 안 된다. (§Decision 3)
 
 **모든 reader 는 노드 부재에 관대하다.** 하드웨어마다 있는 노드가 다르므로, 읽을 수 없는 항목은
 예외를 던지는 대신 `None` 또는 빈 컬렉션을 돌려준다 — 감시기가 항목 하나 때문에 죽으면 안 된다.
@@ -34,6 +35,10 @@ _GPU_LOAD_PATHS = (
 )
 _GPU_LOAD_PER_MILLE = 10.0
 _DEVFREQ_ROOT = Path("/sys/class/devfreq")
+# 범용 PC 의 통합 GPU 주파수. Intel i915 는 `gt_cur_freq_mhz`·`gt_max_freq_mhz` 를 **MHz** 로 낸다
+# (Tegra devfreq 는 Hz). 사용률(%) 노드는 주지 않으므로 그 플랫폼에서 `load_pct` 는 None 이다.
+_DRM_ROOT = Path("/sys/class/drm")
+_HZ_PER_MHZ = 1_000_000
 # INA3221 전력 모니터. 본 장비는 3채널(VDD_IN·VDD_CPU_GPU_CV·VDD_SOC)이며 hwmon 이
 # 전압을 mV, 전류를 mA 로 낸다(2026-07-28 실측: 11624 mV · 1576 mA = VDD_IN).
 # 전력 노드(`power*_input`)는 이 커널에 없어 전압×전류로 계산한다.
@@ -52,8 +57,6 @@ _FAN_HWMON_ROOT = Path("/sys/devices/platform/pwm-fan/hwmon")
 _PROC_ROOT = Path("/proc")
 
 # `/proc/<pid>/stat` 에서 ") " 뒤를 기준으로 센 필드 인덱스(state=0).
-_PROC_STAT_UTIME = 11
-_PROC_STAT_STIME = 12
 _PROC_STAT_RSS_PAGES = 21
 
 _PAGE_MB = os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
@@ -141,9 +144,9 @@ class FanInfo:
 
     Attributes:
         pwm: `pwm1` 값(0~255). 노드 부재 시 None.
-        rpm: 실측 회전수. **본 하드웨어에는 `rpm` 노드가 없어 항상 None** — ADR §Decision 5
-            참조. RPM 기반 팬 고착 판정은 Phase 1 에서 불가하며 `pwm` 과 온도 추세로만 간접
-            판단한다.
+        rpm: 실측 회전수. 값의 유무는 **플랫폼에 달렸다** — Jetson 의 `pwm-fan` hwmon 은 `rpm`
+            노드를 주지 않아 None 이고(ADR 2026-07-28 §Decision 5), 범용 hwmon 을 가진 PC 는
+            `fan1_input` 으로 RPM 을 준다. None 이면 `pwm` 과 온도 추세로만 간접 판단한다.
     """
 
     pwm: int | None
@@ -151,18 +154,26 @@ class FanInfo:
 
 
 def read_fan() -> FanInfo:
-    """팬 PWM/RPM 을 읽는다. 팬을 **제어하지 않는다 — 읽기 전용**(ADR §Decision 5).
+    """팬 PWM/RPM 을 읽는다. 팬을 **제어하지 않는다 — 읽기 전용**(ADR 2026-07-28 §Decision 5).
+
+    경로를 두 갈래로 찾는다. Jetson 은 `pwm-fan` 플랫폼 hwmon 에 `pwm1` 만 두고, 범용 PC 는
+    `/sys/class/hwmon` 아래에 `fan1_input`(RPM)·`pwm1` 을 둔다. 한 코드가 두 하드웨어에서 모두
+    뜨도록 Tegra 경로를 먼저 보고, 없으면 범용 hwmon 을 훑는다.
 
     Returns:
-        `FanInfo`. 노드가 없으면 두 필드 모두 None.
+        `FanInfo`. 어느 경로에도 노드가 없으면 두 필드 모두 None.
     """
-    if not _FAN_HWMON_ROOT.is_dir():
-        return FanInfo(pwm=None, rpm=None)
-    for hwmon in sorted(_FAN_HWMON_ROOT.glob("hwmon*")):
-        pwm = _read_int(hwmon / "pwm1")
-        rpm = _read_int(hwmon / "rpm")
-        if pwm is not None or rpm is not None:
-            return FanInfo(pwm=pwm, rpm=rpm)
+    roots = []
+    if _FAN_HWMON_ROOT.is_dir():
+        roots.append((_FAN_HWMON_ROOT, "rpm"))
+    if _HWMON_ROOT.is_dir():
+        roots.append((_HWMON_ROOT, "fan1_input"))
+    for root, rpm_node in roots:
+        for hwmon in sorted(root.glob("hwmon*")):
+            pwm = _read_int(hwmon / "pwm1")
+            rpm = _read_int(hwmon / rpm_node)
+            if pwm is not None or rpm is not None:
+                return FanInfo(pwm=pwm, rpm=rpm)
     return FanInfo(pwm=None, rpm=None)
 
 
@@ -179,10 +190,19 @@ class CpuTimes:
 
 @dataclass(frozen=True)
 class CpuSnapshot:
-    """어느 한 시점의 CPU 누적 시간. 사용률은 두 스냅샷의 **차분**으로만 구한다."""
+    """어느 한 시점의 CPU 누적 시간. 사용률은 두 스냅샷의 **차분**으로만 구한다.
+
+    Attributes:
+        total: `/proc/stat` 의 `cpu` 집계 행.
+        per_core: `cpu<N>` 행들, 파일에 나온 순서.
+        core_ids: `per_core` 와 같은 순서의 코어 번호. **차분을 인덱스가 아니라 번호로
+            짝짓기 위해** 함께 담는다 — 코어가 offline 되어 행이 사라지면 인덱스는 밀리지만
+            번호는 밀리지 않는다. 비어 있으면 인덱스로 짝짓는다(옛 스냅샷 하위 호환).
+    """
 
     total: CpuTimes
     per_core: tuple[CpuTimes, ...]
+    core_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -221,6 +241,7 @@ def read_cpu_times() -> CpuSnapshot | None:
         return None
     total: CpuTimes | None = None
     per_core: list[CpuTimes] = []
+    core_ids: list[int] = []
     for line in text.splitlines():
         parts = line.split()
         if not parts or not parts[0].startswith("cpu"):
@@ -230,11 +251,15 @@ def read_cpu_times() -> CpuSnapshot | None:
             continue
         if parts[0] == "cpu":
             total = times
-        else:
-            per_core.append(times)
+            continue
+        suffix = parts[0][3:]
+        if not suffix.isdigit():
+            continue
+        per_core.append(times)
+        core_ids.append(int(suffix))
     if total is None:
         return None
-    return CpuSnapshot(total=total, per_core=tuple(per_core))
+    return CpuSnapshot(total=total, per_core=tuple(per_core), core_ids=tuple(core_ids))
 
 
 def _usage_pct(prev: CpuTimes, cur: CpuTimes) -> float:
@@ -249,17 +274,30 @@ def _usage_pct(prev: CpuTimes, cur: CpuTimes) -> float:
 def cpu_usage_pct(prev: CpuSnapshot, cur: CpuSnapshot) -> CpuUsage:
     """두 스냅샷 사이의 CPU 사용률.
 
-    코어 수가 달라졌으면(hotplug) 겹치는 만큼만 비교한다 — 감시기가 죽는 것보다 낫다.
+    양쪽에 코어 번호가 있으면 **번호로 짝짓는다**. 인덱스로 짝지으면 중간 번호 코어가 빠졌을 때
+    이후 인덱스가 밀려 서로 다른 물리 코어를 비교하게 된다. 번호가 없는 옛 스냅샷은 종전대로
+    인덱스로 짝짓고, 코어 수가 다르면 겹치는 만큼만 본다 — 감시기가 죽는 것보다 낫다.
 
     Args:
         prev: 이전 스냅샷.
         cur: 현재 스냅샷.
     Returns:
-        전체·코어별 사용률(%).
+        전체·코어별 사용률(%). 코어별 값은 현재 스냅샷의 코어 순서를 따른다.
     """
+    total_pct = _usage_pct(prev.total, cur.total)
+    if (len(prev.core_ids) == len(prev.per_core)
+            and len(cur.core_ids) == len(cur.per_core) and cur.core_ids):
+        before = dict(zip(prev.core_ids, prev.per_core))
+        return CpuUsage(
+            total_pct=total_pct,
+            per_core_pct=tuple(
+                _usage_pct(before[cid], times)
+                for cid, times in zip(cur.core_ids, cur.per_core) if cid in before
+            ),
+        )
     core_count = min(len(prev.per_core), len(cur.per_core))
     return CpuUsage(
-        total_pct=_usage_pct(prev.total, cur.total),
+        total_pct=total_pct,
         per_core_pct=tuple(
             _usage_pct(prev.per_core[i], cur.per_core[i]) for i in range(core_count)
         ),
@@ -364,8 +402,8 @@ def read_disk(path: str) -> DiskInfo:
     Returns:
         `DiskInfo`.
     Raises:
-        OSError: 경로가 없거나 statvfs 실패 시. **경로는 사용자가 지정하므로 오타를 숨기지
-            않는다** — 다른 reader 와 달리 예외를 전파한다.
+        OSError: 지정한 경로를 열 수 없거나 statvfs 실패 시. **경로는 사용자가 지정하므로
+            오타를 숨기지 않는다** — 다른 reader 와 달리 예외를 전파한다.
     """
     st = os.statvfs(path)
     total = st.f_blocks * st.f_frsize
@@ -505,6 +543,18 @@ def read_gpu() -> GpuInfo:
             max_freq = _read_int(node / "max_freq")
             if freq is not None:
                 break
+    if freq is None and _DRM_ROOT.is_dir():
+        # `card*` glob 은 `card1-HDMI-A-1` 같은 커넥터도 잡는다 — 숫자로 끝나는 카드만 본다.
+        for card in sorted(_DRM_ROOT.glob("card[0-9]*")):
+            if not card.name[4:].isdigit():
+                continue
+            cur_mhz = _read_int(card / "gt_cur_freq_mhz")
+            if cur_mhz is None:
+                continue
+            freq = cur_mhz * _HZ_PER_MHZ
+            max_mhz = _read_int(card / "gt_max_freq_mhz")
+            max_freq = None if max_mhz is None else max_mhz * _HZ_PER_MHZ
+            break
     return GpuInfo(load_pct=load_pct, freq_hz=freq, max_freq_hz=max_freq)
 
 
@@ -549,6 +599,7 @@ def read_power_rails() -> tuple[PowerRail, ...]:
             # `in4~in6_input` 도 노출하는데 그것은 shunt 전압 등 파생값이지 전원 레일이
             # 아니다(2026-07-29 실측: `in7_label` = "sum of shunt voltages").
             # 라벨 없는 채널까지 실으면 화면에 존재하지 않는 17.8 W 레일이 뜬다.
+            # 채널별 라벨 유무 확인: ls /sys/class/hwmon/hwmon*/in*_label curr*_input
             label = _read_text(hwmon / f"in{ch}_label")
             if not label:
                 continue
