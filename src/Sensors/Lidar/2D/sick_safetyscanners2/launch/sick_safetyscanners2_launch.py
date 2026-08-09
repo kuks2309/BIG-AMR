@@ -62,6 +62,10 @@ def _guard(context, *args, **kwargs):
     spec.loader.exec_module(mod)
     for sensor_ip, channel, label in ((FRONT_IP, CHANNEL, "front"), (REAR_IP, CHANNEL, "rear")):
         mod.assert_channel_free(sensor_ip, channel, label)   # 점유 시 RuntimeError → 기동 중단
+        # 우리가 뺏는 것만 막으면 부족하다 — **이미 남이 뺏어 놓은 상태**로 기동하면 조용히 통과한다.
+        #   2026-08-08 20:37 에 그렇게 돼 Seer 가 다음 날 오전까지 라이다를 못 받았다.
+        #   여기서는 경고만 한다(우리 잘못이 아니고, 막아도 복구되지 않는다). 복구 명령을 함께 낸다.
+        mod.warn_foreign_drift(sensor_ip, channel, label)
     return []
 
 
