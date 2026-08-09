@@ -28,6 +28,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/AMRMotionTranslateReverse.action"
   "action/AMRMotionCrabLinear.action"
   "action/AMRMotionTurn.action"
+  "action/AMRMotionTurnReverse.action"
   "action/AMRMotionYawControl.action"
   "action/AMRMotionYawControlReverse.action"
   "action/AMRMotionMpc.action"

@@ -192,6 +192,36 @@ target_link_libraries(amr_turn_node
   trnav_2ws_motion::qd_wheel_set_packer
 )
 
+# ── TurnReverse pilot node (후진 원호, 2026-08-09 신설) ──
+#    전진판 amr_turn_node 와 IK 입력 vx 부호만 다르다. ADR: docs/adr/2026-08-09-turn-reverse.md
+add_executable(amr_turn_reverse_node
+  src/turn_reverse/turn_reverse_main.cpp
+  src/turn_reverse/turn_reverse_action_server.cpp
+)
+
+target_include_directories(amr_turn_reverse_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(amr_turn_reverse_node
+  rclcpp
+  rclcpp_action
+  trnav_2ws_interfaces
+  trnav_msgs
+  sensor_msgs
+  std_msgs
+  tf2
+  trnav_2ws_core
+  trnav_2ws_motion
+)
+
+target_link_libraries(amr_turn_reverse_node
+  trnav_2ws_kinematics::qd_inverse_kinematics
+  trnav_2ws_core::motion_profile
+  trnav_2ws_motion::qd_wheel_set_packer
+)
+
 # ── YawControl pilot node (ROS1 개념 + bicycle + 거리 종료, 신규 설계 2026-04-28) ──
 add_executable(amr_yaw_control_node
   src/yaw_control/yaw_control_main.cpp
@@ -344,6 +374,7 @@ install(TARGETS
   amr_translate_reverse_node
   amr_crab_linear_node
   amr_turn_node
+  amr_turn_reverse_node
   amr_yaw_control_node
   amr_yaw_control_reverse_node
   amr_mpc_node

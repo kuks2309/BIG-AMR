@@ -1,0 +1,485 @@
+#include "trnav_2ws_action_server/turn_reverse/turn_reverse_action_server.hpp"
+#include "trnav_2ws_core/math_utils.hpp"  // normalizeAngleDeg — target_angle 입력 정규화
+#include "trnav_msgs/srv/select_motion_source.hpp"
+
+#include <chrono>
+#include <thread>
+
+namespace trnav_2ws_action_server::turn_reverse
+{
+
+TurnReverseActionServer::TurnReverseActionServer(rclcpp::Node::SharedPtr node, trnav_2ws_core::ActionMutex action_mutex)
+    : trnav::motion::two_ws::TwoWsActionServerBase<TurnReverse>(node, std::move(action_mutex), "amr_motion_turn_reverse_abstract",
+                                                  "/motion/wheel_cmd/turn_reverse")
+{
+    // TurnReverse precision parameters (safeParam handles declare-if-not-declared)
+    double deadband_deg = safeParam("imu_deadband_deg", 0.05);
+    imu_deadband_rad_ = deadband_deg * M_PI / 180.0;
+    min_speed_dps_ = safeParam("min_speed_dps", 2.0);
+    fine_correction_threshold_deg_ = safeParam("fine_correction_threshold_deg", 0.3);
+    fine_correction_speed_dps_ = safeParam("fine_correction_speed_dps", 3.0);
+    fine_correction_timeout_sec_ = safeParam("fine_correction_timeout_sec", 3.0);
+    settling_delay_ms_ = safeParam("settling_delay_ms", 200);
+
+    // mux active source — execute() 진입부에 select_motion_source service 호출 (정공법: action server 책임).
+    motion_source_id_ = safeParam("motion_source_id", 12);
+    select_source_client_ = node_->create_client<trnav_msgs::srv::SelectMotionSource>("/select_motion_source");
+
+    RCLCPP_INFO(node_->get_logger(), "TurnReverseActionServer initialized");
+}
+
+bool TurnReverseActionServer::validateGoal(std::shared_ptr<const TurnReverse::Goal> goal)
+{
+    if (std::abs(goal->target_angle) < 1e-6)
+    {
+        RCLCPP_WARN(node_->get_logger(), "TurnReverse rejected: target_angle is 0");
+        return false;
+    }
+    if (goal->turn_radius <= 0.0)
+    {
+        RCLCPP_WARN(node_->get_logger(), "TurnReverse rejected: turn_radius <= 0");
+        return false;
+    }
+    if (goal->max_linear_speed <= 0.0)
+    {
+        RCLCPP_WARN(node_->get_logger(), "TurnReverse rejected: max_linear_speed <= 0");
+        return false;
+    }
+    if (goal->accel_angle <= 0.0)
+    {
+        RCLCPP_WARN(node_->get_logger(), "TurnReverse rejected: accel_angle <= 0");
+        return false;
+    }
+    if (!goal->hold_steer && (goal->exit_steer_angle < -90.0 || goal->exit_steer_angle > 90.0))
+    {
+        RCLCPP_WARN(node_->get_logger(), "TurnReverse rejected: exit_steer_angle out of [-90, +90]");
+        return false;
+    }
+    RCLCPP_INFO(node_->get_logger(), "TurnReverse goal accepted: %.1f deg, R=%.2f m", goal->target_angle,
+                goal->turn_radius);
+    return true;
+}
+
+void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
+{
+    trnav_2ws_core::ActionMutexGuard mutex_guard(action_mutex_);
+
+    // ── mux active source 전환 (정공법: action server 자체 책임) ──
+    if (select_source_client_ && select_source_client_->service_is_ready())
+    {
+        auto req = std::make_shared<trnav_msgs::srv::SelectMotionSource::Request>();
+        req->source_id = static_cast<uint8_t>(motion_source_id_);
+        auto future = select_source_client_->async_send_request(req);
+        if (future.wait_for(std::chrono::milliseconds(500)) == std::future_status::ready)
+        {
+            auto resp = future.get();
+            if (!resp->success)
+                RCLCPP_WARN(node_->get_logger(),
+                            "TurnReverse: SelectMotionSource(id=%d) failed: %s",
+                            motion_source_id_, resp->message.c_str());
+            else
+                RCLCPP_INFO(node_->get_logger(),
+                            "TurnReverse: mux active source → %d (turn_reverse)",
+                            motion_source_id_);
+        }
+        else
+        {
+            RCLCPP_WARN(node_->get_logger(),
+                        "TurnReverse: SelectMotionSource(id=%d) timeout 500ms",
+                        motion_source_id_);
+        }
+    }
+    else
+    {
+        RCLCPP_WARN(node_->get_logger(),
+                    "TurnReverse: /select_motion_source service not ready — mux 전환 skip");
+    }
+
+    const auto goal = goal_handle->get_goal();
+    // 입력 정규화: |target_angle| > 180° 는 [-180,+180] 의 작은쪽 회전으로 자동 변환
+    // (예: +270° → -90°, +540° → -180°). std::remainder 특성으로 ±180° 정확 입력 시 -180° 로 정착.
+    const double target_angle_deg = trnav_2ws_core::normalizeAngleDeg(goal->target_angle);
+    auto feedback = std::make_shared<TurnReverse::Feedback>();
+    auto result = std::make_shared<TurnReverse::Result>();
+
+    rclcpp::Rate rate(control_rate_hz_);
+
+    // Direction: + CCW, - CW (정규화된 target_angle_deg 기준 → 항상 |target| ≤ 180°)
+    const double sign = (target_angle_deg >= 0.0) ? 1.0 : -1.0;
+    const double target_abs = std::abs(target_angle_deg);    // deg
+    const double turn_radius = static_cast<double>(goal->turn_radius);
+    const double max_v = static_cast<double>(goal->max_linear_speed);
+    const double accel_angle = static_cast<double>(goal->accel_angle);
+
+    const double max_omega_rad = max_v / turn_radius;
+    const double max_omega_deg = max_omega_rad * 180.0 / M_PI;
+    const double accel_dps2 = (max_omega_deg * max_omega_deg) / (2.0 * accel_angle);
+
+    // ⚠ 후진: vx 만 음수. ω 부호는 유지한다 — target_angle 은 전진판과 같은 「헤딩 변화량」이고,
+    //   vx 가 음수가 되면 R = v/ω 의 부호가 뒤집혀 ICR 이 반대편으로 옮겨간다(= 후진 원호).
+    //   근거: docs/adr/2026-08-09-turn-reverse.md D2
+    auto ik_steer = ik_->compute({-max_v, 0.0, sign * max_omega_rad});
+    const double turn_steer_front = ik_steer.wheels[0].steer_rad;
+    const double turn_steer_rear = ik_steer.wheels[1].steer_rad;
+
+    auto start_time = node_->now();
+    double accumulated_angle = 0.0;
+
+    // ── Phase 0: Steer Align ──
+    feedback->phase = 0;
+    auto phase0_start = node_->now();
+
+    while (rclcpp::ok())
+    {
+        if (goal_handle->is_canceling())
+        {
+            publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
+            result->status = -1;
+            this->reportResult(result->status); // 종료 코드 토픽 발행 (bag 기록용)
+            result->actual_angle = 0.0;
+            result->elapsed_time = (node_->now() - start_time).seconds();
+            goal_handle->canceled(result);
+            return;
+        }
+
+        publishWheelCmd(0.0, turn_steer_front, 0.0, turn_steer_rear);
+        feedback->current_angle = 0.0;
+        feedback->current_linear_speed = 0.0;
+        feedback->current_angular_speed = 0.0;
+        feedback->remaining_angle = target_abs;
+        feedback->w1_drive_rpm = 0.0;
+        feedback->w2_drive_rpm = 0.0;
+        goal_handle->publish_feedback(feedback);
+
+        bool front_ok = std::abs(last_angle_front_.load() - turn_steer_front) < steer_tolerance_rad_;
+        bool rear_ok = std::abs(last_angle_rear_.load() - turn_steer_rear) < steer_tolerance_rad_;
+        if (front_ok && rear_ok)
+        {
+            break;
+        }
+
+        if ((node_->now() - phase0_start).seconds() > steer_timeout_sec_)
+        {
+            RCLCPP_WARN(node_->get_logger(), "TurnReverse Phase 0 steer timeout");
+            publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
+            result->status = -3;
+            this->reportResult(result->status); // 종료 코드 토픽 발행 (bag 기록용)
+            result->actual_angle = 0.0;
+            result->elapsed_time = (node_->now() - start_time).seconds();
+            goal_handle->abort(result);
+            return;
+        }
+
+        rate.sleep();
+    }
+
+    // ── IMU receive check ──
+    if (!imu_received_.load())
+    {
+        RCLCPP_ERROR(node_->get_logger(), "IMU data not received, aborting turn");
+        publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
+        result->status = -3;
+        this->reportResult(result->status); // 종료 코드 토픽 발행 (bag 기록용)
+        result->actual_angle = 0.0;
+        result->elapsed_time = (node_->now() - start_time).seconds();
+        goal_handle->abort(result);
+        return;
+    }
+
+    // ── Phase 1-3: Trapezoidal profile ──
+    trnav_2ws_core::TrapezoidalProfile profile(target_abs, max_omega_deg, accel_dps2);
+
+    double prev_yaw = last_yaw_rad_.load();
+
+    while (rclcpp::ok() && !profile.isComplete(accumulated_angle))
+    {
+        if (goal_handle->is_canceling())
+        {
+            publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
+            result->status = -1;
+            this->reportResult(result->status); // 종료 코드 토픽 발행 (bag 기록용)
+            result->actual_angle = sign * accumulated_angle;
+            result->elapsed_time = (node_->now() - start_time).seconds();
+            goal_handle->canceled(result);
+            return;
+        }
+
+        auto prof_out = profile.getSpeed(accumulated_angle);
+        double omega_dps = prof_out.speed;
+        if (prof_out.phase != trnav_2ws_core::ProfilePhase::DONE && omega_dps < min_speed_dps_)
+        {
+            omega_dps = min_speed_dps_;
+        }
+        double omega_rad = omega_dps * M_PI / 180.0;
+        double v = omega_rad * turn_radius;
+
+        auto ik_out = ik_->compute({-v, 0.0, sign * omega_rad}); // 후진: vx 반전(ω 유지)
+        double vel_f = ik_out.wheels[0].wheel_speed * ik_out.wheels[0].direction;
+        double ang_f = ik_out.wheels[0].steer_rad;
+        double vel_r = ik_out.wheels[1].wheel_speed * ik_out.wheels[1].direction;
+        double ang_r = ik_out.wheels[1].steer_rad;
+
+        publishWheelCmd(vel_f, ang_f, vel_r, ang_r);
+
+        double current_yaw = last_yaw_rad_.load();
+        double delta_yaw = current_yaw - prev_yaw;
+        if (delta_yaw > M_PI)
+            delta_yaw -= 2.0 * M_PI;
+        else if (delta_yaw < -M_PI)
+            delta_yaw += 2.0 * M_PI;
+        if (std::abs(delta_yaw) < imu_deadband_rad_)
+        {
+            // Skip noise
+        }
+        else
+        {
+            // 진행량은 **목표 방향 성분만** 센다.
+            //
+            // 종전에는 `+= std::abs(delta_yaw)` 였다 — 방향을 보지 않아 뒤로 읽힌 델타까지
+            // 전진으로 계상했다. 잡음이 좌우 대칭이어도 항상 더하므로 편향이 한 방향으로만
+            // 쌓이고, 결과적으로 **덜 돌았는데 다 돌았다고 판정**한다.
+            //
+            // 2026-08-06 SIL 실측(목표 45° · R=1.0 m · 관성 0.6 s · IMU yaw 잡음 0.05° 1σ):
+            //   종전  실제오차 평균 −0.536° · |최대| 0.846° · σ 0.221°
+            //   현행  실제오차 평균 −0.166° · |최대| 0.239° · σ 0.064°
+            // 종전은 미세보정 임계 0.3° 를 **원리적으로 달성할 수 없었다**(자기 측정이 그보다
+            // 더 틀린다). 무잡음·즉응 플랜트에서는 측정오차가 정확히 0.000° 라 이 결함이
+            // 보이지 않았다 — 플랜트에 동특성·잡음을 넣고서야 드러났다.
+            //
+            // 이 식은 정착 블록(:286-)·미세보정 루프(:359-)의 if/else 와 **수학적으로 동일**하다:
+            //   sign·delta_deg > 0 → |delta_deg| =  sign·delta_deg  → `+= |delta_deg|` 와 같음
+            //   sign·delta_deg < 0 → |delta_deg| = −sign·delta_deg  → `-= |delta_deg|` 와 같음
+            // 즉 새 규칙이 아니라 **주 루프만 빠져 있던 같은 규약**을 맞춘 것이다.
+            //
+            // ⚠ QD 상류(`QD/…/turn_action_server.cpp:233`)는 종전 형태로 남아 있다 —
+            //   같은 결함을 가지며, 이 저장소의 2WS 만 정정했다.
+            // ⚠ 더 나은 방식은 `spin` 이 이미 쓴다 — 시작 시 **절대 목표 yaw** 를 잡고
+            //   `normalizeAngle(target_imu_yaw − cur_yaw)` 로 재면 델타 누적 자체가 없어져
+            //   드리프트·편향이 원천 소거된다(`spin_action_server.cpp:276`).
+            //   turn 을 그 방식으로 옮기는 것은 별건(구조 변경).
+            double delta_deg = delta_yaw * 180.0 / M_PI;
+            accumulated_angle += sign * delta_deg;
+            if (accumulated_angle < 0.0)
+                accumulated_angle = 0.0;
+            prev_yaw = current_yaw;
+        }
+
+        uint8_t phase_id;
+        switch (prof_out.phase)
+        {
+        case trnav_2ws_core::ProfilePhase::ACCEL:
+            phase_id = 1;
+            break;
+        case trnav_2ws_core::ProfilePhase::CRUISE:
+            phase_id = 2;
+            break;
+        case trnav_2ws_core::ProfilePhase::DECEL:
+            phase_id = 3;
+            break;
+        default:
+            phase_id = 3;
+            break;
+        }
+        feedback->phase = phase_id;
+        feedback->current_angle = sign * accumulated_angle;
+        feedback->current_linear_speed = v;
+        feedback->current_angular_speed = sign * omega_dps;
+        feedback->remaining_angle = target_abs - accumulated_angle;
+        feedback->w1_drive_rpm = ik_out.wheels[0].drive_rpm;
+        feedback->w2_drive_rpm = ik_out.wheels[1].drive_rpm;
+        goal_handle->publish_feedback(feedback);
+
+        rate.sleep();
+    }
+
+    // ── Settling Delay ──
+    publishWheelCmd(0.0, turn_steer_front, 0.0, turn_steer_rear);
+    rclcpp::sleep_for(std::chrono::milliseconds(settling_delay_ms_));
+
+    // IMU update during settling
+    {
+        double current_yaw = last_yaw_rad_.load();
+        double delta_yaw = current_yaw - prev_yaw;
+        if (delta_yaw > M_PI)
+            delta_yaw -= 2.0 * M_PI;
+        else if (delta_yaw < -M_PI)
+            delta_yaw += 2.0 * M_PI;
+        if (std::abs(delta_yaw) >= imu_deadband_rad_)
+        {
+            double delta_deg = delta_yaw * 180.0 / M_PI;
+            if (sign * delta_deg > 0.0)
+            {
+                accumulated_angle += std::abs(delta_deg);
+            }
+            else
+            {
+                accumulated_angle -= std::abs(delta_deg);
+                if (accumulated_angle < 0.0)
+                    accumulated_angle = 0.0;
+            }
+            prev_yaw = current_yaw;
+        }
+    }
+
+    // ── Phase 3.5: Fine Correction ──
+    double angle_error = target_abs - accumulated_angle;
+
+    if (std::abs(angle_error) > fine_correction_threshold_deg_)
+    {
+        // 조향은 원호 자세(turn_steer_front/rear)를 그대로 쓴다 — 재정렬 없음.
+        // 종전에는 여기서 computeSpin 으로 ±90° 스핀 자세로 갈아탔는데, 그것은
+        // 별도 spin 액션과 같은 기동을 turn 안에서 다시 구현한 것이었다.
+        // R=5 m 기준 조향을 173° 더 움직였고, 그 자세가 translator 영점 오프셋을
+        // 거치며 raw 91.55° 가 되어 can_relay 클램프 상한을 밀어올린 원인이었다.
+
+        // ── Fine correction loop ──
+        auto fine_start = node_->now();
+        double fine_omega_dps = fine_correction_speed_dps_;
+
+        while (rclcpp::ok() && std::abs(angle_error) > fine_correction_threshold_deg_)
+        {
+            if (goal_handle->is_canceling())
+            {
+                publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
+                result->status = -1;
+                this->reportResult(result->status); // 종료 코드 토픽 발행 (bag 기록용)
+                result->actual_angle = sign * accumulated_angle;
+                result->elapsed_time = (node_->now() - start_time).seconds();
+                goal_handle->canceled(result);
+                return;
+            }
+
+            if ((node_->now() - fine_start).seconds() > fine_correction_timeout_sec_)
+            {
+                RCLCPP_WARN(node_->get_logger(), "TurnReverse fine correction timeout, error=%.2f deg", angle_error);
+                break;
+            }
+
+            // 부족(+)이면 원호를 마저 진행, 초과(−)면 같은 조향각 그대로 후진해 되돌린다.
+            // v 와 ω 의 부호가 함께 뒤집히므로 v/ω = turn_radius 가 보존되고,
+            // IK 가 내는 조향각은 원호 자세와 동일하다 — 조향은 움직이지 않는다.
+            const double travel_dir = (angle_error > 0.0) ? 1.0 : -1.0;
+            double omega_mag = fine_omega_dps * M_PI / 180.0;
+            double omega_rad = travel_dir * sign * omega_mag;
+            double v_fine = travel_dir * omega_mag * turn_radius;
+            // ⚠ 후진: v_fine **만** 반전한다. ω 는 travel_dir 로 이미 뒤집히므로
+            //   v/ω 가 주 루프와 같은 부호 반경(−R)이 되어 조향 자세가 보존된다.
+            //   둘 다 반전하면 +R 이 되어 조향이 전진 원호 자세로 튄다.
+            auto ik_out = ik_->compute({-v_fine, 0.0, omega_rad});
+
+            double vel_f = ik_out.wheels[0].wheel_speed * ik_out.wheels[0].direction;
+            double ang_f = ik_out.wheels[0].steer_rad;
+            double vel_r = ik_out.wheels[1].wheel_speed * ik_out.wheels[1].direction;
+            double ang_r = ik_out.wheels[1].steer_rad;
+            publishWheelCmd(vel_f, ang_f, vel_r, ang_r);
+
+            double current_yaw = last_yaw_rad_.load();
+            double delta_yaw = current_yaw - prev_yaw;
+            if (delta_yaw > M_PI)
+                delta_yaw -= 2.0 * M_PI;
+            else if (delta_yaw < -M_PI)
+                delta_yaw += 2.0 * M_PI;
+
+            if (std::abs(delta_yaw) >= imu_deadband_rad_)
+            {
+                double delta_deg = delta_yaw * 180.0 / M_PI;
+                if (sign * delta_deg > 0.0)
+                {
+                    accumulated_angle += std::abs(delta_deg);
+                }
+                else
+                {
+                    accumulated_angle -= std::abs(delta_deg);
+                    if (accumulated_angle < 0.0)
+                        accumulated_angle = 0.0;
+                }
+                prev_yaw = current_yaw;
+            }
+
+            angle_error = target_abs - accumulated_angle;
+
+            feedback->phase = 3;
+            feedback->current_angle = sign * accumulated_angle;
+            feedback->current_linear_speed = v_fine;
+            feedback->current_angular_speed = sign * fine_omega_dps * (angle_error > 0 ? 1.0 : -1.0);
+            feedback->remaining_angle = angle_error;
+            feedback->w1_drive_rpm = ik_out.wheels[0].drive_rpm;
+            feedback->w2_drive_rpm = ik_out.wheels[1].drive_rpm;
+            goal_handle->publish_feedback(feedback);
+
+            rate.sleep();
+        }
+    }
+
+    // Stop driving — 원호 자세를 유지한 채 구동만 0.
+    // 종전에는 computeSpin 으로 ±90° 를 실었고, 이 블록은 미세보정 if 밖이라
+    // **보정이 발동하지 않아도 매 turn 마다** 조향을 스핀 자세로 돌렸다.
+    // 2026-08-06 돌연변이 확인: 이 줄만 종전으로 되돌리면 같은 목표(45°, R=1.0 m)에서
+    // 조향 최대가 31.13°/30.80° → **90.00°/90.00°** 로 되돌아온다(결과각·소요시간은 동일).
+    publishWheelCmd(0.0, turn_steer_front, 0.0, turn_steer_rear);
+
+    // ── Phase 4: Steer Return (if !hold_steer) ──
+    if (!goal->hold_steer)
+    {
+        feedback->phase = 4;
+        double exit_steer_rad = goal->exit_steer_angle * M_PI / 180.0;
+        auto phase4_start = node_->now();
+
+        while (rclcpp::ok())
+        {
+            if (goal_handle->is_canceling())
+            {
+                publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
+                result->status = -1;
+                this->reportResult(result->status); // 종료 코드 토픽 발행 (bag 기록용)
+                result->actual_angle = sign * accumulated_angle;
+                result->elapsed_time = (node_->now() - start_time).seconds();
+                goal_handle->canceled(result);
+                return;
+            }
+
+            publishWheelCmd(0.0, exit_steer_rad, 0.0, exit_steer_rad);
+            feedback->current_angle = sign * accumulated_angle;
+            feedback->current_linear_speed = 0.0;
+            feedback->current_angular_speed = 0.0;
+            feedback->remaining_angle = 0.0;
+            feedback->w1_drive_rpm = 0.0;
+            feedback->w2_drive_rpm = 0.0;
+            goal_handle->publish_feedback(feedback);
+
+            bool front_ok = std::abs(last_angle_front_.load() - exit_steer_rad) < steer_tolerance_rad_;
+            bool rear_ok = std::abs(last_angle_rear_.load() - exit_steer_rad) < steer_tolerance_rad_;
+            if (front_ok && rear_ok)
+            {
+                break;
+            }
+
+            if ((node_->now() - phase4_start).seconds() > steer_timeout_sec_)
+            {
+                RCLCPP_WARN(node_->get_logger(), "TurnReverse Phase 4 steer timeout (non-critical)");
+                break;
+            }
+
+            rate.sleep();
+        }
+    }
+
+    // Success
+    result->status = 0;
+    this->reportResult(result->status); // 종료 코드 토픽 발행 (bag 기록용)
+    result->actual_angle = sign * accumulated_angle;
+    result->elapsed_time = (node_->now() - start_time).seconds();
+    goal_handle->succeed(result);
+    double final_error = target_abs - accumulated_angle;
+    RCLCPP_INFO(node_->get_logger(),
+                "TurnReverse complete: target=%.1f° (normalized=%.1f°), actual=%.1f, error=%.2f deg, R=%.2f m, time=%.1f s",
+                goal->target_angle, target_angle_deg, sign * accumulated_angle, final_error, goal->turn_radius,
+                result->elapsed_time);
+    if (std::abs(final_error) > 2.0)
+    {
+        RCLCPP_WARN(node_->get_logger(), "TurnReverse precision warning: final error %.2f deg exceeds 2.0 deg threshold",
+                    final_error);
+    }
+}
+
+} // namespace trnav_2ws_action_server::turn_reverse

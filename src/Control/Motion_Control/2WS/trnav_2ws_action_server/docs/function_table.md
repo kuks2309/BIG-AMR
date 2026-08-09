@@ -1,14 +1,14 @@
-# trnav_2ws_action_server / turn — 함수표 · 변수표 (모듈 로컬 권위본)
+# trnav_2ws_action_server / turn · turn_reverse — 함수표 · 변수표 (모듈 로컬 권위본)
 
 > 양식 권위는 `docs/claude_guideline/code_review/review.md` §Core 인벤토리 3·4.
 > 이중 기록 — 루트 집계는 `docs/sw_structure/function_table.md`.
 > 생성 사유: 2026-08-06 coding SOP §2 위반 소급 이행
 > ([실수 기록 2026-08-06-003](../../../../../docs/claude-mistake/2026-08-06-003_coding-sop-skipped-tables-adr-selfapprove.md)).
 >
-> **범위 한정** — 본 표는 2026-08-06 에 수정한 `turn` 액션만 담는다. 같은 패키지의 나머지
-> 8개 액션(`translate_forward`·`translate_reverse`·`mpc`·`mpc_reverse`·`spin`·`crab_linear`·
-> `yaw_control`·`yaw_control_reverse`)은 **미작성**이므로 그 파일들에 대해서는
-> `coding-inventory-gate.py` 가 여전히 빈 통과한다. 등재는 별도 작업.
+> **범위 한정** — 본 표는 `turn`(2026-08-06 수정)과 `turn_reverse`(2026-08-09 신설)를 담는다.
+> 같은 패키지의 나머지 8개 액션(`translate_forward`·`translate_reverse`·`mpc`·`mpc_reverse`·
+> `spin`·`crab_linear`·`yaw_control`·`yaw_control_reverse`)은 **미작성**이므로 그 파일들에
+> 대해서는 `coding-inventory-gate.py` 가 여전히 빈 통과한다. 등재는 별도 작업.
 
 ## 목적
 
@@ -136,3 +136,63 @@ QD 상류를 `--path` 로 지정하면 `:233` 을 잡고 `exit 1` 이 난다.
 
 ⚠ **최종 verdict 는 저자가 찍지 않는다**(`coding.md:88`). 위는 실행 관측 기록이며
 승인이 아니다 — 외부 리뷰 패스 필요.
+
+
+---
+
+# turn_reverse — 후진 원호 (2026-08-09 신설)
+
+> ADR: [2026-08-09-turn-reverse](../../../../../docs/adr/2026-08-09-turn-reverse.md)
+
+## 목적
+
+전진판 `turn` 과 **같은 원호를 반대 방향으로** 그린다. `target_angle` 의 의미는 전진판과
+동일한 **헤딩 변화량**(+CCW)이고, IK(Inverse Kinematics) 입력의 `vx` 만 음수가 된다.
+그러면 `R = v/ω` 의 부호가 뒤집혀 ICR 이 반대편으로 옮겨간다 = 후진 원호.
+
+## 함수 리스트 표
+
+| # | 함수 | 입력 | 출력 | 기능 | 위치(file:line) |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `TurnReverseActionServer.TurnReverseActionServer` | `node`, `action_mutex` | — | 베이스 초기화, `turn_reverse_params.yaml` 로드. 액션명 `amr_motion_turn_reverse_abstract`, 발행 `/motion/wheel_cmd/turn_reverse` | `src/turn_reverse/turn_reverse_action_server.cpp:10` |
+| 2 | `TurnReverseActionServer.validateGoal` | `TurnReverse::Goal` | `bool` | `turn_radius > 0`·`max_linear_speed > 0`(**magnitude**)·`accel_angle > 0` 검사 | `src/turn_reverse/turn_reverse_action_server.cpp:31` |
+| 3 | `TurnReverseActionServer.execute` | `GoalHandle` | `void` | Phase 0 조향정렬 → Phase 1-3 사다리꼴 → 정착 → Phase 3.5 미세보정 → 정지 → Phase 4 조향복귀. 전진판과 동일 구조 | `src/turn_reverse/turn_reverse_action_server.cpp:63` |
+
+## 전진판과의 차이 — IK 입력 `vx` 부호 3곳
+
+| # | 위치 | 전진판 | 후진판 | 비고 |
+| --- | --- | --- | --- | --- |
+| 1 | `:121` Phase 0 조향정렬 | `{ max_v, 0, sign·ω}` | `{-max_v, 0, sign·ω}` | 원호 자세 결정 |
+| 2 | `:216` 주 루프 | `{ v, 0, sign·ω}` | `{-v, 0, sign·ω}` | — |
+| 3 | `:368` Phase 3.5 미세보정 | `{ v_fine, 0, ω}` | `{-v_fine, 0, ω}` | **`v_fine` 만 반전.** `ω` 는 `travel_dir` 로 이미 뒤집히므로 `v/ω` 가 주 루프와 같은 부호 반경(−R)이 되어 조향 자세가 보존된다. 둘 다 반전하면 +R 이 되어 전진 원호 자세로 튄다 |
+
+**`ω` 부호는 유지한다** — `target_angle` 이 헤딩 변화량이라는 의미를 전진판과 공유하기 위함.
+
+## 클래스 멤버 상태 표
+
+전진판과 동일하되 `motion_source_id_` 만 다르다.
+
+| # | 멤버 | 사용처(함수) | 기능 | 위치(file:line) |
+| --- | --- | --- | --- | --- |
+| 1 | `motion_source_id_` (가변, 기동 후 불변) | 1, 3 | mux 소스 id = **12**. 10·11 은 stanley 예약이라 침범하지 않는다. 계약 정본은 `trnav_motion_mux.yaml` 의 Reserved IDs 주석 | `include/…/turn_reverse_action_server.hpp:40` |
+| 2~7 | `imu_deadband_rad_` · `min_speed_dps_` · `fine_correction_threshold_deg_` · `fine_correction_speed_dps_` · `fine_correction_timeout_sec_` · `settling_delay_ms_` | 3 | 전진판과 같은 yaml 키·같은 의미 | `include/…/turn_reverse_action_server.hpp:44-49` |
+
+## 검증 이력 (2026-08-09)
+
+| 항목 | 도구·조건 | 결과 |
+| --- | --- | --- |
+| 각도 계상 회귀 | `turn_angle_accounting_check.py --path …/turn_reverse_action_server.cpp` | 계상 5곳 모두 방향 반영 · `exit 0` (자체시험 5/5) |
+| SIL 후진 | 헤딩 +20°, R=1.0 | 헤딩 +20.16° · 변위 350 mm · 차체기준 −170.0°(후진) · 반경 1.000 m · 조향 (−31.1, +30.8) |
+| SIL 전진 대조 | 같은 목표 | 차체기준 +10.0°(전진) · 조향 (+31.1, −30.8) — **부호만 반전, 나머지 동일** |
+| 실기 후진 | 헤딩 +10°, R=1.0, 0.05 m/s | 측위 +10.38° · IMU +10.30° · 변위 181 mm · −173.5°(후진) · 반경 0.998 m · 조향 (−31.13, +30.80) · 구동 2축 차 2.4 mm |
+| 실기 왕복 폐합 ① | 후진 +10.38° → 전진 −10.38° | **잔차 위치 5 mm · 헤딩 0.15°** — 같은 호를 되짚음이 실증 |
+| 실기 왕복 폐합 ② (반대쪽 호) | 후진 −10.01° → 전진 +9.66° | **잔차 위치 6 mm · 헤딩 −0.38°** · 반경 1.008 / 1.003 m |
+
+## 알려진 미해결 사항 (등재만 — 판단은 code_review 소관)
+
+| # | 항목 | 상태 |
+| --- | --- | --- |
+| 1 | **`turn` 계열 허용 오차 미정** | spin 은 ≤0.40°(사용자 승인)로 정했으나 turn 계열은 규격이 없다. 실측 오차는 전진 −0.19° · 후진 +0.38° |
+| 2 | **표본 1회** | 전진·후진 각 1회, 왕복 1회. 반복 시험 미실시 |
+| 3 | **코드 중복** | `turn` 과 `turn_reverse` 가 `vx` 부호 3곳을 빼면 같은 코드다. 한쪽 수정 시 다른 쪽도 고쳐야 한다(ADR 이 비용을 명시적으로 수용). 공통 코어 추출은 범위 밖 |
+| 4 | **후진 원호 파라미터 미조정** | `turn_reverse_params.yaml` 은 전진값을 그대로 옮긴 것이다. 정밀도 요구가 생기면 별도 조정 필요 |

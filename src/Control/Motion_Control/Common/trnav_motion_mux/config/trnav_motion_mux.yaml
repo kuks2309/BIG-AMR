@@ -4,23 +4,27 @@ trnav_motion_mux:
     default_source_id: 0    # 0 = joystick (수동 override, 부팅 시 안전 기본값)
 
     # 활성 소스 ID 목록. loadSources() 가 이 목록을 순회해 source_N 블록을 등록.
-    # Reserved IDs (영구 확정, docs/abstraction/motion_source_id_contract.md SSOT 참조):
+    # Reserved IDs (영구 확정) — **본 주석이 정본**이다.
+    # ⚠ 2026-08-09 정정: 종전에 SSOT 로 지목하던 `docs/abstraction/motion_source_id_contract.md`
+    #   는 **존재하지 않는다**(확인). 끊긴 참조를 지우고 계약을 여기로 확정한다.
     #   0 = joystick             — 수동 override, safe default
     #   1 = translate_forward    — amr_translate_forward_node (forward direction)
     #   2 = translate_reverse    — amr_translate_reverse_node (reverse direction)
     #   3 = spin                 — amr_spin_node (제자리 회전, target_angle ±)
     #   4 = crab_linear          — amr_crab_linear_node (target_yaw 능동 유지 + start↔end 직선 closed-loop)
-    #   5 = turn                 — amr_turn_node (R-turn arc)
+    #   5 = turn                 — amr_turn_node (R-turn arc, **전진 전용**)
     #   6 = yaw_control          — amr_yaw_control_node (yaw 추종 직진 forward)
     #   7 = yaw_control_reverse  — amr_yaw_control_reverse_node (yaw 추종 직진 reverse)
     #   8 = mpc                  — trnav_mpc_node (path tracking forward, kinematic bicycle MPC, NLopt SLSQP. 2026-05-28 PurePursuit 폐기 후 교체)
     #   9 = mpc_reverse          — trnav_mpc_reverse_node (path tracking reverse, effective_yaw+π)
     #  10 = stanley              — (예약, 미구현) Stanley lateral control forward
     #  11 = stanley_reverse      — (예약, 미구현) Stanley lateral control reverse
+    #  12 = turn_reverse        — amr_turn_reverse_node (후진 원호. 2026-08-09 신설,
+    #                             docs/adr/2026-08-09-turn-reverse.md. 10·11 예약을 피해 12)
     #  40 = dock               — amr_dock_align (Stage2 결합 closed-loop: marker 직접 피드백 vy+omega, 2026-06-02)
-    # 짝 패턴: (1,2) translate, (6,7) yaw_control, (8,9) mpc, (10,11) stanley
-    # 단일: spin(3), crab(4), turn(5), dock(40)
-    source_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 40]
+    # 짝 패턴: (1,2) translate, (5,12) turn, (6,7) yaw_control, (8,9) mpc, (10,11) stanley
+    # 단일: spin(3), crab(4), dock(40)
+    source_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 40]
 
     # --- source_0: joystick ---
     # 수동 조이스틱 입력. default_source_id=0 이므로 부팅 직후 즉시 활성.
@@ -64,10 +68,22 @@ trnav_motion_mux:
 
     # --- source_5: turn (2026-04-28 활성) ---
     # amr_turn_node 가 발행 (R-turn = ICR 기반 호 운동, T-Robot ROS2 원본 그대로 이식).
-    # target_angle ± 부호로 양방향 — 별도 reverse 슬롯 불필요.
+    # ⚠ 2026-08-09 정정: 종전 주석 「target_angle ± 부호로 양방향 — 별도 reverse 슬롯 불필요」는
+    #   **틀렸다.** target_angle 의 부호는 **회전 방향(CCW/CW)만** 고르고 진행 방향과 무관하다.
+    #   `turn_action_server.cpp` 는 `max_linear_speed <= 0` 을 거부하고 IK 에 항상 +vx 를 넣으므로
+    #   **전진 전용**이다. 후진 원호는 source_12(turn_reverse)가 담당한다.
     source_5:
       name: "turn"
       topic: "/motion/wheel_cmd/turn"
+      timeout_ms: 200
+
+    # --- source_12: turn_reverse (2026-08-09 신설) ---
+    # amr_turn_reverse_node 가 발행 (후진 원호). 전진판과 IK 입력 vx 부호만 다르다.
+    # target_angle 의 의미는 전진판과 동일(헤딩 변화량, +CCW).
+    # ADR: docs/adr/2026-08-09-turn-reverse.md
+    source_12:
+      name: "turn_reverse"
+      topic: "/motion/wheel_cmd/turn_reverse"
       timeout_ms: 200
 
     # --- source_6: yaw_control (2026-04-28 활성) ---

@@ -1,0 +1,49 @@
+# 후진 원호(turn_reverse) 파라미터.
+# 전진판 `turn_params.yaml` 과 **같은 값**을 쓴다 — 차이는 액션 코드의 vx 부호뿐이다.
+# ⚠ 후진 원호의 조향 자세·정밀도는 아직 실측되지 않았다. 전진값을 그대로 옮긴 것이므로
+#   SIL·실기 검증 결과에 따라 별도 조정이 필요할 수 있다(ADR 2026-08-09-turn-reverse).
+/trnav_turn_reverse_node:
+  ros__parameters:
+    # ── Platform (trnav_2ws_core::loadGeometry) ──
+    platform: "QD_DIAGONAL"
+
+    # ── 로봇 기하 — Foil_A082 실측 (2026-08-05 적용) ──────────────────────
+    # 종전 값(w1 +0.330/+0.135 · w2 −0.330/−0.135 · r 0.080 · gear 20)은
+    # **Carrier AGV(Automated Guided Vehicle) 원본**이 QD 스택에서 이식될 때 그대로 남은
+    # 것이었다. 본 기체는 대각(diagonal)이 아니라 **inline dual-steer(2WS)** 다 — y 가
+    # ±0.135 가 아니라 ≈0(센터라인)이며, 휠베이스는 0.660 m 가 아니라 **1.200 m** 다.
+    # 정본: trnav_2ws_core/config/robot_geometry_2ws.yaml (Seer live_models 추출값,
+    #       References/Tongyi-Motor-Controller/docs/tongyi-canopen-protocol-reference.md:11-15
+    #       의 ±0.604/−0.596 · wheelRadius 0.125 · reduction 32 와 일치).
+    # 정본 대조는 Tools/motion_chain_check/check_chain_contract.py C6 이 매 실행마다 수행한다.
+    # ⚠ body_length/body_width 는 코드가 읽지 않는다(참조 0건) — Carrier AGV 값 그대로 둔다.
+    body_length: 1.1974       # m (1197.4 mm)
+    body_width: 0.648         # m (648 mm)
+    w1_x: 0.6039
+    # ⚠ 2026-08-06 — y 를 **0 으로 확정**(사용자: 「2WS 는 구조상 제자리 스핀이므로 무조건 90도」).
+    #   종전 값 −0.0014 m 는 Seer live_models 추출 시의 **실측 잔차**이며 설계값이 아니다.
+    #   두 바퀴가 같은 y 를 가지면 그 값은 기구학에서 **가정하는 회전중심을 횡으로 y 만큼
+    #   옮기는** 역할만 한다 — 바퀴가 센터라인에 있으므로 자연스러운 회전중심도 그 선 위(y=0)다.
+    #   잔차를 남기면 제자리 스핀이 ±89.867° 로 나와 구조값 ±90° 와 어긋난다.
+    #   다른 기동 영향은 미미하다(turn R=1.0 m 에서 0.036°, R=0.2 m 에서 0.12°).
+    w1_y: 0.0
+    w2_x: -0.5961
+    w2_y: 0.0
+    wheel_radius: 0.125
+    steer_limit_deg: 90.0     # deg (조향 플립 기준)
+
+    # ── 감속비 (motors_canopen.hpp 확인값, Feedback RPM 계산용) ──
+    gear_walk: 32.0
+
+    # ── 제어 파라미터 ──
+    control_rate_hz: 20.0     # 제어/피드백 주기 (Hz)
+    steer_tolerance_deg: 1.0  # 조향 도달 임계값 (deg)
+    steer_timeout_sec: 5.0    # Phase 0/4 타임아웃 (sec)
+
+    # ── Turn precision parameters ──
+    imu_deadband_deg: 0.05              # IMU noise deadband (deg)
+    min_speed_dps: 2.0                  # Decel min speed clamp (deg/s)
+    fine_correction_threshold_deg: 0.3  # Fine correction entry threshold (deg)
+    fine_correction_speed_dps: 3.0      # Fine correction angular speed (deg/s)
+    fine_correction_timeout_sec: 3.0    # Fine correction timeout (sec)
+    settling_delay_ms: 200              # Settling delay between Phase 3 and fine correction (ms)
