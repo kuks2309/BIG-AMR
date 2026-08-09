@@ -1,6 +1,9 @@
 # ADR 2026-08-06 — turn 각도 계상에 방향을 반영한다 (QD 상류와 분기)
 
-- **Status**: Accepted — 2026-08-06 (**SIL 검증만**. 실기 검증 0회. 최종 verdict 는 저자가
+- **Status**: **Superseded — 2026-08-10** by `docs/adr/2026-08-09-turn-error-feedback.md`
+  (본 ADR 이 고친 「델타 누적의 부호 처리」는 누적 자체가 **절대 목표 yaw** 방식으로 대체되어
+  사라졌다. 회귀 수단 `turn_angle_accounting_check.py` 도 폐기. 내용은 이력으로 보존한다.)
+- 종전: Accepted — 2026-08-06 (**SIL 검증만**. 실기 검증 0회. 최종 verdict 는 저자가
   찍지 않는다 — `coding.md:88` never-self-approve, 외부 리뷰 패스 대기)
 
 ## Context
@@ -56,6 +59,11 @@ IMU 지상진값을 분리해 비교(`Tools/motion_chain_check/turn_residual_pro
 별도 스택이고 본 기체(Foil_A082, 2WS)가 쓰지 않는다. 이 저장소의 2WS 만 정정한다.
 이로써 「2WS = 검증된 QD + 승인된 이탈」의 승인 이탈이 **세 건**이 된다.
 
+> ⚠ **2026-08-10 — 본 ADR 은 `docs/adr/2026-08-09-turn-error-feedback.md` 로 Superseded.**
+> 여기서 고친 「델타 누적의 부호 처리」는 **누적 자체가 절대 목표 yaw 방식으로 대체되어 사라졌다.**
+> D3 이 지목하는 `turn_angle_accounting_check.py` 도 **2026-08-10 폐기**했다(검사 대상 소멸 +
+> 무관한 `std::fabs` 를 잡는 오탐). 아래 서술은 이력으로 보존한다.
+
 **D3.** 회귀는 `Tools/motion_chain_check/turn_angle_accounting_check.py` 로 소스에서 재도출해
 고정한다. 세 지점 중 하나라도 방향을 무시하면 `exit 1`.
 
@@ -91,6 +99,6 @@ IMU 지상진값을 분리해 비교(`Tools/motion_chain_check/turn_residual_pro
 
 가역. `:258` 한 줄을 `accumulated_angle += std::abs(delta_yaw) * 180.0 / M_PI;` 로 되돌리고
 `colcon build --packages-select trnav_2ws_action_server`. 다른 파일 영향 없음.
-되돌리면 `turn_angle_accounting_check.py` 가 `exit 1` 로 그 사실을 드러낸다(의도된 동작).
+되돌리면 `turn_angle_accounting_check.py` 가 `exit 1` 로 그 사실을 드러낸다(의도된 동작). ⚠ 2026-08-10 폐기됨.
 
 영속 상태·스키마·펌웨어 변경 없음.

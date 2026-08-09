@@ -109,7 +109,7 @@ IMU yaw 잡음을 넣고서야 드러났다.
 (절대 목표 yaw 대조, `spin_action_server.cpp:276`)으로 옮기면 델타 누적 자체가 없어져
 편향이 원천 소거되나, 이는 구조 변경이라 별건.
 
-**회귀 고정**: `Tools/motion_chain_check/turn_angle_accounting_check.py` 가 세 지점을
+**회귀 고정**(⚠ 2026-08-10 폐기): `Tools/motion_chain_check/turn_angle_accounting_check.py` 가 세 지점을
 소스에서 재도출해 하나라도 방향을 무시하면 `exit 1`. 검출력 확인 — 종전 형태가 남아 있는
 QD 상류를 `--path` 로 지정하면 `:233` 을 잡고 `exit 1` 이 난다.
 
@@ -130,7 +130,7 @@ QD 상류를 `--path` 로 지정하면 `:233` 을 잡고 `exit 1` 이 난다.
 | 기능 | SIL 목표 45° · R=1.0 m (`ROS_DOMAIN_ID=43`) | status 0 · actual_angle 45.178° · 7.40 s |
 | 조향 범위 | `Tools/motion_chain_check/sil_record_steer.py` | W1 +0.00~+31.13° · W2 −30.80~+0.00° · 90° 초과 0표본 |
 | **돌연변이** | `:408` 정지 블록만 종전 복원 후 재실행 | 조향 최대 **90.00°/90.00°** 로 회귀 → 원인 확정 |
-| 각도 계상 회귀 | `turn_angle_accounting_check.py` | 현행 2WS `exit 0` · QD 상류 `exit 1`(검출력 확인) |
+| ~~각도 계상 회귀~~ | **2026-08-10 폐기** — `Tools/motion_chain_check/turn_angle_accounting_check.py` 삭제 | 검사 대상(델타 누적)이 구조 변경으로 사라졌고, 남겨 두면 무관한 `std::fabs` 를 잡아 **없는 부호 결함을 있다고 보고**했다(오탐, exit 1). 고칠 대상이 없으므로 폐기 |
 | 잔여각 (즉응·무잡음) | `turn_residual_probe.py --runs 3` | 45.172° · σ 0.000 — **변경 전과 완전 동일**(무회귀) |
 | 잔여각 (동특성+잡음) | `turn_residual_probe.py --runs 5` | 실제오차 \|최대\| 0.298° (종전 0.846°) |
 
@@ -181,7 +181,7 @@ QD 상류를 `--path` 로 지정하면 `:233` 을 잡고 `exit 1` 이 난다.
 
 | 항목 | 도구·조건 | 결과 |
 | --- | --- | --- |
-| 각도 계상 회귀 | `turn_angle_accounting_check.py --path …/turn_reverse_action_server.cpp` | ⚠ **2026-08-09 무효** — 이 검사기는 델타 누적 계상을 보는데 그 계상이 사라졌다(절대 목표 yaw 로 교체). 검사기 갱신 전까지 결과를 근거로 쓰지 말 것 |
+| ~~각도 계상 회귀~~ | **2026-08-10 폐기** — `Tools/motion_chain_check/turn_angle_accounting_check.py` 삭제 | 검사 대상(델타 누적)이 구조 변경으로 사라졌고, 남겨 두면 무관한 `std::fabs` 를 잡아 **없는 부호 결함을 있다고 보고**했다(오탐, exit 1). 고칠 대상이 없으므로 폐기 |
 | SIL 후진 | 헤딩 +20°, R=1.0 | 헤딩 +20.16° · 변위 350 mm · 차체기준 −170.0°(후진) · 반경 1.000 m · 조향 (−31.1, +30.8) |
 | SIL 전진 대조 | 같은 목표 | 차체기준 +10.0°(전진) · 조향 (+31.1, −30.8) — **부호만 반전, 나머지 동일** |
 | 실기 후진 | 헤딩 +10°, R=1.0, 0.05 m/s | 측위 +10.38° · IMU +10.30° · 변위 181 mm · −173.5°(후진) · 반경 0.998 m · 조향 (−31.13, +30.80) · 구동 2축 차 2.4 mm |
