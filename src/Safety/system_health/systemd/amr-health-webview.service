@@ -3,8 +3,14 @@
 # **로컬 전용이다** (2026-07-31 사용자 결정: "로컬전용").
 # 서버에 인증이 없으므로 루프백에만 바인드한다. 같은 망의 다른 PC(Personal Computer)에서
 # 보려면 이 파일의 --bind 를 고치는 대신 SSH(Secure Shell) 터널을 권한다:
-#     ssh -L 8770:127.0.0.1:8770 nvidia@<이 장비>
+#     ssh -L <포트>:127.0.0.1:<포트> <계정>@<이 장비>
 # 그러면 인증은 SSH 가 맡고, 대시보드는 노출되지 않는다.
+#
+# **본 파일은 템플릿이다.** @REPO@·@USER@·@GROUP@·@PORT@ 는 install_service.sh 가 설치 시점에
+# 이 장비의 값으로 치환한다. 그대로 /etc/systemd/system 에 넣으면 동작하지 않는다.
+#
+# **포트는 장비마다 다르다.** 기본 8770 이 다른 서비스에 이미 쓰이는 장비가 있어 값을 밖으로
+# 뺐다 — 장비별 지정은 config/system_health/service.env 의 HEALTH_PORT.
 #
 # 샘플러와 **별도 유닛**이다. 한쪽이 죽어도 다른 쪽은 계속 돌아야 하기 때문이다 —
 # 대시보드가 죽어도 기록은 계속되고, 샘플러가 죽어도 지금까지의 기록은 볼 수 있다.
@@ -12,20 +18,20 @@
 
 [Unit]
 Description=AMR system health web dashboard (read-only, localhost only)
-Documentation=file:///home/nvidia/Project/Ford-CATL-AMR/Big-AMR/src/Safety/system_health/README.md
+Documentation=file://@REPO@/src/Safety/system_health/README.md
 After=local-fs.target
 Wants=local-fs.target
 
 [Service]
 Type=simple
-User=nvidia
-Group=nvidia
+User=@USER@
+Group=@GROUP@
 Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONPATH=/home/nvidia/Project/Ford-CATL-AMR/Big-AMR/src/Safety/system_health
+Environment=PYTHONPATH=@REPO@/src/Safety/system_health
 ExecStart=/usr/bin/python3 -m system_health.webview \
-    --log-dir /home/nvidia/Project/Ford-CATL-AMR/Big-AMR/Log/health \
+    --log-dir @REPO@/Log/health \
     --bind 127.0.0.1 \
-    --port 8770 \
+    --port @PORT@ \
     --interval 5
 
 Restart=always

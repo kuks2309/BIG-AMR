@@ -12,14 +12,26 @@
 #   ./install_service.sh --apply            # 둘 다 설치·기동
 #   ./install_service.sh --apply sampler    # 샘플러만
 #   ./install_service.sh --apply webview    # 대시보드만
-#   ./install_service.sh --remove [대상]    # 제거 (ADR §Rollback)
+#   ./install_service.sh --remove [대상]    # 제거 (ADR 2026-07-28 §Rollback)
 #   ./install_service.sh --status           # 현재 상태
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="/home/nvidia/Project/Ford-CATL-AMR/Big-AMR"
+# 저장소 경로는 **스크립트 위치에서 유도**한다(HERE = <repo>/src/Safety/system_health).
+# 하드코딩하면 다른 PC 로 이식한 사본이 원본 장비의 경로를 향한다.
+REPO="$(cd "${HERE}/../../.." && pwd)"
 LOG_DIR="${REPO}/Log/health"
 CONFIG="${REPO}/config/system_health/thresholds.json"
+# 유닛은 이 계정으로 돈다. 경로만 맞추고 계정을 그대로 두면 다른 PC 에서 기동하지 못한다.
+RUN_USER="$(id -un)"
+RUN_GROUP="$(id -gn)"
+
+# 장비별 서비스 설정(선택). 없으면 기본값을 쓴다. 임계값 파일과 같은 자리에 둔다.
+SERVICE_ENV="${REPO}/config/system_health/service.env"
+# shellcheck source=/dev/null
+[ -f "${SERVICE_ENV}" ] && . "${SERVICE_ENV}"
+# 대시보드 포트. 장비에 따라 8770 을 다른 서비스가 이미 쓰고 있어 값을 밖으로 뺀다.
+HEALTH_PORT="${HEALTH_PORT:-8770}"
 
 SAMPLER_UNIT="amr-health-sampler.service"
 WEBVIEW_UNIT="amr-health-webview.service"
@@ -36,16 +48,34 @@ units_for_target() {
   esac
 }
 
+# 유닛 파일은 자리표시자(@REPO@·@USER@·@GROUP@)를 가진 템플릿이다. 설치 시점에 이 장비의
+# 실제 값으로 치환한다 — 소스의 .service 를 systemctl 에 그대로 넣으면 동작하지 않는다.
+render_unit() {
+  sed -e "s|@REPO@|${REPO}|g" -e "s|@USER@|${RUN_USER}|g" -e "s|@GROUP@|${RUN_GROUP}|g" \
+      -e "s|@PORT@|${HEALTH_PORT}|g" "$1"
+}
+
+# 이미 쓰이는 포트에 설치하면 대시보드가 기동 직후 Address already in use 로 죽는다.
+# 차단하지는 않는다 — 우리 유닛이 이미 그 포트로 돌고 있는 재설치도 정상 경로다.
+warn_if_port_taken() {
+  if ss -ltn 2>/dev/null | grep -q ":${HEALTH_PORT} "; then
+    echo "⚠ 포트 ${HEALTH_PORT} 가 이미 LISTEN 중이다 — 다른 서비스면 대시보드가 뜨지 못한다." >&2
+    echo "  점유자 확인: ss -ltnp | grep ${HEALTH_PORT}" >&2
+    echo "  포트 변경: ${SERVICE_ENV} 에 HEALTH_PORT=<포트> 를 적고 --apply 재실행" >&2
+  fi
+}
+
 install_unit() {
   local unit="$1" src="${HERE}/systemd/$1" dst="/etc/systemd/system/$1"
   [ -f "${src}" ] || { echo "유닛 파일 없음: ${src}" >&2; exit 1; }
-  sudo install -m 0644 "${src}" "${dst}"
-  echo "설치: ${dst}"
+  render_unit "${src}" | sudo install -m 0644 /dev/stdin "${dst}"
+  echo "설치: ${dst}  (REPO=${REPO} · User=${RUN_USER})"
 }
 
 case "${MODE}" in
   --apply)
     UNITS="$(units_for_target "${TARGET}")"
+    case "${UNITS}" in *"${WEBVIEW_UNIT}"*) warn_if_port_taken ;; esac
     mkdir -p "${LOG_DIR}"
     # 임계값 파일이 없으면 기본값으로 만든다. 있으면 **덮어쓰지 않는다** —
     # 사용자가 고쳐 둔 값을 재설치가 되돌리면 안 된다.
@@ -86,14 +116,17 @@ case "${MODE}" in
   2. 임계값 파일 생성(없을 때만 — 기존 값은 덮어쓰지 않음): ${CONFIG}
   3. 유닛 설치 -> /etc/systemd/system/
        ${SAMPLER_UNIT}  (수집, 5초 주기)
-       ${WEBVIEW_UNIT}  (대시보드, **127.0.0.1 전용**)
+       ${WEBVIEW_UNIT}  (대시보드, **127.0.0.1 전용**, 포트 ${HEALTH_PORT})
   4. systemctl daemon-reload
   5. systemctl enable --now (부팅 시 자동 기동)
 
 대시보드는 **로컬 전용**이다 — 인증이 없어 루프백에만 바인드하고,
 IPAddressDeny=any 로 커널에서도 외부 접속을 막는다.
 다른 PC 에서 보려면 SSH 터널을 쓴다:
-  ssh -L 8770:127.0.0.1:8770 nvidia@<이 장비>   그 뒤 브라우저에서 http://127.0.0.1:8770/
+  ssh -L ${HEALTH_PORT}:127.0.0.1:${HEALTH_PORT} ${RUN_USER}@<이 장비>
+  그 뒤 브라우저에서 http://127.0.0.1:${HEALTH_PORT}/
+
+포트를 바꾸려면 ${SERVICE_ENV} 에 HEALTH_PORT=<포트> 를 적고 --apply 를 다시 실행한다.
 
 임계값을 바꾸려면 ${CONFIG} 를 편집한 뒤:
   sudo systemctl restart ${SAMPLER_UNIT}

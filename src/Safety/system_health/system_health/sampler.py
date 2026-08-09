@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from . import sysfs
+from .cliargs import non_negative_int, positive_float
 from .ringlog import RingLog, RingLogWriteError
 from .thresholds import (PROVISIONAL_KEYS, Finding, Thresholds, evaluate,
                          worst_level)
@@ -44,8 +45,10 @@ _SLEEP_CHUNK_S = 0.2
 #: 정지 요청 플래그.
 #: **누가 바꾸나**: `_on_stop_signal` (SIGTERM/SIGINT 핸들러) 단독 writer.
 #: **누가 읽나**: `run()` 메인 루프 단독 reader.
-#: 단일 writer + bool 대입(원자적)이라 lock 을 두지 않는다 —
-#: `docs/claude_guideline/coding/domains/concurrency-coding.md` §1 참조.
+#: 단일 writer + bool 대입(원자적)이라 lock 을 두지 않는다 — 이 결정의 1차 근거는
+#: ADR 2026-07-28 §Decision 8(동시성 — 신호 핸들러 1개, lock 없음)이고, 작성 규칙은
+#: `docs/claude_guideline/coding/domains/concurrency-coding.md` §1(단일 writer 설계로 보호를
+#: 줄인다 · writer 는 전역변수표 "누가 바꾸나" 칸으로 식별)이다.
 _stop_requested = False
 
 
@@ -177,7 +180,7 @@ def collect(
     record["disks"] = disks
 
     fan = sysfs.read_fan()
-    # rpm 은 본 하드웨어에 노드가 없어 항상 None 이다 — ADR §Decision 5. 스키마에는 남겨
+    # rpm 은 본 하드웨어에 노드가 없어 항상 None 이다 — ADR 2026-07-28 §Decision 5. 스키마에는 남겨
     # 두어, RPM 을 읽을 수 있는 하드웨어에서 같은 코드가 그대로 동작하게 한다.
     record["fan"] = {"pwm": fan.pwm, "rpm": fan.rpm}
 
@@ -200,12 +203,12 @@ def collect(
             }
             before = (prev.can if prev is not None else {}).get(name)
             if before is not None:
-                # 누계가 아니라 증가율로 판정한다(ADR §Decision 3).
+                # 누계가 아니라 증가율로 판정한다(ADR 2026-08-01 §Decision 3).
                 row["error_rate_s"] = round(sysfs.can_error_rate(before, cur, elapsed), 2)
             rows.append(row)
         record["can"] = rows
 
-    # DDS 세그먼트 — 기록만. 정상 개수를 모르므로 판정하지 않는다(ADR §Decision 4).
+    # DDS 세그먼트 — 기록만. 정상 개수를 모르므로 판정하지 않는다(ADR 2026-08-01 §Decision 4).
     record["dds_segments"] = sysfs.count_dds_segments()
 
     pids_now: dict[str, tuple[int, ...]] = (
@@ -254,7 +257,7 @@ def _sleep_until(deadline: float) -> None:
 
 
 def _load_threshold_overrides(path: str | None) -> dict[str, Any]:
-    """JSON 파일에서 임계값 덮어쓰기를 읽는다. 경로가 없으면 빈 dict.
+    """JSON 파일에서 임계값 덮어쓰기를 읽는다. `path` 가 None 이면 빈 dict.
 
     Raises:
         SystemExit: 파일을 읽을 수 없거나 JSON 이 아니거나 객체가 아닐 때. 임계값을 바꿨다고
@@ -275,7 +278,7 @@ def _load_threshold_overrides(path: str | None) -> dict[str, Any]:
 def _write_thresholds(path: str, th: Thresholds) -> int:
     """현재 임계값을 사람이 편집할 수 있는 JSON 으로 저장한다.
 
-    임계값은 우리가 정하는 값이므로(ADR §Decision 4) 사용자가 파일로 고정할 수 있어야 한다.
+    임계값은 우리가 정하는 값이므로(ADR 2026-07-28 §Decision 4) 사용자가 파일로 고정할 수 있어야 한다.
     파일에는 값뿐 아니라 **어느 항목이 아직 잠정치인지**(`_provisional`)를 함께 적는다 —
     편집하는 사람이 파일만 보고 근거 상태를 알 수 있어야 하기 때문이다. `_` 로 시작하는 키는
     다시 읽을 때 주석으로 무시되므로 왕복해도 깨지지 않는다.
@@ -308,13 +311,13 @@ def _write_thresholds(path: str, th: Thresholds) -> int:
 
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
-    """명령행 인자 해석."""
+    """명령행 인자 해석. 범위 검증은 `cliargs` 의 타입 함수가 맡는다."""
     parser = argparse.ArgumentParser(
         prog="system_health.sampler",
         description="AMR 본체 PC 자원 감시 샘플러 (관측 전용 — 아무것도 제어하지 않는다)",
     )
     parser.add_argument(
-        "--interval", type=float, default=DEFAULT_INTERVAL_S, help="표본 주기(초)"
+        "--interval", type=positive_float, default=DEFAULT_INTERVAL_S, help="표본 주기(초, 0 초과)"
     )
     parser.add_argument(
         "--out-dir",
@@ -329,19 +332,22 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="감시할 파일시스템 경로(반복 지정 가능). 기본 '/'",
     )
     parser.add_argument(
-        "--max-total-mb", type=float, default=DEFAULT_MAX_TOTAL_MB, help="로그 총량 상한(MB)"
+        "--max-total-mb", type=positive_float, default=DEFAULT_MAX_TOTAL_MB,
+        help="로그 총량 상한(MB, 0 초과)"
     )
     parser.add_argument(
-        "--max-age-days", type=float, default=DEFAULT_MAX_AGE_DAYS, help="로그 보존 기간(일)"
+        "--max-age-days", type=positive_float, default=DEFAULT_MAX_AGE_DAYS,
+        help="로그 보존 기간(일, 0 초과)"
     )
     parser.add_argument(
         "--proc-scan-every",
-        type=int,
+        type=non_negative_int,
         default=DEFAULT_PROC_SCAN_EVERY,
-        help="몇 주기마다 /proc 전체를 훑을지 (상위 RSS·팬 데몬 생존 확인)",
+        help="몇 주기마다 /proc 전체를 훑을지 (0 이면 훑지 않음)",
     )
     parser.add_argument(
-        "--top-rss", type=int, default=DEFAULT_TOP_RSS, help="RSS 상위 몇 개를 남길지"
+        "--top-rss", type=non_negative_int, default=DEFAULT_TOP_RSS,
+        help="RSS 상위 몇 개를 남길지 (0 이면 남기지 않음)"
     )
     parser.add_argument("--thresholds", default=None, help="임계값 덮어쓰기 JSON 파일")
     parser.add_argument(
@@ -366,7 +372,13 @@ def run(args: argparse.Namespace) -> int:
     Returns:
         프로세스 종료 코드. 정상 종료 0, 로그를 한 번도 못 쓴 채 끝나면 1.
     """
-    thresholds = Thresholds.from_mapping(_load_threshold_overrides(args.thresholds))
+    # 설정 오류는 여기서 끝낸다. 통과시키면 첫 판정에서 죽고, 유닛의 Restart=always 와 만나
+    # 재시작 루프가 되어 "떠 있는데 기록이 0" 인 상태가 된다. 스택 트레이스 대신 고칠 대상을 낸다.
+    try:
+        thresholds = Thresholds.from_mapping(_load_threshold_overrides(args.thresholds))
+    except (KeyError, ValueError) as exc:
+        raise SystemExit(
+            f"임계값 설정을 받아들일 수 없다 ({args.thresholds}): {exc}") from exc
     if args.write_thresholds:
         # 저장만 하고 끝낸다 — 샘플 루프를 돌리지 않는다.
         return _write_thresholds(args.write_thresholds, thresholds)
@@ -396,6 +408,10 @@ def run(args: argparse.Namespace) -> int:
                            swap=sysfs.read_swap_counters())
         time.sleep(ONCE_BASELINE_DELAY_S)
 
+    # 주기의 기준선. 마감시각은 "직전 완료 + interval" 이 아니라 "기준선 + n×interval" 이다 —
+    # 전자면 collect·evaluate·write 소요가 매 주기 누적돼 표본 시각이 격자에서 서서히 밀리고,
+    # 결손 집계(`report.gap_stats`)도 같이 틀어진다.
+    grid_start = time.time()
     cycle = 0
     log_write_failed = False
     consecutive_write_failures = 0
@@ -454,7 +470,14 @@ def run(args: argparse.Namespace) -> int:
         cycle += 1
         if args.once:
             break
-        _sleep_until(time.time() + args.interval)
+        deadline = grid_start + cycle * args.interval
+        now = time.time()
+        if deadline <= now:
+            # 한 주기 이상 밀렸으면 밀린 만큼 몰아서 찍지 않고 다음 격자 칸으로 건너뛴다.
+            # 따라잡기를 하면 부하가 몰린 직후에 표본이 폭주해 관측이 대상을 더 방해한다.
+            cycle += int((now - deadline) // args.interval) + 1
+            deadline = grid_start + cycle * args.interval
+        _sleep_until(deadline)
 
     return 0 if wrote_anything else 1
 

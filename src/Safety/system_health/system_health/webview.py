@@ -30,6 +30,9 @@ DEFAULT_BIND = "127.0.0.1"
 #: 화면에 그리는 최근 표본 수 기본값. 5초 주기에서 약 30분.
 DEFAULT_HISTORY = 360
 MAX_HISTORY = 5000
+#: `/api/report` 가 읽을 표본 상한. 이 엔드포인트만 전 로그를 완독하는 경로였다 — 로그가 커질수록
+#: 한 요청이 초 단위로 늘어나고, 그 비용을 감시 대상 PC 가 낸다. 전 구간이 필요하면 CLI 를 쓴다.
+REPORT_MAX_SAMPLES = 5000
 
 #: 판정 등급 → (상태 팔레트 역할, 아이콘, 라벨). 색만으로 의미를 전달하지 않기 위해
 #: 아이콘·라벨을 항상 함께 낸다(dataviz: 상태색은 icon+label 동반 필수).
@@ -155,8 +158,13 @@ footer{color:var(--text-muted);font-size:11px;margin-top:16px}
 <a href="/api/report">텍스트 보고서</a> · <a href="/api/latest">JSON</a></footer>
 <script>
 const $=s=>document.querySelector(s), tip=$("#tip");
-const LV={OK:["good","\\u25CF","정상"],WARN:["warning","\\u25B2","주의"],ERROR:["critical","\\u25A0","이상"]};
+const LV=__LEVEL_VIEW__;   // 서버의 LEVEL_VIEW 를 주입받는다(등급 표현의 단일 근원).
 const fmt=(v,d=1)=>v===null||v===undefined?"\\u2014":Number(v).toFixed(d);
+// 로그에서 온 문자열은 HTML 로 넣기 전에 반드시 통과시킨다. 값의 출처는 커널 노드 라벨·
+// 운영자 설정·CLI 인자지만, 이스케이프 없이 innerHTML 에 넣으면 그중 하나만 꺾여도 화면이
+// 깨지거나 임의 마크업이 실행된다.
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 function line(sel,t,vals,unit,dec){
   const svg=$(sel); const W=svg.clientWidth||420, H=120, P={l:38,r:8,t:8,b:16};
@@ -232,15 +240,16 @@ async function tick(){
   $("#findings").innerHTML=F.length
     ? `<table><tr><th>등급</th><th>항목</th><th>내용</th></tr>`+F.map(f=>{
         const [r,i,l]=LV[f.level]||["good","·","—"];
-        return `<tr><td class="f-${r}">${i} ${l}</td><td>${f.key}</td><td>${f.message}</td></tr>`;
+        return `<tr><td class="f-${r}">${i} ${l}</td><td>${esc(f.key)}</td>`
+             + `<td>${esc(f.message)}</td></tr>`;
       }).join("")+`</table>`
     : `<span class="f-good">\\u25CF 정상</span> — 임계 초과 항목 없음`;
   $("#rails").innerHTML=Object.keys(rails).length
     ? `<table><tr><th>레일</th><th>전압 V</th><th>전류 mA</th><th>전력 W</th></tr>`
-      +Object.entries(rails).map(([k,v])=>`<tr><td>${k}</td><td>${fmt(v.mv/1000,2)}</td>`
+      +Object.entries(rails).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${fmt(v.mv/1000,2)}</td>`
       +`<td>${fmt(v.ma,0)}</td><td>${fmt(v.mw/1000,2)}</td></tr>`).join("")+`</table>`
     : "센서 없음";
-  $("#zones").innerHTML=`<table><tr>`+Object.keys(temps).map(k=>`<th>${k.replace("-thermal","")}</th>`).join("")
+  $("#zones").innerHTML=`<table><tr>`+Object.keys(temps).map(k=>`<th>${esc(k.replace("-thermal",""))}</th>`).join("")
     +`</tr><tr>`+Object.values(temps).map(v=>`<td>${fmt(v)}</td>`).join("")+`</tr></table>`;
   const n=Math.min(12,H.t.length);
   let rows="";
@@ -284,7 +293,11 @@ class _Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         try:
             if url.path == "/":
-                self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
+                # 등급 표현(역할·아이콘·라벨)의 단일 근원은 `LEVEL_VIEW` 다. 페이지에 주입해
+                # 브라우저가 같은 표를 쓰게 한다 — 양쪽에 리터럴을 두면 한쪽만 바뀐다.
+                page = PAGE.replace("__LEVEL_VIEW__",
+                                    json.dumps(LEVEL_VIEW, ensure_ascii=False))
+                self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
             elif url.path == "/api/latest":
                 self._json(latest_payload(tail_records(self.log_dir, 1, self.prefix),
                                           log_span(self.log_dir, self.prefix)))
@@ -293,7 +306,8 @@ class _Handler(BaseHTTPRequestHandler):
                 n = int(q.get("n", [DEFAULT_HISTORY])[0])
                 self._json(history_payload(tail_records(self.log_dir, n, self.prefix), n))
             elif url.path == "/api/report":
-                text = format_report(self.log_dir, self.interval_s, self.prefix)
+                text = format_report(self.log_dir, self.interval_s, self.prefix,
+                                     max_samples=REPORT_MAX_SAMPLES)
                 self._send(200, text.encode("utf-8"), "text/plain; charset=utf-8")
             else:
                 self._send(404, b"not found\n", "text/plain; charset=utf-8")

@@ -7,27 +7,28 @@
 #   `colcon build` 가 install/ 을 비우는 순간 감시기가 죽으면 안 된다. PYTHONPATH 로 소스
 #   경로를 직접 가리키면 빌드 상태와 무관하게 뜬다.
 #
-# 경로는 로봇 1대(본 장비) 전제로 절대경로다. 다른 장비에 배포하려면 아래 두 경로를 고칠 것.
+# **본 파일은 템플릿이다.** @REPO@·@USER@·@GROUP@ 는 install_service.sh 가 설치 시점에
+# 이 장비의 값으로 치환한다. 그대로 /etc/systemd/system 에 넣으면 동작하지 않는다.
 
 [Unit]
 Description=AMR system health sampler (observe-only)
-Documentation=file:///home/nvidia/Project/Ford-CATL-AMR/Big-AMR/docs/adr/2026-07-28-system-health-monitor.md
+Documentation=file://@REPO@/docs/adr/2026-07-28-system-health-monitor.md
 After=local-fs.target
 Wants=local-fs.target
 
 [Service]
 Type=simple
-User=nvidia
-Group=nvidia
+User=@USER@
+Group=@GROUP@
 Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONPATH=/home/nvidia/Project/Ford-CATL-AMR/Big-AMR/src/Safety/system_health
-# 임계값은 사용자가 정해 파일로 고정한다(ADR §Decision 4). install_service.sh --apply 가
+Environment=PYTHONPATH=@REPO@/src/Safety/system_health
+# 임계값은 사용자가 정해 파일로 고정한다(ADR 2026-07-28 §Decision 4). install_service.sh --apply 가
 # 파일이 없으면 기본값으로 만들어 두므로, 사용자는 그 파일만 고치고 서비스를 재시작하면 된다.
 ExecStart=/usr/bin/python3 -m system_health.sampler \
     --interval 5 \
     --disk / \
-    --thresholds /home/nvidia/Project/Ford-CATL-AMR/Big-AMR/config/system_health/thresholds.json \
-    --out-dir /home/nvidia/Project/Ford-CATL-AMR/Big-AMR/Log/health
+    --thresholds @REPO@/config/system_health/thresholds.json \
+    --out-dir @REPO@/Log/health
 
 Restart=always
 RestartSec=5
@@ -40,7 +41,7 @@ IOSchedulingClass=idle
 # 관측 전용이므로 쓰기 권한을 로그 디렉토리로 제한한다.
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/nvidia/Project/Ford-CATL-AMR/Big-AMR/Log
+ReadWritePaths=@REPO@/Log
 PrivateTmp=yes
 NoNewPrivileges=yes
 
