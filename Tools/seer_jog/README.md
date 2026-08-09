@@ -1,0 +1,76 @@
+# seer_jog — Seer 개루프 조그로 알려진 자세까지 복귀
+
+PC 측 모션(`turn`·`spin`·`yaw_control`)이 실패했거나 믿을 수 없을 때 쓰는 **복구 도구**다.
+상시 운용용이 아니다. 비-ROS2 독립 도구이므로 `Tools/` 에 둔다(colcon 불요, `python3` 즉시 실행).
+
+## 왜 만들었나
+
+2026-08-10 실기에서 `yaw_control` 이 **25° 틀어진 채 `status 0`(성공)** 을 반환했다.
+저속 회전(약 0.5 °/s) 구간에서 IMU 가 실제 회전 +24.7° 를 +1.7° 로만 읽었기 때문이다(`debt-054`).
+로봇이 원위치에서 2 m · 28.7° 벗어났는데, **되돌릴 수단이 전부 같은 IMU 로 루프를 닫는**
+상황이었다 — 고장 원인으로 고장을 고치는 꼴이라 쓸 수 없었다.
+
+그래서 이 도구는 **맵 기준 측위(`/robot_pose`)만** 되먹이고 IMU 를 쓰지 않는다.
+구동은 Seer 개루프 API(`19205 / 2010 robot_control_motion_req`)에 맡긴다.
+
+## 동작 — 스핀 → 크랩
+
+```
+Phase 1   제자리 회전으로 최종 헤딩을 먼저 맞춘다
+Phase 2   헤딩을 유지한 채 vx(전후) · vy(크랩)로 위치만 잡는다
+```
+
+헤딩을 먼저 확정하므로 자세를 두 번 흔들지 않는다. 종전 임시 스크립트는
+「정렬 회전 → 전진 → 최종 회전」으로 **회전이 2회**였다(2026-08-10 사용자 제안으로 개선).
+이 기체는 inline dual-steer(2WS)라 크랩이 되므로 `vy` 를 쓸 수 있다.
+
+## 사용
+
+```bash
+# can_relay 가 제어권을 쥐고 있으면 Seer 는 버스를 못 쓴다 — 먼저 반납
+ros2 service call /can_relay_node/engage std_srvs/srv/SetBool "{data: false}"
+
+python3 Tools/seer_jog/seer_jog.py --x -12.5707 --y 9.6183 --yaw -1.86
+python3 Tools/seer_jog/seer_jog.py --x ... --y ... --yaw ... --dry-run   # 계획만
+```
+
+## ⚠ 검증 상태 (2026-08-10)
+
+| 부분 | 상태 | 근거 |
+| --- | --- | --- |
+| Phase 1 제자리 회전 · `vx` 병진 · 맵 폐루프 · 정지 처리 | **실기 확인** | 같은 논리의 인라인 스크립트로 2.02 m / 28.7° 복귀, 잔차 36 mm / 0.76° |
+| Seer `2010` 프레임·응답, `2000` 정지 | **실기 확인** | 3초 펄스에 +2.078° 회전(제자리, 위치 이동 5 mm) |
+| **Phase 2 의 `vy`(크랩)** | **미검증** | Seer 에 `vy` 를 보낸 적이 없다 — **부호 규약조차 미확인** |
+
+첫 사용 시 `--pos-tol` 을 크게 잡고 짧은 거리로 시작할 것. 부호가 반대면 오차가 커지는데,
+발산 가드가 걸려 즉시 정지하도록 설계했으나 **그 가드 자체도 실증되지 않았다.**
+
+## 안전 장치
+
+- 진행 방향 라이다 부채꼴 여유가 `--min-clearance`(기본 0.5 m) 미만이면 즉시 정지
+- 오차가 최저치 대비 30% 이상 커지면 정지 — 부호 규약 불일치로 인한 발산 차단
+- `--deadline`(기본 240 s) 초과 시 정지
+- `finally` 에서 반드시 `2000`(stop) 송신 — 예외·중단에도 로봇이 계속 가지 않는다
+
+## 함수표
+
+| # | 함수 | 인자 | 반환 | 역할 | 위치 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `pack` | `seq`, `code`, `payload` | `bytes` | Seer NetProtocol 프레임 조립(헤더 16B + JSON). 정본 `References/Seer-Driver/robokit_tcp_api.md` §4-2 | `seer_jog.py:57` |
+| 2 | `wrap` | `deg` | `float` | 각도를 (−180, +180] 로 정규화 | `seer_jog.py:66` |
+| 3 | `clamp` | `v`, `lo`, `hi` | `float` | 상하한 포화 | `seer_jog.py:71` |
+| 4 | `main` | — | `int` | 인자 파싱 → 측위 구독 → Phase 1(회전) → Phase 2(크랩) → 정지·보고. 종료코드 0 성공 / 2 측위없음 / 3 시한초과 / 4 발산의심 / 5 여유부족 | `seer_jog.py:75` |
+| 4-1 | `main.yaw_of` | `quaternion` | `float` | 쿼터니언 → yaw[deg] | `seer_jog.py:103` |
+| 4-2 | `main.pump` | `sec` | — | 지정 시간 동안 ROS 스핀(콜백 수신) | `seer_jog.py:112` |
+| 4-3 | `main.clearance` | `direction_rad`, `half_width_deg` | `float` | 차체 기준 방향 부채꼴의 최소 거리 | `seer_jog.py:117` |
+| 4-4 | `main.send` | `vx`, `vy`, `w` | — | `2010` 개루프 운동 1프레임 송신 | `seer_jog.py:145` |
+| 4-5 | `main.stop` | — | — | `2000` 정지 송신 | `seer_jog.py:154` |
+
+전역 상수: `SYNC 0x5A` · `VERSION 0x01` · `REQ_MOTION 2010` · `REQ_STOP 2000` (`seer_jog.py:51-54`).
+가변 전역 없음 — 상태는 `main` 지역 `state` dict 에 담는다.
+
+## 관련
+
+- `debt-054` — IMU 저속회전 미추종(본 도구가 IMU 를 피하는 이유)
+- `debt-051` — 조향축 비응답(같은 세션에서 함께 드러남)
+- `docs/issues_and_fixes/issues_and_fixes.md` 2026-08-10
