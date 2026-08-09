@@ -1,8 +1,13 @@
-# Navigation — Seer 2D MCL 라이다 위치추정 (이식본)
+# Navigation — Seer 2D 위치추정(MCL) + 지도생성(SLAM) 이식본
 
-Seer Robotics rbk 3.4.5.20 `libMCLoc.so`(2D Monte Carlo Localization 파티클필터 모드)를
-리버스 엔지니어링해 재구현한 코드의 이식본.
-원본 저장소: `amap-1:/home/amap/Project/Seer_Analysis` (이식 2026-07-28).
+Seer Robotics rbk 3.4.5.20 을 리버스 엔지니어링해 재구현·채용한 코드의 이식본.
+
+| 대상 | 원본 플러그인 | 방식 |
+| --- | --- | --- |
+| **위치추정** | `libMCLoc.so` (2D Monte Carlo Localization 파티클필터) | **비트 재구현** (의존성 0) |
+| **지도생성** | `libSlaMapping.so` (Open Karto + g2o 2D 그래프 SLAM) | **채용** (상류 Karto 동봉 + g2o) |
+
+원본 저장소: `amap-server:/home/amap/Project/Seer_Analysis` (MCL 이식 2026-07-28, SLAM 이식 2026-08-08).
 
 ## 구성 (저장소 배치 규약 준수 — 루트 README '디렉토리 배치 규약' 참조)
 
@@ -13,6 +18,8 @@ Seer Robotics rbk 3.4.5.20 `libMCLoc.so`(2D Monte Carlo Localization 파티클�
 | `mcl2d_ros2/` | ROS2 Humble 어댑터 노드 (`/scan`+`/odom` → `/mcl_pose`+TF). 코어를 직접 컴파일 | **패키지** |
 | (루트) `Tools/mcl2d_standalone/` | 비-ROS2 어댑터(`Mcl2dLocalizer` 파사드)+데모 — 규약대로 Tools/ 배치 | 불요 |
 | `icp_odometry_bringup/` | 휠 오도 부재 대체 — `rtabmap_odom/icp_odometry` 를 `/scan_merged` 위에서 구동해 `/odom` 공급 ([ADR](../../docs/adr/2026-07-28-icp-odometry-bringup.md)) | **패키지** |
+| `slam_karto_core/` | **지도생성 코어** — Open Karto(동봉, LGPL-3.0) 프런트엔드 + g2o 백엔드. Seer 튜닝 파라미터 29개 적용. [README](slam_karto_core/README.md) · [리뷰](../../docs/code_review/seer-slam-mapping/2026-08-08.md) | 무시(package.xml 없음) |
+| `slam_karto_core/third_party/open_karto/` | 상류 소스 그대로 — **고치지 않는다** ([VENDORED.md](slam_karto_core/third_party/open_karto/VENDORED.md)). `COLCON_IGNORE` 로 colcon 발견에서 제외 | 제외 |
 
 주의: `mcl2d_ros2`는 `../../../Tools/mcl2d_standalone/src/mcl2d_localizer.cpp`(파사드)를
 함께 컴파일한다 — src↔Tools 교차 참조 1건 (파사드가 ROS2·비ROS2 공용이기 때문).

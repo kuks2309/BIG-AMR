@@ -12,6 +12,7 @@
 | `trnav_2ws_action_server` / **turn · turn_reverse 한정** | [src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/function_table.md](../../src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/function_table.md) | 6 | **부분** — turn · turn_reverse 만 | 2026-08-09 |
 | `seer_pose_publisher` (Seer→/robot_pose) | [src/Navigation/seer_pose_publisher/docs/function_table.md](../../src/Navigation/seer_pose_publisher/docs/function_table.md) | 8 (+이너 0) | 전수 | 2026-08-06 |
 | `mcl2d_core` | [src/Navigation/mcl2d_core/docs/function_table.md](../../src/Navigation/mcl2d_core/docs/function_table.md) | — | (별도 세션 작성) | — |
+| `seer_rawmap` (Seer `.rawmap` 디코더) | [Tools/seer_rawmap/docs/function_table.md](../../Tools/seer_rawmap/docs/function_table.md) | 37 (+dataclass 6·enum 1) | 전수 | 2026-08-08 |
 
 ## ⚠ 미등재 — inventory-gate 가 빈 통과하는 범위
 
