@@ -5,9 +5,9 @@
 > 생성 사유: 2026-08-06 coding SOP §2 위반 소급 이행
 > ([실수 기록 2026-08-06-003](../../../../../docs/claude-mistake/2026-08-06-003_coding-sop-skipped-tables-adr-selfapprove.md)).
 >
-> **범위 한정** — 본 표는 `turn`(2026-08-06 수정)과 `turn_reverse`(2026-08-09 신설)를 담는다.
-> 같은 패키지의 나머지 8개 액션(`translate_forward`·`translate_reverse`·`mpc`·`mpc_reverse`·
-> `spin`·`crab_linear`·`yaw_control`·`yaw_control_reverse`)은 **미작성**이므로 그 파일들에
+> **범위 한정** — 본 표는 `turn` · `turn_reverse` · `yaw_control` 을 담는다.
+> 같은 패키지의 나머지 7개 액션(`translate_forward`·`translate_reverse`·`mpc`·`mpc_reverse`·
+> `spin`·`crab_linear`·`yaw_control_reverse`)은 **미작성**이므로 그 파일들에
 > 대해서는 `coding-inventory-gate.py` 가 여전히 빈 통과한다. 등재는 별도 작업.
 
 ## 목적
@@ -196,3 +196,86 @@ QD 상류를 `--path` 로 지정하면 `:233` 을 잡고 `exit 1` 이 난다.
 | 2 | **표본 1회** | 전진·후진 각 1회, 왕복 1회. 반복 시험 미실시 |
 | 3 | **코드 중복** | `turn` 과 `turn_reverse` 가 `vx` 부호 3곳을 빼면 같은 코드다. 한쪽 수정 시 다른 쪽도 고쳐야 한다(ADR 이 비용을 명시적으로 수용). 공통 코어 추출은 범위 밖 |
 | 4 | **후진 원호 파라미터 미조정** | `turn_reverse_params.yaml` 은 전진값을 그대로 옮긴 것이다. 정밀도 요구가 생기면 별도 조정 필요 |
+
+
+---
+
+# yaw_control — 함수표 · 변수표
+
+## 목적
+
+**목표 heading(맵 절대각)을 추종하며 지정 거리를 주행**하는 액션. 자전거 모형으로
+조향각을 PID 로 만들고, 종축 속도는 사다리꼴 프로파일로 낸다.
+
+⚠ **종료 조건은 거리다** — 헤딩 수렴이 아니다(`:351`). 헤딩은 추종 목표일 뿐이며
+목표 heading 에 못 닿아도 `target_distance` 를 채우면 성공으로 끝난다.
+`turn`·`spin`(각도가 목표이자 종료 조건)과 성격이 다르다.
+
+**헤딩 권한은 주행거리에 비례**한다 — `dψ/ds = tan(δ)/L`. `δ=1.65°`·`L=1.2 m` 에서 1.4 °/m 이므로
+거리와 게인을 함께 잡아야 목표에 도달한다.
+
+**IMU 기준 확립**: 시작 시 1회 `yaw_offset = start_yaw_map − start_yaw_imu`(`:184`).
+이후 추종은 IMU 만 쓴다 — 현재 측위는 heading 정밀도를 보정해 줄 만큼 정확하지 않으므로,
+**측위가 절대 기준을 1회 주고 정밀한 IMU 가 추종하는** 것이 의도된 구조다.
+
+## 함수 리스트 표
+
+| # | 함수 | 입력 | 출력 | 기능 | 위치(file:line) |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `YawControlActionServer::YawControlActionServer` | `node`, `action_mutex` | — | 베이스 초기화, `BicycleModel`·`TransientGuard`·`LocalizationMonitor` 생성, `yaw_control_params.yaml` 로드 | `src/yaw_control/yaw_control_action_server.cpp:26` |
+| 2 | `YawControlActionServer::validateGoal` | `YawControl::Goal` | `bool` | `target_distance > 0` · `vx_max != 0` 검사. `vx_max` 는 **부호 포함**(+전진/−후진) | `:76` |
+| 3 | `YawControlActionServer::execute` | `GoalHandle` | `void` | mux 소스 전환 → 측위 확인 → `yaw_offset` 보정 → Phase 0 조향 정렬(δ=0) → Phase 1-3 사다리꼴+PID heading → Phase 4 조향 복귀 | `:105` |
+| 3-1 | `execute.finish_abort` (람다) | `status`, `actual_dist`, `final_yaw_deg`, `final_err_deg`, `start_time` | `void` | 실패 종료 공통 처리 — 정지 지령·결과 채움·`abort()` | `:148` |
+
+## execute 내부 단계 (플로우)
+
+| 단계 | 내용 | 위치 |
+| --- | --- | --- |
+| mux | `/select_motion_source` 로 소스 6 전환 | `:105~` |
+| 측위 | `loc_monitor_->lookupMapToBase` 로 시작 자세 취득. 실패 시 `-4` | `:175` |
+| 기준 | `yaw_offset = start_yaw_map − start_yaw_imu` **1회** | `:184` |
+| Phase 0 | 조향을 δ=0 으로 정렬. **구동 속도 0 고정**, 미도달 시 타임아웃 | `:192~238` |
+| Phase 1-3 | 사다리꼴 종속도 + PID 조향. 매 주기 측위 health 검사(`:305`) | `:265~` |
+| 종료 | `profile DONE` **또는** `current_distance >= target_distance` | `:351` |
+| PID | `delta_deg = kp·err + kd·derr + ki·ierr` → `max_steer_deg` clamp | `:378~385` |
+| 후진 보정 | `vx_max < 0` 이면 `err_deg` 부호 반전(자전거 후진 규약) | `:364` |
+| 조향 분배 | `counter_steer` true → 전 `+δ`/후 `−δ`, false → 전 `+δ`/후 `0` | `:390` |
+| 가드 | `TransientGuard` — 조향 오차가 임계 초과면 `gate_blocked` 로 **구동 0** | `:441~442` |
+| Phase 4 | `hold_steer` 아니면 `exit_steer_angle` 로 조향 복귀 | `:546~` |
+
+## 클래스 멤버 상태 표
+
+| # | 멤버 | 사용 함수 | 역할 | 위치 |
+| --- | --- | --- | --- | --- |
+| 1 | `bicycle_model_` | 3 | 자전거 모형 → IK 변환(`toIKResult`) | `include/…/yaw_control_action_server.hpp:36` |
+| 2 | `guard_` | 3 | `TransientGuard` — 조향 미도달 시 구동 차단·감속 스케일 | `hpp:37` |
+| 3 | `loc_monitor_` | 3 | `LocalizationMonitor` — pose 두절·점프 감시. **heading 정합은 보지 않는다** | `hpp:38` |
+| 4 | `select_source_client_` · `motion_source_id_{6}` | 3 | mux 소스 전환 (yaw_control = 6) | `hpp:41-42` |
+| 5 | `max_timeout_sec_{60.0}` | 3 | 전체 시한 | `hpp:45` |
+| 6 | `enable_localization_watchdog_{true}` | 3 | 노드 레벨 watchdog 토글. goal 필드와 **AND** | `hpp:46` |
+| 7 | `walk_accel_limit_{0.5}` · `walk_decel_limit_{1.0}` | 3 | 구동 속도 변화율 제한 | `hpp:47-48` |
+| 8 | `steer_rate_limit_{0.35}` | 3 | 조향 지령 변화율 제한 | `hpp:49` |
+| 9 | `min_vx_{0.02}` | 3 | 프로파일 속도 하한(시작 정지 방지). `near_goal` 시 미적용 | `hpp:50` |
+
+## 결과 status 코드
+
+| 값 | 의미 |
+| --- | --- |
+| 0 | 성공 (**거리 도달** — 헤딩 도달을 뜻하지 않는다) |
+| −1 | 취소 |
+| −2 | 파라미터 부적합 |
+| −3 | 타임아웃 |
+| −4 | 측위 두절(loc_timeout) |
+| −5 | 측위 점프(loc_jump) |
+| −6 | TF 조회 실패 |
+
+## 알려진 미해결 사항 (등재만 — 판단은 code_review 소관)
+
+- `debt-053` — **조대(粗大) 헤딩 고장 탐지기 없음.** IMU 가 회전을 놓쳐도 알 방법이 없어
+  25° 틀어진 채 `status 0` 을 반환한 사례가 있다. 구조(오프셋 1회 + IMU 추종)는 의도된 것이며
+  제어 소스를 바꾸는 것이 아니라 **탐지만** 추가해야 한다.
+- `debt-052` — 조향 도달 실패를 오류로 보고하는 경로 없음(Phase 0 타임아웃 경고만).
+- `debt-054` — IMU 는 `ω ≲ 1 °/s` 에서 회전을 못 읽는다. `yaw_control` 은 큰 유효반경에서
+  이 구간에 들어간다(조향 14° → 유효반경 4.8 m → 0.6 °/s).
+- 게인(`kp`/`kd`/`ki`)은 **goal 필드**이며 yaml·런치·문서에 예시가 없었다.
+  `kp 1.0 · kd 0.1 · ki 0` 이 첫 동작 확인값(최적값 아님).

@@ -1,4 +1,8 @@
 /trnav_yaw_control_node:
+  # ⚠ **본 파일의 파라미터는 전부 생성자에서 1회만 읽힌다.** `yaw_control` 에는
+  #   `add_on_set_parameters_callback` 이 없어 `ros2 param set` 이 **성공을 반환하면서
+  #   거동은 바뀌지 않는다**(2026-08-10 실측 확인). 값을 바꾸려면 이 파일을 고치고 노드를
+  #   재기동해야 한다. spin 은 콜백이 있어(`spin_action_server.cpp:38`) 일부 키가 hot-reload 된다.
   ros__parameters:
     # ── Platform (trnav_2ws_core::loadGeometry) ──
     platform: "QD_DIAGONAL"
@@ -50,6 +54,16 @@
     yaw_control_min_vx: 0.02   # vx_profile floor (m/s) — 시작 시 정지 방지 (translate_min_vx 동일 패턴)
 
     # ── LocalizationMonitor ──
+    # ── 조대(粗大) 헤딩 발산 탐지 ──
+    # 제어 소스는 IMU 그대로다. 측위 heading 은 정밀도가 낮아 미세 제어에 쓰면 오히려 나빠지므로
+    # **고장 탐지에만** 쓴다 — |보정 yaw − 맵 yaw| 임계 초과가 연속되면 status −7 로 abort.
+    # 임계 5.0° 는 제어 목표가 아니라 **고장 경계**다. 정상 괴리는 시작 0.09° · 주행 0.25° 이고
+    # 실제 고장 사례는 25° 였다 — 100배 격차라 그 사이 아무 값이나 오탐·미탐 없이 동작한다.
+    # 근거·설계: docs/adr/2026-08-10-yaw-control-heading-divergence-guard.md
+    yaw_control_enable_heading_divergence_guard: true
+    yaw_control_heading_divergence_deg: 5.0
+    yaw_control_heading_divergence_count: 10   # 연속 cycle (50 Hz 기준 0.2 s)
+
     yaw_control_pose_topic: "/robot_pose"  # Phase2(2026-06-09): 코드가 이제 사용(이전 dead, /rtabmap/localization_pose 는 타입불일치 미수신값이었음). 실차 fused 교체는 yaw_control.launch.py override
     # ⚠ 2026-08-09 제거: `yaw_control_pose_qos` — 코드 참조 0건인 죽은 손잡이였다.
     #   실제 pose 구독 QoS 는 RELIABLE 고정이며 yaml 로 바꿀 수 없다.

@@ -46,6 +46,9 @@ YawControlActionServer::YawControlActionServer(rclcpp::Node::SharedPtr node, Act
     walk_decel_limit_ = safeParam("yaw_control_walk_decel_limit", 1.0);
     steer_rate_limit_ = safeParam("yaw_control_steer_rate_limit", 0.35);
     min_vx_ = safeParam("yaw_control_min_vx", 0.02);
+    enable_heading_divergence_guard_ = safeParam("yaw_control_enable_heading_divergence_guard", true);
+    heading_divergence_deg_ = safeParam("yaw_control_heading_divergence_deg", 5.0);
+    heading_divergence_count_ = safeParam("yaw_control_heading_divergence_count", 10);
 
     // TransientGuard
     TransientGuard::Params tg_params;
@@ -254,6 +257,7 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     TrapezoidalProfile profile(goal->target_distance, std::fabs(goal->vx_max), goal->acceleration);
 
     bool reached = false;
+    int heading_diverge_cnt = 0; // 조대 헤딩 발산 연속 카운터
     double current_distance = 0.0;
     double current_yaw_deg = 0.0;
 
@@ -265,10 +269,12 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     // ── Phase 1-3: Trapezoidal + PID heading ──
     while (rclcpp::ok() && !reached)
     {
-        double dummy_yaw = 0.0;
-        if (loc_monitor_->lookupMapToBase(rx, ry, dummy_yaw))
+        double map_yaw_rad = 0.0;
+        bool map_yaw_fresh = false;
+        if (loc_monitor_->lookupMapToBase(rx, ry, map_yaw_rad))
         {
             tf_fail_count = 0;
+            map_yaw_fresh = true; // 이번 주기 맵 heading 이 유효 — 발산 탐지에 쓴다
         }
         else
         {
@@ -356,6 +362,34 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         // Calibrated yaw from IMU + fixed offset
         double calibrated_yaw_rad = normalizeAngle(last_yaw_rad_.load() + yaw_offset);
         current_yaw_deg = calibrated_yaw_rad * 180.0 / M_PI;
+
+        // ── 조대 헤딩 발산 탐지 (제어에는 관여하지 않는다) ──
+        // IMU 가 회전을 놓쳐도 알 방법이 없어 25° 틀어진 채 status 0 을 반환한 사례가 있다.
+        // 측위 heading 은 정밀도가 낮아 보정에는 못 쓰지만 **고장 판별에는 충분**하다 —
+        // 정상 괴리 0.09~0.25° 대 고장 25° 로 100배 차이라 임계를 그 사이 아무 곳에 둬도 된다.
+        if (enable_heading_divergence_guard_ && map_yaw_fresh)
+        {
+            double diverge_deg =
+                std::fabs(normalizeAngleDeg(current_yaw_deg - map_yaw_rad * 180.0 / M_PI));
+            if (diverge_deg > heading_divergence_deg_)
+            {
+                if (++heading_diverge_cnt >= heading_divergence_count_)
+                {
+                    RCLCPP_ERROR(node_->get_logger(),
+                                 "YawControl heading divergence: |IMU기준 %.2f° − 맵 %.2f°| = %.2f° > %.2f° "
+                                 "가 %d cycle 연속 — IMU 가 회전을 놓쳤을 수 있다. abort(-7)",
+                                 current_yaw_deg, map_yaw_rad * 180.0 / M_PI, diverge_deg,
+                                 heading_divergence_deg_, heading_divergence_count_);
+                    finish_abort(-7, current_distance, current_yaw_deg,
+                                 normalizeAngleDeg(goal->target_yaw_deg - current_yaw_deg), start_time);
+                    return;
+                }
+            }
+            else
+            {
+                heading_diverge_cnt = 0;
+            }
+        }
 
         // PID error (deg)
         double err_deg = normalizeAngleDeg(goal->target_yaw_deg - current_yaw_deg);

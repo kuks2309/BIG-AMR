@@ -47,6 +47,48 @@
 
 ## 2026-08-10
 
+### [Fix] `yaw_control` 에 조대(粗大) 헤딩 발산 탐지기 — `status −7` 신설 (debt-053)
+
+IMU 가 회전을 놓쳐도 알 방법이 없어 **25° 틀어진 채 `status 0`(성공)** 을 반환한 사례가 있었다.
+제어 소스는 **IMU 그대로 두고**(측위 heading 은 정밀도가 낮아 미세 제어에 쓰면 오히려 나빠진다),
+**고장 탐지만** 추가했다. 근거·설계: `docs/adr/2026-08-10-yaw-control-heading-divergence-guard.md`.
+
+```cpp
+diverge = |normalizeAngleDeg(보정 yaw − 맵 yaw)|
+diverge > yaw_control_heading_divergence_deg(5.0) 가 count(10) cycle 연속 → abort(−7)
+```
+
+주행 루프가 이미 `lookupMapToBase` 로 맵 자세를 조회하면서 yaw 를 `dummy_yaw` 로 버리고 있었다 —
+그 값을 살려 쓰므로 **추가 조회 비용이 없다.**
+
+**실기 검증 2건 (2026-08-10)**
+
+```
+(a) 정상 주행 · 임계 5°     status 0 · 거리 0.400 m · 최종 헤딩오차 +0.016°   ⇒ 오탐 0
+(b) 임계 0.01° 로 강제      status −7 · 0.4 s · 이동 4 mm                     ⇒ 발화·코드 정상
+    로그: |IMU기준 −94.97° − 맵 −95.01°| = 0.05° > 0.01° 가 10 cycle 연속
+```
+
+- **(b) 로그가 임계 근거를 실측으로 확인해 준다** — 정상 주행 중 실제 괴리가 **0.05°** 다.
+  임계 5° 는 그 100배이고 고장 사례 25° 의 1/5 이라, 오탐·미탐 모두 성립하지 않는다.
+- ⚠ **적용 범위는 `yaw_control` 뿐이다.** `yaw_control_reverse` 는 pose 토픽이 죽어 있어
+  (`debt-050`) 탐지기가 성립하지 않는다. `turn`·`spin` 적용 여부는 별건.
+- ⚠ **원인은 고치지 않았다** — IMU 가 왜 저속에서 못 읽는지(`debt-054` 기전)는 여전히 미확정이다.
+  본 수정은 증상을 조기에 드러낼 뿐이다.
+
+### [Trap] `yaw_control` 의 파라미터는 **전부 생성자 전용** — `ros2 param set` 이 거짓 성공한다
+
+위 (b) 시험을 처음에 `ros2 param set yaw_control_heading_divergence_deg 0.01` 로 하려 했으나
+**`Set parameter successful` 이 뜨고 거동은 그대로**였다(status 0 으로 0.4 m 완주).
+`yaw_control` 에는 `add_on_set_parameters_callback` 이 **없어서** 멤버가 생성자에서만 채워진다.
+
+- **내가 새로 만든 3개뿐 아니라 기존 파라미터 전부**가 이 상태다(`pose_topic`·`max_steer_deg`·
+  watchdog 토글 등). `spin` 은 콜백이 있어(`spin_action_server.cpp:38`) 일부 키가 hot-reload 된다.
+- 2026-08-09 `spin_params.yaml` 에서 제거한 「값만 담고 안 읽히는 손잡이」와 **같은 함정**이다.
+  다만 여기는 값이 읽히긴 하고 **갱신만 안 되는** 형태다.
+- 조치: `yaw_control_params.yaml` 머리에 **전 파라미터가 생성자 전용**임을 명시했다.
+  콜백 신설은 별건(`debt-055` 등록).
+
 ### [Closed] `debt-054` 규명 — IMU 회전 추종은 **약 2.8 °/s 이상에서만 유효**
 
 Seer 개루프(`19205/2010`)로 제자리 회전시키며 IMU 와 맵 측위를 동시 적산해 회전율의 함수로 측정했다.

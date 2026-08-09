@@ -47,6 +47,15 @@ class YawControlActionServer
     double walk_decel_limit_{1.0};
     double steer_rate_limit_{0.35};
     double min_vx_{0.02}; // floor on profile speed (m/s) — prevents stuck-at-start when vx_profile=0
+
+    // ── 조대(粗大) 헤딩 발산 탐지 ──
+    // 제어 소스는 IMU 그대로다. 측위 heading 은 정밀도가 낮아 미세 제어에 쓰면 오히려 나빠지므로
+    // **고장 탐지에만** 쓴다 — |보정 yaw − 맵 yaw| 가 임계를 연속 초과하면 status −7 로 abort.
+    // 임계 5° 는 제어 목표가 아니라 고장 경계다: 정상 괴리는 0.09~0.25°, 고장 사례는 25° 였다.
+    // 근거·설계: docs/adr/2026-08-10-yaw-control-heading-divergence-guard.md
+    bool enable_heading_divergence_guard_{true};
+    double heading_divergence_deg_{5.0};
+    int heading_divergence_count_{10}; // 연속 cycle (50 Hz 기준 0.2 s) — 맵 순간 튐 오탐 방지
 };
 
 } // namespace trnav_2ws_action_server::yaw_control

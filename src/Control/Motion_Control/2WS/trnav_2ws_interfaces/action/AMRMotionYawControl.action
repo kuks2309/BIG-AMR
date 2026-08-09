@@ -18,7 +18,9 @@ float64 max_timeout_sec
 bool enable_localization_watchdog true
 ---
 # Result
-int8    status               # 0=success, -1=cancelled, -2=invalid, -3=timeout, -4=loc_timeout, -5=loc_jump, -6=tf_lookup_fail
+int8    status               # 0=success, -1=cancelled, -2=invalid, -3=timeout, -4=loc_timeout, -5=loc_jump, -6=tf_lookup_fail,
+                             # -7=heading_divergence (보정 yaw 와 맵 yaw 가 임계 초과로 벌어짐 —
+                             #    측위는 멀쩡한데 IMU 쪽이 어긋난 상황. 재시도가 아니라 IMU 점검이 필요)
 float64 actual_distance      # m
 float64 final_yaw_deg
 float64 final_error_deg
