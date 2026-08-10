@@ -45,8 +45,6 @@
     # 실제 게인은 goal에서 직접 지정하므로 이 값은 참고용
 
     # ── YawControl 파라미터 ──
-    yaw_control_max_steer_deg: 25.0
-    yaw_control_i_max_deg: 10.0
     yaw_control_max_timeout_sec: 60.0
     yaw_control_walk_accel_limit: 0.5
     yaw_control_walk_decel_limit: 1.0
@@ -86,3 +84,8 @@
     transient_steer_error_max_deg: 10.0
     transient_enable_proportional_decel: true
     transient_runtime_gate_threshold_deg: 15.0
+
+    # ⚠ 2026-08-10 삭제: `yaw_control_max_steer_deg` · `yaw_control_i_max_deg`
+    #   읽는 코드가 0건인 죽은 키였다(해당 값은 goal 필드로 준다). 설명 주석으로 남기지 않고
+    #   **키 자체를 없앤다** — 이제 그 이름으로 set 하면 "parameter not declared" 로 즉시 드러난다.
+

@@ -74,6 +74,72 @@ YawControlActionServer::YawControlActionServer(rclcpp::Node::SharedPtr node, Act
     motion_source_id_ = safeParam("motion_source_id", 6);
     select_source_client_ = node_->create_client<trnav_msgs::srv::SelectMotionSource>("/select_motion_source");
 
+        // ── Hot-reload param 콜백 ──
+    // 종전에는 콜백이 없어 `ros2 param set` 이 **성공을 반환하면서 거동을 바꾸지 않았다**
+    // (2026-08-10 실측: 발산 임계를 set 으로 낮췄으나 가드가 발화하지 않았다).
+    // 화이트리스트만 반영하고 **자기 네임스페이스의 나머지 키는 명시적으로 거부**한다 —
+    // 조용히 성공하는 것보다 시끄럽게 실패하는 편이 낫다. 값이 안 먹는 것을 즉시 알 수 있다.
+    // ⚠ 다른 네임스페이스(기하·플랫폼 등 베이스 소관)는 건드리지 않는다 — 판단 근거가 없다.
+    // 근거·설계: docs/adr/2026-08-10-yaw-control-param-callback.md
+    params_cb_handle_ = node_->add_on_set_parameters_callback(
+        [this](const std::vector<rclcpp::Parameter> &params) -> rcl_interfaces::msg::SetParametersResult {
+            rcl_interfaces::msg::SetParametersResult result;
+            result.successful = true;
+            auto rng = [&](const rclcpp::Parameter &p, double lo, double hi, double &dst) {
+                double v = p.as_double();
+                if (v < lo || v > hi)
+                {
+                    result.successful = false;
+                    result.reason = p.get_name() + " out of range [" + std::to_string(lo) + ", " +
+                                    std::to_string(hi) + "]";
+                    return;
+                }
+                dst = v;
+            };
+            for (const auto &p : params)
+            {
+                const std::string &n = p.get_name();
+                if (n == "yaw_control_max_timeout_sec")
+                    rng(p, 1.0, 600.0, max_timeout_sec_);
+                else if (n == "yaw_control_min_vx")
+                    rng(p, 0.0, 1.0, min_vx_);
+                else if (n == "yaw_control_walk_accel_limit")
+                    rng(p, 0.01, 10.0, walk_accel_limit_);
+                else if (n == "yaw_control_walk_decel_limit")
+                    rng(p, 0.01, 10.0, walk_decel_limit_);
+                else if (n == "yaw_control_steer_rate_limit")
+                    rng(p, 0.01, 10.0, steer_rate_limit_);
+                else if (n == "yaw_control_heading_divergence_deg")
+                    rng(p, 0.01, 90.0, heading_divergence_deg_);
+                else if (n == "yaw_control_gate_blocked_timeout_sec")
+                    rng(p, 0.05, 120.0, gate_blocked_timeout_sec_);
+                else if (n == "yaw_control_heading_divergence_count")
+                {
+                    int v = static_cast<int>(p.as_int());
+                    if (v < 1 || v > 1000)
+                    {
+                        result.successful = false;
+                        result.reason = n + " out of range [1, 1000]";
+                    }
+                    else
+                        heading_divergence_count_ = v;
+                }
+                else if (n == "yaw_control_enable_heading_divergence_guard")
+                    enable_heading_divergence_guard_ = p.as_bool();
+                else if (n == "yaw_control_enable_localization_watchdog")
+                    enable_localization_watchdog_ = p.as_bool(); // 다음 goal 부터 적용
+                else if (n.rfind("yaw_control_", 0) == 0 || n.rfind("transient_", 0) == 0)
+                {
+                    // 생성자에서만 읽히는 키 — 구독·가드·모니터가 그 시점에 만들어진다.
+                    result.successful = false;
+                    result.reason = n + " 는 생성자에서만 읽힌다 — yaml 을 고치고 노드를 재기동할 것";
+                }
+                if (!result.successful)
+                    return result;
+            }
+            return result;
+        });
+
     RCLCPP_INFO(node_->get_logger(), "YawControlActionServer initialized");
 }
 

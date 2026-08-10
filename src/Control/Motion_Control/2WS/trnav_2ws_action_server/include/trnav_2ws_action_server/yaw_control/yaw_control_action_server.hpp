@@ -63,6 +63,9 @@ class YawControlActionServer
     // 임계는 **정상 조향 이동 시간보다 길어야** 오탐이 없다 — 실측상 0→31° 이동에 약 3 초.
     // 근거·설계: docs/adr/2026-08-10-yaw-control-gate-blocked-guard.md
     double gate_blocked_timeout_sec_{5.0};
+
+    // hot-reload 콜백 핸들 (거짓 성공 제거 — ADR 2026-08-10-yaw-control-param-callback)
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr params_cb_handle_;
 };
 
 } // namespace trnav_2ws_action_server::yaw_control

@@ -47,6 +47,38 @@
 
 ## 2026-08-10
 
+### [Fix] `yaw_control` 계열 파라미터 콜백 신설 — **거짓 성공 제거** (debt-055 상환)
+
+콜백이 없어 모든 파라미터가 생성자 전용이었고, `ros2 param set` 이 **성공을 반환하면서 거동을
+바꾸지 않았다**(2026-08-10 실측: 발산 임계를 set 으로 낮췄으나 가드가 발화하지 않음).
+근거·설계: `docs/adr/2026-08-10-yaw-control-param-callback.md`.
+
+**핵심은 화이트리스트가 아니라 「명시적 거부」다.** `spin` 의 기존 콜백은 화이트리스트 밖 키를
+**조용히 통과**시켜 거짓 성공이 그대로 남는다. `yaw_control` 계열은 자기 네임스페이스
+(`yaw_control*_` · `transient_`)의 비-화이트리스트 키를 만나면 **거부하고 이유를 돌려준다.**
+
+**검증 (2026-08-10, 전진·후진 양판)**
+
+```
+(a) 화이트리스트   heading_divergence_deg 5.0 → 3.0        성공 · get 으로 값 반영 확인
+(b) 생성자 전용    yaw_control_pose_topic                   실패 + "생성자에서만 읽힌다 — 재기동할 것"
+(b2) transient_    transient_runtime_gate_threshold_deg     실패 + 같은 이유
+(c) 범위 밖        heading_divergence_deg 200.0             실패 + "out of range [0.01, 90.00]"
+회귀 주행          헤딩 유지 0.4 m                          status 0 · 거리 0.402 m · 오차 +0.009°
+```
+
+**죽은 키 5개 삭제** — 감사에서 읽는 코드가 0건인 키가 나왔다. 값은 goal 필드로 준다.
+
+```
+전진판  yaw_control_max_steer_deg · yaw_control_i_max_deg
+후진판  yaw_control_reverse_max_steer_deg · _i_max_deg · _pose_qos
+⇒ 이제 그 이름으로 get 하면 "Parameter not set" 으로 즉시 드러난다
+```
+
+⚠ **범위 한정**: 다른 네임스페이스(기하·플랫폼 등 베이스 소관)는 건드리지 않았다 — 이 노드가
+판단할 근거가 없다. 그 범위의 거짓 성공은 남으며, `spin`·`mpc`·`translate_*` 의 화이트리스트 밖
+거짓 성공도 그대로다(별건).
+
 ### [Retract→Fix] `debt-050` 오진 정정 — `yaw_control_reverse` 는 pose 를 정상 수신한다
 
 **종전 기록이 틀렸다.** 「`yaw_control_reverse` 가 `/rtabmap/localization_pose` 를 구독하는데

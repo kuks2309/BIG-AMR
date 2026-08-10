@@ -36,8 +36,6 @@
 
     # ── YawControlReverse 파라미터 (yaw_control 과 동일 구조, prefix 만 다름) ──
     # vx_max 는 magnitude(>0) 로 받고 내부에서 항상 -vx 적용 — yaml 파라미터엔 영향 없음.
-    yaw_control_reverse_max_steer_deg: 25.0
-    yaw_control_reverse_i_max_deg: 10.0
     yaw_control_reverse_max_timeout_sec: 60.0
     yaw_control_reverse_walk_accel_limit: 0.5
     yaw_control_reverse_walk_decel_limit: 1.0
@@ -48,7 +46,6 @@
     yaw_control_reverse_pose_topic: "/robot_pose"   # ⚠ 2026-08-10 정정: 종전 "/rtabmap/localization_pose" 는 **실재하지 않는 토픽**이었고,
                                        #   게다가 코드가 이 키를 읽지도 않아(죽은 키) 기본값 /robot_pose 로 동작했다.
                                        #   코드에 읽는 줄을 추가하고 값을 사실에 맞췄다.
-    yaw_control_reverse_pose_qos: 2                       # 0=default 1=reliable 2=sensor_data
     yaw_control_reverse_localization_timeout_sec: 2.0
     yaw_control_reverse_position_jump_threshold: 0.3
     yaw_control_reverse_enable_localization_watchdog: true
@@ -60,6 +57,10 @@
     transient_steer_error_max_deg: 10.0
     transient_enable_proportional_decel: true
     transient_runtime_gate_threshold_deg: 15.0
+
+    # ⚠ 2026-08-10 삭제: `yaw_control_reverse_max_steer_deg` · `yaw_control_reverse_i_max_deg` · `yaw_control_reverse_pose_qos`
+    #   읽는 코드가 0건인 죽은 키였다(해당 값은 goal 필드로 준다). 설명 주석으로 남기지 않고
+    #   **키 자체를 없앤다** — 이제 그 이름으로 set 하면 "parameter not declared" 로 즉시 드러난다.
 
     # ── 고장 탐지 (전진판과 동일 규약) ──
     # 제어 소스는 IMU 그대로. 임계는 제어 목표가 아니라 고장 경계다.
