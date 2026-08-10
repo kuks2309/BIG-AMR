@@ -85,6 +85,8 @@ class SampleState:
     stamp: float
     cpu: sysfs.CpuSnapshot | None
     swap: sysfs.SwapCounters | None
+    #: powercap 도메인별 누적 에너지. 전력(W)은 이 값의 차분이라 이전 표본이 있어야 한다.
+    energy: tuple[sysfs.EnergyCounter, ...] = ()
     can: dict[str, sysfs.CanInterface] = field(default_factory=dict)
     #: 감시 대상 프로세스의 직전 PID 집합. `/proc` 순회를 한 표본에서만 갱신된다.
     pids: dict[str, tuple[int, ...]] = field(default_factory=dict)
@@ -121,6 +123,7 @@ def collect(
     stamp = time.time() if now is None else now
     cpu_now = sysfs.read_cpu_times()
     swap_now = sysfs.read_swap_counters()
+    energy_now = sysfs.read_energy_counters()
 
     record: dict[str, Any] = {
         "iso_time": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stamp)),
@@ -152,6 +155,14 @@ def collect(
             r.name: {"mv": r.voltage_mv, "ma": r.current_ma, "mw": round(r.power_mw, 1)}
             for r in rails
         }
+
+    # 전력(W) — powercap(RAPL)의 누적 에너지 차분. INA3221 이 없는 x86 장비의 전원 관측점이며,
+    # 판독 권한이 없으면 항목 자체가 실리지 않는다. **판정하지 않는다**: 이 장비의 정상 전력
+    # 대역을 모르므로 임계를 지어내면 경보 피로만 만든다(DDS 세그먼트 수와 같은 판단).
+    if prev is not None and prev.energy and energy_now:
+        watts = sysfs.power_watts(prev.energy, energy_now, stamp - prev.stamp)
+        if watts:
+            record["power_w"] = {k: round(v, 2) for k, v in sorted(watts.items())}
 
     memory = sysfs.read_memory()
     if memory is not None:
@@ -239,7 +250,7 @@ def collect(
             pids_now = {n: p for n, p in watch.items() if p}
 
     return record, SampleState(stamp=stamp, cpu=cpu_now, swap=swap_now,
-                               can=can_now, pids=pids_now)
+                               can=can_now, pids=pids_now, energy=energy_now)
 
 
 def _format_findings(findings: tuple[Finding, ...]) -> str:
@@ -405,7 +416,8 @@ def run(args: argparse.Namespace) -> int:
     prev: SampleState | None = None
     if args.once:
         prev = SampleState(stamp=time.time(), cpu=sysfs.read_cpu_times(),
-                           swap=sysfs.read_swap_counters())
+                           swap=sysfs.read_swap_counters(),
+                           energy=sysfs.read_energy_counters())
         time.sleep(ONCE_BASELINE_DELAY_S)
 
     # 주기의 기준선. 마감시각은 "직전 완료 + interval" 이 아니라 "기준선 + n×interval" 이다 —

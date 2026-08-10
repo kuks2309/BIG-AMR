@@ -268,3 +268,63 @@ def test_read_cpu_times_fills_core_ids():
     assert snapshot is not None
     assert len(snapshot.core_ids) == len(snapshot.per_core)
     assert list(snapshot.core_ids) == sorted(snapshot.core_ids)
+
+
+# ── powercap(RAPL) 전력 ──────────────────────────────────────────────────────
+
+
+def _fake_powercap(root, domains):
+    """가짜 powercap 트리를 만든다. 실경로는 커널이 root 전용으로 잠가 두어 그대로 읽을 수 없다."""
+    for i, (name, energy, max_range) in enumerate(domains):
+        d = root / f"intel-rapl:{i}"
+        d.mkdir(parents=True)
+        (d / "name").write_text(name + "\n")
+        (d / "energy_uj").write_text(str(energy) + "\n")
+        if max_range is not None:
+            (d / "max_energy_range_uj").write_text(str(max_range) + "\n")
+    return root
+
+
+def test_read_energy_counters_parses_domains(tmp_path):
+    root = _fake_powercap(tmp_path, [("package-0", 1000, 262143328850), ("dram", 500, None)])
+    counters = sysfs.read_energy_counters(root)
+    assert [c.name for c in counters] == ["package-0", "dram"]
+    assert counters[0].energy_uj == 1000
+    assert counters[0].max_range_uj == 262143328850
+    assert counters[1].max_range_uj is None
+
+
+def test_read_energy_counters_empty_when_unreadable(tmp_path):
+    """권한이 없거나 트리가 없으면 조용히 빈 튜플 — 감시기가 항목 하나 때문에 죽지 않는다."""
+    assert sysfs.read_energy_counters(tmp_path / "없음") == ()
+    assert sysfs.read_energy_counters(_fake_powercap(tmp_path, [])) == ()
+
+
+def test_power_watts_is_energy_delta_over_time():
+    prev = (sysfs.EnergyCounter("package-0", 1_000_000, 262143328850),)
+    cur = (sysfs.EnergyCounter("package-0", 21_000_000, 262143328850),)
+    # 20 J / 5 s = 4 W
+    assert sysfs.power_watts(prev, cur, 5.0)["package-0"] == pytest.approx(4.0)
+
+
+def test_power_watts_corrects_wraparound():
+    """카운터는 max_range 에서 되감긴다 — 보정하지 않으면 그 주기에 음수 전력이 나온다."""
+    mx = 262143328850
+    prev = (sysfs.EnergyCounter("package-0", mx - 1_000_000, mx),)
+    cur = (sysfs.EnergyCounter("package-0", 19_000_000, mx),)   # 되감김 직후
+    # (mx - (mx-1e6) + 19e6) = 20 J → 5초에 4 W
+    assert sysfs.power_watts(prev, cur, 5.0)["package-0"] == pytest.approx(4.0)
+
+
+def test_power_watts_drops_domain_when_wrap_uncorrectable():
+    """max_range 를 모르면 음수를 보고하는 대신 그 주기를 버린다."""
+    prev = (sysfs.EnergyCounter("core", 100, None),)
+    cur = (sysfs.EnergyCounter("core", 50, None),)
+    assert sysfs.power_watts(prev, cur, 5.0) == {}
+
+
+def test_power_watts_ignores_unmatched_domain_and_bad_elapsed():
+    prev = (sysfs.EnergyCounter("core", 0, 10),)
+    cur = (sysfs.EnergyCounter("dram", 100, 10),)
+    assert sysfs.power_watts(prev, cur, 5.0) == {}          # 짝이 없는 도메인
+    assert sysfs.power_watts(prev, prev, 0.0) == {}          # 경과 0

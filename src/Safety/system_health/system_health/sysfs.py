@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 # 커널이 온도를 milli-degree Celsius 로 노출한다.
 _MILLI_C_PER_C = 1000.0
@@ -45,6 +46,10 @@ _HZ_PER_MHZ = 1_000_000
 _HWMON_ROOT = Path("/sys/class/hwmon")
 _INA3221_NAME = "ina3221"
 _MAX_RAIL_CHANNELS = 8
+# powercap(RAPL) — x86 에서 INA3221 을 대신하는 전력 관측점. 값은 **누적 에너지(μJ)** 라
+# 차분해야 W 가 된다. 커널이 기본적으로 root 전용으로 잠가 두므로 판독은 권한에 달렸다.
+_POWERCAP_ROOT = Path("/sys/class/powercap")
+_UJ_PER_J = 1_000_000
 _NETDEV_ROOT = Path("/sys/class/net")
 # `ARPHRD_CAN` — socketcan 인터페이스의 `type` 값. 이름을 `can*` 로 가정하지 않기 위해 쓴다
 # (2026-08-01 이 장비 `/usr/include/linux/if_arp.h:56` 에서 확인).
@@ -611,6 +616,88 @@ def read_power_rails() -> tuple[PowerRail, ...]:
                 PowerRail(name=label, voltage_mv=voltage, current_ma=current)
             )
     return tuple(rails)
+
+
+@dataclass(frozen=True)
+class EnergyCounter:
+    """powercap 도메인 하나의 **누적** 에너지.
+
+    `energy_uj` 는 순간 전력이 아니라 계속 증가하는 카운터다 — 전력(W)은 두 표본의 차분을 경과
+    시간으로 나눠야 나온다(`power_watts`). 누적값을 그대로 실으면 스왑 사용량과 같은 실패가 된다.
+
+    Attributes:
+        name: 도메인 이름(`package-0`·`core`·`uncore`·`dram`). powercap 의 `name` 파일.
+        energy_uj: 누적 소비 에너지(마이크로줄).
+        max_range_uj: 이 값에서 되감긴다. 되감김 보정에 쓰며, 읽지 못하면 None.
+    """
+
+    name: str
+    energy_uj: int
+    max_range_uj: int | None
+
+
+def read_energy_counters(root: Path | None = None) -> tuple[EnergyCounter, ...]:
+    """powercap(RAPL) 도메인별 누적 에너지.
+
+    **판독에 권한이 필요하다.** 커널은 이 노드를 기본적으로 root 전용(0400)으로 둔다 — 전력
+    파형에서 다른 프로세스의 비밀을 추측하는 부채널(PLATYPUS) 대응이다. 권한이 없으면 다른
+    reader 와 같이 **조용히 빈 튜플**을 돌려준다. 코드가 권한을 바꾸려 시도하지 않는다.
+
+    Args:
+        root: powercap 루트. 시험이 가짜 트리를 넣기 위한 주입점이다 — 실경로는 권한이 닫혀
+            있으면 판독 자체가 막히므로(확인: `ls -l /sys/class/powercap/intel-rapl:*/energy_uj`
+            가 `-r-------- root root` 면 닫힌 상태), 파서 검증은 주입한 트리로 한다.
+    Returns:
+        도메인 튜플, 경로 이름 오름차순. 트리가 없거나 전부 못 읽으면 빈 튜플.
+    """
+    base = _POWERCAP_ROOT if root is None else root
+    if not base.is_dir():
+        return ()
+    out: list[EnergyCounter] = []
+    seen: dict[str, int] = {}
+    for node in sorted(base.glob("intel-rapl:*")):
+        name = _read_text(node / "name")
+        energy = _read_int(node / "energy_uj")
+        if name is None or energy is None:
+            continue
+        key = _unique_key(name, seen)
+        seen[key] = energy
+        out.append(EnergyCounter(name=key, energy_uj=energy,
+                                 max_range_uj=_read_int(node / "max_energy_range_uj")))
+    return tuple(out)
+
+
+def power_watts(
+    prev: Sequence[EnergyCounter], cur: Sequence[EnergyCounter], elapsed_s: float
+) -> dict[str, float]:
+    """두 표본 사이의 도메인별 평균 전력(W).
+
+    카운터가 `max_range_uj` 에서 되감기므로 차분이 음수면 그 값을 더해 보정한다. 상시 감시는
+    하루를 넘겨 돌기 때문에 되감김은 반드시 겪는다 — 보정하지 않으면 그 주기에 음수 전력이 나온다.
+    `max_range_uj` 를 읽지 못한 도메인은 그 주기를 **버린다**(음수를 보고하지 않는다).
+
+    Args:
+        prev: 이전 표본.
+        cur: 현재 표본.
+        elapsed_s: 경과 시간(초). 0 이하면 빈 dict.
+    Returns:
+        {도메인: 와트}. 양쪽에 다 있는 도메인만.
+    """
+    if elapsed_s <= 0:
+        return {}
+    before = {c.name: c for c in prev}
+    out: dict[str, float] = {}
+    for counter in cur:
+        earlier = before.get(counter.name)
+        if earlier is None:
+            continue
+        delta_uj = counter.energy_uj - earlier.energy_uj
+        if delta_uj < 0:
+            if counter.max_range_uj is None:
+                continue
+            delta_uj += counter.max_range_uj
+        out[counter.name] = delta_uj / elapsed_s / _UJ_PER_J
+    return out
 
 
 @dataclass(frozen=True)

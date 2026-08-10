@@ -264,6 +264,9 @@ def resource_ranges(records: Sequence[dict[str, Any]]) -> dict[str, dict[str, fl
         "스왑누적사용(MB)": lambda r: r["memory"]["swap_used_mb"],
         "디스크여유(GB)": lambda r: r["disks"][0]["free_gb"],
         "팬PWM": lambda r: r["fan"]["pwm"],
+        # powercap(RAPL) 전력. INA3221 이 있는 장비에서는 이 키가 없어 자동으로 빠진다.
+        "패키지전력(W)": lambda r: r["power_w"]["package-0"],
+        "DRAM전력(W)": lambda r: r["power_w"]["dram"],
     }
     out: dict[str, dict[str, float]] = {}
     for name, pick in picks.items():
