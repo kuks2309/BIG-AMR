@@ -67,6 +67,38 @@
 전량 실행의 실패든 크래시든 보일 수가 없었다. 출력이 `1 skipped` 뿐이라
 **「문제 없다」로 읽히는 것이 가장 위험한 부분**이었다.
 
+### [Fix] 2WS 스택 **최초의 자동 시험** — `TransientGuard` gtest 10건 (debt-049 부분 상환)
+
+⚠ **`debt-049` 는 등록된 것보다 범위가 넓다.** 조사해 보니 `trnav_2ws_action_server` 뿐 아니라
+**2WS 5개 패키지 전부**가 시험 인프라 0이다(`test/` 디렉터리 0 · CMake 등록 0).
+
+```
+trnav_2ws_action_server  dir:—  cmake:0        trnav_2ws_core        dir:—  cmake:0
+trnav_2ws_interfaces     dir:—  cmake:0        trnav_2ws_kinematics  dir:—  cmake:0
+trnav_2ws_motion         dir:—  cmake:0
+```
+
+**액션서버의 `execute()` 는 거대한 단일 함수라 리팩터 없이는 단위시험이 안 된다.**
+거기에 gtest 를 억지로 붙이면 거짓 안심만 남는다. 그래서 **순수 클래스부터** 시작했다.
+
+`TransientGuard` 를 고른 이유는 오늘 넣은 **조향 미도달 감시(`status −8`)가 이 클래스의
+`gate_blocked` 위에 서 있기** 때문이다. 게이트 판정이 조용히 바뀌면 그 가드가 발화하지
+않거나 반대로 정상 주행을 막는데, 어느 쪽도 현장에서야 드러난다.
+
+```
+ament_add_gtest 등록 → colcon test → 10 tests, 0 failures
+돌연변이 ① 주행 중에도 Phase0 임계(3°) 사용   → 5 failures
+돌연변이 ② drive_scale 클램프 제거            → 2 failures
+원복                                          → 0 failures
+```
+
+특히 **게이트 임계가 국면마다 다르다**는 사실을 고정했다 — Phase 0 은 3°,
+주행 중은 15°(`transient_guard.cpp:49,53`). 이것을 모르면 「주행 중 3° 넘으면 막힌다」로
+오해하는데, 실제로는 정상 주행에서 `gate_blocked` 가 참이 되지 않는다.
+
+**남는 것**: 액션서버 4개(`turn`·`turn_reverse`·`yaw_control`·`yaw_control_reverse`)의
+제어 루프는 여전히 시험이 없다. `debt-049` 를 **닫지 않고** 범위를 정정해 남긴다.
+
 ### [Fix] `RelayBackend.start()` 브링업 회귀 5건 신설 (debt-047 상환)
 
 2026-08-08 의 두 수정 중 **어느 쪽이 실제로 고정돼 있는지 돌연변이로 먼저 확인**했다.

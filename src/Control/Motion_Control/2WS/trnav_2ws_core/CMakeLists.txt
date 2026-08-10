@@ -97,4 +97,14 @@ ament_export_dependencies(
   tf2_ros
 )
 
+# ── 시험 (2WS 스택 최초) ────────────────────────────────────────────────
+# `TransientGuard` 는 순수 클래스라 리팩터 없이 고정할 수 있다. `yaw_control` 의
+# 조향 미도달 감시(status −8)가 이 클래스의 `gate_blocked` 위에 서 있으므로,
+# 게이트 판정이 조용히 바뀌면 그 가드가 발화하지 않거나 정상 주행을 막는다.
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_transient_guard test/test_transient_guard.cpp)
+  target_link_libraries(test_transient_guard transient_guard)
+endif()
+
 ament_package()
