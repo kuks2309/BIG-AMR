@@ -786,7 +786,7 @@ E7 의 **상수 적정성**(`SEER_HOME_ZERO_N3/N4` 가 옳은 목표인지) — 
 
 | id | 유형 | 위치 | 사유 | 식별일 | 상태 | 상환계획 |
 | --- | --- | --- | --- | --- | --- | --- |
-| **debt-045** | 기술 | `src/Comm/CAN/can_relay/can_relay/ui/backend_direct.py` `DirectBackend.set_engaged` | 브링업 수정이 `RelayBackend` 한쪽에만 들어갔다. UI 직결 백엔드는 여전히 구동축 브링업을 보내지 않으므로 **같은 고장이 그 경로에서 재현**된다(2026-08-08 실측: node1 0.1 rpm / node2 78.2 rpm). 기록에 「PC 경로 전부 고쳤다」로 읽힐 서술이 있었다 | 2026-08-08 | 미해결 | `DirectBackend` 제어권 획득 경로에 동일한 **구동축 전용** 브링업을 추가하고, 같은 재현 절차(프로세스 재시작 → 구동 시험)로 확인 |
+| **debt-045** | 기술 | `src/Comm/CAN/can_relay/can_relay/ui/backend_direct.py` `DirectBackend.set_engaged` | 브링업 수정이 `RelayBackend` 한쪽에만 들어갔다. UI 직결 백엔드는 여전히 구동축 브링업을 보내지 않으므로 **같은 고장이 그 경로에서 재현**된다(2026-08-08 실측: node1 0.1 rpm / node2 78.2 rpm). 기록에 「PC 경로 전부 고쳤다」로 읽힐 서술이 있었다 | 2026-08-08 | **상환 완료(2026-08-10)** — 브링업 추가 + 회귀 4건(돌연변이 2건 검출 확인) | `DirectBackend` 제어권 획득 경로에 동일한 **구동축 전용** 브링업을 추가하고, 같은 재현 절차(프로세스 재시작 → 구동 시험)로 확인 |
 | **debt-046** | 이해 | `src/Comm/CAN/can_relay/can_relay/backend.py` `_write_bringup` 주변 | **왜 `node1` 만 상태를 잃고 `node2` 는 멀쩡했는지 미규명.** 「프로세스 재시작이 축 브링업 상태를 지운다」는 관측이며 기전은 확정되지 않았다. 기전을 모르면 다른 축·다른 기체에서 재발해도 같은 시간을 다시 태운다 | 2026-08-08 | 미해결 | 재시작 전후로 `0x6060`(modes) · `0x6041`(statusword) · `0x603F`(error code)를 축별로 폴링해 무엇이 달라지는지 대조. 판다 Seer 게이트의 재개방 동작도 후보 |
 | **debt-047** | 기술 | `src/Comm/CAN/can_relay/test/` | 2026-08-08 의 두 수정(조향 게이트 `homed_effective` 통일 · 구동축 브링업)을 **덮는 회귀 시험이 0건**이다. 통과 숫자(364 passed)는 커버리지 근거가 아니다 — 두 변경을 되돌려도 시험은 전부 통과한다 | 2026-08-08 | 미해결 | 각 수정을 수정 전으로 되돌리면 실패하는 시험을 추가하고, `Tools/amr_test_gui/mutation_check.py` 방식의 돌연변이 확인으로 검출됨을 증명 |
 
@@ -868,3 +868,12 @@ SIL 에서 「자기보고 − 지상진값」 괴리가 **−0.001°** 로 사�
 | --- | --- | --- | --- | --- | --- | --- |
 | **debt-055** | 기술 | `trnav_2ws_action_server/src/yaw_control/yaw_control_action_server.cpp` | **파라미터 콜백이 없어 전 파라미터가 생성자 전용**이다. `ros2 param set` 이 `Set parameter successful` 을 반환하면서 **거동은 바뀌지 않는다**(2026-08-10 실측). 현장에서 값을 조정했다고 믿고 시험하면 결과를 오독한다. `spin` 은 콜백이 있어(`spin_action_server.cpp:38`) 일부 키가 hot-reload 된다 | 2026-08-10 | **상환 완료(2026-08-10)** — 콜백 신설 + 비-화이트리스트 명시 거부 + 죽은 키 5개 삭제, 검증 4종 | `spin` 과 같은 형태로 `add_on_set_parameters_callback` + 화이트리스트 + 범위 검증 추가. 화이트리스트에 넣지 않을 키는 **선언 자체를 read-only 로** 두어 set 이 실패하게 만든다 — 거짓 성공이 가장 나쁘다 |
 | **debt-056** | 기술 | `trnav_2ws_action_server/launch/` | **`yaw_control` 만 SIL 런치가 없다.** 다른 8개 기동(`turn`·`turn_reverse`·`spin`·`crab_linear`·`translate_*`·`mpc*`)에는 `sil_*.launch.py` 가 있는데 `yaw_control`·`yaw_control_reverse` 는 없어 **SIL 검증 이력이 0**이다. 2026-08-10 의 탐지기 검증도 실기에서만 했다 | 2026-08-10 | **상환 완료(2026-08-10)** — sil_yaw_control(_reverse).launch.py 신설, 정상 주행·콜백·−7 재현 확인 | `sil_turn.launch.py` 를 본떠 `sil_yaw_control.launch.py` 신설. `/robot_pose` 공급원(SIL 플랜트 → 어댑터)을 어떻게 채울지가 관건이며, 그것이 정해지면 발산 탐지기의 (b) 시험도 SIL 로 옮길 수 있다 |
+
+
+---
+
+## [2026-08-10 등록] debt-057 — pytest 수집 중단
+
+| id | 유형 | 위치 | 사유 | 식별일 | 상태 | 상환계획 |
+| --- | --- | --- | --- | --- | --- | --- |
+| **debt-057** | 기술 | `src/Comm/CAN/can_relay/test/test_master_frame_match.py:31` | **모듈 레벨 skip 이 전체 수집을 중단시킨다.** 캡처 파일(`Log/homing_capture_220350.jsonl`)이 없으면 `pytest test/` 가 `collected 0 items / 1 skipped` 로 끝난다 — 알파벳 순서상 앞선 6개 파일도 수집되지 않는다(pytest 6.2.5). 출력이 `1 skipped` 뿐이라 **「돌릴 게 없다/문제 없다」로 읽히고 실패가 보이지 않는다.** 캡처가 있는 환경에서는 정상 수집되므로 **환경에 따라 조용히 달라진다** | 2026-08-10 | 미해결 | 모듈 레벨 skip 대신 **테스트 함수 단위 skip**(`@pytest.mark.skipif`)으로 바꿔 수집이 계속되게 한다. 또는 캡처 부재 시 fixture 에서 skip. 고친 뒤 `pytest test/` 가 393+ 를 수집하는지로 검증 |

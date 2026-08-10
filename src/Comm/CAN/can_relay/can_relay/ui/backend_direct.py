@@ -261,6 +261,14 @@ class DirectBackend(BackendBase):
                     self.panda.set_can_enable(b, True)
                 self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xE9, 1, 0, b"")
                 self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xE8, 1, 0, b"")
+                # ── 구동축 브링업 — 제어권 확인 후 · 폴 스레드 시작 **전** ──
+                # `RelayBackend.start()` 가 같은 위치에서 보내는 것과 같은 시퀀스다.
+                # 이것이 없으면 can_relay 프로세스 재시작 뒤 구동축이 `0x60FF` 를 받고도
+                # 돌지 않는다 — 2026-08-08 실기에서 이 경로로 재현됐다
+                # (node1 0.1 rpm / node2 78.2 rpm). 상세는 `backend.py:_write_bringup`.
+                # ⚠ **조향축에는 보내지 않는다** — fault reset 이 조향 위치 카운터를 지워
+                #   0° 기준이 무효가 된다(같은 날 실기 확인). 조향 기준 복구는 호밍 소관이다.
+                self._write_bringup()
                 self._run = True
                 self._th = threading.Thread(target=self._loop, daemon=True, name="poll")
                 self._th.start()
@@ -378,6 +386,21 @@ class DirectBackend(BackendBase):
         self._send([P.drive_velocity_frame(n, units, MOTOR_BUS) for n in DRIVE_NODES])
 
     # ── 내부 ─────────────────────────────────────────────────────────
+    def _write_bringup(self) -> None:
+        """구동축 브링업 — **구동축만**. `RelayBackend._write_bringup` 과 같은 프레임.
+
+        두 백엔드가 같은 바이트를 내야 「UI 는 같은데 백엔드만 다르다」가 성립한다
+        (이 백엔드의 존재 이유가 비교 기준이다). 조건 없이 보낸다 — ROS 경로는
+        `allow_bringup` 플래그를 두지만 배포 yaml 이 true 라 실질 동작이 같고,
+        여기에 쓰이지 않는 손잡이를 새로 만들지 않는다.
+        """
+        frames = []
+        for n in DRIVE_NODES:
+            frames.extend(P.drive_init_frames(n, MOTOR_BUS))
+        self._send(frames)
+        self._log(f"구동축 브링업 {len(frames)} 프레임 송신 "
+                  f"(조향축 제외 — fault reset 이 조향 0° 기준을 지운다)")
+
     def _send(self, frames) -> None:
         if self.panda is None:
             raise RuntimeError("판다 미연결 — USB 를 먼저 연결하세요")

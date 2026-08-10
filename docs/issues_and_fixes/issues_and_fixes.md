@@ -47,6 +47,50 @@
 
 ## 2026-08-10
 
+### [Fix] `DirectBackend` 에 구동축 브링업 추가 + 회귀 4건 (debt-045 상환)
+
+2026-08-08 의 구동축 브링업 수정이 `RelayBackend` **한쪽에만** 들어가 UI 직결 경로는 같은 고장
+(프로세스 재시작 뒤 구동축이 `0x60FF` 를 받고도 안 돎)이 그대로 재현되는 상태였다.
+
+`RelayBackend.start()` 와 **같은 위치**(제어권 확인 후 · 폴 스레드 시작 전)에 같은 프레임을 넣었다.
+`P.drive_init_frames(n, MOTOR_BUS)` 를 쓰므로 두 경로의 바이트가 같다 —
+이 백엔드의 존재 이유가 「UI 는 같은데 백엔드만 다르다」는 비교 기준이기 때문이다.
+조건 없이 보낸다(ROS 경로의 `allow_bringup` 은 배포 yaml 이 true 라 실질 동작이 같고,
+여기에 쓰이지 않는 손잡이를 새로 만들지 않는다).
+
+**회귀 4건 신설** (`test/test_direct_bringup.py`) — 핸들러를 직접 부르지 않고 **가짜 판다로
+`set_engaged(True)` 를 끝까지 돌려** 배선을 지나가게 했다(2026-08-04-001 의 실패 형태 회피).
+
+```
+돌연변이 확인 (통과 숫자가 아니라 이것이 커버리지 근거다)
+  ① set_engaged 의 _write_bringup() 호출 제거   → 3 failed  (누락·바이트·순서)
+  ② 조향축까지 브링업                            → 1 failed  (조향 제외 시험)
+  원복                                           → 4 passed
+```
+
+시험 작성 중 **오탐을 한 번 냈다** — 「조향축으로 나간 모든 프레임」을 금지로 판정했더니
+폴 루프의 정상 SDO 읽기(`0x40`, `0x6064`·`0x606C`·`0x6078`·`0x6041`)가 걸렸다.
+판정 대상을 **조향축에 대한 브링업 프레임**으로 좁혀 고쳤다.
+
+**전체 회귀**: `393 passed` (실패 0). 제외한 것은 `test_master_frame_match.py` 하나이며
+캡처 파일 부재로 어차피 skip 되는 파일이다 — 아래 [Trap] 참조.
+
+### [Trap] `pytest <디렉터리>` 가 **수집을 통째로 중단**한다 — "1 skipped" 로 끝난다
+
+```
+python3 -m pytest test/                    → collected 0 items / 1 skipped
+python3 -m pytest test/test_protocol.py    → 29 passed
+python3 -m pytest test/ --ignore=test/test_master_frame_match.py → 393 passed
+```
+
+`test_master_frame_match.py:31` 이 캡처 파일(`Log/homing_capture_220350.jsonl`) 부재로
+**모듈 레벨 skip** 을 내는데, 그 순간 **전체 수집이 0으로 끝난다**(pytest 6.2.5).
+알파벳 순서상 그 파일 앞에 6개가 있는데도 하나도 수집되지 않는다.
+
+⚠ **위험한 형태다.** 출력이 `1 skipped` 뿐이라 **「돌릴 게 없다 / 문제 없다」로 읽힌다.**
+실패가 있어도 보이지 않는다. 캡처 파일이 있는 환경에서는 정상 수집되므로 **환경에 따라
+조용히 달라진다.** → `debt-057` 등록.
+
 ### [Fix] `yaw_control` 계열 SIL 런치 신설 — 로봇 없이 가드 회귀 가능 (debt-056 상환)
 
 기존 8개 기동에는 `sil_*.launch.py` 가 있는데 `yaw_control`·`yaw_control_reverse` 만 없어
