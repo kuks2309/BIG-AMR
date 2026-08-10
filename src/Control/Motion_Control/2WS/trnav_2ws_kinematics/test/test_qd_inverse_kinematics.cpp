@@ -85,6 +85,21 @@ TEST(TwoWsDualSteerIK, SpinSteerSignsAreOppositeFrontAndRear)
         << "앞뒤 조향 부호가 같다 — x_i 부호로 갈려야 한다(제자리 회전이 병진이 된다)";
 }
 
+TEST(TwoWsDualSteerIK, SpinDriveDirectionIsPositiveForBothWheels)
+{
+    // ⚠ **돌연변이로 실증된 구멍이었다.** `computeSpin` 의 `out.direction = 1` 을 `-1` 로
+    //   바꿔도 이 파일의 시험이 전부 통과했다 — 즉 제자리 회전이 **반대로 도는** 변경을
+    //   아무도 잡지 못했다. `spin_action_server` 는 `wheel_speed * direction` 을 그대로
+    //   싣는다. 회전 방향은 `direction` 이 아니라 **조향 부호**가 담는 것이 이 IK 의 규약이다.
+    auto ik = makeInline();
+    for (double w : {+0.5, -0.5})
+    {
+        auto r = ik.computeSpin(w);
+        EXPECT_EQ(r.wheels[0].direction, 1) << "ω=" << w << " 에서 전륜 구동 방향이 뒤집혔다";
+        EXPECT_EQ(r.wheels[1].direction, 1) << "ω=" << w << " 에서 후륜 구동 방향이 뒤집혔다";
+    }
+}
+
 TEST(TwoWsDualSteerIK, SpinSteerFlipsWithOmegaDirection)
 {
     auto ik = makeInline();

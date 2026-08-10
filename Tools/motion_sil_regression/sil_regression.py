@@ -176,7 +176,10 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
 
         # ── 판정 ──
         if name in ("turn", "turn_reverse"):
-            err = abs(res.actual_angle) - abs(g.target_angle)
+            # ⚠ `abs(a) - abs(b)` 로 재면 **부호 반전이 통과한다** — +20° 를 지령했는데
+            #   −20° 를 돌아도 오차 0 이 된다. 이 저장소가 반복해서 당한 결함군이 정확히
+            #   조향·회전의 부호 반전이므로 부호를 살려서 잰다.
+            err = res.actual_angle - g.target_angle
             if res.status != 0:
                 return False, f"[{name}] status={res.status} (0 기대)"
             if abs(err) > TURN_TOL_DEG:
@@ -208,8 +211,18 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
             rclpy.shutdown()
         except Exception:
             pass
+        if name == "yaw_guard" and keep:
+            # `--keep` 이면 노드가 살아남으므로 낮춘 임계를 반드시 되돌린다. 안 되돌리면
+            # 이후 진단이 상시 −7 로 죽는다(스택을 죽이는 경우는 프로세스와 함께 사라진다).
+            subprocess.run(["ros2", "param", "set", "/trnav_yaw_control_node",
+                            "yaw_control_heading_divergence_deg", "5.0"],
+                           capture_output=True, text=True, timeout=30)
         if not keep:
             teardown(proc, fh)
+            try:
+                proc.wait(timeout=5)     # 좀비를 남기지 않는다
+            except subprocess.TimeoutExpired:
+                pass
 
 
 def main() -> int:
@@ -218,8 +231,15 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true", help="끝나도 SIL 스택을 남긴다(진단용)")
     a = ap.parse_args()
 
-    if os.environ.get("ROS_DOMAIN_ID") in (None, "0"):
-        print("⚠ ROS_DOMAIN_ID 가 0(또는 미설정)이다 — 실기 스택과 섞인다. "
+    # ⚠ 문자열 비교로는 `""`·`"00"`·`" 0"` 이 전부 빠져나가고, ROS 는 그것을 도메인 0 으로
+    #   읽는다. 정수로 파싱해 판정한다. 섞이면 SIL 런치가 `/motor/wheel_cmd` 를 실기에
+    #   발행하고 `/safety/estop=false`·`/safety/lidar=safe` 까지 위조한다 — 로봇이 움직인다.
+    try:
+        dom = int(str(os.environ.get("ROS_DOMAIN_ID", "")).strip())
+    except ValueError:
+        dom = 0
+    if dom <= 0:
+        print("⚠ ROS_DOMAIN_ID 가 0(또는 미설정·해석 불가)이다 — 실기 스택과 섞인다. "
               "ROS_DOMAIN_ID=7 로 분리해 실행할 것", file=sys.stderr)
         return 2
 

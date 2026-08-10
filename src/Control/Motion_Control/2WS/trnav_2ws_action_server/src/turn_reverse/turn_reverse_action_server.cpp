@@ -22,7 +22,11 @@ TurnReverseActionServer::TurnReverseActionServer(rclcpp::Node::SharedPtr node, t
     kd_turn_ = safeParam("kd_turn", 0.1);
     settle_rate_dps_ = safeParam("settle_rate_dps", 0.5);
     settle_count_ = safeParam("settle_count", 5);
+    max_timeout_sec_ = safeParam("turn_max_timeout_sec", 60.0);
     start_yaw_window_ = safeParam("start_yaw_avg_samples", 10);
+    // 0·음수면 평균 루프가 돌지 않아 `atan2(0,0) = 0` 이 되고, 상대 회전이
+    // **절대 IMU 원점 기준 회전**으로 바뀐다(30° 요청이 300° 원호가 된다). 하한을 건다.
+    start_yaw_window_ = std::max(1, start_yaw_window_);
 
     // mux active source — execute() 진입부에 select_motion_source service 호출 (정공법: action server 책임).
     motion_source_id_ = safeParam("motion_source_id", 12);
@@ -100,7 +104,11 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 
     const auto goal = goal_handle->get_goal();
     // 입력 정규화: |target_angle| > 180° 는 [-180,+180] 의 작은쪽 회전으로 자동 변환
-    // (예: +270° → -90°, +540° → -180°). std::remainder 특성으로 ±180° 정확 입력 시 -180° 로 정착.
+    // (예: +270° → -90°, +540° → -180°).
+    // ⚠ **±180° 정확 입력은 부호가 보존된다** — `std::remainder` 는 round-half-even 이라
+    //   `+180 → +180`, `-180 → -180` 이고 한 부호로 뭉개지지 않는다(`math_utils.hpp:9-12`).
+    //   몫이 x.5 인 입력만 짝수 쪽으로 접힌다(`540 → -180`, `900 → +180`).
+    //   경계에서 회전 방향이 뒤집힐 수 있으므로 호출자가 부호를 정해 줘야 한다.
     const double target_angle_deg = trnav_2ws_core::normalizeAngleDeg(goal->target_angle);
     auto feedback = std::make_shared<TurnReverse::Feedback>();
     auto result = std::make_shared<TurnReverse::Result>();
@@ -255,6 +263,27 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         if (remaining_abs <= pid_band_deg_ || prof_out.phase == trnav_2ws_core::ProfilePhase::DONE)
             break;
 
+        // ── 전역 시한 ──
+        // 이 루프의 종료 조건은 **오차가 줄어드는 것뿐**이다. IMU 가 두절되거나(토픽이 끊겨도
+        // `imu_received_` 는 내려가지 않는 래치다) 차체가 구속되면 yaw 가 변하지 않아 조건이
+        // 영원히 성립하지 않고, 매 주기 정상 지령을 계속 내므로 **무한 원호 주행**이 된다.
+        // mux 는 timeout 을 강제하지 않으므로 외부 방어선도 없다. spin·yaw_control 은 전역
+        // 시한을 갖고 있으며 여기만 없었다.
+        if ((node_->now() - start_time).seconds() > max_timeout_sec_)
+        {
+            RCLCPP_ERROR(node_->get_logger(),
+                         "%s Stage 1 전역 시한 %.1f s 초과 — 잔여 %.2f° 에서 중단. "
+                         "IMU 두절·차체 구속을 의심하라. abort(-3)",
+                         "TurnReverse", max_timeout_sec_, remaining_abs);
+            publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
+            result->status = -3;
+            this->reportResult(result->status);
+            result->actual_angle = achieved_deg(error_deg);
+            result->elapsed_time = (node_->now() - start_time).seconds();
+            goal_handle->abort(result);
+            return;
+        }
+
         if (goal_handle->is_canceling())
         {
             publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
@@ -269,6 +298,10 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         double omega_dps = prof_out.speed;
         if (omega_dps < min_speed_dps_)
             omega_dps = min_speed_dps_; // coarse 전용 하한 (fine 에는 걸지 않는다)
+        // ⚠ 하한을 걸고 **반드시 상한으로 다시 자른다.** ω_max = max_linear_speed / R 이므로
+        //   큰 반경에서는 ω_max 가 하한보다 작아진다(v=0.05 기준 R > 1.44 m). 재클램프가 없으면
+        //   goal 이 명시한 속도 제한을 초과한다 — R=2.0 m 에서 실선속도가 지령 상한의 1.4배가 된다.
+        omega_dps = std::min(omega_dps, max_omega_deg);
         auto ik_out = publish_arc(sign * omega_dps * M_PI / 180.0);
 
         uint8_t phase_id;
@@ -306,6 +339,7 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     auto fine_start = node_->now();
     double prev_error = remaining_signed_deg(last_yaw_rad_.load());
     int settle_cnt = 0;
+    bool fine_timed_out = false;
 
     while (rclcpp::ok())
     {
@@ -349,6 +383,10 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
             RCLCPP_WARN(node_->get_logger(), "TurnReverse fine(PD) timeout (%.1f s), error=%.2f deg", fine_timeout_sec,
                         error_deg);
             publishWheelCmd(0.0, turn_steer_front, 0.0, turn_steer_rear);
+            // ⚠ **성공으로 끝내지 않는다.** 종전에는 break 후 아래 「Success」로 떨어져
+            //   미수렴 기동이 `status 0` 으로 보고됐다 — 상위 시퀀서는 result 만 보므로
+            //   다음 기동이 틀어진 자세에서 출발한다.
+            fine_timed_out = true;
             break;
         }
 
@@ -419,6 +457,18 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 
             rate.sleep();
         }
+    }
+
+    if (fine_timed_out)
+    {
+        result->status = -3;
+        this->reportResult(result->status);
+        result->actual_angle = achieved_deg(error_deg);
+        result->elapsed_time = (node_->now() - start_time).seconds();
+        RCLCPP_ERROR(node_->get_logger(),
+                     "TurnReverse fine(PD) 미수렴으로 종료 — 잔여 %.2f°. abort(-3)", sign * error_deg);
+        goal_handle->abort(result);
+        return;
     }
 
     // Success

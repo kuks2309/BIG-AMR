@@ -44,12 +44,19 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import signal
 import socket
 import struct
 import time
 
 SYNC = 0x5A
 VERSION = 0x01
+# 신선도 상한 — 이 시간이 지난 측위·스캔은 「없는 것」으로 친다.
+# 측위가 얼면 오차가 상수가 되어 **발산 가드가 영원히 발화하지 않고** 로봇은 고정 방향으로
+# 등속 주행한다(deadline 240 s × 0.08 m/s ≈ 19 m). 가드보다 이 검사가 먼저다.
+POSE_STALE_S = 0.5
+SCAN_STALE_S = 0.5
+
 REQ_MOTION = 2010  # robot_control_motion_req — 개루프 vx, vy, w
 REQ_STOP = 2000    # robot_control_stop_req
 
@@ -84,7 +91,12 @@ def main() -> int:
     ap.add_argument("--yaw-tol", type=float, default=0.5, help="헤딩 허용 [deg]")
     ap.add_argument("--v-max", type=float, default=0.08, help="병진 속도 상한 [m/s]")
     ap.add_argument("--w-max", type=float, default=0.15, help="회전 속도 상한 [Seer 단위]")
-    ap.add_argument("--min-clearance", type=float, default=0.5, help="진행방향 최소 여유 [m]")
+    # ⚠ 기본값 0.5 m 는 **물리적으로 발화할 수 없었다.** `/scan_merged` 는 배제영역
+    #   x∈[-0.96,0.98] · y∈[-0.68,0.71] 안의 점을 삭제하고(`filter_config.yaml`,
+    #   `enable_exclusion_zones: True`) `use_inf: True` 라 그 빈은 inf 가 된다 →
+    #   전방 최소 관측거리가 0.98 m 이므로 0.5 m 는 결코 관측되지 않는다. 장애물이
+    #   다가오면 사라지고 최소값이 그 뒤의 벽으로 껑충 뛴다. 배제영역 + 여유로 올린다.
+    ap.add_argument("--min-clearance", type=float, default=1.3, help="진행방향 최소 여유 [m]")
     ap.add_argument("--deadline", type=float, default=240.0, help="전체 시한 [s]")
     ap.add_argument("--dry-run", action="store_true", help="계획만 출력하고 움직이지 않는다")
     a = ap.parse_args()
@@ -96,17 +108,30 @@ def main() -> int:
     from rclpy.qos import qos_profile_sensor_data
     from sensor_msgs.msg import LaserScan
 
+    # SIGTERM(`kill`)·SIGHUP(ssh 끊김)은 기본적으로 핸들러 없이 즉사해 `finally` 의 정지
+    # 송신이 돌지 않는다. Seer 의 개루프 지령(2010)에는 **워치독도 지속시간 필드도 없어**
+    # 정지(2000)가 나가지 않으면 로봇은 마지막 속도로 계속 간다(벤더 문서 확인).
+    # SIGKILL 은 이 방법으로 막을 수 없다 — 그때는 물리 E-STOP 이 유일한 백스톱이다.
+    def _die(signum, frame):
+        raise KeyboardInterrupt(f"signal {signum}")
+    for _sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(_sig, _die)
+
     rclpy.init()
     node = Node("seer_jog")
-    state: dict = {"pose": None, "scan": None}
+    state: dict = {"pose": None, "scan": None, "pose_at": 0.0, "scan_at": 0.0}
 
     def yaw_of(q) -> float:
         return math.degrees(math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y**2 + q.z**2)))
 
     node.create_subscription(
         PoseStamped, a.pose_topic,
-        lambda m: state.__setitem__("pose", (m.pose.position.x, m.pose.position.y, yaw_of(m.pose.orientation))), 10)
-    node.create_subscription(LaserScan, "/scan_merged", lambda m: state.__setitem__("scan", m),
+        lambda m: (state.__setitem__("pose", (m.pose.position.x, m.pose.position.y,
+                                              yaw_of(m.pose.orientation))),
+                   state.__setitem__("pose_at", time.time())), 10)
+    node.create_subscription(LaserScan, "/scan_merged",
+                             lambda m: (state.__setitem__("scan", m),
+                                        state.__setitem__("scan_at", time.time())),
                              qos_profile_sensor_data)
 
     def pump(sec: float) -> None:
@@ -115,16 +140,20 @@ def main() -> int:
             rclpy.spin_once(node, timeout_sec=0.02)
 
     def clearance(direction_rad: float, half_width_deg: float = 25.0) -> float:
-        """차체 기준 `direction_rad` 방향 부채꼴의 최소 거리. 스캔 없으면 큰 값."""
+        """차체 기준 `direction_rad` 방향 부채꼴의 최소 거리.
+
+        ⚠ **스캔이 없거나 낡으면 0.0 을 돌려준다(fail-closed).** 종전에는 99.0 을 돌려줘
+          「라이다가 죽으면 무한히 안전」이 됐다 — 정확히 거꾸로다.
+        """
         sc = state["scan"]
-        if sc is None:
-            return 99.0
+        if sc is None or (time.time() - state["scan_at"]) > SCAN_STALE_S:
+            return 0.0
         r = np.array(sc.ranges)
         ang = sc.angle_min + np.arange(len(r)) * sc.angle_increment
         ok = np.isfinite(r) & (r > sc.range_min) & (r < sc.range_max)
         d = np.abs((ang - direction_rad + math.pi) % (2 * math.pi) - math.pi)
         m = ok & (d < math.radians(half_width_deg))
-        return float(np.min(r[m])) if m.any() else 99.0
+        return float(np.min(r[m])) if m.any() else 0.0
 
     pump(2.0)
     if state["pose"] is None:
@@ -172,12 +201,16 @@ def main() -> int:
                 break
             pump(0.1)
             p = state["pose"]
+            if time.time() - state["pose_at"] > POSE_STALE_S:
+                print(f"⚠ 측위가 {POSE_STALE_S}s 이상 갱신되지 않았다 — 맹목 주행이 되므로 정지")
+                rc = 3
+                break
             yerr = wrap(a.yaw - p[2])
             if abs(yerr) < a.yaw_tol:
                 break
             if worst is None or abs(yerr) < worst:
                 worst = abs(yerr)
-            elif abs(yerr) > worst * 1.3 + 0.5:
+            elif abs(yerr) > min(worst * 1.3 + 0.5, worst + 2.0):  # 상대비는 큰 오차에서 무의미 — 절대 2° 병기
                 print(f"⚠ 헤딩 오차가 커진다({worst:.2f}° → {abs(yerr):.2f}°) — 부호 규약 의심, 정지")
                 rc = 4
                 break
@@ -196,13 +229,17 @@ def main() -> int:
                 break
             pump(0.1)
             p = state["pose"]
+            if time.time() - state["pose_at"] > POSE_STALE_S:
+                print(f"⚠ 측위가 {POSE_STALE_S}s 이상 갱신되지 않았다 — 맹목 주행이 되므로 정지")
+                rc = 3
+                break
             ex, ey = a.x - p[0], a.y - p[1]
             dist = math.hypot(ex, ey)
             if dist < a.pos_tol:
                 break
             if worst is None or dist < worst:
                 worst = dist
-            elif dist > worst * 1.3 + 0.02:
+            elif dist > min(worst * 1.3 + 0.02, worst + 0.05):  # 절대 50 mm 병기
                 print(f"⚠ 위치 오차가 커진다({worst * 1000:.0f} → {dist * 1000:.0f} mm) — vy 부호 의심, 정지")
                 rc = 4
                 break

@@ -112,6 +112,32 @@ TEST(TransientGuard, RateLimitsAreAppliedPerCycle)
     EXPECT_NEAR(o2.omega_limited, 0.4, 1e-9);
 }
 
+TEST(TransientGuard, RateLimitSettlesExactlyOnTargetWithoutOvershoot)
+{
+    // ⚠ **돌연변이로 실증된 구멍이었다.** `rateLimitStep` 의 「남은 차이가 한 스텝 이하면
+    //   목표를 그대로 반환한다」 분기를 **통째로 지워도** 이 파일의 시험이 전부 통과했다.
+    //   지우면 지령이 목표에 정착하지 못하고 ±rate_limit 로 영구 진동한다 — 이 경로는
+    //   7개 액션 서버가 전부 탄다. 원인은 기존 시험이 목표(1.0)에 **한 번도 닿지 않는**
+    //   구간(0.1씩 2스텝)만 봤다는 것이다. 끝까지 돌려 정착을 확인한다.
+    auto p = defaults();
+    p.vy_rate_limit = 0.1;
+    p.omega_rate_limit = 0.1;
+    TransientGuard g(p);
+
+    TransientGuard::GuardInput i{};
+    i.vy_cmd = 0.25;          // 스텝의 배수가 아니다 — 마지막 스텝이 반드시 남는다
+    i.omega_cmd = -0.25;
+    i.steer_error_deg = 0.0;
+    i.is_phase0 = false;
+
+    TransientGuard::GuardOutput o{};
+    for (int n = 0; n < 20; ++n)
+        o = g.apply(i);
+
+    EXPECT_DOUBLE_EQ(o.vy_limited, 0.25) << "목표에 정착하지 못했다 — 진동하고 있는가";
+    EXPECT_DOUBLE_EQ(o.omega_limited, -0.25) << "음수 목표에서 정착하지 못했다";
+}
+
 TEST(TransientGuard, RateLimitIsSymmetricForNegativeTargets)
 {
     auto p = defaults();

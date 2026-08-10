@@ -60,7 +60,11 @@ class TurnReverseActionServer
     //   대가로 정상오차는 남을 수 있다 — spin 과 같은 방침(`ki_spin: 0.0`).
     double settle_rate_dps_{0.5}; // 정착 판정 회전율 상한 (spin 실기 튜닝값 승계)
     int settle_count_{5};         // 정착 판정 연속 cycle 수
-    int start_yaw_window_{10};    // start_yaw 원형 이동평균 샘플 수 (윈도우 = N / control_rate_hz)
+    int start_yaw_window_{10};
+
+    // 전역 시한 — Stage 1 은 「오차가 줄어드는 것」 외에 종료 조건이 없다.
+    // IMU 두절·차체 구속에서 무한 원호가 되는 것을 막는다(spin·yaw_control 과 같은 규약).
+    double max_timeout_sec_{60.0};    // start_yaw 원형 이동평균 샘플 수 (윈도우 = N / control_rate_hz)
 };
 
 } // namespace trnav_2ws_action_server::turn_reverse

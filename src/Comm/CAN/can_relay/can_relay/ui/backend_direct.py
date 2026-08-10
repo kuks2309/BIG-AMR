@@ -261,6 +261,13 @@ class DirectBackend(BackendBase):
                     self.panda.set_can_enable(b, True)
                 self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xE9, 1, 0, b"")
                 self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xE8, 1, 0, b"")
+                # ── fail-safe 를 **먼저** 무장한다 ──
+                # `set_safety_mode` 가 `disable_checks=True` 로 `0xf8` 을 보내 심박 검사를
+                # 꺼 둔 상태다. 이 구간에서 예외가 나면 「Seer 차단 + 릴레이 intercept +
+                # 심박 영구 미송신」이 남아 **아무도 로봇을 세울 수 없다.** `link.acquire()`
+                # 는 같은 이유로 intercept 직후 즉시 심박을 보낸다 — 여기도 맞춘다.
+                # 브링업보다 먼저 와야 한다. 브링업이 실패해도 fail-safe 는 살아 있어야 한다.
+                self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xF3, 0, 0, b"")
                 # ── 구동축 브링업 — 제어권 확인 후 · 폴 스레드 시작 **전** ──
                 # `RelayBackend.start()` 가 같은 위치에서 보내는 것과 같은 시퀀스다.
                 # 이것이 없으면 can_relay 프로세스 재시작 뒤 구동축이 `0x60FF` 를 받고도
@@ -284,12 +291,31 @@ class DirectBackend(BackendBase):
             if self._th is not None:
                 self._th.join(timeout=1.0)
                 self._th = None
-            self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xE9, 0, 0, b"")
-            self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xE8, 0, 0, b"")
-            self.panda.set_safety_mode(0, 0)
+            # ⚠ 세 단계를 **각각** 시도한다. 하나로 묶으면 중간 실패에서 릴레이가 열리지
+            #   않은 채 남아 Seer 도 PC 도 로봇을 제어하지 못한다. 순서·개별 예외 처리는
+            #   `link._rollback()` 과 같게 맞췄다(intercept → authority → SILENT).
+            self._release_steps()
             return True, "제어권 반환 — passthrough (USB 유지)"
         except Exception as exc:
+            if on:
+                # 획득 도중 실패 — 어중간한 상태로 두지 않는다. `link.acquire()` 와 같다.
+                self._log(f"제어권 획득 실패 — 롤백: {type(exc).__name__}: {exc}")
+                self._run = False
+                self._release_steps()
             return False, f"제어권 처리 실패: {type(exc).__name__}: {exc}"
+
+    def _release_steps(self) -> None:
+        """릴레이·권한·safety mode 를 **각각** 되돌린다(한 단계 실패가 나머지를 막지 않는다)."""
+        for what, fn in (
+            ("intercept(0xE8)", lambda: self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xE8, 0, 0, b"")),
+            ("authority(0xE9)", lambda: self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xE9, 0, 0, b"")),
+            ("safety_mode(0)", lambda: self.panda.set_safety_mode(0, 0)),
+        ):
+            try:
+                fn()
+            except Exception as exc:
+                self._log(f"⚠ 제어권 반환 {what} 실패 — {type(exc).__name__}: {exc}. "
+                          f"릴레이가 열리지 않았을 수 있습니다 — E-STOP 을 확인하세요.")
 
     def stop(self) -> tuple:
         """원본의 「정지」 — **구동만 0**. 조향은 현 위치를 유지한다(지령 없음).
@@ -328,6 +354,9 @@ class DirectBackend(BackendBase):
         self._homing = True
         try:
             self.drive(0.0)                     # 호밍 전 구동은 반드시 0
+            # 재영점 **전** 좌표계의 조향 목표를 들고 있는 것 자체가 위험하다 —
+            # 호밍이 끝나면 카운터 원점이 바뀌므로 그 값은 다른 각도를 뜻하게 된다.
+            self._steer_counts = {}
             self._status_word.clear()           # 직전 상태워드를 완료로 오독하지 않도록
             for n in STEER_NODES:
                 self._send([P.sdo_write(n, 0x6040, 0x86, 2, bus=MOTOR_BUS)])
@@ -459,7 +488,11 @@ class DirectBackend(BackendBase):
                     self._send([P.drive_velocity_frame(n, self._drive_units, MOTOR_BUS)
                                 for n in DRIVE_NODES])
                 # 조향도 같은 이유로 재송신한다(마스터는 28 ms 주기 연속 송신).
-                if self._steer_counts:
+                # ⚠ **호밍 중에는 보내지 않는다.** 드라이브가 내부 호밍 루틴으로 −리밋을
+                #   탐색하는 동안 외부 PP setpoint 를 밀어넣으면 같은 축을 두 주체가 다툰다.
+                #   `RelayBackend._loop` 은 같은 자리를 `not self._homing and not self._estop`
+                #   으로 막고 있었고 여기만 빠져 있었다.
+                if self._steer_counts and not self._homing:
                     self._send([f for n, c in self._steer_counts.items()
                                 for f in P.steer_target_frames(n, int(c), MOTOR_BUS)])
             except Exception as exc:
