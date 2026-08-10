@@ -47,6 +47,38 @@
 
 ## 2026-08-10
 
+### [Fix] `yaw_control` 계열 SIL 런치 신설 — 로봇 없이 가드 회귀 가능 (debt-056 상환)
+
+기존 8개 기동에는 `sil_*.launch.py` 가 있는데 `yaw_control`·`yaw_control_reverse` 만 없어
+**SIL 검증 이력이 0** 이었다. 오늘 `−7`·`−8` 가드 검증도 전부 실기로만 했다.
+
+**다른 SIL 런치와 다른 점 — `sil_pose_adapter_node` 를 포함한다.**
+
+```
+플랜트 translate_sim_odom_node → map→base TF + /rtabmap/localization_pose(PoseWithCovariance, BEST_EFFORT)
+sil_pose_adapter_node          → /robot_pose (PoseStamped, RELIABLE)     ← 기본 토픽이 맞아 리맵 불요
+```
+
+`turn`·`spin` 등은 IMU yaw 만 쓰고 `LocalizationMonitor` 를 쓰지 않아 어댑터가 필요 없다
+(기존 8개 런치 중 **어느 것도 어댑터를 포함하지 않는다**). `yaw_control` 은 시작 시 맵 자세로
+`yaw_offset` 을 잡고, `−7` 가드가 맵 yaw 와 대조하며, `LocalizationMonitor` 가 `/robot_pose` 를
+구독하므로 어댑터가 필수다.
+
+**검증 (2026-08-10, 도메인 7 격리)**
+
+```
+정상 주행       /robot_pose 50.0 Hz · status 0 · 거리 0.500 m · 헤딩오차 0.000°
+파라미터 콜백    임계 0.001 시도 → "out of range [0.01, 90.00]" 로 거부 (SIL 에서도 동작)
+−7 가드 재현    imu_yaw_noise:=3.0 주입 + 임계 0.5° → status −7 · 0.5 s · 8 mm
+                로그: |IMU기준 -4.52° − 맵 0.00°| = 4.52° > 0.50° 가 10 cycle 연속
+```
+
+⚠ **SIL 의 구조적 한계 2건 — 기록해 둔다.**
+1. **플랜트는 IMU 와 맵 자세를 같은 지상진값에서 만든다** → 괴리가 **정확히 0.000°** 다.
+   `−7` 을 보려면 `imu_yaw_noise` 로 IMU 만 오염시켜야 한다. 그냥 돌리면 영원히 발화하지 않는다.
+2. **즉응 플랜트는 조향 지연이 없어 `gate_blocked` 가 발생하지 않는다** → `−8` 을 SIL 로 보려면
+   `steer_rate` 를 낮게 줘야 한다. 이 두 조건을 런치 docstring 에 적어 두었다.
+
 ### [Fix] `yaw_control` 계열 파라미터 콜백 신설 — **거짓 성공 제거** (debt-055 상환)
 
 콜백이 없어 모든 파라미터가 생성자 전용이었고, `ros2 param set` 이 **성공을 반환하면서 거동을
