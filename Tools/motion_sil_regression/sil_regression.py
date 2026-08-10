@@ -37,6 +37,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import math
 import os
 import signal
@@ -65,6 +66,33 @@ CASES = {
 # 정본은 `turn_params.yaml` 의 「허용 규격」 주석 · `issues_and_fixes.md` 의 실측 전수표.
 TURN_TOL_DEG = 0.5
 DIST_TOL_M = 0.01
+
+
+def preflight_yaml() -> str | None:
+    """액션 서버 config 의 YAML 문법·키 접두를 미리 검사한다.
+
+    ⚠ 실제로 깨뜨린 적이 있다. 주석을 붙이는 치환이 `yaw_control_heading_divergence_count`
+      **한가운데**를 매치해 키를 `yaw_control_` + 주석 + `heading_divergence_count` 로 갈라
+      놓았다. 노드는 그 키를 못 찾고 기본값으로 조용히 뜨므로 **런치는 성공하고 가드만
+      사라진다** — 회귀가 초록으로 통과할 수 있는 형태다. 띄우기 전에 잡는다.
+    """
+    try:
+        import yaml
+    except ImportError:
+        return None                      # PyYAML 이 없으면 건너뛴다(검사 자체가 선택적이다)
+    cfg = os.path.join(REPO, "src/Control/Motion_Control/2WS/trnav_2ws_action_server/config")
+    for f in sorted(glob.glob(os.path.join(cfg, "*.yaml"))):
+        try:
+            doc = yaml.safe_load(open(f, encoding="utf-8"))
+        except Exception as exc:
+            return f"{os.path.basename(f)} YAML 파싱 실패 — {exc}"
+        for node, body in (doc or {}).items():
+            if not isinstance(body, dict):
+                continue
+            for k in body.get("ros__parameters", {}):
+                if k.strip() != k or k.endswith("_") or "#" in k:
+                    return f"{os.path.basename(f)} 의 키가 이상하다: {k!r}"
+    return None
 
 
 def launch(launch_file: str, extra: list[str], log_path: str):
@@ -306,6 +334,11 @@ def main() -> int:
     if dom <= 0:
         print("⚠ ROS_DOMAIN_ID 가 0(또는 미설정·해석 불가)이다 — 실기 스택과 섞인다. "
               "ROS_DOMAIN_ID=7 로 분리해 실행할 것", file=sys.stderr)
+        return 2
+
+    bad = preflight_yaml()
+    if bad:
+        print(f"⚠ 사전점검 실패 — {bad}", file=sys.stderr)
         return 2
 
     cases = list(CASES) if a.case == "all" else [a.case]

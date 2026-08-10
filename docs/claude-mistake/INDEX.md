@@ -276,3 +276,5 @@
 | context-missing (mistake) | 2026-07-27-004, 2026-07-28-010, **2026-07-31-004**, **2026-08-03-002** | 4 |
 | tech-debt-shortcut (rule-violation) | **2026-07-31-002** | 1 |
 | scope-creep (rule-violation) | **2026-08-01-001** | 1 |
+
+- [2026-08-10-002](2026-08-10-002_verified-then-edited-then-committed.md) — 검증 후 편집하고 재검증 없이 커밋. yaml 키가 갈라져 파싱이 깨진 채 병합됐다. 없는 키는 기본값으로 조용히 채워지므로 **회귀가 초록으로 통과할 수 있는** 형태다. SIL 회귀에 YAML 사전점검을 넣어 닫았다.
