@@ -110,6 +110,9 @@ if(BUILD_TESTING)
   # 헤더 전용 자산(robot_geometry · recursive_moving_average · action_mutex) — 링크 대상 없음
   ament_add_gtest(test_core_utils test/test_core_utils.cpp)
   target_include_directories(test_core_utils PRIVATE include)
+  # velocity_ramp 도 헤더 전용 — 7개 액션 서버가 복제해 쓰던 램프를 하나로 모은 것
+  ament_add_gtest(test_velocity_ramp test/test_velocity_ramp.cpp)
+  target_include_directories(test_velocity_ramp PRIVATE include)
 endif()
 
 ament_package()

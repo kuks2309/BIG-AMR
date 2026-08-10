@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "trnav_2ws_core/math_utils.hpp"
+#include "trnav_2ws_core/velocity_ramp.hpp"
 
 namespace trnav_2ws_action_server::yaw_control_reverse
 {
@@ -650,35 +651,13 @@ void YawControlReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_han
         {
             double acc_step = walk_accel_limit_ * dt;
             double dec_step = walk_decel_limit_ * dt;
-            auto velProfile = [](double cur, double tgt, double a_step, double d_step) -> double {
-                if (std::fabs(tgt) < 0.01)
-                {
-                    if (cur > d_step)
-                        return cur - d_step;
-                    if (cur < -d_step)
-                        return cur + d_step;
-                    return tgt;
-                }
-                if (tgt * cur < 0.0)
-                {
-                    // 부호 반전 — 일단 0 으로 감속
-                    if (cur > d_step)
-                        return cur - d_step;
-                    if (cur < -d_step)
-                        return cur + d_step;
-                    return 0.0;
-                }
-                const double abs_cur = std::fabs(cur);
-                const double abs_tgt = std::fabs(tgt);
-                const double sign = (tgt >= 0.0) ? 1.0 : -1.0;
-                if (abs_tgt > abs_cur)
-                    return sign * std::fmin(abs_tgt, abs_cur + a_step);
-                if (abs_tgt < abs_cur)
-                    return sign * std::fmax(abs_tgt, abs_cur - d_step);
-                return tgt;
-            };
-            vel_f = velProfile(prev_cmd_vel_f, vel_f, acc_step, dec_step);
-            vel_r = velProfile(prev_cmd_vel_r, vel_r, acc_step, dec_step);
+            // 지역 람다를 폐기하고 공용 `rampToward` 를 쓴다.
+            // ⚠ 전진판의 지역 구현은 **부호 있는 비교**여서 후진 goal(`vx_max < 0`, 액션이
+            //   정식 허용)에서 가·감속 한계가 뒤바뀌었다 — 설계값의 2배로 가속하고 절반으로
+            //   제동해 **제동거리가 2배**가 됐다. 후진판에만 크기 비교와 부호교차 분기가
+            //   있었다. 같은 로직의 사본이 여러 서버에 흩어져 있어 하나로 모았다.
+            vel_f = trnav_2ws_core::rampToward(prev_cmd_vel_f, vel_f, acc_step, dec_step);
+            vel_r = trnav_2ws_core::rampToward(prev_cmd_vel_r, vel_r, acc_step, dec_step);
             prev_cmd_vel_f = vel_f;
             prev_cmd_vel_r = vel_r;
         }
