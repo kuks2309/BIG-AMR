@@ -320,6 +320,21 @@ PORT_LINKS += [(f"CTR{i}_LD", f"CTR{i}_ULD") for i in range(1, 5)]
 
 #: Which segment each robot serves. Three robots, three segments — the real line
 #: runs 2 + 2 + 6 [S16], so this is one of each rather than the full fleet.
+#:
+#: THIS DICT IS THE WHOLE BINDING. A robot is tied to one leg of the material
+#: flow by naming a segment here; the segment names its pickup and delivery
+#: ports above, and those ports name the markers, the roads and the parking bay.
+#: Nothing else in the system knows one robot from another — driving, docking,
+#: traffic and the job FSM all key off station ids.
+#:
+#: So amr3 is amr2 with a different string, and that is the design working
+#: rather than a coincidence. If a robot ever needs code the others do not, the
+#: leg abstraction has leaked and the fix belongs here, not in a special case.
+#:
+#: A leg with no robot is legal: SimAcs.submit_job answers BUSY, not REJECTED,
+#: so its jobs queue until somebody can serve them. That is what let amr3 be
+#: removed and rewritten without touching anything else — measured over an hour
+#: with segment C unserved, in docs/verification/2026-08-10-two-robot-one-hour-soak.md
 ROBOT_SEGMENT = {"amr1": "A", "amr2": "B", "amr3": "C"}
 
 
