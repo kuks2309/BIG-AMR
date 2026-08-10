@@ -1,5 +1,8 @@
 /trnav_translate_reverse_node:
   ros__parameters:
+    # ⚠ `translate_pose_topic` 키는 삭제했다 — **코드가 읽지 않는 죽은 키**였고(`lm_params.pose_topic` 미설정),
+    #   값 `/rtabmap/localization_pose` 는 발행자 0 인 토픽이었다(2026-08-06 실측).
+    #   자세 토픽을 바꾸려면 **런치 인자**를 쓴다: `pose_topic:=/seer/robot_pose`
     # ── Platform (trnav_2ws_core::loadGeometry) ──
     platform: "QD_DIAGONAL"
 
@@ -58,7 +61,6 @@
     transient_runtime_gate_threshold_deg: 90.0
 
     # ── LocalizationMonitor ──
-    translate_pose_topic: "/rtabmap/localization_pose"
     translate_pose_qos: 2                       # 0=default 1=reliable 2=sensor_data
     translate_localization_timeout_sec: 2.0
     translate_position_jump_threshold: 0.3
