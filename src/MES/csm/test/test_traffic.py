@@ -237,6 +237,77 @@ def test_a_robot_already_off_the_road_answers_by_standing_still():
     assert "already clear" in gate
 
 
+# ------------------------------------------- layer 1 guards every path, once
+
+def test_layer_1_is_checked_before_the_job_dispatch():
+    """_threat() knows STOP_GAP, and it was wired to two places only: the homing
+    path, and the question "who yields?". It never stopped anything on a normal
+    job leg. Head-on meetings were covered because they route into the give-way
+    handshake; a robot CROSSING our path or catching us from behind produced no
+    stop at all, leaving only _repulsion(), which is bounded so that it steers
+    without ever halting.
+
+    Measured 2026-08-10 with every other fix in place: amr1 and amr2 overlapped
+    for 225 samples — about 7.5 s — in a run reporting 82 deliveries and zero
+    failures. Job success is not a safety signal.
+    """
+    import inspect
+    from csm.adapters.sim_acs import SimRobot
+
+    src = inspect.getsource(SimRobot.drive)
+    guard = src.index("self._threat()")
+    for later, what in ((src.index("_exit_goal is not None"), "exit leg"),
+                        (src.index("_go_home()"), "homing"),
+                        (src.index("if self._docking"), "docking")):
+        assert guard < later, (
+            f"the {what} branch is dispatched before layer 1 is checked, so a "
+            f"robot in that state can publish a velocity unguarded")
+
+
+def test_layer_1_is_not_copied_into_the_individual_paths():
+    """One check, in the gate. A second copy is what let the paths drift apart
+    in the first place."""
+    import inspect
+    from csm.adapters.sim_acs import SimRobot
+
+    assert inspect.getsource(SimRobot.drive).count("self._threat()") == 1
+    assert "self._threat()" not in inspect.getsource(SimRobot._go_home), \
+        "the homing path re-checks layer 1; the gate already did"
+
+
+def test_the_stand_aside_move_ignores_only_the_partner():
+    """A yielder must not be frozen by the robot whose encounter it is
+    resolving — but a THIRD robot must still stop it."""
+    import inspect
+    from csm.adapters.sim_acs import SimRobot
+
+    gate = inspect.getsource(SimRobot._handle_give_way)
+    assert "_threat(exclude=" in gate, \
+        "the standoff drive is unguarded — it publishes velocity with no layer 1"
+
+    sig = inspect.signature(SimRobot._threat)
+    assert "exclude" in sig.parameters
+
+
+def test_excluding_a_robot_only_removes_that_one():
+    """The exclusion must be surgical, not a way to switch layer 1 off."""
+    import math
+    from csm.adapters.sim_acs import SimRobot, STOP_GAP
+
+    def bot(x, y):
+        r = object.__new__(SimRobot)
+        r.pose, r.vel = (x, y, 0.0), (0.0, 0.0)
+        return r
+
+    me, near, far = bot(0.0, 0.0), bot(1.0, 0.0), bot(40.0, 0.0)
+    fleet_obj = type("F", (), {"robots": [me, near, far]})()
+    me.fleet = fleet_obj
+
+    assert me._threat() is near, "a robot 1.0 m nose-to-nose must be a threat"
+    assert me._threat(exclude=near) is None, "only that one is excluded"
+    assert me._threat(exclude=far) is near, "excluding a distant robot changes nothing"
+
+
 # --------------------------------------------- behaviour that must not change
 
 def test_the_decision_is_remembered_and_does_not_flip():

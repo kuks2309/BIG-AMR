@@ -769,11 +769,12 @@ class SimRobot:
             self._home_waypoints.pop(0)
 
         goal = self._home_waypoints[0] if self._home_waypoints else bay
-        # Layer 1 applies to a homing robot like any other.
-        if self._threat() is not None:
-            self._stop()
-            return
-        # SO DOES THE RED LIGHT. Homing is an ordinary trip on the ordinary
+        # Layer 1 is not repeated here: drive() checks it for every robot before
+        # dispatching to this path, which is the whole point of putting it in
+        # one place. A second copy would drift.
+        #
+        # THE RED LIGHT does belong here. Homing is an ordinary trip on the
+        # ordinary
         # lanes, so it crosses the ordinary junctions and must take its turn at
         # them — a homing robot that ignored the lights was an unreserved robot
         # driving through junctions other robots were reserving, and it never
@@ -1024,6 +1025,12 @@ class SimRobot:
                     f"({self._standoff[0]:+.1f},{self._standoff[1]:+.1f})")
             if math.hypot(self._standoff[0] - x, self._standoff[1] - y) > 0.25:
                 self._stood_aside = False
+                # Layer 1 applies while standing aside too — but not against the
+                # partner, whose encounter this manoeuvre exists to resolve.
+                # Excluding only that one keeps a THIRD robot able to stop us.
+                if self._threat(exclude=self.fleet.partner_of(self)) is not None:
+                    self._stop()
+                    return True
                 self._drive_toward(self._standoff, x, y, yaw)
                 return True
             if not self._stood_aside:
@@ -1101,6 +1108,36 @@ class SimRobot:
         target = ((self._from if self._leg == "collect" else self._to)
                   if self._active_job is not None else None)
         if self._handle_give_way(x, y, yaw, target):
+            return
+
+        # LAYER 1 — THE LAST WORD BEFORE ANY VELOCITY IS PUBLISHED.
+        #
+        # _threat() is the only thing that knows STOP_GAP, and it was wired to
+        # exactly two places: the homing path, and the question "who yields?".
+        # It never stopped anything on a normal job leg. A head-on meeting was
+        # covered because it routed into the give-way handshake above; a robot
+        # CROSSING our path, or catching us from behind, produced no stop at
+        # all. What was left was _repulsion(), which does see robots but is
+        # deliberately bounded so it "steers the robot without ever becoming the
+        # thing that drives it" — it nudges, it does not halt.
+        #
+        # Measured 2026-08-10 on the build that had every other fix in place:
+        # amr1 and amr2 overlapped for 225 samples, about 7.5 seconds, while the
+        # run reported 82 deliveries and zero failures. Job success is not a
+        # safety signal.
+        #
+        # So it goes here, after the handshake and before the job dispatch: past
+        # this line every path — driving, docking, reversing out, homing — has
+        # been checked. Reaching it means no encounter is being negotiated, so
+        # anything still on course to touch us is a plain stop.
+        #
+        # This can leave two robots frozen facing each other, and that is the
+        # correct failure for this layer: "layer 1 only ever says stop: it
+        # cannot say who goes" (see the junction control note above). Deciding
+        # who moves is the job of the rules above it, not of this one.
+        if self._threat() is not None:
+            self._reset_stall()
+            self._stop()
             return
 
         # ======================= WORK — WHAT IS IT DOING? ===================
@@ -1518,8 +1555,13 @@ class SimRobot:
         return max(options, key=lambda g: math.hypot(g[0] - partner.pose[0],
                                                      g[1] - partner.pose[1]))
 
-    def _threat(self):
+    def _threat(self, exclude=None):
         """The robot we are on course to touch, or None. LAYER 1.
+
+        :param exclude: a robot to ignore — used only while standing aside, so
+            that the partner we are already negotiating with does not freeze the
+            very manoeuvre that resolves the encounter. Everybody else still
+            stops us.
 
         Samples both bodies forward at their MEASURED velocities and reports the
         first whose gap would close below STOP_GAP. No cases and no corridor:
@@ -1532,7 +1574,7 @@ class SimRobot:
             return None
         steps = int(LOOKAHEAD_S / LOOKAHEAD_STEP_S) + 1
         for other in self.fleet.robots:
-            if other is self or other.pose is None:
+            if other is self or other is exclude or other.pose is None:
                 continue
             for k in range(steps):
                 t = k * LOOKAHEAD_STEP_S
