@@ -2533,3 +2533,41 @@ turn   s = 누적각                →  표 조회 →  ω      오차항 없�
 보고에는 있었으나 **재현·검증하지 못했거나 범위가 큰 것**은 부채로 등록했다(debt-059~064).
 특히 `yaw_control` 의 「측위 신선도 미검사 + `setMaxCmdSpeed` 미호출로 −4/−5/−6 이 전부
 발화 불가」는 **선재 결함이고 −7 가드가 그 위에 얹혀 있다** — 확인이 필요하다.
+
+
+## 2026-08-10 — debt-059 확인 및 상환: yaw_control 의 측위 워치독이 죽어 있었다
+
+감사 지적을 **코드로 확정**했다.
+
+    setMaxCmdSpeed 호출부  mpc · mpc_reverse · translate_forward · translate_reverse · crab_linear
+                           yaw_control 계열 0건          ← 여기만 빠졌다
+    checkLocalizationHealth  max_cmd_speed_ <= 0.01 이면 즉시 true 반환
+    lookupMapToBase          신선도 검사 없음(pose_received_ 는 내려가지 않는 래치)
+
+세 사실이 겹쳐 `yaw_control`·`yaw_control_reverse` 는 **status −4(측위 타임아웃)·−5(점프)·
+−6(조회 실패)이 전부 발화할 수 없었다.** 타임아웃 검사 코드 자체는 있었고 `max_cmd_speed_`
+게이트 뒤에 가려져 있었을 뿐이다.
+
+### 파급 — 내가 넣은 −7 가드가 그 위에 얹혀 있었다
+
+측위가 얼면 맵 yaw 만 고정되고 IMU 는 계속 돈다 → 괴리가 회전량만큼 커져 **−7 이 0.2 s 만에
+발화**한다(측위 타임아웃은 yaml 2.0 s 라 −4 보다 −7 이 먼저 뜬다). 그러면 로그와 `.action`
+주석이 「측위는 멀쩡한데 IMU 가 어긋났다 — IMU 점검 필요」라고 단언한다. **정반대의 정비
+지시가 나간다.** `map_yaw_fresh` 라는 변수명과 주석(「이번 주기 맵 heading 이 유효」)도
+사실이 아니었다 — 실제 의미는 「언젠가 1회 수신」이었다.
+
+### 고친 것
+
+1. `vx_profile` 확정 직후 `loc_monitor_->setMaxCmdSpeed(vx_profile)` — `translate_*` 와 같은 배선
+2. `lookupMapToBase` 의 4-인자 판을 써서 stamp 를 받고, `map_yaw_fresh` 를 **0.3 s 신선도**로
+   판정. 낡았으면 판단을 보류하고 `heading_diverge_cnt` 도 리셋한다
+
+### 검증 — 음성 대조까지
+
+SIL 회귀에 `yaw_loc` 케이스를 추가했다(주행 3 s 뒤 `sil_pose_adapter` 를 죽인다).
+
+    배선 있음   PASS  status −4 발화 · 거리 0.131 m
+    배선 제거   FAIL  status=-3          ← 시한까지 계속 주행했다(종전 상태)
+
+`−7` 이 뜨면 실패로 판정하도록 했다 — 그것이 바로 오진 형태이기 때문이다.
+전체 `--case all` **5/5 통과**.

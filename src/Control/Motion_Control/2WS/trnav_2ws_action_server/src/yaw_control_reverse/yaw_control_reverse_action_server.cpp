@@ -336,6 +336,10 @@ void YawControlReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_han
     TrapezoidalProfile profile(goal->target_distance, goal->vx_max, goal->acceleration);
 
     bool reached = false;
+    // 헤딩 발산(−7) 판정에 쓸 맵 자세의 최대 나이. 측위 타임아웃(2.0 s)보다 훨씬 짧아야
+    // 한다 — −7 은 10 cycle(50 Hz 기준 0.2 s)이면 발화하므로, 그보다 느슨하면 얼어붙은
+    // 맵 자세로 IMU 를 탓하게 된다.
+    constexpr double kHeadingPoseMaxAgeSec = 0.3;
     int heading_diverge_cnt = 0; // 조대 헤딩 발산 연속 카운터
     rclcpp::Time gate_blocked_since = node_->now();
     bool gate_blocked_active = false;
@@ -352,10 +356,23 @@ void YawControlReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_han
     {
         double map_yaw_rad = 0.0;
         bool map_yaw_fresh = false;
-        if (loc_monitor_->lookupMapToBase(rx, ry, map_yaw_rad))
+        rclcpp::Time map_stamp;
+        if (loc_monitor_->lookupMapToBase(rx, ry, map_yaw_rad, map_stamp))
         {
             tf_fail_count = 0;
-            map_yaw_fresh = true; // 이번 주기 맵 heading 유효 — 발산 탐지에 쓴다
+            // ⚠ `lookupMapToBase` 는 **신선도를 보지 않는다** — `pose_received_` 가 한 번
+            //   참이 되면 영원히 참을 돌려주고 마지막 값을 준다. 그래서 종전의
+            //   `map_yaw_fresh = true` 는 「이번 주기 유효」가 아니라 「언젠가 1회 수신」이었다.
+            //   측위가 얼면 맵 yaw 만 고정되고 IMU 는 계속 도므로 괴리가 회전량만큼 커져
+            //   **−7 이 0.2 s 만에 발화**하고 「측위는 멀쩡한데 IMU 가 어긋났다」고 오진한다
+            //   (측위 타임아웃은 2.0 s 라 −4 보다 −7 이 먼저 뜬다). 실제로는 정반대다.
+            //   판단 근거가 낡았으면 판단을 보류하고 카운터도 리셋한다.
+            const double pose_age_sec = (node_->now() - map_stamp).seconds();
+            map_yaw_fresh = (pose_age_sec <= kHeadingPoseMaxAgeSec);
+            if (!map_yaw_fresh)
+            {
+                heading_diverge_cnt = 0;
+            }
         }
         else
         {
@@ -430,6 +447,15 @@ void YawControlReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_han
         if (prof_out.phase != ProfilePhase::DONE && !near_goal && vx_profile < min_vx_)
         {
             vx_profile = min_vx_;
+        }
+        // ── 측위 워치독에 현재 지령속도를 알린다 ──
+        // `checkLocalizationHealth` 는 `max_cmd_speed_ <= 0.01` 이면 **즉시 true 로 조기
+        // 반환**한다(정지 중에는 측위가 낡아도 위험하지 않다는 설계). yaw 계열은 이 값을
+        // **한 번도 설정하지 않아** 0 으로 고정돼 있었고, 그래서 status −4(측위 타임아웃)·
+        // −5(점프)·−6(조회 실패)이 전부 발화할 수 없었다 — 위의 검사가 항상 통과했다.
+        // `translate_*`·`crab_linear`·`mpc*` 는 모두 이 배선을 갖고 있고 여기만 빠졌다.
+        {
+            loc_monitor_->setMaxCmdSpeed(vx_profile);
         }
 
         if (prof_out.phase == ProfilePhase::DONE || current_distance >= goal->target_distance)

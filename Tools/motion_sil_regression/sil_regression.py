@@ -15,7 +15,8 @@
     turn          목표각 도달(허용 규격 |오차| ≤ 0.5°) · 조향이 원호 자세를 유지(±90° 로 튀지 않음)
     turn_reverse  같은 항목 + 진행 방향이 후진
     yaw_control   거리 도달 · 헤딩 유지 · 가드 오탐 0
-    가드           IMU 에만 잡음을 주입해 −7(헤딩 발산)이 실제로 발화하는가
+    yaw_guard     IMU 에만 잡음을 주입해 −7(헤딩 발산)이 실제로 발화하는가
+    yaw_loc       주행 중 측위 발행을 끊어 −4(측위 타임아웃)가 실제로 발화하는가
 
 ⚠ **SIL 의 구조적 한계 2가지를 알고 써야 한다.**
   1. 플랜트는 IMU 와 맵 자세를 **같은 지상진값**에서 만든다 → 괴리가 정확히 0 이다.
@@ -53,6 +54,8 @@ CASES = {
                     "AMRMotionYawControl"),
     "yaw_guard": ("sil_yaw_control.launch.py", "/amr_motion_yaw_control_abstract",
                   "AMRMotionYawControl"),
+    "yaw_loc": ("sil_yaw_control.launch.py", "/amr_motion_yaw_control_abstract",
+                "AMRMotionYawControl"),
 }
 
 # 허용 규격 — 실기에서 승인된 `turn` 계열 규격과 같은 값이다(|오차| ≤ 0.5°).
@@ -150,7 +153,7 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
                 return False, f"[{name}] /robot_pose 미수신 — 어댑터가 안 떴다"
             g = A.AMRMotionYawControl.Goal()
             g.target_yaw_deg = st["pose"][2]     # 현재 헤딩 유지
-            g.target_distance = 0.5
+            g.target_distance = 3.0 if name == "yaw_loc" else 0.5
             g.vx_max = -0.05
             g.acceleration = 0.05
             g.max_steer_deg = 25.0
@@ -160,6 +163,19 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
             g.exit_steer_angle = 0.0
             g.max_timeout_sec = 90.0
             g.enable_localization_watchdog = True
+
+        if name == "yaw_loc":
+            # 주행이 시작된 뒤 측위 발행을 끊는다. 워치독이 살아 있으면 −4 로 중단하고,
+            # 죽어 있으면 **얼어붙은 자세로 시한까지 계속 주행**한다(그것이 종전 상태였다).
+            # ⚠ 자기 자신을 매칭하지 않도록 대괄호 정규식을 쓴다 — 예전에 자기 pkill 로
+            #   프로세스를 죽여 오진한 적이 있다.
+            import threading as _th
+
+            def _kill_pose():
+                time.sleep(3.0)
+                subprocess.run(["pkill", "-f", "[s]il_pose_adapter"],
+                               capture_output=True, text=True)
+            _th.Thread(target=_kill_pose, daemon=True).start()
 
         gh_f = cl.send_goal_async(g)
         rclpy.spin_until_future_complete(node, gh_f, timeout_sec=30.0)
@@ -186,6 +202,16 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
                 return False, (f"[{name}] 각오차 {err:+.3f}° 가 규격 ±{TURN_TOL_DEG}° 초과 "
                                f"(지령 {g.target_angle:+.1f} · 달성 {res.actual_angle:+.3f})")
             return True, f"[{name}] status 0 · 각오차 {err:+.3f}° (규격 ±{TURN_TOL_DEG}°)"
+
+        if name == "yaw_loc":
+            # −4=측위 타임아웃 이 정답. −7 이 뜨면 「측위가 죽었는데 IMU 를 탓하는」 오진이다.
+            if res.status == -7:
+                return False, (f"[{name}] status −7 (헤딩 발산) — 측위가 끊겼는데 IMU 를 탓했다. "
+                               f"map_yaw_fresh 신선도 검사가 듣지 않는다")
+            if res.status != -4:
+                return False, (f"[{name}] status={res.status} (−4 기대). 측위 발행을 끊었는데 "
+                               f"워치독이 발화하지 않았다 — setMaxCmdSpeed 배선을 확인하라")
+            return True, f"[{name}] status −4 발화 · 거리 {res.actual_distance:.3f} m"
 
         if name == "yaw_control":
             if res.status != 0:
