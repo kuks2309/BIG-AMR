@@ -47,8 +47,15 @@ START_POSES = [
     (-21.5, 1.5, 0.0),      # amr1 — 1.5T AGV A, west end (ASRS -> Gravure LD)
     (17.5, 1.5, 0.0),       # amr2 — 1.5T AGV B, east end (Gravure ULD -> Coater LD)
     (17.5, -1.5, 0.0),      # amr3 — 3.5T AGV,   east end (Coater ULD -> Slitter LD)
-    (-21.5, -1.5, 0.0),     # spare
 ]
+#: One pose per robot, and the count is clamped to len(START_POSES) — so this
+#: list, not FLEET_ROBOTS, is the ceiling on fleet size. Each pose must match
+#: the parking bay its robot's segment owns in csm/plant.py PARKING, because a
+#: robot spawns where it would park and homes back to the same place.
+#:
+#: There is no spare pose. A robot spawned without an entry in plant.py
+#: ROBOT_SEGMENT is offered no work at all and sits idle for ever, which looks
+#: like a navigation fault and is not one — test_roads.py asserts against it.
 
 #: The parking row used to sit in the middle of the traffic, and idle robots
 #: were repeatedly driven into by working ones. It is now off the aisles.
@@ -168,7 +175,7 @@ def generate_launch_description():
 
     args = [
         DeclareLaunchArgument('robots', default_value='3',
-                              description='how many robots to spawn (1-4)'),
+                              description='how many robots to spawn (1-3)'),
         DeclareLaunchArgument('gui', default_value='true'),
         DeclareLaunchArgument('steer_lag', default_value='0.0',
                               description='steering servo lag, seconds'),
