@@ -260,6 +260,22 @@ class DirectBackend(BackendBase):
         """
         if self.panda is None:
             return False, "USB 를 먼저 연결하세요"
+        # ── 멱등 가드 ──
+        # `RelayBackend.start()` 는 「두 번 부르면 버스 writer 가 둘이 된다」며 막는다.
+        # 여기에는 그 검사가 없어, UI 가 빠르게 토글하면 워커가 겹치고 `self._th` 가 덮여
+        # **이전 폴 스레드 핸들이 유실**된다(그 스레드는 join 대상에서 사라진다).
+        # 두 번째 획득은 브링업도 다시 보내 **주행 중일 수 있는 구동축에 fault reset** 을 건다.
+        if on and self._run:
+            return True, "이미 제어권을 보유하고 있습니다"
+        if not on and not self._run:
+            return True, "이미 제어권이 반환된 상태입니다"
+        # ── 상태 초기화 ──
+        # 획득·반환 **양쪽에서** 마지막 지령을 버린다. 종전에는 반환해도 `_steer_counts`·
+        # `_drive_units` 가 살아남아, 재획득하면 폴 루프 첫 바퀴에서 그 값이 그대로 나갔다 —
+        # 「제어권 획득」 버튼 하나로 **조작 없이 조향·주행이 시작**된다. 그 사이 사람이
+        # 바퀴를 만졌거나 Seer 가 조향을 돌렸다면 옛 목표는 다른 각도를 뜻한다.
+        self._drive_units = 0
+        self._steer_counts = {}
         P_ = self._cls
         try:
             if on:
@@ -472,7 +488,12 @@ class DirectBackend(BackendBase):
                                 MOTOR_BUS)
                 time.sleep(0.08)
                 out = {}
-                for addr, _t, dat, bus in self.panda.can_recv():
+                # ⚠ 가장 긴 USB 트랜잭션이므로 **락 안에서** 한다. 밖에 두면 조그·슬라이더·
+                #   호밍 스레드의 `can_send` 와 같은 핸들에서 겹친다 — `link.py` 가 회귀까지
+                #   붙여 막아 둔 조건(「심박이 실패한 이력」)과 같고, `link.recv()` 도 락 안이다.
+                with self._can_lock:
+                    rx = self.panda.can_recv()
+                for addr, _t, dat, bus in rx:
                     if bus != MOTOR_BUS or not (0x581 <= addr <= 0x584) or len(dat) < 8:
                         continue
                     node = addr - 0x580

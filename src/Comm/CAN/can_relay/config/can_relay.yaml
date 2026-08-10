@@ -49,7 +49,7 @@
     #   잔여 검증 전까지 지면 사용 시 감시할 것.
     # ⚠ **코드 기본값은 여전히 False**(`backend.py` RelayConfig · `driver_node.py` 선언).
     #   활성화는 이 배포 yaml 에서만 일어난다 — launch 가 이 파일을 params_file 로 넣는다.
-    # ⚠ **UI 직결 백엔드(`ui/backend_direct.py`)는 미수정**이라 그 경로는 같은 고장이 재현된다.
+    # UI 직결 백엔드(`ui/backend_direct.py`)도 2026-08-10 부터 같은 시퀀스를 보낸다.
     allow_bringup: true      # 구동축 전용 브링업 — 조향축 제외 · debt-017 부분 상환
 
     enable_cmd_vel: true          # false 면 직접 지령(~/steer_deg 등)만 연다

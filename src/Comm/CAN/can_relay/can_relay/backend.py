@@ -535,7 +535,7 @@ class RelayBackend:
             self._log(f"정지 — {reason}")
 
     def stop_all(self, reason: str = "") -> bool:
-        """구동을 0 으로 하고, **정지 상태로 확인된 조향축은 현재 위치에 붙잡는다.**
+        """구동을 0 으로 하고, **우리 조향 목표의 재송신을 멈춘다.**
 
         ⚠ **조향축에 프레임을 보내지 않는다.** `release_steer_target` 은 2026-08-05 결정으로
         **우리 조향 목표의 재송신을 멈출 뿐**이다 — 「현재 위치를 목표로 덮어쓰기」는 벤더 매뉴얼·
@@ -891,8 +891,8 @@ class RelayBackend:
             1회  node1 +0.0830 m / node2 +0.0794 m  (차 3.6 mm)
             2회  node1 −0.0888 m / node2 −0.0893 m  (차 0.5 mm)
 
-        ⚠ **`ui/backend_direct.py` 의 DirectBackend 는 아직 이 시퀀스를 보내지 않는다** —
-        그 경로는 같은 고장이 재현된다(debt 등록됨). 「PC 경로 전부 고쳤다」로 읽지 말 것.
+        `ui/backend_direct.py` 의 DirectBackend 도 2026-08-10 부터 같은 시퀀스를 보낸다
+        (`_write_bringup`, 회귀 `test_direct_bringup.py`). 두 PC 경로가 같은 출처 함수를 쓴다.
         ⚠ **`node2` 가 같은 조건에서 왜 멀쩡했는지는 미규명**이다. 「재시작이 축 상태를
         지운다」는 관측이며 기전은 확정되지 않았다.
 

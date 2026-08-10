@@ -347,7 +347,7 @@ class CanRelayNode(Node):
         ok = self.backend.stop_all("서비스 요청")
         res.success = True
         # 사유를 그대로 전달한다 — 「실측 미확보」와 「이동 중 보류」는 대처가 다르다.
-        res.message = ("구동 0 + 조향을 현재 위치에 유지" if ok else
+        res.message = ("구동 0 송신 · 조향 목표 재송신 중단(축은 직전 목표까지 회전할 수 있음)" if ok else
                        f"구동 0 송신 · ⚠ 조향 미유지 — {self.backend.halt_note()}")
         return res
 

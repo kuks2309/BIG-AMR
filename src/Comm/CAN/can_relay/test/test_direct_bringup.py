@@ -199,3 +199,50 @@ def test_rx_watchdog_is_armed_at_engage(engaged_backend):
     """
     be, _fake = engaged_backend
     assert be._rx_at > 0.0, "engage 했는데 RX 워치독이 무장되지 않았다"
+
+
+# ── 제어권 재획득 시 옛 지령이 살아남지 않는가 ──────────────────────────────
+def test_reengage_does_not_resurrect_old_commands(engaged_backend):
+    """제어권을 반환했다가 다시 얻을 때 마지막 지령이 되살아나면 안 된다.
+
+    종전에는 `set_engaged(False)` 가 `drive(0.0)` 만 하고 `_steer_counts` 를 비우지 않았고,
+    `set_engaged(True)` 도 초기화하지 않았다. 그래서 재획득하면 폴 루프 첫 바퀴에서 옛
+    조향 목표(`0x607A` + `0x6040=0x3F` 즉시 적용)가 그대로 나간다 — **「제어권 획득」 버튼
+    하나로 조작 없이 조향 2축이 돈다.** 그 사이 사람이 바퀴를 만졌거나 Seer 가 조향을
+    돌렸다면 옛 counts 는 다른 각도를 뜻하므로 어디로 갈지도 모른다.
+    """
+    be, fake = engaged_backend
+    be.drive(120.0)
+    be.steer_axis(3, 30.0)
+    assert be._drive_units != 0 and be._steer_counts, "지령이 반영되지 않았다"
+
+    ok, msg = be.set_engaged(False)
+    assert ok, msg
+    ok, msg = be.set_engaged(True)
+    assert ok, msg
+
+    assert be._drive_units == 0, "재획득했는데 옛 구동 지령이 살아 있다"
+    assert not be._steer_counts, "재획득했는데 옛 조향 목표가 살아 있다 — 버튼 하나로 축이 돈다"
+
+
+def test_engage_is_idempotent(engaged_backend):
+    """두 번 획득해도 폴 스레드가 하나여야 한다.
+
+    `RelayBackend.start()` 는 「두 번 부르면 버스 writer 가 둘이 된다」며 막는다. 여기에는
+    그 검사가 없어 `self._th` 가 덮이면 **이전 스레드 핸들이 유실**된다(join 대상에서
+    사라진다). 두 번째 획득은 브링업도 다시 보내 주행 중일 수 있는 구동축에 fault reset 을
+    건다.
+    """
+    be, fake = engaged_backend
+    first = be._th
+    before = len(fake.frames)
+
+    ok, msg = be.set_engaged(True)
+    assert ok, msg
+    assert be._th is first, "폴 스레드가 교체됐다 — 이전 스레드 핸들이 유실된다"
+
+    time.sleep(0.15)
+    # 브링업(fault reset 포함)이 다시 나가지 않았는가 — 폴 재송신분은 제외하고 본다
+    exp = _expected_bringup()
+    resent = [f for f in fake.frames[before:] if f in exp]
+    assert not resent, f"두 번째 획득이 브링업을 재송신했다: {[hex(f[0]) for f in resent]}"
