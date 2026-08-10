@@ -41,28 +41,33 @@ class YawControlActionServer
     int motion_source_id_{6};  // yaw_control = 6
 
     // Control parameters (from YAML)
-    double max_timeout_sec_{60.0};
-    bool enable_localization_watchdog_{true};
-    double walk_accel_limit_{0.5};
-    double walk_decel_limit_{1.0};
-    double steer_rate_limit_{0.35};
-    double min_vx_{0.02}; // floor on profile speed (m/s) — prevents stuck-at-start when vx_profile=0
+    // ⚠ 아래 파라미터 멤버는 **두 스레드가 동시에 만진다** — `execute()` 는
+    //   `handleAccepted` 가 detach 한 별도 스레드에서 돌고, 파라미터 콜백은 executor
+    //   스레드에서 돈다. 비-atomic 이면 UB 이고, 최적화기가 루프 밖으로 로드를 끌어올리면
+    //   hot-reload 가 진행 중 goal 에 **비결정적으로 반영되지 않는다**(고치려던 증상의 재발).
+    //   베이스가 같은 이유로 atomic 을 쓴다(`qd_action_server_base.hpp`).
+    std::atomic<double> max_timeout_sec_{60.0};
+    std::atomic<bool> enable_localization_watchdog_{true};
+    std::atomic<double> walk_accel_limit_{0.5};
+    std::atomic<double> walk_decel_limit_{1.0};
+    std::atomic<double> steer_rate_limit_{0.35};
+    std::atomic<double> min_vx_{0.02}; // floor on profile speed (m/s) — prevents stuck-at-start when vx_profile=0
 
     // ── 조대(粗大) 헤딩 발산 탐지 ──
     // 제어 소스는 IMU 그대로다. 측위 heading 은 정밀도가 낮아 미세 제어에 쓰면 오히려 나빠지므로
     // **고장 탐지에만** 쓴다 — |보정 yaw − 맵 yaw| 가 임계를 연속 초과하면 status −7 로 abort.
     // 임계 5° 는 제어 목표가 아니라 고장 경계다: 정상 괴리는 0.09~0.25°, 고장 사례는 25° 였다.
     // 근거·설계: docs/adr/2026-08-10-yaw-control-heading-divergence-guard.md
-    bool enable_heading_divergence_guard_{true};
-    double heading_divergence_deg_{5.0};
-    int heading_divergence_count_{10}; // 연속 cycle (50 Hz 기준 0.2 s) — 맵 순간 튐 오탐 방지
+    std::atomic<bool> enable_heading_divergence_guard_{true};
+    std::atomic<double> heading_divergence_deg_{5.0};
+    std::atomic<int> heading_divergence_count_{10}; // 연속 cycle (50 Hz 기준 0.2 s) — 맵 순간 튐 오탐 방지
 
     // ── 조향 미도달 지속 감시 ──
     // TransientGuard 가 조향 오차로 구동을 0 으로 묶는 것(gate_blocked)은 정상 안전 동작이지만,
     // 그 상태가 무한 지속돼도 아무도 보고하지 않아 전역 타임아웃(60 s)까지 조용히 대기했다.
     // 임계는 **정상 조향 이동 시간보다 길어야** 오탐이 없다 — 실측상 0→31° 이동에 약 3 초.
     // 근거·설계: docs/adr/2026-08-10-yaw-control-gate-blocked-guard.md
-    double gate_blocked_timeout_sec_{5.0};
+    std::atomic<double> gate_blocked_timeout_sec_{5.0};
 
     // hot-reload 콜백 핸들 (거짓 성공 제거 — ADR 2026-08-10-yaw-control-param-callback)
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr params_cb_handle_;

@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <functional>
 #include <thread>
 
 #include "trnav_2ws_core/math_utils.hpp"
@@ -85,7 +86,23 @@ YawControlActionServer::YawControlActionServer(rclcpp::Node::SharedPtr node, Act
         [this](const std::vector<rclcpp::Parameter> &params) -> rcl_interfaces::msg::SetParametersResult {
             rcl_interfaces::msg::SetParametersResult result;
             result.successful = true;
-            auto rng = [&](const rclcpp::Parameter &p, double lo, double hi, double &dst) {
+
+            // ⚠ **검증과 반영을 분리한다(2단계).** 종전에는 검사를 통과하는 즉시 멤버에
+            //   써 버리고 뒤의 키가 거부되면 `return` 했다 — 그러면 rclcpp 는 파라미터
+            //   저장소에 아무것도 반영하지 않는데 **앞의 키는 이미 멤버에 적용돼 있어**
+            //   `ros2 param get` 이 보고하는 값과 실제 거동이 영구히 어긋난다.
+            //   (「거짓 성공」을 없애려다 「거짓 실패 + 은닉 적용」을 만든 셈이었다.)
+            //   여기서는 전부 통과했을 때만 커밋한다.
+            std::vector<std::function<void()>> commits;
+
+            auto rng = [&](const rclcpp::Parameter &p, double lo, double hi,
+                           std::atomic<double> &dst) {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE)
+                {
+                    result.successful = false;
+                    result.reason = p.get_name() + " 는 double 이어야 한다(정수 리터럴은 int 로 읽힌다)";
+                    return;
+                }
                 double v = p.as_double();
                 if (v < lo || v > hi)
                 {
@@ -94,8 +111,19 @@ YawControlActionServer::YawControlActionServer(rclcpp::Node::SharedPtr node, Act
                                     std::to_string(hi) + "]";
                     return;
                 }
-                dst = v;
+                commits.emplace_back([&dst, v]() { dst.store(v); });
             };
+            auto flag = [&](const rclcpp::Parameter &p, std::atomic<bool> &dst) {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL)
+                {
+                    result.successful = false;
+                    result.reason = p.get_name() + " 는 bool 이어야 한다";
+                    return;
+                }
+                bool v = p.as_bool();
+                commits.emplace_back([&dst, v]() { dst.store(v); });
+            };
+
             for (const auto &p : params)
             {
                 const std::string &n = p.get_name();
@@ -115,19 +143,27 @@ YawControlActionServer::YawControlActionServer(rclcpp::Node::SharedPtr node, Act
                     rng(p, 0.05, 120.0, gate_blocked_timeout_sec_);
                 else if (n == "yaw_control_heading_divergence_count")
                 {
-                    int v = static_cast<int>(p.as_int());
-                    if (v < 1 || v > 1000)
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER)
                     {
                         result.successful = false;
-                        result.reason = n + " out of range [1, 1000]";
+                        result.reason = n + " 는 정수여야 한다";
                     }
                     else
-                        heading_divergence_count_ = v;
+                    {
+                        int v = static_cast<int>(p.as_int());
+                        if (v < 1 || v > 1000)
+                        {
+                            result.successful = false;
+                            result.reason = n + " out of range [1, 1000]";
+                        }
+                        else
+                            commits.emplace_back([this, v]() { heading_divergence_count_.store(v); });
+                    }
                 }
                 else if (n == "yaw_control_enable_heading_divergence_guard")
-                    enable_heading_divergence_guard_ = p.as_bool();
+                    flag(p, enable_heading_divergence_guard_);
                 else if (n == "yaw_control_enable_localization_watchdog")
-                    enable_localization_watchdog_ = p.as_bool(); // 다음 goal 부터 적용
+                    flag(p, enable_localization_watchdog_);
                 else if (n.rfind("yaw_control_", 0) == 0 || n.rfind("transient_", 0) == 0)
                 {
                     // 생성자에서만 읽히는 키 — 구독·가드·모니터가 그 시점에 만들어진다.
@@ -135,8 +171,11 @@ YawControlActionServer::YawControlActionServer(rclcpp::Node::SharedPtr node, Act
                     result.reason = n + " 는 생성자에서만 읽힌다 — yaml 을 고치고 노드를 재기동할 것";
                 }
                 if (!result.successful)
-                    return result;
+                    return result;   // 아무것도 커밋하지 않았다
             }
+
+            for (auto &c : commits)
+                c();
             return result;
         });
 
@@ -386,7 +425,7 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 
         if ((node_->now() - start_time).seconds() > max_timeout_sec_)
         {
-            RCLCPP_WARN(node_->get_logger(), "YawControl global timeout (%.1f s), dist=%.3f m", max_timeout_sec_,
+            RCLCPP_WARN(node_->get_logger(), "YawControl global timeout (%.1f s), dist=%.3f m", max_timeout_sec_.load(),
                         current_distance);
             double calibrated_yaw = normalizeAngle(last_yaw_rad_.load() + yaw_offset);
             finish_abort(-3, current_distance, calibrated_yaw * 180.0 / M_PI,
@@ -474,7 +513,7 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
                                  "YawControl heading divergence: |IMU기준 %.2f° − 맵 %.2f°| = %.2f° > %.2f° "
                                  "가 %d cycle 연속 — IMU 가 회전을 놓쳤을 수 있다. abort(-7)",
                                  current_yaw_deg, map_yaw_rad * 180.0 / M_PI, diverge_deg,
-                                 heading_divergence_deg_, heading_divergence_count_);
+                                 heading_divergence_deg_.load(), heading_divergence_count_.load());
                     finish_abort(-7, current_distance, current_yaw_deg,
                                  normalizeAngleDeg(goal->target_yaw_deg - current_yaw_deg), start_time);
                     return;
@@ -586,7 +625,7 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
                 RCLCPP_ERROR(node_->get_logger(),
                              "YawControl 조향 미도달 %.1f s 지속 — 지령 F=%.2f°/R=%.2f° 대 실제 "
                              "F=%.2f°/R=%.2f°. 조향축이 지령을 실행하지 못한다. abort(-8)",
-                             gate_blocked_timeout_sec_, delta_f * 180.0 / M_PI, delta_r * 180.0 / M_PI,
+                             gate_blocked_timeout_sec_.load(), delta_f * 180.0 / M_PI, delta_r * 180.0 / M_PI,
                              last_angle_front_.load() * 180.0 / M_PI, last_angle_rear_.load() * 180.0 / M_PI);
                 finish_abort(-8, current_distance, current_yaw_deg,
                              normalizeAngleDeg(goal->target_yaw_deg - current_yaw_deg), start_time);

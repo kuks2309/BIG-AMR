@@ -891,8 +891,8 @@ SIL 에서 「자기보고 − 지상진값」 괴리가 **−0.001°** 로 사�
 
 
 | debt-059 | ~~이해~~ **상환(2026-08-10)** | `yaw_control*` + `localization_monitor.cpp` | 감사 지적: `lookupMapToBase` 에 stamp 신선도 검사가 없고 `setMaxCmdSpeed` 를 yaw 계열이 **한 번도 호출하지 않아**(`grep` 0건) `max_cmd_speed_=0` → `checkLocalizationHealth` 가 조기 반환, **−4·−5·−6 이 전부 발화 불가**. 사실이면 −7 가드의 전제(`map_yaw_fresh`)가 성립하지 않고 pose 두절 시 시한까지 주행한다 | **상환** | 확인 결과 **사실이었다**. `setMaxCmdSpeed` 배선 + `map_yaw_fresh` 0.3 s 신선도 판정. SIL `yaw_loc` 케이스로 고정(배선 제거 시 −3, 배선 시 −4) |
-| debt-060 | 기술 | `yaw_control*` 파라미터 콜백 | 감사 지적: 검증 통과 즉시 멤버를 써서 **뒤 파라미터가 거부되면 앞은 이미 반영**된 채 노드 저장소와 영구 불일치. 검증/커밋 2단계 분리 필요 | 미확인 | `param set` 다중 키로 재현 확인 후 분리 |
-| debt-061 | 기술 | `yaw_control*` 멤버 | 감사 지적: 콜백이 쓰는 멤버가 비-atomic 인데 detached execute 스레드가 동시에 읽는다. 베이스는 같은 이유로 `std::atomic` 을 쓴다(`qd_action_server_base.hpp:195`) | 미확인 | atomic 화 또는 goal 진입 시 스냅샷(스냅샷이면 「주행 중 hot-reload 가 기동을 중단시킨다」도 함께 닫힘) |
+| debt-060 | ~~기술~~ **상환(2026-08-10)** | `yaw_control*` 파라미터 콜백 | 감사 지적: 검증 통과 즉시 멤버를 써서 **뒤 파라미터가 거부되면 앞은 이미 반영**된 채 노드 저장소와 영구 불일치. 검증/커밋 2단계 분리 필요 | **상환** | 검증/반영 2단계 분리(`commits` 지연 실행) + 타입 가드 |
+| debt-061 | ~~기술~~ **상환(2026-08-10)** | `yaw_control*` 멤버 | 감사 지적: 콜백이 쓰는 멤버가 비-atomic 인데 detached execute 스레드가 동시에 읽는다. 베이스는 같은 이유로 `std::atomic` 을 쓴다(`qd_action_server_base.hpp:195`) | **상환** | 멤버 10개 `std::atomic` 화(hot-reload 의미는 유지). 로그 인자 8곳 `.load()` |
 | debt-062 | 기술 | `turn*` ±180° 경계 | 감사 지적: `spin` 이 가진 경계 결정화(`kBoundaryEpsDeg`, antipode 고정)가 turn 에 없다 — `target_angle` 180.0 vs 180.001 에서 회전 **방향이 반대**가 될 수 있다 | 미확인 | `spin:175-178·271-273` 이식 |
 | debt-063 | 기술 | `DirectBackend` 워치독 | 감사 지적: 지령 워치독이 없어(RelayBackend 는 0.3 s TTL) UI 가 멈춰도 마지막 구동 지령이 무한 재송신. RX 워치독도 `_rx_at=0.0` 초기값이 falsy 라 **응답을 한 번도 못 받으면 영원히 무장되지 않는다** | 미확인 | `_last_cmd_at` 도입 + `set_engaged` 에서 `_rx_at` 초기화 |
 | debt-064 | 기술 | 신규 gtest 커버리지 | 감사가 돌연변이로 실증한 잔여 구멍: 사다리꼴의 **감속 개시점·가속 종료점이 전혀 고정되지 않음**(어디서 밟아도 통과) · `exit_speed` 가 DONE 분기만 밟아 감속 램프 미검사 · `entry_speed` 실현가능성 가드 삭제해도 통과. 배포 yaml 값도 무보증 | 미상환 | 전이점·연속성·`entry_speed` 케이스 추가 |

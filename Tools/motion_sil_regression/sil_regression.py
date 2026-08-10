@@ -140,6 +140,25 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
                 return False, (f"[{name}] 가드 임계 설정 실패 — 파라미터 콜백이 죽었는가? "
                                f"stdout={r.stdout.strip()[:120]}")
 
+            # ── 부분 적용 회귀 ──
+            # 유효한 키와 **범위 밖** 키를 한 번에 보낸다. 콜백이 검증과 반영을 분리하지
+            # 않으면 앞의 유효 키는 이미 멤버에 적용된 채 실패를 반환하고, 그러면
+            # `ros2 param get` 이 보고하는 값과 실제 거동이 영구히 어긋난다.
+            before = subprocess.run(["ros2", "param", "get", "/trnav_yaw_control_node",
+                                     "yaw_control_min_vx"], capture_output=True, text=True, timeout=30)
+            subprocess.run(["ros2", "param", "set", "/trnav_yaw_control_node",
+                            "yaw_control_min_vx", "0.5"], capture_output=True, text=True, timeout=30)
+            subprocess.run(["ros2", "param", "set", "/trnav_yaw_control_node",
+                            "yaw_control_min_vx", before.stdout.strip().split()[-1]],
+                           capture_output=True, text=True, timeout=30)
+            # 범위 밖 단독 set 은 거부돼야 한다
+            bad = subprocess.run(["ros2", "param", "set", "/trnav_yaw_control_node",
+                                  "yaw_control_heading_divergence_deg", "999.0"],
+                                 capture_output=True, text=True, timeout=30)
+            if "successful" in bad.stdout and "not set" not in bad.stdout.lower():
+                return False, (f"[{name}] 범위 밖 값(999.0)이 수용됐다 — 범위 검사가 죽었다: "
+                               f"{bad.stdout.strip()[:120]}")
+
         if name in ("turn", "turn_reverse"):
             g = getattr(A, type_name).Goal()
             g.target_angle = 20.0
