@@ -415,6 +415,104 @@ status 0 · 거리 0.401 m · 최종 헤딩오차 +0.020° · 가드 오탐 0
 ```
 
 이 액션은 그동안 **실기 이력이 0** 이었다 — 이번이 첫 확인이다.
+### [Fix] Giving way did not release the junction — a circular wait that failed 1 job in 5
+
+**Symptom.** In a two-robot Gazebo run, jobs failed with
+`gave way for 45s and nobody passed — giving up`. Four of eighteen jobs failed
+in 27 minutes (22%). Every failure was this and nothing else: no docking
+failure, no timeout, no rejection, and no `WARN`/`ERROR` of any other kind.
+
+**Root cause.** The junction reservation and the give-way handshake were each
+correct alone and wrong together, and nothing tested the seam.
+`SimAcs.claim_junction` states the invariant the whole scheme rests on:
+
+> "A robot always releases the junction it holds before claiming another, so no
+> robot ever waits on a junction while holding one — which is what makes a
+> circular wait impossible."
+
+That holds only along the path through `_junction_control`, which is the only
+place a junction is released while a job runs. A robot told to give way returns
+from `SimRobot.drive()` **before** reaching it (`sim_acs.py`, the yield branch),
+so it stood aside — off the road, stationary, announcing "clear — you may pass"
+— while still holding its red light. The robot it was yielding TO then waited on
+that light. Neither could move until `YIELD_LIMIT` (45 s) killed the job.
+
+The clearest instance was a MUTUAL hold, each robot sitting on the junction the
+other needed:
+
+```
+690.8  join_GRV1_ULD: held by amr2
+696.5  join_GRV1_LD:  held by amr1
+696.9  [amr2] holding at join_GRV1_LD — amr1 has it
+699.7  amr2 gives way to amr1 -> stepping aside -> clear — you may pass
+706.7  [amr1] holding at join_GRV1_ULD — amr2 has it
+744.8  [amr2] gave way for 45s and nobody passed — giving up
+744.8  join_GRV1_ULD: held by amr1      <- freed ONLY by giving up
+745.0  [job_0025] FAILED
+```
+
+The last two lines are the proof: the passer took the junction within 50 ms of
+the give-up. **Space was never the constraint** — both robots had already
+stopped and the yielder was off the lane. The blocker was a dict entry. This is
+why enlarging the world does not fix it: a bigger hall makes encounters rarer,
+turning a reproducible deadlock into an intermittent one, and at the documented
+fleet size (six 3.5T AGVs on segment C, [S16]) encounters are the normal case.
+
+**Fix.** Release the yielder's junction at the single point where a robot
+*becomes* a yielder — `SimAcs.who_yields`, since `_giving_way` is written
+nowhere else. Two lines:
+
+```python
+self.release_junction(chosen)
+chosen._junction = None
+```
+
+A yielder cannot re-claim while standing aside (it returns early), and it
+re-acquires normally through `_junction_control` once it rejoins. `YIELD_LIMIT`
+is kept as a safety net.
+
+**Regression test.** `src/MES/csm/test/test_traffic.py` — 8 tests, new file.
+The junction/give-way seam had **zero** coverage before. It drives the fleet
+bookkeeping directly (no ROS, no poses), so a deadlock that took 20 minutes of
+Gazebo to surface now reproduces in 0.12 s. Verified the tests actually catch
+the bug: with the fix reverted, **4 of 8 fail**, including
+`test_the_mutual_hold_that_failed_three_jobs`.
+
+**Verification — two 2-robot Gazebo runs, identical settings**
+(`FLEET_ROBOTS=2`, `--robots 2 --batch-seconds 15`):
+
+| | before | after |
+|---|---|---|
+| runtime | 1638 s (27 min) | 3213 s (53 min) |
+| delivered | 17 | 42 |
+| **failed** | **4** | **0** |
+| give-way encounters | 5 | 5 |
+| **passes completed** | **1 of 5** | **5 of 5** |
+| deadlock give-ups | 4 | 0 |
+| `WARN`/`ERROR` lines | — | 0 |
+| docking failures | 0 | 0 |
+| closest approach (body gap) | 1.46 m | 1.90 m |
+
+Delivery rate after the fix is flat across the run (7, 8, 8, 8, 8 per 10 min),
+so nothing degrades over an hour. Unit suite 143 -> 151 passed.
+
+**Not a safety defect.** Closest body gap never fell below 1.46 m against a
+0.90 m contact threshold and a 1.20 m avoidance target, in either build. The
+avoidance layer always held; the failure mode was liveness only.
+
+**Liveness check.** 52 jobs created, 42 delivered, 0 failed. The only jobs never
+retired are the four `CTR*_ULD -> SLT_LD*` (segment C) jobs plus the newest
+in-flight batch. Segment C has no robot bound to it — amr3 is not yet written —
+so those queue as BUSY for ever by design, which is the behaviour that confirms
+adding amr3 will pick them up. No servable job starved.
+
+**Relevance to amr3.** `who_yields` picks the yielder by name order
+(`chosen = a if a.name > b.name else b`), so amr3 would have been the fleet's
+permanent yielder and would have absorbed nearly every one of these deadlocks.
+Fixing this before writing amr3 avoids a failure that would have looked like
+"amr3 is broken" when it was not.
+
+Files: `src/MES/csm/csm/adapters/sim_acs.py`, `src/MES/csm/test/test_traffic.py`.
 
 ### [Fix] `yaw_control` 조향 미도달 지속 감시 — `status −8` 신설 (debt-052)
 
