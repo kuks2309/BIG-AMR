@@ -35,9 +35,17 @@ from __future__ import annotations
 import argparse
 import json
 import math
+
+import numpy as np
 import socket
 import struct
+import sys
 import time
+
+# 스캔 신선도 상한 — 이보다 낡으면 「없는 것」으로 친다(fail-closed).
+SCAN_STALE_S = 0.5
+# 회전 시 차체 모서리가 쓸고 가는 반경(축거 1.2 m) + 라이다 배제영역 여유.
+MIN_SWEPT_CLEARANCE_M = 1.3
 
 REQ_MOTION = 2010
 REQ_STOP = 2000
@@ -54,6 +62,10 @@ def wrap(deg: float) -> float:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="IMU 회전 추종 대 회전율 특성 측정")
+    # ⚠ 상한이 없어 `--w 5.0` 오타(0.05 의도)면 **286 °/s** 가 그대로 개루프로 나간다.
+    #   이 도구는 저속 회전 특성을 재는 것이므로 큰 값은 목적상으로도 무의미하다.
+    ap.add_argument("--w-limit", type=float, default=0.2,
+                    help="각 |w| 의 상한 [rad/s] (기본 0.2 = 11.5 °/s)")
     ap.add_argument("--w", type=float, nargs="+", default=[0.005, -0.010, 0.020, -0.050, 0.100],
                     help="Seer w 지령 목록 (부호 교대 권장 — 원점 근처 유지)")
     ap.add_argument("--target-deg", type=float, default=25.0, help="점당 목표 회전량 [deg]")
@@ -63,23 +75,52 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=19205)
     a = ap.parse_args()
 
+    # ⚠ 실행 **전에** 거부한다. 개루프 지령이라 한 번 나가면 정지(2000)가 도달할 때까지
+    #   그 속도로 계속 돈다 — 벤더 API 에 워치독도 지속시간 필드도 없다.
+    bad = [w for w in a.w if abs(w) > a.w_limit]
+    if bad:
+        print(f"⚠ |w| 가 상한 {a.w_limit} rad/s 를 넘는 값이 있다: {bad}\n"
+              f"   단위는 **rad/s** 다(0.05 rad/s = 2.9 °/s). 큰 값이 정말 필요하면 "
+              f"--w-limit 을 함께 올릴 것.", file=sys.stderr)
+        return 2
+
+
+
     import rclpy
     from geometry_msgs.msg import PoseStamped
     from rclpy.node import Node
     from rclpy.qos import qos_profile_sensor_data
-    from sensor_msgs.msg import Imu
+    from sensor_msgs.msg import Imu, LaserScan
 
     rclpy.init()
     node = Node("imu_rate_sweep")
-    cur: dict = {"imu": None, "map": None}
+    cur: dict = {"imu": None, "map": None, "scan": None, "scan_at": 0.0}
 
     def yaw_of(q) -> float:
         return math.degrees(math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y**2 + q.z**2)))
 
     node.create_subscription(Imu, "/imu/data", lambda m: cur.__setitem__("imu", yaw_of(m.orientation)),
                              qos_profile_sensor_data)
+    # ⚠ 이 도구도 **실기를 회전시킨다.** 종전에는 여유 판정이 전혀 없었다.
+    #   제자리 회전이라 진행 방향이 없으므로 **전방위 최소**를 본다. 차체(축거 1.2 m)는
+    #   회전 시 모서리가 반경 0.75~0.85 m 를 쓸고 지나간다. `/scan_merged` 는 배제영역
+    #   (x∈[-0.96,0.98])을 삭제하고 `use_inf: True` 라 그보다 가까운 점은 관측되지 않으므로
+    #   임계를 그 위로 잡는다. 스캔이 없거나 낡으면 **0.0(fail-closed)** 이다.
+    node.create_subscription(LaserScan, "/scan_merged",
+                             lambda m: (cur.__setitem__("scan", m),
+                                        cur.__setitem__("scan_at", time.time())),
+                             qos_profile_sensor_data)
     node.create_subscription(PoseStamped, "/robot_pose",
                              lambda m: cur.__setitem__("map", yaw_of(m.pose.orientation)), 10)
+
+    def swept_clearance() -> float:
+        """전방위 최소 거리. 스캔이 없거나 낡으면 **0.0**(fail-closed)."""
+        sc = cur["scan"]
+        if sc is None or (time.time() - cur["scan_at"]) > SCAN_STALE_S:
+            return 0.0
+        r = np.array(sc.ranges)
+        ok = np.isfinite(r) & (r > sc.range_min) & (r < sc.range_max)
+        return float(np.min(r[ok])) if ok.any() else 0.0
 
     def pump(sec: float) -> None:
         t = time.time()
@@ -120,12 +161,29 @@ def main() -> int:
             acc_m = acc_i = 0.0
             prev_m, prev_i = cur["map"], cur["imu"]
             t0 = time.time()
+            stalled_since = time.time()
             while time.time() - t0 < a.tmax and abs(acc_m) < a.target_deg:
+                # ⚠ 회전 **전·중** 매 주기 전방위 여유를 본다(제자리 회전이라 방향이 없다).
+                clr = swept_clearance()
+                if clr < MIN_SWEPT_CLEARANCE_M:
+                    print(f"⚠ 회전 반경 안 여유 {clr:.2f} m < {MIN_SWEPT_CLEARANCE_M} m — 정지",
+                          file=sys.stderr)
+                    stop()
+                    return 4
                 send(w)
                 pump(0.1)
-                acc_m += wrap(cur["map"] - prev_m)
+                d_m = wrap(cur["map"] - prev_m)
+                acc_m += d_m
                 acc_i += wrap(cur["imu"] - prev_i)
                 prev_m, prev_i = cur["map"], cur["imu"]
+                # ⚠ 적산이 멈추면 **tmax 를 다 채우며 계속 돈다** — w=0.100 이면 약 400°.
+                #   측위가 죽었는데 「목표 각에 도달하지 못했다」로 읽고 버티는 형태다.
+                if abs(d_m) > 1e-4:
+                    stalled_since = time.time()
+                elif time.time() - stalled_since > 5.0:
+                    print("⚠ 맵 적산이 5 s 동안 변하지 않는다 — 측위 두절 의심, 정지", file=sys.stderr)
+                    stop()
+                    return 3
             elapsed = time.time() - t0
             stop()
             t1 = time.time()

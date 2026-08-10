@@ -205,6 +205,16 @@ def main() -> int:
                 print(f"⚠ 측위가 {POSE_STALE_S}s 이상 갱신되지 않았다 — 맹목 주행이 되므로 정지")
                 rc = 3
                 break
+            # ⚠ **제자리 회전에도 여유를 본다.** 종전에는 Phase 2 에만 있어서
+            #   docstring·README 의 「매 주기 진행방향 여유 확인」이 회전 구간에서 거짓이었다.
+            #   축거 1.2 m 차체는 제자리 회전 시 모서리가 반경 0.75~0.85 m 를 쓸고 지나간다.
+            #   이 도구는 **로봇이 예상 밖 위치로 이탈한 뒤** 쓰는 복구 도구라 장애물 근접
+            #   확률이 오히려 높다. 방향이 정해져 있지 않으므로 **전방위 최소**를 본다.
+            swept = clearance(0.0, 180.0)
+            if swept < a.min_clearance:
+                print(f"⚠ 회전 반경 안 여유 {swept:.2f} m < {a.min_clearance:.2f} m — 정지")
+                rc = 5
+                break
             yerr = wrap(a.yaw - p[2])
             if abs(yerr) < a.yaw_tol:
                 break
