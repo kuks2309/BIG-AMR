@@ -57,6 +57,13 @@ BIT15 = 1 << 15
 MEAS_TTL_S = 1.0            # 이보다 오래된 실측은 없는 것으로 친다(원본 High ①). **기본값일 뿐이다** —
 #                             인스턴스가 `meas_ttl_s` 로 들고 런타임에 바꿀 수 있다(리뷰 Low ③).
 RX_TTL_S = 1.0              # 이보다 오래 응답이 없으면 구동을 0 으로(원본 High ③)
+# 지령 TTL — 이보다 오래 새 지령이 없으면 구동을 0 으로 수렴시킨다.
+# `RelayBackend` 는 `cmd_timeout_s=0.3` 으로 같은 일을 한다(모듈 설계규칙 2). DirectBackend
+# 에는 **RX 워치독뿐**이라, 드라이브가 응답을 잘 주는 한 `_drive_units` 는 갱신이 끊겨도
+# 영구히 재송신됐다 — 조그 스레드가 예외로 죽거나 Qt 메인 스레드가 블록되면 아무도 새
+# 지령을 내지 않는데 **로봇은 계속 주행한다.** 남는 정지 수단이 하드웨어 E-STOP 뿐이었다.
+# 재송신하는 **값**만 바꾸므로 「원본 gui.py 와 같은 프레임 형식」 원칙은 깨지 않는다.
+CMD_TTL_S = 0.5
 
 # ⚠ 깊이를 세지 않는다. `dirname` 6회로 적었다가 `.../src/Tools/...` 를 가리켜
 #   `ModuleNotFoundError: No module named 'panda'` 가 났다(2026-08-04 오프스크린 스모크).
@@ -144,6 +151,7 @@ class DirectBackend(BackendBase):
         #     사례가 있고(22:42:53, SDO 거부 없음), 마스터 Seer 는 **28 ms 주기로 연속
         #     재송신**한다(캡처 12,928회/180초). 구동은 이미 재송신하는데 조향만 빠져 있었다.
         self._rx_at = 0.0                   # 마지막으로 드라이브 응답을 받은 시각
+        self._cmd_at = 0.0                  # 마지막으로 **새 지령**을 받은 시각
         self._status_word = {}              # node -> 0x6041
         self._rows = {}                     # node -> (deg, rpm, amp)
         self._serials = []
@@ -276,6 +284,13 @@ class DirectBackend(BackendBase):
                 # ⚠ **조향축에는 보내지 않는다** — fault reset 이 조향 위치 카운터를 지워
                 #   0° 기준이 무효가 된다(같은 날 실기 확인). 조향 기준 복구는 호밍 소관이다.
                 self._write_bringup()
+                # ⚠ `_rx_at = 0.0` 은 falsy 라 아래 RX 워치독의 첫 항이 계속 거짓이 된다 —
+                #   응답을 **한 번도 못 받으면 워치독이 영원히 무장되지 않고** 구동 지령만
+                #   계속 나갔다(송신은 되고 수신만 죽은 경우: USB rx 큐 오버플로, bus2 수신
+                #   배선 불량, 응답 ID 오배선). 지금 시각으로 무장해 첫 TTL 안에 응답이
+                #   없으면 즉시 0 으로 수렴하게 한다.
+                self._rx_at = time.monotonic()
+                self._cmd_at = time.monotonic()
                 self._run = True
                 self._th = threading.Thread(target=self._loop, daemon=True, name="poll")
                 self._th.start()
@@ -412,6 +427,7 @@ class DirectBackend(BackendBase):
         """구동 2축 0x60FF. 지령을 **상태로 남겨** 폴 루프가 재송신한다(원본 High ③)."""
         units = drive_units(abs(float(mmps)), 1 if mmps >= 0 else -1)
         self._drive_units = units
+        self._cmd_at = time.monotonic()
         self._send([P.drive_velocity_frame(n, units, MOTOR_BUS) for n in DRIVE_NODES])
 
     # ── 내부 ─────────────────────────────────────────────────────────
@@ -479,6 +495,13 @@ class DirectBackend(BackendBase):
 
                 # ── 구동 재송신 + 응답 끊김 워치독 (원본 High ③과 같은 조치) ──
                 # 재송신: 프레임 1장 유실이 곧 지령 소실이던 것을 막는다. 0 도 재송신한다.
+                # 지령 워치독: 새 지령이 CMD_TTL_S 넘게 없으면 0 으로 수렴시킨다.
+                # 상위(UI·조그)가 죽어도 로봇이 계속 가지 않게 하는 유일한 장치다.
+                if self._drive_units != 0 and self._cmd_at \
+                        and (time.monotonic() - self._cmd_at) > CMD_TTL_S:
+                    self._log(f"지령 워치독 — {CMD_TTL_S:.1f}초 넘게 새 지령이 없어 구동을 0 으로")
+                    self._drive_units = 0
+
                 # 워치독: 응답이 RX_TTL_S 넘게 없으면 버스 상태를 모르는 것이므로 0 으로 간다.
                 if self._rx_at and (time.monotonic() - self._rx_at) > RX_TTL_S \
                         and self._drive_units != 0:

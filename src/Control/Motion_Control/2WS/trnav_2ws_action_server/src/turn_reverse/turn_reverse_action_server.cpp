@@ -116,8 +116,17 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     rclcpp::Rate rate(control_rate_hz_);
 
     // Direction: + CCW, - CW (정규화된 target_angle_deg 기준 → 항상 |target| ≤ 180°)
-    const double sign = (target_angle_deg >= 0.0) ? 1.0 : -1.0;
-    const double target_abs = std::abs(target_angle_deg);    // deg
+    // ── ±180° 경계 결정화 ──
+    // `std::remainder` 의 round-half-even tie-break 때문에 `target_angle = 180.0` 은
+    // `+180`(CCW), `180.001` 은 `-179.999`(CW) 가 된다 — **0.001° 차이로 회전 방향이
+    // 정반대로 뒤집힌다.** turn 은 spin 과 달리 원호 궤적을 규정하므로 방향 반전은
+    // 소인 면적·주행 경로가 통째로 달라지는 일이다. |정규화|이 180° 근방이면 raw 입력
+    // 부호로 방향을 고정한다(최단 회전량은 유지). `spin:172-178` 과 같은 규약이다.
+    constexpr double kBoundaryEpsDeg = 0.5;
+    const double target_abs = std::abs(target_angle_deg);    // deg, 항상 ≤ 180
+    const double sign = (target_abs > 180.0 - kBoundaryEpsDeg)
+                            ? ((goal->target_angle >= 0.0) ? 1.0 : -1.0)   // 경계: raw 부호
+                            : ((target_angle_deg >= 0.0) ? 1.0 : -1.0);    // 그 외: 정규화 부호
     const double turn_radius = static_cast<double>(goal->turn_radius);
     const double max_v = static_cast<double>(goal->max_linear_speed);
     const double accel_angle = static_cast<double>(goal->accel_angle);
@@ -219,8 +228,15 @@ void TurnReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 
     // 부호 있는 **전역** 잔여 회전[deg]. + 면 CCW 로 더, − 면 CW 로 되돌려야 한다.
     // `sign * e` 가 「진행 방향 기준 잔여」로, 종전 `target_abs − accumulated_angle` 과 같은 의미다.
+    // 시작 시점의 antipode(|e| ≈ 180°)는 부호가 모호하다 — IMU 잡음 ε 에 따라 +180 과
+    // −180 을 무작위로 오간다. Stage 1 은 |e| 만 쓰므로 견디지만 **Stage 2 는 부호를 그대로
+    // 게인에 넣으므로** 매 주기 부호가 반전돼 좌우로 진동한다. 결정화된 sign 으로 고정한다.
+    const double kAntipodeEpsRad = kBoundaryEpsDeg * M_PI / 180.0;
     auto remaining_signed_deg = [&](double cur_yaw) -> double {
-        return trnav_2ws_core::normalizeAngle(target_imu_yaw - cur_yaw) * 180.0 / M_PI;
+        double e = trnav_2ws_core::normalizeAngle(target_imu_yaw - cur_yaw);
+        if (std::fabs(std::fabs(e) - M_PI) < kAntipodeEpsRad)
+            e = sign * std::fabs(e);
+        return e * 180.0 / M_PI;
     };
     // 달성 회전량[deg] = 지령 − 잔여. **과회전도 정확히 반영**된다(e 가 반대부호가 되므로 커진다).
     // ⚠ spin 은 `sign*(target_abs − |e|)` 를 쓰는데 그 식은 과회전을 부족처럼 줄여 보고한다.
