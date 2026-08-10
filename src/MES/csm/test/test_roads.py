@@ -127,13 +127,25 @@ def test_wait_spots_are_on_the_network(net):
         assert net.nodes[f"join_{name}"] == join
 
 
-def test_each_segment_is_served_by_exactly_one_robot():
-    counts = {}
+def test_every_robot_is_bound_to_a_real_segment():
+    """A robot's segment must exist, and no two robots may share one.
+
+    This used to assert every SEGMENT had exactly one robot, which was a
+    property of the three-robot demo rather than of the plant: the documented
+    line runs 2 + 2 + 6 [S16], so segments have many robots or — while a
+    segment's robot is being written — none at all. An unserved segment is a
+    fleet-sizing fact, and its jobs simply queue.
+
+    What must never happen is a robot bound to a segment that does not exist
+    (it would be offered no work at all and sit idle for ever), or two robots
+    silently sharing one leg.
+    """
+    names = {s["name"] for s in plant.SEGMENTS}
+    seen = {}
     for robot, seg in plant.ROBOT_SEGMENT.items():
-        counts[seg] = counts.get(seg, 0) + 1
-    for segment in plant.SEGMENTS:
-        assert counts.get(segment["name"]) == 1, (
-            f"segment {segment['name']} has {counts.get(segment['name'], 0)} robots")
+        assert seg in names, f"{robot} is bound to unknown segment {seg!r}"
+        assert seg not in seen, f"{robot} and {seen[seg]} both serve segment {seg}"
+        seen[seg] = robot
 
 
 def test_a_job_outside_the_documented_flow_has_no_segment():
