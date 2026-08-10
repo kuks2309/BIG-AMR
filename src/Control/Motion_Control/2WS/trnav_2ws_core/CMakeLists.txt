@@ -105,6 +105,8 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_transient_guard test/test_transient_guard.cpp)
   target_link_libraries(test_transient_guard transient_guard)
+  ament_add_gtest(test_motion_profile test/test_motion_profile.cpp)
+  target_link_libraries(test_motion_profile motion_profile)
 endif()
 
 ament_package()

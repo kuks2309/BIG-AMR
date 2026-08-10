@@ -81,7 +81,6 @@ TEST(TwoWsDualSteerIK, SpinForcesNinetyDegreesRegardlessOfMagnitude)
 TEST(TwoWsDualSteerIK, SpinSteerSignsAreOppositeFrontAndRear)
 {
     auto r = makeInline().computeSpin(0.5);
-    EXPECT_GT(r.wheels[0].steer_rad * r.wheels[1].steer_rad, 0.0 - 1e12);  // 형식 방지용
     EXPECT_LT(r.wheels[0].steer_rad * r.wheels[1].steer_rad, 0.0)
         << "앞뒤 조향 부호가 같다 — x_i 부호로 갈려야 한다(제자리 회전이 병진이 된다)";
 }
