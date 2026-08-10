@@ -375,11 +375,6 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     rclcpp::Time heading_last_stamp(0, 0, RCL_ROS_TIME); // 마지막으로 센 pose 의 stamp
     rclcpp::Time gate_blocked_since = node_->now(); // gate_blocked 연속 시작 시각
     bool gate_blocked_active = false;
-    double gate_min_err_deg = 0.0;          // 에피소드 중 관측된 최소 조향 오차
-    // 「진전」으로 인정할 최소 감소폭. 잡음으로 시한이 무한정 연장되지 않게 한다.
-    constexpr double kGateProgressEpsDeg = 0.5;
-    // 에피소드 종료 임계(게이트 임계 대비). 히스테리시스가 없으면 떨림에 타이머가 리셋된다.
-    constexpr double kGateClearFrac = 0.7;
     double current_distance = 0.0;
     double current_yaw_deg = 0.0;
 
@@ -639,33 +634,26 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         // gate_blocked 는 조향이 설 때까지 구동을 막는 **정상** 안전 동작이다. 다만 조향축이
         // 비응답이면 영원히 풀리지 않는데, 종전에는 그 사실을 아무도 보고하지 않아 전역
         // 타임아웃(60 s)까지 조용히 대기했다(실측: 지령 −20.2°, 실제 0.00°, 거리 0.001 m).
-        // ⚠ **고정 시한이 아니라 「진전이 없는 시간」을 잰다.**
-        //   ① 오탐: 지령 램프(20.05 °/s)가 조향축(실측 ≈10.3 °/s)보다 빠르므로 오차는
-        //      반드시 임계를 넘고, 축이 따라잡을 때까지의 지속시간은 지령각에 비례한다 —
-        //      `max_steer_deg ≈ 82°` 부터 **정상 기동이 5 s 를 넘겨** abort 된다.
-        //      yaml 상한이 90° 라 발급 가능한 goal 이다.
-        //   ② 미탐: 오차가 임계 근처에서 떨거나(14.9↔15.1) 하면 종전에는 단 한 주기만
-        //      풀려도 타이머가 0 으로 돌아가 **영원히 발화하지 않았다.**
-        //   그래서 「오차가 줄고 있으면 시간을 다시 준다 · 줄지 않으면 계속 센다」로 바꾼다.
-        //   축이 느려도 따라오고 있으면 기다리고, 멈춰 있으면 지령각과 무관하게 잡힌다.
+        // 임계 `gate_blocked_timeout_sec`(5.0 s)는 **실측으로 정한 값**이다 —
+        // 정상 조향 이동 시간(실기 0→31° 에 약 3 s)보다 길게 잡았다
+        // (`issues_and_fixes.md` 2026-08-10 §조향 미도달 감시).
+        // ⚠ 2026-08-10 되돌림: 한때 「진전이 없는 시간」을 재는 방식으로 바꿨었다. 근거는
+        //   `max_steer_deg ≈ 82°` 부터 정상 기동이 5 s 를 넘긴다는 **계산**이었는데,
+        //   그 조건은 실기에서 한 번도 돌린 적이 없다. **관측된 고장이 아니라 추정 위에서
+        //   실측 기반 설계를 바꾼 것**이라 되돌렸다. 실제 고장은 지령 −20.2° 대 실제 0.00°
+        //   (오차 20.2° 고정)였고 이 고정 시한이 그것을 잡는다.
+        //   큰 `max_steer_deg` 로 실기를 돌려 오탐을 **관측하면** 그때 근거를 갖고 바꾼다.
         if (guard_out.gate_blocked)
         {
             if (!gate_blocked_active)
             {
                 gate_blocked_active = true;
                 gate_blocked_since = node_->now();
-                gate_min_err_deg = max_steer_err;
-            }
-            else if (max_steer_err < gate_min_err_deg - kGateProgressEpsDeg)
-            {
-                // 진전 있음 — 시한을 다시 준다.
-                gate_min_err_deg = max_steer_err;
-                gate_blocked_since = node_->now();
             }
             else if ((node_->now() - gate_blocked_since).seconds() > gate_blocked_timeout_sec_)
             {
                 RCLCPP_ERROR(node_->get_logger(),
-                             "YawControl 조향 오차가 %.1f s 동안 줄지 않았다 — 발행 F=%.2f°/R=%.2f° 대 실제 "
+                             "YawControl 조향 미도달 %.1f s 지속 — 발행 F=%.2f°/R=%.2f° 대 실제 "
                              "F=%.2f°/R=%.2f°. 조향축이 지령을 실행하지 못한다. abort(-8)",
                              gate_blocked_timeout_sec_.load(), expected_steer_f * 180.0 / M_PI,
                              expected_steer_r * 180.0 / M_PI,
@@ -675,10 +663,8 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
                 return;
             }
         }
-        else if (max_steer_err < kGateClearFrac * runtime_gate_threshold_deg_)
+        else
         {
-            // **한 주기 풀린 것으로는 끝내지 않는다** — 임계 근처의 떨림이 타이머를 매번
-            // 0 으로 되돌려 미탐을 만들었다. 충분히 내려왔을 때만 에피소드를 닫는다.
             gate_blocked_active = false;
         }
 
