@@ -828,7 +828,7 @@ SIL 에서 「자기보고 − 지상진값」 괴리가 **−0.001°** 로 사�
 
 | id | 유형 | 위치 | 사유 | 식별일 | 상태 | 상환계획 |
 | --- | --- | --- | --- | --- | --- | --- |
-| **debt-050** | 기술 | `trnav_2ws_action_server/config/yaw_control_reverse_params.yaml:48` | `yaw_control_reverse_pose_topic: "/rtabmap/localization_pose"` 를 구독하는데 **이 스택에 그 발행자가 0개**다(`rtabmap` 미가동, 측위는 `mcl2d` → `sil_pose_adapter` → `/robot_pose`). 그대로 실행하면 측위 입력이 오지 않아 헤딩 제어가 성립하지 않는다. 게다가 `yaw_control` 이 `vx_max` 음수로 후진을 지원하므로(`.action` 명시) **별도 액션의 존재 의의 자체가 불명확**하다 — 2026-08-10 후진 시험은 `yaw_control` 로 수행했다 | 2026-08-10 | 미해결 | ① 토픽을 `/robot_pose` 로 정정하고 실기 확인, 또는 ② `yaw_control` 이 양방향을 덮으므로 `yaw_control_reverse` 를 폐기(mux 소스 id 7 회수 포함). 결정 전 `yaw_control_reverse` 를 실기에 쓰지 말 것 |
+| **debt-050** | 기술 | `trnav_2ws_action_server/config/yaw_control_reverse_params.yaml:48` | ⚠ **2026-08-10 오진 정정.** 「pose 를 못 받는다」는 **틀렸다** — `yaw_control_reverse_pose_topic` 은 **읽는 코드가 0건인 죽은 키**였고, `LocalizationMonitor::Params::pose_topic` 기본값이 `/robot_pose`(`localization_monitor.hpp:27`)라 실제로는 **정상 수신**했다(실행 확인: `/robot_pose` 구독자 1→2, `/rtabmap/localization_pose` 는 토픽 자체 부재). yaml 만 보고 코드를 확인하지 않아 없는 결함을 등록했다. 남은 실질 문제는 **죽은 키가 실재하지 않는 토픽을 가리켜 오독을 유발한 것**이다. | 2026-08-10 | **상환 완료(2026-08-10)** | ① 죽은 키를 살렸다 — 코드에 `lm_params.pose_topic = safeParam("yaw_control_reverse_pose_topic", "/robot_pose")` 추가, yaml 값도 `/robot_pose` 로 정정. ② `−7`(헤딩 발산)·`−8`(조향 미도달) 가드를 전진판과 같은 규약으로 이식. ③ **첫 실기 검증 통과** — 헤딩 유지 0.4 m, `status 0`, 최종 헤딩오차 +0.020°, 가드 오탐 0. ⚠ 「`yaw_control` 이 양방향을 덮으므로 폐기」안은 채택하지 않았다 — 두 액션은 `vx_max` 의미(부호 포함 대 magnitude)와 mux 소스 id 가 다르고, 저장소의 방향쌍 패턴을 따른다 |
 
 
 ---

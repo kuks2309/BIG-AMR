@@ -46,6 +46,10 @@ YawControlReverseActionServer::YawControlReverseActionServer(rclcpp::Node::Share
     walk_decel_limit_ = safeParam("yaw_control_reverse_walk_decel_limit", 1.0);
     steer_rate_limit_ = safeParam("yaw_control_reverse_steer_rate_limit", 0.35);
     min_vx_ = safeParam("yaw_control_reverse_min_vx", 0.02);
+    enable_heading_divergence_guard_ = safeParam("yaw_control_reverse_enable_heading_divergence_guard", true);
+    heading_divergence_deg_ = safeParam("yaw_control_reverse_heading_divergence_deg", 5.0);
+    heading_divergence_count_ = safeParam("yaw_control_reverse_heading_divergence_count", 10);
+    gate_blocked_timeout_sec_ = safeParam("yaw_control_reverse_gate_blocked_timeout_sec", 5.0);
 
     // TransientGuard
     TransientGuard::Params tg_params;
@@ -62,6 +66,10 @@ YawControlReverseActionServer::YawControlReverseActionServer(rclcpp::Node::Share
     lm_params.localization_timeout_sec = safeParam("yaw_control_reverse_localization_timeout_sec", 2.0);
     lm_params.position_jump_threshold = safeParam("yaw_control_reverse_position_jump_threshold", 0.3);
     lm_params.enable_watchdog = enable_localization_watchdog_;
+    // pose 토픽 파라미터화 — 전진판과 같은 규약. 종전에는 이 줄이 없어 yaml 의
+    // `yaw_control_reverse_pose_topic` 이 **읽히지 않는 죽은 키**였고, 그 값이 실재하지 않는
+    // 토픽을 가리켜 「이 액션은 pose 를 못 받는다」는 오진을 낳았다(실제로는 기본값 /robot_pose 사용).
+    lm_params.pose_topic = safeParam<std::string>("yaw_control_reverse_pose_topic", std::string("/robot_pose"));
     loc_monitor_ = std::make_unique<LocalizationMonitor>(node_, lm_params);
 
     // mux active source — execute() 진입부에 select_motion_source service 호출 (정공법: action server 책임).
@@ -262,6 +270,9 @@ void YawControlReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_han
     TrapezoidalProfile profile(goal->target_distance, goal->vx_max, goal->acceleration);
 
     bool reached = false;
+    int heading_diverge_cnt = 0; // 조대 헤딩 발산 연속 카운터
+    rclcpp::Time gate_blocked_since = node_->now();
+    bool gate_blocked_active = false;
     double current_distance = 0.0;
     double current_yaw_deg = 0.0;
 
@@ -273,10 +284,12 @@ void YawControlReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_han
     // ── Phase 1-3: Trapezoidal + PID heading ──
     while (rclcpp::ok() && !reached)
     {
-        double dummy_yaw = 0.0;
-        if (loc_monitor_->lookupMapToBase(rx, ry, dummy_yaw))
+        double map_yaw_rad = 0.0;
+        bool map_yaw_fresh = false;
+        if (loc_monitor_->lookupMapToBase(rx, ry, map_yaw_rad))
         {
             tf_fail_count = 0;
+            map_yaw_fresh = true; // 이번 주기 맵 heading 유효 — 발산 탐지에 쓴다
         }
         else
         {
@@ -364,6 +377,31 @@ void YawControlReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_han
         double calibrated_yaw_rad = normalizeAngle(last_yaw_rad_.load() + yaw_offset);
         current_yaw_deg = calibrated_yaw_rad * 180.0 / M_PI;
 
+        // ── 조대 헤딩 발산 탐지 (제어에는 관여하지 않는다) ──
+        if (enable_heading_divergence_guard_ && map_yaw_fresh)
+        {
+            double diverge_deg =
+                std::fabs(normalizeAngleDeg(current_yaw_deg - map_yaw_rad * 180.0 / M_PI));
+            if (diverge_deg > heading_divergence_deg_)
+            {
+                if (++heading_diverge_cnt >= heading_divergence_count_)
+                {
+                    RCLCPP_ERROR(node_->get_logger(),
+                                 "YawControlReverse heading divergence: |IMU기준 %.2f° − 맵 %.2f°| = %.2f° > %.2f° "
+                                 "가 %d cycle 연속 — IMU 가 회전을 놓쳤을 수 있다. abort(-7)",
+                                 current_yaw_deg, map_yaw_rad * 180.0 / M_PI, diverge_deg,
+                                 heading_divergence_deg_, heading_divergence_count_);
+                    finish_abort(-7, current_distance, current_yaw_deg,
+                                 normalizeAngleDeg(goal->target_yaw_deg - current_yaw_deg), start_time);
+                    return;
+                }
+            }
+            else
+            {
+                heading_diverge_cnt = 0;
+            }
+        }
+
         // PID error (deg) — reverse: 항상 부호 반전 (forward 분기 제거)
         double err_deg = normalizeAngleDeg(goal->target_yaw_deg - current_yaw_deg);
         err_deg = -err_deg;
@@ -443,6 +481,31 @@ void YawControlReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_han
 
         auto guard_out = guard_->apply(guard_input);
         double speed_scale = guard_out.gate_blocked ? 0.0 : guard_out.drive_scale;
+
+        // ── 조향 미도달 지속 감시 ──
+        if (guard_out.gate_blocked)
+        {
+            if (!gate_blocked_active)
+            {
+                gate_blocked_active = true;
+                gate_blocked_since = node_->now();
+            }
+            else if ((node_->now() - gate_blocked_since).seconds() > gate_blocked_timeout_sec_)
+            {
+                RCLCPP_ERROR(node_->get_logger(),
+                             "YawControlReverse 조향 미도달 %.1f s 지속 — 지령 F=%.2f°/R=%.2f° 대 실제 "
+                             "F=%.2f°/R=%.2f°. 조향축이 지령을 실행하지 못한다. abort(-8)",
+                             gate_blocked_timeout_sec_, delta_f * 180.0 / M_PI, delta_r * 180.0 / M_PI,
+                             last_angle_front_.load() * 180.0 / M_PI, last_angle_rear_.load() * 180.0 / M_PI);
+                finish_abort(-8, current_distance, current_yaw_deg,
+                             normalizeAngleDeg(goal->target_yaw_deg - current_yaw_deg), start_time);
+                return;
+            }
+        }
+        else
+        {
+            gate_blocked_active = false;
+        }
 
         // Wheel velocity from IK — vx_signed<0 입력으로 IK 가 wheel direction 자동 처리.
         // 출력단에 추가 부호 곱하기 없음 (yaw_control 동일 패턴, R1 SIL 1차 정정).

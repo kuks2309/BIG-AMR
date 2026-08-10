@@ -45,7 +45,9 @@
     yaw_control_reverse_min_vx: 0.02   # vx_profile floor magnitude (m/s) — 시작 시 정지 방지
 
     # ── LocalizationMonitor ──
-    yaw_control_reverse_pose_topic: "/rtabmap/localization_pose"
+    yaw_control_reverse_pose_topic: "/robot_pose"   # ⚠ 2026-08-10 정정: 종전 "/rtabmap/localization_pose" 는 **실재하지 않는 토픽**이었고,
+                                       #   게다가 코드가 이 키를 읽지도 않아(죽은 키) 기본값 /robot_pose 로 동작했다.
+                                       #   코드에 읽는 줄을 추가하고 값을 사실에 맞췄다.
     yaw_control_reverse_pose_qos: 2                       # 0=default 1=reliable 2=sensor_data
     yaw_control_reverse_localization_timeout_sec: 2.0
     yaw_control_reverse_position_jump_threshold: 0.3
@@ -58,3 +60,12 @@
     transient_steer_error_max_deg: 10.0
     transient_enable_proportional_decel: true
     transient_runtime_gate_threshold_deg: 15.0
+
+    # ── 고장 탐지 (전진판과 동일 규약) ──
+    # 제어 소스는 IMU 그대로. 임계는 제어 목표가 아니라 고장 경계다.
+    # 근거: docs/adr/2026-08-10-yaw-control-heading-divergence-guard.md
+    #       docs/adr/2026-08-10-yaw-control-gate-blocked-guard.md
+    yaw_control_reverse_enable_heading_divergence_guard: true
+    yaw_control_reverse_heading_divergence_deg: 5.0
+    yaw_control_reverse_heading_divergence_count: 10
+    yaw_control_reverse_gate_blocked_timeout_sec: 5.0

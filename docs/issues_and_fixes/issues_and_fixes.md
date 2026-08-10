@@ -47,6 +47,40 @@
 
 ## 2026-08-10
 
+### [Retract→Fix] `debt-050` 오진 정정 — `yaw_control_reverse` 는 pose 를 정상 수신한다
+
+**종전 기록이 틀렸다.** 「`yaw_control_reverse` 가 `/rtabmap/localization_pose` 를 구독하는데
+발행자가 0개라 pose 를 못 받는다」고 적었으나, 소스·실행 양쪽으로 확인하니 사실이 아니다.
+
+```
+yaw_control_reverse_pose_topic 을 읽는 코드          0건 (죽은 yaml 키)
+LocalizationMonitor::Params::pose_topic 기본값       "/robot_pose"  (localization_monitor.hpp:27)
+⇒ reverse 는 pose_topic 을 설정하지 않으므로 기본값 /robot_pose 를 쓴다
+```
+
+**실행 확인**: 노드 기동 시 `/robot_pose` 구독자 1 → 2 증가, 노드 구독 목록에 `/robot_pose` 존재,
+`/rtabmap/localization_pose` 는 **토픽 자체가 없음**(구독조차 안 함).
+
+⇒ 나를 속인 것은 **읽히지도 않는 yaml 키가 실재하지 않는 토픽을 가리키고 있었던 것**이다.
+yaml 만 보고 코드를 확인하지 않아 없는 결함을 등록했다.
+
+**조치 (2026-08-10)**
+
+1. **죽은 키를 살렸다** — `lm_params.pose_topic = safeParam("yaw_control_reverse_pose_topic", "/robot_pose")`
+   를 코드에 추가하고 yaml 값을 `/robot_pose` 로 정정했다. 이제 전진판과 같은 규약이며
+   fused pose 로 redirect 할 수 있다.
+2. **`−7`·`−8` 가드를 이식했다** — 전진판에 넣은 헤딩 발산 탐지와 조향 미도달 감시를
+   `yaw_control_reverse` 에도 같은 규약으로 넣었다(파라미터 접두만 `yaw_control_reverse_`).
+
+**`yaw_control_reverse` 첫 실기 검증 (2026-08-10)**
+
+```
+헤딩 유지 · 0.4 m · vx_max 0.05(magnitude)
+status 0 · 거리 0.401 m · 최종 헤딩오차 +0.020° · 가드 오탐 0
+```
+
+이 액션은 그동안 **실기 이력이 0** 이었다 — 이번이 첫 확인이다.
+
 ### [Fix] `yaw_control` 조향 미도달 지속 감시 — `status −8` 신설 (debt-052)
 
 조향축 비응답 시 `yaw_control` 이 **60초를 아무 진단 없이 대기**했다(실측: 지령 −20.2°,
