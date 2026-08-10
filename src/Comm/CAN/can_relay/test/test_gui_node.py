@@ -79,6 +79,13 @@ def rig():
             pass
         driver.backend.shutdown()
         executor.shutdown()
+        # ⚠ **스핀 스레드를 반드시 join 한다.**
+        #   `Executor.shutdown()` 은 **미결 콜백**이 끝나기를 기다린다(`_work_tracker.wait()`).
+        #   그러나 **호출자의 스핀 스레드를 join 하지는 않는다** — 콜백이 다 끝난 뒤에도 그
+        #   스레드는 여전히 `spin()` 내부(대기셋 처리·guard condition 정리)에 있을 수 있다.
+        #   그 상태에서 `destroy_node()` 가 rcl 핸들을 해제하면 경합이 나고 segfault 가 난다.
+        #   이 픽스처는 시험마다 새로 도므로(15회) 경합 창이 그만큼 열린다.
+        thread.join(timeout=5.0)
         client.destroy_node()
         driver.destroy_node()
         if rclpy.ok():

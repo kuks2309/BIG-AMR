@@ -67,6 +67,43 @@
 전량 실행의 실패든 크래시든 보일 수가 없었다. 출력이 `1 skipped` 뿐이라
 **「문제 없다」로 읽히는 것이 가장 위험한 부분**이었다.
 
+### [Fix] 전량 실행 간헐 segfault 해소 — 스핀 스레드 join 누락 (debt-058 상환)
+
+`test_gui_node.py` 의 `rig` 픽스처가 `MultiThreadedExecutor` 를 데몬 스레드에서 돌리는데
+**그 스레드를 join 하지 않고** 노드를 파괴했다.
+
+```python
+executor.shutdown()
+thread.join(timeout=5.0)   # ← 추가
+client.destroy_node()
+driver.destroy_node()
+```
+
+- **`Executor.shutdown()` 은 미결 콜백을 기다린다**(`_work_tracker.wait()`, 문서에도
+  "wait for their completion"). ⚠ 처음에 「종료를 요청할 뿐」이라고 적었는데 **틀렸다** —
+  rclpy 소스를 확인하고 정정했다.
+- 그러나 **호출자의 스핀 스레드를 join 하지는 않는다.** 콜백이 끝난 뒤에도 그 스레드는
+  `spin()` 내부(대기셋 처리·guard condition 정리)에 있을 수 있고, 그 상태에서
+  `destroy_node()` 가 rcl 핸들을 해제하면 경합이 난다. 픽스처가 **시험마다 새로 돌므로**
+  (15회) 경합 창이 그만큼 열린다.
+
+**A/B 실측**
+
+```
+A  join 없음   실패 2 / 12   (segfault, exit 139)
+B  join 있음   실패 0 / 12
+누계          미수정 4/15 실패 · 수정 0/18 실패
+전량 실행     4회 연속 exit 0 · 398 passed, 8 skipped
+```
+
+⇒ **한 프로세스로 전량 실행이 가능해졌다.** 종전에는 `test_gui_node.py` 를 분리해야 했다.
+
+#### PyQt5 가설은 기각됐다
+
+처음에는 「PyQt5 와 rclpy 가 한 프로세스에 함께 적재돼서」로 추정했으나 **틀렸다** —
+`test_gui_node.py` **단독**으로도 3회 중 2회 죽었다(PyQt5 조합은 3회 중 1회).
+크래시는 이 파일 고유의 경합이었고 PyQt5 는 무관하다.
+
 ### [Fix] `TrapezoidalProfile` · `math_utils` gtest 16건 (debt-049 계속)
 
 `turn` 의 Stage 1(coarse)이 이 프로파일 위에 서 있고, 오늘 넣은 두 가드(`−7`·`−8`)가
