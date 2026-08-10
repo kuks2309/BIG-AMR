@@ -876,4 +876,13 @@ SIL 에서 「자기보고 − 지상진값」 괴리가 **−0.001°** 로 사�
 
 | id | 유형 | 위치 | 사유 | 식별일 | 상태 | 상환계획 |
 | --- | --- | --- | --- | --- | --- | --- |
-| **debt-057** | 기술 | `src/Comm/CAN/can_relay/test/test_master_frame_match.py:31` | **모듈 레벨 skip 이 전체 수집을 중단시킨다.** 캡처 파일(`Log/homing_capture_220350.jsonl`)이 없으면 `pytest test/` 가 `collected 0 items / 1 skipped` 로 끝난다 — 알파벳 순서상 앞선 6개 파일도 수집되지 않는다(pytest 6.2.5). 출력이 `1 skipped` 뿐이라 **「돌릴 게 없다/문제 없다」로 읽히고 실패가 보이지 않는다.** 캡처가 있는 환경에서는 정상 수집되므로 **환경에 따라 조용히 달라진다** | 2026-08-10 | 미해결 | 모듈 레벨 skip 대신 **테스트 함수 단위 skip**(`@pytest.mark.skipif`)으로 바꿔 수집이 계속되게 한다. 또는 캡처 부재 시 fixture 에서 skip. 고친 뒤 `pytest test/` 가 393+ 를 수집하는지로 검증 |
+| **debt-057** | 기술 | `src/Comm/CAN/can_relay/test/test_master_frame_match.py:31` | **모듈 레벨 skip 이 전체 수집을 중단시킨다.** 캡처 파일(`Log/homing_capture_220350.jsonl`)이 없으면 `pytest test/` 가 `collected 0 items / 1 skipped` 로 끝난다 — 알파벳 순서상 앞선 6개 파일도 수집되지 않는다(pytest 6.2.5). 출력이 `1 skipped` 뿐이라 **「돌릴 게 없다/문제 없다」로 읽히고 실패가 보이지 않는다.** 캡처가 있는 환경에서는 정상 수집되므로 **환경에 따라 조용히 달라진다** | 2026-08-10 | **상환 완료(2026-08-10)** — fixture 로 전환, `pytest test/` 가 393 passed / 8 skipped (exit 0) | 모듈 레벨 skip 대신 **테스트 함수 단위 skip**(`@pytest.mark.skipif`)으로 바꿔 수집이 계속되게 한다. 또는 캡처 부재 시 fixture 에서 skip. 고친 뒤 `pytest test/` 가 393+ 를 수집하는지로 검증 |
+
+
+---
+
+## [2026-08-10 등록] debt-058 — 전량 실행 종료 시 간헐 segfault
+
+| id | 유형 | 이해 | 위치 | 사유 | 식별일 | 상태 | 상환계획 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **debt-058** | 이해 | — | `src/Comm/CAN/can_relay/test/` 전량 실행 | **테스트가 모두 통과한 뒤 인터프리터 종료 시점에 간헐적으로 segfault(exit 139)** 한다. 6회 중 1회 관측. 한 프로세스에 PyQt5 와 rclpy 확장 모듈이 함께 적재되며 종료 순서 문제로 보이나 **기전 미확정**. ⚠ 요약줄은 `393 passed` 로 정상이고 크래시는 그 뒤에 나므로 **종료코드를 봐야 안다** — 요약만 보면 성공으로 읽힌다 | 2026-08-10 | 미해결 | 크래시 재현 조건을 좁힌다(PyQt5 시험만 / rclpy 시험만 분리 실행해 어느 쪽이 필요한지). 필요하면 `pytest-forked` 또는 파일 그룹 분리 실행으로 격리. **먼저 CI 에서 종료코드를 보는지 확인할 것** — 안 보면 이 크래시는 영원히 조용하다 |

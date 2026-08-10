@@ -47,6 +47,42 @@
 
 ## 2026-08-10
 
+### [Fix] pytest 수집 중단 해소 — 모듈 레벨 skip → fixture (debt-057 상환)
+
+`test_master_frame_match.py` 가 캡처 부재 시 **모듈 최상위**에서
+`pytest.skip(..., allow_module_level=True)` 를 내어 **디렉터리 전체 수집이 중단**됐다.
+
+```
+수정 전  pytest test/   → collected 0 items / 1 skipped   ← 앞선 파일 6개도 수집 안 됨
+수정 후  pytest test/   → 393 passed, 8 skipped (exit 0)
+```
+
+원인은 `MASTER = _master_frames()` 를 모듈 최상위에서 부른 것이다. 그 자리의 주석은
+`allow_module_level=True` 가 「수집 오류로 다른 시험까지 죽는 것」을 막는다고 적고 있었으나,
+**실제로는 그 방식 자체가 디렉터리 수집을 죽인다**(pytest 6.2.5 실측).
+`master` **fixture** 로 옮겨 skip 을 함수 단위로 내리자 이 파일의 8개만 건너뛰고 나머지는
+정상 수집·실행된다.
+
+⚠ **이 함정이 다른 문제를 가리고 있었다** — 수집이 0이라 아무것도 돌지 않았으므로
+전량 실행의 실패든 크래시든 보일 수가 없었다. 출력이 `1 skipped` 뿐이라
+**「문제 없다」로 읽히는 것이 가장 위험한 부분**이었다.
+
+### [Open] 전량 실행이 **간헐적으로** 종료 시 segfault (exit 139) — `debt-058`
+
+수집이 정상화되자 드러났다. 테스트는 모두 통과한 뒤 **인터프리터 종료 시점**에 죽는다.
+
+```
+전량        exit 0 · 393 passed, 8 skipped   × 4회
+--ignore    exit 139 Segmentation fault      × 1회 (같은 조합 이후 2회는 exit 0)
+```
+
+- **제 수정과 무관하다** — 크래시는 `--ignore` 조합에서 났고, 수정 후 전량 실행은 4회 모두 exit 0.
+- 한 프로세스에 **PyQt5 와 rclpy 확장 모듈이 함께 적재**되며(faulthandler 출력에 둘 다 등장),
+  종료 순서 문제로 보인다. **기전 미확정.**
+- ⚠ **종료코드를 봐야 안다.** 요약줄은 `393 passed` 로 정상이고 크래시는 그 **뒤**에 난다 —
+  요약만 보고 성공으로 읽으면 CI 가 붉어지는 이유를 못 찾는다.
+  (내가 앞선 보고에서 종료코드를 확인하지 않았다.)
+
 ### [Fix] `DirectBackend` 에 구동축 브링업 추가 + 회귀 4건 (debt-045 상환)
 
 2026-08-08 의 구동축 브링업 수정이 `RelayBackend` **한쪽에만** 들어가 UI 직결 경로는 같은 고장
