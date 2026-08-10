@@ -1,0 +1,89 @@
+<mxfile host="claude"><diagram name="pose-topic-wiring"><mxGraphModel dx="900" dy="800" grid="0" page="1" pageWidth="850" pageHeight="1100"><root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="S" value="Seer 로봇
+TCP 19204 상태포트" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="190" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="A" value="SeerPosePublisher
+pose_node.py" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="190" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="T1" value="토픽 /seer/robot_pose
+(PoseStamped)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="280" width="190" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="T2" value="토픽 /seer/localization_confidence
+(Float64)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="370" width="190" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="P" value="PC 측위 (정본 발행자)
+※ 본 저장소 미구현" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="40" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="M" value="mcl2d_localization_node" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="540" y="40" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="T4" value="토픽 /mcl_pose
+(PoseWithCovarianceStamped)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="540" y="160" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="SIL" value="sil_pose_adapter (SIL 전용)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="160" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="T3" value="토픽 /robot_pose
+(PoseStamped)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="280" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="LM" value="LocalizationMonitor
+poseCallback" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="400" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="C1" value="checkLocalizationHealth
+-4 -5 -6" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="180" y="520" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="C2" value="lookupMapToBase
+거리 투영 · -7 가드" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="420" y="520" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="AS" value="액션 서버 10종" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="640" width="200" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="e0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="S" target="A">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="A" target="T1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="A" target="T2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="P" target="T3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="M" target="T4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="SIL" target="T3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="T1" target="LM">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="T3" target="LM">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="LM" target="C1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="LM" target="C2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="C1" target="AS">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="C2" target="AS">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root></mxGraphModel></diagram></mxfile>

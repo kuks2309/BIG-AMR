@@ -903,4 +903,4 @@ SIL 에서 「자기보고 − 지상진값」 괴리가 **−0.001°** 로 사�
 
 | debt-067 | 이해 | `yaw_control*` 의 −7·−8 | 이번에 바꾼 두 가드의 **실기 확인이 남았다**. −8 진전 기반 로직은 즉응 플랜트라 SIL 로 발화시킬 수 없고, −7 의 pose 샘플 디바운스는 SIL(50 Hz)에서 종전과 구분되지 않는다(실차는 10 Hz) | 미확인 | 실기에서 ① `max_steer_deg=90` goal 1회(−8 오탐 없음 확인) ② `/robot_pose` 를 10 Hz 로 둔 선회 1회(−7 오탐 없음 확인) |
 
-| debt-068 | 이해 | `seer_pose_publisher` ↔ 2WS 액션 서버 토픽 배선 | 발행은 `/seer/robot_pose`, 구독은 `/robot_pose`(`localization_monitor.hpp` 기본값·yaml 동일). 검색 범위에서 리맵도 다른 발행자도 못 찾았으나 **「없다」로 단정하지 않는다**. 어긋나 있다면 실차에서 측위 기반 가드(−4·−5·−7)가 전부 무의미해진다 | 미확인 | 전체 스택 기동 후 `ros2 topic info -v /robot_pose` 로 발행자 확정. `translate_*`·`mpc` 의 `pose_topic: /rtabmap/localization_pose` 가 죽은 키인지도 함께 |
+| debt-068 | 이해 | `seer_pose_publisher` ↔ 2WS 액션 서버 토픽 배선 | **⚠ 2026-08-10 정정: 「불일치」가 아니라 「결속 미선언」이다.** 분리는 의도된 설계이며 `pose_node.py:20-31` 에 명시돼 있다(정본은 PC 측위, 본 노드는 그 옆의 참조). 실제 문제는 그 정본 발행자가 본 저장소에 없고, 두 끝을 잇는 결속이 어느 런치·문서에도 기본으로 선언돼 있지 않다는 것. 리뷰: `docs/code_review/pose-topic-wiring/2026-08-10.md`. 어긋나 있다면 실차에서 측위 기반 가드(−4·−5·−7)가 전부 무의미해진다 | 미확인 | 전체 스택 기동 후 `ros2 topic info -v /robot_pose` 로 발행자 확정. `translate_*`·`mpc` 의 `pose_topic: /rtabmap/localization_pose` 가 죽은 키인지도 함께 |
