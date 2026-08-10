@@ -82,6 +82,10 @@
     #   실제 pose 구독 QoS 는 RELIABLE 고정이며 yaml 로 바꿀 수 없다.
     #   「dead param」이라 주석만 달아 두면 다음 사람이 그래도 만져 보게 되므로 키를 없앤다.
     yaw_control_localization_timeout_sec: 2.0
+    # 자세 **값**이 이 시간 이상 변하지 않으면 STUCK(−4). stamp 신선도와 다른 검사다 —
+    #   발행자가 값 그대로 새 stamp 를 찍으면 신선도는 통과하고 얼어붙은 좌표로 제어가 닫힌다.
+    #   지령 속도가 실려 있을 때만 판정한다(정지 중 값이 안 변하는 것은 정상).
+    yaw_control_pose_stuck_timeout_sec: 2.0
     yaw_control_position_jump_threshold: 0.3
     yaw_control_enable_localization_watchdog: true
 

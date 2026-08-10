@@ -28,6 +28,15 @@ class LocalizationMonitor
         int pose_qos{0};  // 0=default(RELIABLE depth=10) 1=reliable 명시(동일) 2=BEST_EFFORT(SensorDataQoS). 2026-05-19: 외부 관측 호환 위해 RELIABLE default.
         double localization_timeout_sec{0.5};
         double position_jump_threshold{0.3};
+        // 자세 **값**이 이 시간 이상 변하지 않으면 STUCK 으로 본다(0 이하 = 검사 비활성).
+        // ⚠ stamp 신선도와는 **다른 검사**다. 발행자가 값이 그대로여도 매 주기 새 stamp 를
+        //   찍으면 신선도 검사는 통과한다 — 그때 소비자는 얼어붙은 좌표로 제어를 닫는다.
+        //   지령 속도가 실려 있을 때만(정지 중에는 안 변하는 것이 정상) 판정한다.
+        double pose_stuck_timeout_sec{2.0};
+        // 「변했다」로 볼 최소 이동량[m] — **직전 메시지가 아니라 기준점에서의 누적**과 비교한다.
+        // ⚠ 연속 메시지 차분과 비교하면 안 된다: 0.05 m/s · 50 Hz 면 메시지당 1 mm 라
+        //   임계(2 mm)를 영원히 못 넘어 **정상 주행이 STUCK 으로 잡힌다**(실측).
+        double pose_move_eps_m{0.002};
         bool enable_watchdog{true};
     };
 
@@ -37,6 +46,7 @@ class LocalizationMonitor
         TIMEOUT = 1,
         JUMP = 2,
         TF_LOOKUP_FAIL = 3,  // 토픽 미수신 시 사용 (semantic 호환)
+        STUCK = 4,           // 메시지는 오는데 **값이 얼어 있다** (신선도 검사로는 못 잡는다)
     };
 
     explicit LocalizationMonitor(rclcpp::Node::SharedPtr node, const Params &params);
@@ -50,7 +60,13 @@ class LocalizationMonitor
 
     void setMaxCmdSpeed(double speed)
     {
-        max_cmd_speed_.store(speed);
+        // 정지 → 주행 전이에서 값-정지 타이머를 다시 건다. 그러지 않으면 오래 서 있던
+        // 로봇이 출발하자마자 STUCK 으로 잡힌다(정지 중 값이 안 변하는 것은 정상이다).
+        const double prev = max_cmd_speed_.exchange(speed);
+        if (prev <= 0.01 && speed > 0.01)
+        {
+            last_move_ns_.store(node_->get_clock()->now().nanoseconds());
+        }
     }
 
     void setEnableWatchdog(bool enable)
@@ -85,6 +101,9 @@ class LocalizationMonitor
     std::atomic<double> last_yaw_{0.0};
     std::atomic<int64_t> last_stamp_ns_{0};  // rclcpp::Time nanoseconds
     std::atomic<bool> pose_received_{false};
+    std::atomic<int64_t> last_move_ns_{0};   // 자세 **값**이 마지막으로 변한 시각
+    std::atomic<double> move_ref_x_{0.0};    // 값-정지 판정 기준점(누적 비교용)
+    std::atomic<double> move_ref_y_{0.0};
 
     // Jump detection (callback thread only, mutex protected from setEnableWatchdog reset)
     std::mutex jump_mutex_;

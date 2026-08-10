@@ -75,6 +75,7 @@ YawControlReverseActionServer::YawControlReverseActionServer(rclcpp::Node::Share
     // `yaw_control_reverse_pose_topic` 이 **읽히지 않는 죽은 키**였고, 그 값이 실재하지 않는
     // 토픽을 가리켜 「이 액션은 pose 를 못 받는다」는 오진을 낳았다(실제로는 기본값 /robot_pose 사용).
     lm_params.pose_topic = safeParam<std::string>("yaw_control_reverse_pose_topic", std::string("/robot_pose"));
+    lm_params.pose_stuck_timeout_sec = safeParam("yaw_control_reverse_pose_stuck_timeout_sec", 2.0);
     loc_monitor_ = std::make_unique<LocalizationMonitor>(node_, lm_params);
 
     // mux active source — execute() 진입부에 select_motion_source service 호출 (정공법: action server 책임).
@@ -464,6 +465,13 @@ void YawControlReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_han
             {
                 code = -5;
                 reason_str = "JUMP";
+            }
+            else if (reason == trnav_2ws_core::LocalizationMonitor::HealthFailReason::STUCK)
+            {
+                // 값이 얼어 있다 — 「측위 갱신 없음」이므로 −4 계열이 맞다. 다만 stamp 는
+                // 신선했으므로 로그 문자열로 구분한다(신선도 검사만 보고 오진하지 않게).
+                code = -4;
+                reason_str = "STUCK(값 동결 — stamp 는 신선)";
             }
             else if (reason == trnav_2ws_core::LocalizationMonitor::HealthFailReason::TF_LOOKUP_FAIL)
             {

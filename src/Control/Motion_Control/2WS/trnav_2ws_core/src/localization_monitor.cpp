@@ -35,6 +35,29 @@ void LocalizationMonitor::poseCallback(const geometry_msgs::msg::PoseStamped::Sh
     tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
     rclcpp::Time stamp(msg->header.stamp);
 
+    // ── 값-변화 시각 기록 ──
+    // 발행자가 값이 그대로여도 새 stamp 를 찍을 수 있으므로, **좌표가 실제로 변한 시각**을
+    // 따로 남긴다. 신선도(stamp 나이)와 살아있음(값 변화)은 다른 성질이다.
+    if (pose_received_.load())
+    {
+        // ⚠ **기준점에서의 누적**과 비교한다. 직전 메시지와 비교하면 느린 주행에서
+        //   메시지당 변화가 임계보다 작아(0.05 m/s · 50 Hz → 1 mm) 정상 주행이 STUCK 으로
+        //   잡힌다. 누적이 임계를 넘을 때만 기준점을 옮기고 시각을 갱신한다.
+        const double moved = std::hypot(x - move_ref_x_.load(), y - move_ref_y_.load());
+        if (moved > params_.pose_move_eps_m)
+        {
+            move_ref_x_.store(x);
+            move_ref_y_.store(y);
+            last_move_ns_.store(node_->get_clock()->now().nanoseconds());
+        }
+    }
+    else
+    {
+        move_ref_x_.store(x);
+        move_ref_y_.store(y);
+        last_move_ns_.store(node_->get_clock()->now().nanoseconds());
+    }
+
     // Jump detection
     if (enable_watchdog_.load() && max_cmd_speed_.load() > 0.01)
     {
@@ -122,6 +145,26 @@ bool LocalizationMonitor::checkLocalizationHealth()
                     age_sec, params_.localization_timeout_sec, max_cmd_speed_.load());
         last_fail_reason_.store(HealthFailReason::TIMEOUT);
         return false;
+    }
+
+    // ── 값-정지 판정(STUCK) ──
+    // 여기까지 왔다는 것은 ① 워치독 켜짐 ② 지령 속도가 실려 있음 ③ 자세를 받았고
+    // ④ 점프 없음 ⑤ stamp 도 신선하다는 뜻이다. 그런데도 **좌표가 변하지 않는다면**
+    // 소비자는 얼어붙은 값으로 제어를 닫고 있는 것이다 — 진행거리가 0 에 머물러
+    // 「목표 미달」로 판단하고 지령을 계속 내면 **개루프 주행**이 된다.
+    if (params_.pose_stuck_timeout_sec > 0.0)
+    {
+        const double still_sec =
+            (now_ros - rclcpp::Time(last_move_ns_.load(), RCL_ROS_TIME)).seconds();
+        if (still_sec > params_.pose_stuck_timeout_sec)
+        {
+            RCLCPP_WARN(node_->get_logger(),
+                        "/robot_pose 값이 %.2f s 동안 변하지 않는다 (stamp 는 신선함, "
+                        "cmd_speed=%.3f m/s) — 얼어붙은 자세로 제어가 닫히고 있다",
+                        still_sec, max_cmd_speed_.load());
+            last_fail_reason_.store(HealthFailReason::STUCK);
+            return false;
+        }
     }
 
     last_fail_reason_.store(HealthFailReason::NONE);

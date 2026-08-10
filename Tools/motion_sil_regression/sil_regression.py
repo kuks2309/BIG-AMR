@@ -19,6 +19,7 @@
     yaw_loc       주행 중 측위 발행을 끊어 −4(측위 타임아웃)가 실제로 발화하는가
     yaw_silent    조향 권한을 묶어 헤딩을 못 고치게 한 뒤 −9(최종 헤딩 오차)가 발화하는가
     yaw_stale_start  **보내기 전에** 측위를 끊어, 얼어붙은 시작 자세로 궤적을 계산하지 않는가
+    yaw_frozen_pose  **값은 얼고 stamp 만 신선한** 자세를 주입해 STUCK(−4)이 발화하는가
 
 ⚠ **SIL 의 구조적 한계 2가지를 알고 써야 한다.**
   1. 플랜트는 IMU 와 맵 자세를 **같은 지상진값**에서 만든다 → 괴리가 정확히 0 이다.
@@ -62,6 +63,8 @@ CASES = {
     "yaw_silent": ("sil_yaw_control.launch.py", "/amr_motion_yaw_control_abstract",
                    "AMRMotionYawControl"),
     "yaw_stale_start": ("sil_yaw_control.launch.py", "/amr_motion_yaw_control_abstract",
+                        "AMRMotionYawControl"),
+    "yaw_frozen_pose": ("sil_yaw_control.launch.py", "/amr_motion_yaw_control_abstract",
                         "AMRMotionYawControl"),
 }
 
@@ -227,6 +230,39 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
             #   검사를 제거해도 −4 로 멈췄다). 워치독을 끄면 남는 보호가 신선도 검사뿐이라
             #   이 케이스가 그 검사만을 겨눈다.
             g.enable_localization_watchdog = (name != "yaw_stale_start")
+            if name == "yaw_frozen_pose":
+                g.target_distance = 3.0   # 얼어붙은 채로 오래 달릴 여지를 준다
+
+        if name == "yaw_frozen_pose":
+            # ⚠ 실기 사고 재현: 측위 **값**은 얼고 **stamp 만 계속 갱신**되는 상태.
+            #   신선도(stamp 나이) 검사는 통과하므로 종전 가드로는 못 잡았고, 액션은
+            #   진행거리 0 으로 「목표 미달」이라 판단해 지령을 계속 냈다(개루프 주행).
+            #   어댑터를 죽이고, 마지막 자세를 새 stamp 로 재발행하는 위조기를 붙인다.
+            subprocess.run(["pkill", "-f", "[s]il_pose_adapter"], capture_output=True, text=True)
+            time.sleep(1.0)
+            frozen = st["pose"]
+            import threading as _th
+
+            st["freeze_stop"] = False
+
+            def _freeze():
+                from geometry_msgs.msg import PoseStamped as _PS
+                pub = node.create_publisher(_PS, "/robot_pose", 10)
+                t_end = time.time() + 120
+                while time.time() < t_end and not st.get("freeze_stop"):
+                    m = _PS()
+                    m.header.frame_id = "map"
+                    m.header.stamp = node.get_clock().now().to_msg()   # ← stamp 만 신선
+                    m.pose.position.x, m.pose.position.y = frozen[0], frozen[1]
+                    m.pose.orientation.z = math.sin(math.radians(frozen[2]) / 2.0)
+                    m.pose.orientation.w = math.cos(math.radians(frozen[2]) / 2.0)
+                    try:
+                        pub.publish(m)
+                    except Exception:
+                        break          # 노드가 정리되면 조용히 끝낸다
+                    time.sleep(0.02)
+            _th.Thread(target=_freeze, daemon=True).start()
+            time.sleep(1.0)
 
         if name == "yaw_stale_start":
             # ⚠ goal 을 **보내기 전에** 측위를 끊는다. 이 지점이 `lookupMapToBase` 신선도
@@ -274,6 +310,16 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
                 return False, (f"[{name}] 각오차 {err:+.3f}° 가 규격 ±{TURN_TOL_DEG}° 초과 "
                                f"(지령 {g.target_angle:+.1f} · 달성 {res.actual_angle:+.3f})")
             return True, f"[{name}] status 0 · 각오차 {err:+.3f}° (규격 ±{TURN_TOL_DEG}°)"
+
+        if name == "yaw_frozen_pose":
+            # 값이 얼었으면 STUCK → −4 로 중단해야 한다. status 0 이나 −3(시한)이면
+            # 얼어붙은 자세로 계속 달렸다는 뜻이다 — 실기에서 일어난 그 형태다.
+            if res.status == 0:
+                return False, f"[{name}] status 0 — 얼어붙은 자세로 완주했다고 보고했다"
+            if res.status != -4:
+                return False, (f"[{name}] status={res.status} (−4 기대). 값 동결을 못 잡았다 — "
+                               f"신선도 검사만으로는 통과한다")
+            return True, f"[{name}] status −4(STUCK) 발화 · 거리 {res.actual_distance:.3f} m"
 
         if name == "yaw_stale_start":
             # 낡은 시작 자세를 쓰지 않고 중단해야 한다. status 0 이면 얼어붙은 좌표로
@@ -326,6 +372,8 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
         return True, f"[{name}] status −7 발화 · 거리 {res.actual_distance:.3f} m"
 
     finally:
+        st["freeze_stop"] = True       # 위조 발행 스레드를 먼저 세운다
+        time.sleep(0.1)
         try:
             node.destroy_node()
         except Exception:

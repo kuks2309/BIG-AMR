@@ -541,6 +541,13 @@ void TranslateReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
                 code = -5;
                 reason_str = "JUMP";
             }
+            else if (reason == trnav_2ws_core::LocalizationMonitor::HealthFailReason::STUCK)
+            {
+                // 값이 얼어 있다 — 「측위 갱신 없음」이므로 −4 계열이 맞다. 다만 stamp 는
+                // 신선했으므로 로그 문자열로 구분한다(신선도 검사만 보고 오진하지 않게).
+                code = -4;
+                reason_str = "STUCK(값 동결 — stamp 는 신선)";
+            }
             else if (reason == trnav_2ws_core::LocalizationMonitor::HealthFailReason::TF_LOOKUP_FAIL)
             {
                 code = -6;

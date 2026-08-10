@@ -53,6 +53,10 @@
                                        #   게다가 코드가 이 키를 읽지도 않아(죽은 키) 기본값 /robot_pose 로 동작했다.
                                        #   코드에 읽는 줄을 추가하고 값을 사실에 맞췄다.
     yaw_control_reverse_localization_timeout_sec: 2.0
+    # 자세 **값**이 이 시간 이상 변하지 않으면 STUCK(−4). stamp 신선도와 다른 검사다 —
+    #   발행자가 값 그대로 새 stamp 를 찍으면 신선도는 통과하고 얼어붙은 좌표로 제어가 닫힌다.
+    #   지령 속도가 실려 있을 때만 판정한다(정지 중 값이 안 변하는 것은 정상).
+    yaw_control_reverse_pose_stuck_timeout_sec: 2.0
     yaw_control_reverse_position_jump_threshold: 0.3
     yaw_control_reverse_enable_localization_watchdog: true
 

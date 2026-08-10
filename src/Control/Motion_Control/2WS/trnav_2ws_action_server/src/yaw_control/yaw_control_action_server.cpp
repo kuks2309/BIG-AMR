@@ -70,6 +70,7 @@ YawControlActionServer::YawControlActionServer(rclcpp::Node::SharedPtr node, Act
     // Phase2(2026-06-09): pose_topic 파라미터화 — 기본 /robot_pose, 실차 fused 교체는 yaw_control_pose_topic 으로 redirect.
     LocalizationMonitor::Params lm_params;
     lm_params.pose_topic = safeParam<std::string>("yaw_control_pose_topic", std::string("/robot_pose"));
+    lm_params.pose_stuck_timeout_sec = safeParam("yaw_control_pose_stuck_timeout_sec", 2.0);
     lm_params.localization_timeout_sec = safeParam("yaw_control_localization_timeout_sec", 2.0);
     lm_params.position_jump_threshold = safeParam("yaw_control_position_jump_threshold", 0.3);
     lm_params.enable_watchdog = enable_localization_watchdog_;
@@ -451,6 +452,13 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
             {
                 code = -5;
                 reason_str = "JUMP";
+            }
+            else if (reason == trnav_2ws_core::LocalizationMonitor::HealthFailReason::STUCK)
+            {
+                // 값이 얼어 있다 — 「측위 갱신 없음」이므로 −4 계열이 맞다. 다만 stamp 는
+                // 신선했으므로 로그 문자열로 구분한다(신선도 검사만 보고 오진하지 않게).
+                code = -4;
+                reason_str = "STUCK(값 동결 — stamp 는 신선)";
             }
             else if (reason == trnav_2ws_core::LocalizationMonitor::HealthFailReason::TF_LOOKUP_FAIL)
             {
