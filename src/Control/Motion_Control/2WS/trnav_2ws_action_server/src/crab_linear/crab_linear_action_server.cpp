@@ -11,6 +11,7 @@
 //   heading abort: |target_yaw - robot_yaw| > crab_linear_heading_threshold_deg → status=-4.
 
 #include "trnav_2ws_action_server/crab_linear/crab_linear_action_server.hpp"
+#include "trnav_2ws_core/velocity_ramp.hpp"
 
 #include <chrono>
 #include <thread>
@@ -713,23 +714,13 @@ void CrabLinearActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         {
             double acc_step = walk_accel_limit_ * dt;
             double dec_step = walk_decel_limit_ * dt;
-            auto velProfile = [](double cur, double tgt, double a_step, double d_step) -> double {
-                if (std::fabs(tgt) < 0.01)
-                {
-                    if (cur > d_step)
-                        return cur - d_step;
-                    if (cur < -d_step)
-                        return cur + d_step;
-                    return tgt;
-                }
-                if (tgt > cur)
-                    return std::fmin(tgt, cur + a_step);
-                if (tgt < cur)
-                    return std::fmax(tgt, cur - d_step);
-                return tgt;
-            };
-            vel_f = velProfile(prev_cmd_vel_f, vel_f, acc_step, dec_step);
-            vel_r = velProfile(prev_cmd_vel_r, vel_r, acc_step, dec_step);
+            // 지역 사본을 폐기하고 공용 `trnav_2ws_core::rampToward` 를 쓴다.
+            // 「가속」은 `tgt > cur` 이 아니라 `|tgt| > |cur|` 이다 — 부호 있는 비교는 음수
+            // 지령 구간에서 가·감속 한계를 뒤바꾼다. 이 서버는 **후방 크랩**(θ_body 90~270°)에서
+            // `direction = -1` 이 되어 램프 입력이 음수가 되므로 실제로 도달하는 경로였다
+            // (cur=-3.15 → tgt=-4.15 에서 한 번에 1.0 = **감속한계로 가속**. 정상은 0.5).
+            vel_f = trnav_2ws_core::rampToward(prev_cmd_vel_f, vel_f, acc_step, dec_step);
+            vel_r = trnav_2ws_core::rampToward(prev_cmd_vel_r, vel_r, acc_step, dec_step);
             prev_cmd_vel_f = vel_f;
             prev_cmd_vel_r = vel_r;
         }

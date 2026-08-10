@@ -1,4 +1,5 @@
 #include "trnav_2ws_action_server/mpc_reverse/mpc_reverse_action_server.hpp"
+#include "trnav_2ws_core/velocity_ramp.hpp"
 #include "trnav_2ws_core/localization_monitor.hpp"
 
 #include <algorithm>
@@ -773,34 +774,11 @@ void MpcReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         {
             double acc_step = walk_accel_limit_ * dt;
             double dec_step = walk_decel_limit_ * dt;
-            auto velProfile = [](double cur, double tgt, double a_step, double d_step) -> double {
-                if (std::fabs(tgt) < 0.01)
-                {
-                    if (cur > d_step)
-                        return cur - d_step;
-                    if (cur < -d_step)
-                        return cur + d_step;
-                    return tgt;
-                }
-                if (tgt * cur < 0.0)
-                {
-                    if (cur > d_step)
-                        return cur - d_step;
-                    if (cur < -d_step)
-                        return cur + d_step;
-                    return 0.0;
-                }
-                const double abs_cur = std::fabs(cur);
-                const double abs_tgt = std::fabs(tgt);
-                const double sign = (tgt >= 0.0) ? 1.0 : -1.0;
-                if (abs_tgt > abs_cur)
-                    return sign * std::fmin(abs_tgt, abs_cur + a_step);
-                if (abs_tgt < abs_cur)
-                    return sign * std::fmax(abs_tgt, abs_cur - d_step);
-                return tgt;
-            };
-            vel_f = velProfile(prev_cmd_vel_f, vel_f, acc_step, dec_step);
-            vel_r = velProfile(prev_cmd_vel_r, vel_r, acc_step, dec_step);
+            // 지역 사본을 폐기하고 공용 `trnav_2ws_core::rampToward` 를 쓴다.
+            // 이 서버의 램프 입력은 항상 ≥ 0 이라 **거동이 바뀌지 않는다**(양수 구간 전수
+            // 비교 결과 차이 0.000e+00). 사본이 갈라져 한쪽만 고쳐지는 일을 막는 통일이다.
+            vel_f = trnav_2ws_core::rampToward(prev_cmd_vel_f, vel_f, acc_step, dec_step);
+            vel_r = trnav_2ws_core::rampToward(prev_cmd_vel_r, vel_r, acc_step, dec_step);
             prev_cmd_vel_f = vel_f;
             prev_cmd_vel_r = vel_r;
         }
