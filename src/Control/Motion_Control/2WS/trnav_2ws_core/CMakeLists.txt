@@ -107,6 +107,9 @@ if(BUILD_TESTING)
   target_link_libraries(test_transient_guard transient_guard)
   ament_add_gtest(test_motion_profile test/test_motion_profile.cpp)
   target_link_libraries(test_motion_profile motion_profile)
+  # 헤더 전용 자산(robot_geometry · recursive_moving_average · action_mutex) — 링크 대상 없음
+  ament_add_gtest(test_core_utils test/test_core_utils.cpp)
+  target_include_directories(test_core_utils PRIVATE include)
 endif()
 
 ament_package()

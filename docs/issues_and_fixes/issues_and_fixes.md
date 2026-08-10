@@ -67,6 +67,28 @@
 전량 실행의 실패든 크래시든 보일 수가 없었다. 출력이 `1 skipped` 뿐이라
 **「문제 없다」로 읽히는 것이 가장 위험한 부분**이었다.
 
+### [Fix] `robot_geometry` · `RecursiveMovingAverage` · `ActionMutex` gtest 11건 (debt-049 계속)
+
+2WS `trnav_2ws_core` 의 **순수 자산을 모두 덮었다**(`TransientGuard`·`TrapezoidalProfile`·
+`math_utils` 에 이어 나머지 3종).
+
+```
+colcon test → trnav_2ws_core 36 tests, 0 failures
+돌연변이 ① parsePlatform 대체를 DD 로            → 2 failures
+돌연변이 ② RMA 재귀식 부호 오류(new−old → old−new) → 3 failures
+돌연변이 ③ ActionMutexGuard 가 해제하지 않음      → 3 failures
+원복                                              → 0 failures
+```
+
+특히 **`parsePlatform` 의 무성 대체를 못 박았다** — 모르는 이름·오타·빈 문자열이 예외도 경고도
+없이 `QD_DIAGONAL` 로 해석된다. 이 기체는 QD 대각이 **아니므로** 그 해석은 틀린 기하로 이어지고,
+같은 계열의 사고가 이미 있었다(QD 기본 기하가 흘러들어와 제자리 회전이 187 mm 병진이 됨).
+⚠ **바람직해서가 아니라 사실이라서 고정한다** — 대체를 없애거나 바꾸려면 이 시험이 먼저 실패한다.
+`"INLINE_DUAL_STEER"`(이 기체의 실제 배치 이름)조차 QD 로 떨어진다는 것도 함께 남겼다.
+
+`ActionMutexGuard` 는 **예외 경로에서의 해제**를 고정했다 — 풀리지 않으면 한 번 죽은 뒤
+이후 모든 기동이 거부된다.
+
 ### [Fix] 전량 실행 간헐 segfault 해소 — 스핀 스레드 join 누락 (debt-058 상환)
 
 `test_gui_node.py` 의 `rig` 픽스처가 `MultiThreadedExecutor` 를 데몬 스레드에서 돌리는데
