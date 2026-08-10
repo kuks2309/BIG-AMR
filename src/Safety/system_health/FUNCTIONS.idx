@@ -3,6 +3,7 @@ __post_init__
 _call
 _coerce
 _day_string
+_fake_powercap
 _format_findings
 _get
 _grade
@@ -59,11 +60,13 @@ path_for_day
 per_sample
 positive_float
 power_mw
+power_watts
 read_can_interfaces
 read_cooling_states
 read_cpu_freqs_khz
 read_cpu_times
 read_disk
+read_energy_counters
 read_fan
 read_gpu
 read_load_average
@@ -205,6 +208,10 @@ test_power_mw_is_voltage_times_current
 test_power_rails_are_plausible
 test_power_rails_have_labels_only
 test_power_rails_returns_tuple_even_without_sensor
+test_power_watts_corrects_wraparound
+test_power_watts_drops_domain_when_wrap_uncorrectable
+test_power_watts_ignores_unmatched_domain_and_bad_elapsed
+test_power_watts_is_energy_delta_over_time
 test_proc_scan_adds_liveness_and_top_rss
 test_proc_scan_disabled_omits_those_fields
 test_process_scan_exposes_pids_by_name
@@ -216,6 +223,8 @@ test_read_cpu_times_fills_core_ids
 test_read_cpu_times_has_total_and_cores
 test_read_disk_raises_on_missing_path
 test_read_disk_root_is_positive
+test_read_energy_counters_empty_when_unreadable
+test_read_energy_counters_parses_domains
 test_read_fan_returns_info_even_without_nodes
 test_read_gpu_returns_info
 test_read_helpers_return_none_for_missing_path
