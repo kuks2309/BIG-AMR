@@ -5,6 +5,6 @@
 
 | 날짜 | 코드 버전 | Verdict | 핵심 |
 | --- | --- | --- | --- |
-| [2026-08-10](2026-08-10.md) | `cb53176` (session/c9ea2414-pose) | REQUEST CHANGES | High 2 — 실기 결속이 어디에도 선언 안 됨 · `lookupMapToBase` 신선도 미검사 |
+| [2026-08-10](2026-08-10.md) | `cb53176` (session/c9ea2414-pose) | REQUEST CHANGES | High 2 — 실기 결속 미선언 · `lookupMapToBase` 신선도 미검사. **둘 다 조치 완료**(같은 날 후속 절). Medium 1건은 오판으로 철회 |
 
 > 다중 패키지 횡단이라 패키지 병기 없이 루트 정본만 둔다(SOP 룰 13).

@@ -398,7 +398,7 @@ void TranslateReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
     double robot_x = 0.0, robot_y = 0.0, robot_yaw = 0.0;
     if (!loc_monitor_->lookupMapToBase(robot_x, robot_y, robot_yaw))
     {
-        RCLCPP_ERROR(node_->get_logger(), "TF2 map->base_link not available, aborting translate_reverse");
+        RCLCPP_ERROR(node_->get_logger(), "/robot_pose 미수신 또는 낡음(신선도 초과) — TF 문제가 아니다. 측위 발행자와 pose_topic 결속을 확인하라. aborting translate_reverse");
         finish_abort(-3, 0.0, 0.0, 0.0, start_time);
         return;
     }

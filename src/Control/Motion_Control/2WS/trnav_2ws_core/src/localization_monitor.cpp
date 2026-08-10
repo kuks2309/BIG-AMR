@@ -141,11 +141,31 @@ bool LocalizationMonitor::lookupMapToBase(double &x, double &y, double &yaw,
     {
         return false;
     }
+    int64_t stamp_ns = last_stamp_ns_.load();
+    stamp = rclcpp::Time(stamp_ns, RCL_ROS_TIME);
+
+    // ── 신선도 검사 ──
+    // ⚠ `pose_received_` 는 **한 번 참이 되면 내려가지 않는다.** 그래서 종전에는 측위가
+    //   멈춰도 이 함수가 성공을 반환하며 **얼어붙은 좌표**를 줬다. 그 값으로 거리를
+    //   투영하면 기동이 진행되지 않고, 헤딩 가드는 고정된 맵 yaw 로 IMU 를 탓한다.
+    //   특히 **goal 시작 시점**이 위험하다 — 전체 궤적을 낡은 시작 자세에서 계산한다.
+    //   임계는 새 손잡이를 만들지 않고 `localization_timeout_sec` 를 그대로 쓴다:
+    //   `checkLocalizationHealth` 의 TIMEOUT 판정과 **같은 기준**이어야 두 경로가
+    //   서로 다른 말을 하지 않는다(0 이하면 검사 비활성).
+    //   호출부에서 막던 것을 여기로 내렸다 — 3인자 판도 이 함수에 위임하므로
+    //   `translate_*`·`mpc*`·`crab_linear` 까지 한 번에 닫힌다.
+    if (params_.localization_timeout_sec > 0.0)
+    {
+        const double age_sec = (node_->get_clock()->now() - stamp).seconds();
+        if (age_sec > params_.localization_timeout_sec)
+        {
+            return false;
+        }
+    }
+
     x = last_x_.load();
     y = last_y_.load();
     yaw = last_yaw_.load();
-    int64_t stamp_ns = last_stamp_ns_.load();
-    stamp = rclcpp::Time(stamp_ns, RCL_ROS_TIME);
     return true;
 }
 

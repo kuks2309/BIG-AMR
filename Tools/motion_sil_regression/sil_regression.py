@@ -18,6 +18,7 @@
     yaw_guard     IMU 에만 잡음을 주입해 −7(헤딩 발산)이 실제로 발화하는가
     yaw_loc       주행 중 측위 발행을 끊어 −4(측위 타임아웃)가 실제로 발화하는가
     yaw_silent    조향 권한을 묶어 헤딩을 못 고치게 한 뒤 −9(최종 헤딩 오차)가 발화하는가
+    yaw_stale_start  **보내기 전에** 측위를 끊어, 얼어붙은 시작 자세로 궤적을 계산하지 않는가
 
 ⚠ **SIL 의 구조적 한계 2가지를 알고 써야 한다.**
   1. 플랜트는 IMU 와 맵 자세를 **같은 지상진값**에서 만든다 → 괴리가 정확히 0 이다.
@@ -60,6 +61,8 @@ CASES = {
                 "AMRMotionYawControl"),
     "yaw_silent": ("sil_yaw_control.launch.py", "/amr_motion_yaw_control_abstract",
                    "AMRMotionYawControl"),
+    "yaw_stale_start": ("sil_yaw_control.launch.py", "/amr_motion_yaw_control_abstract",
+                        "AMRMotionYawControl"),
 }
 
 # 허용 규격 — 실기에서 승인된 `turn` 계열 규격과 같은 값이다(|오차| ≤ 0.5°).
@@ -219,7 +222,19 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
             g.hold_steer = False
             g.exit_steer_angle = 0.0
             g.max_timeout_sec = 90.0
-            g.enable_localization_watchdog = True
+            # ⚠ `yaw_stale_start` 는 워치독을 **끈다.** 켜 두면 워치독(−4)이 먼저 잡아
+            #   `lookupMapToBase` 신선도 검사가 무엇을 하는지 구분할 수 없다(실측 확인:
+            #   검사를 제거해도 −4 로 멈췄다). 워치독을 끄면 남는 보호가 신선도 검사뿐이라
+            #   이 케이스가 그 검사만을 겨눈다.
+            g.enable_localization_watchdog = (name != "yaw_stale_start")
+
+        if name == "yaw_stale_start":
+            # ⚠ goal 을 **보내기 전에** 측위를 끊는다. 이 지점이 `lookupMapToBase` 신선도
+            #   검사가 유일하게 결정적인 곳이다 — 정지 상태(`max_cmd_speed≈0`)에서는
+            #   `checkLocalizationHealth` 가 조기 true 를 반환하므로 워치독(−4)이 잡지
+            #   못하고, 종전에는 **얼어붙은 시작 자세로 전체 궤적을 계산**했다.
+            subprocess.run(["pkill", "-f", "[s]il_pose_adapter"], capture_output=True, text=True)
+            time.sleep(1.5)
 
         if name == "yaw_loc":
             # 주행이 시작된 뒤 측위 발행을 끊는다. 워치독이 살아 있으면 −4 로 중단하고,
@@ -259,6 +274,21 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
                 return False, (f"[{name}] 각오차 {err:+.3f}° 가 규격 ±{TURN_TOL_DEG}° 초과 "
                                f"(지령 {g.target_angle:+.1f} · 달성 {res.actual_angle:+.3f})")
             return True, f"[{name}] status 0 · 각오차 {err:+.3f}° (규격 ±{TURN_TOL_DEG}°)"
+
+        if name == "yaw_stale_start":
+            # 낡은 시작 자세를 쓰지 않고 중단해야 한다. status 0 이면 얼어붙은 좌표로
+            # 궤적을 계산했다는 뜻이다.
+            if res.status == 0:
+                return False, (f"[{name}] status 0 — 측위가 끊긴 채 시작했는데 성공으로 끝났다. "
+                               f"lookupMapToBase 신선도 검사가 듣지 않는다")
+            # ⚠ **멈추는 것만으로는 부족하다.** 신선도 검사가 없으면 얼어붙은 자세로
+            #   시작해 결국 −3(timeout) 으로 끝난다(실측). 그 코드는 정비자를 조향·시한
+            #   쪽으로 보낸다. 측위 계열 코드(−4·−6)로 끝나야 원인을 바로 가리킨다.
+            if res.status not in (-4, -6):
+                return False, (f"[{name}] status {res.status} — 멈추긴 했으나 측위 계열 코드가 "
+                               f"아니다(−4·−6 기대). 얼어붙은 자세로 시작해 다른 이유로 "
+                               f"끝났을 가능성 — 신선도 검사를 확인하라")
+            return True, f"[{name}] status {res.status}(측위 계열) 로 중단 · 거리 {res.actual_distance:.3f} m"
 
         if name == "yaw_loc":
             # −4=측위 타임아웃 이 정답. −7 이 뜨면 「측위가 죽었는데 IMU 를 탓하는」 오진이다.

@@ -413,6 +413,10 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         }
         else
         {
+            // 자세를 못 얻었으면 헤딩 발산 판정의 근거도 없다 — 카운터를 리셋해
+            // 공백을 사이에 낀 누적이 「연속」으로 읽히지 않게 한다.
+            heading_diverge_cnt = 0;
+            heading_last_stamp = rclcpp::Time(0, 0, RCL_ROS_TIME);
             tf_fail_count++;
             if (tf_fail_count >= tf_fail_max)
             {
