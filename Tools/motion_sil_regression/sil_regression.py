@@ -17,6 +17,7 @@
     yaw_control   거리 도달 · 헤딩 유지 · 가드 오탐 0
     yaw_guard     IMU 에만 잡음을 주입해 −7(헤딩 발산)이 실제로 발화하는가
     yaw_loc       주행 중 측위 발행을 끊어 −4(측위 타임아웃)가 실제로 발화하는가
+    yaw_silent    조향 권한을 묶어 헤딩을 못 고치게 한 뒤 −9(최종 헤딩 오차)가 발화하는가
 
 ⚠ **SIL 의 구조적 한계 2가지를 알고 써야 한다.**
   1. 플랜트는 IMU 와 맵 자세를 **같은 지상진값**에서 만든다 → 괴리가 정확히 0 이다.
@@ -56,6 +57,8 @@ CASES = {
                   "AMRMotionYawControl"),
     "yaw_loc": ("sil_yaw_control.launch.py", "/amr_motion_yaw_control_abstract",
                 "AMRMotionYawControl"),
+    "yaw_silent": ("sil_yaw_control.launch.py", "/amr_motion_yaw_control_abstract",
+                   "AMRMotionYawControl"),
 }
 
 # 허용 규격 — 실기에서 승인된 `turn` 계열 규격과 같은 값이다(|오차| ≤ 0.5°).
@@ -171,11 +174,18 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
             if st["pose"] is None:
                 return False, f"[{name}] /robot_pose 미수신 — 어댑터가 안 떴다"
             g = A.AMRMotionYawControl.Goal()
-            g.target_yaw_deg = st["pose"][2]     # 현재 헤딩 유지
+            if name == "yaw_silent":
+                # 조향 권한을 1° 로 묶고 헤딩 목표를 40° 틀어 준다. dψ/ds = tan(δ)/L 이므로
+                # δ=1°·L=1.2 m 에서 0.83°/m — 0.5 m 로는 0.4° 밖에 못 고친다. 즉 거리는
+                # 채우지만 헤딩은 거의 그대로다. 종전에는 이것이 **status 0(성공)** 이었다.
+                # IMU 와 맵이 둘 다 「안 돌았다」로 일치하므로 −7 도 뜨지 않는다.
+                g.target_yaw_deg = st["pose"][2] + 40.0
+            else:
+                g.target_yaw_deg = st["pose"][2]     # 현재 헤딩 유지
             g.target_distance = 3.0 if name == "yaw_loc" else 0.5
             g.vx_max = -0.05
             g.acceleration = 0.05
-            g.max_steer_deg = 25.0
+            g.max_steer_deg = 1.0 if name == "yaw_silent" else 25.0
             g.kp, g.kd, g.ki, g.i_max_deg = 1.0, 0.1, 0.0, 0.0
             g.counter_steer = False
             g.hold_steer = False
@@ -231,6 +241,16 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
                 return False, (f"[{name}] status={res.status} (−4 기대). 측위 발행을 끊었는데 "
                                f"워치독이 발화하지 않았다 — setMaxCmdSpeed 배선을 확인하라")
             return True, f"[{name}] status −4 발화 · 거리 {res.actual_distance:.3f} m"
+
+        if name == "yaw_silent":
+            if res.status == 0:
+                return False, (f"[{name}] status 0 — 헤딩 오차 {res.final_error_deg:+.1f}° 를 안고 "
+                               f"**성공으로 보고**했다. 조용한 실패가 그대로다")
+            if res.status != -9:
+                return False, (f"[{name}] status={res.status} (−9 기대). 최종 헤딩 오차 "
+                               f"{res.final_error_deg:+.1f}°")
+            return True, (f"[{name}] status −9 발화 · 최종 헤딩오차 {res.final_error_deg:+.1f}° "
+                          f"· 거리 {res.actual_distance:.3f} m")
 
         if name == "yaw_control":
             if res.status != 0:

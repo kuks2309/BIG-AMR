@@ -41,6 +41,8 @@ YawControlReverseActionServer::YawControlReverseActionServer(rclcpp::Node::Share
     bicycle_model_ = std::make_unique<BicycleModel>(wheels);
 
     // YawControlReverse-specific parameters (yaw_control_reverse_* prefix)
+    final_yaw_tol_deg_ = safeParam("yaw_control_reverse_final_yaw_tolerance_deg", 10.0);
+    enable_final_yaw_check_ = safeParam("yaw_control_reverse_enable_final_yaw_check", true);
     max_timeout_sec_ = safeParam("yaw_control_reverse_max_timeout_sec", 60.0);
     enable_localization_watchdog_ = safeParam("yaw_control_reverse_enable_localization_watchdog", true);
     walk_accel_limit_ = safeParam("yaw_control_reverse_walk_accel_limit", 0.5);
@@ -741,6 +743,24 @@ void YawControlReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_han
     {
         RCLCPP_INFO(node_->get_logger(), "YawControlReverse cancelled after Phase 1-3");
         finish_abort(-1, current_distance, final_yaw_deg, final_err_deg, start_time);
+        return;
+    }
+
+    // ── 최종 헤딩 오차 검사(status −9) ──
+    // ⚠ **여기가 마지막 조용한 실패 경로였다.** 조향이 죽어 로봇이 직진만 하면 IMU 와 맵이
+    //   **둘 다 「안 돌았다」로 일치**하므로 −7(헤딩 발산)이 뜨지 않고, 거리는 정상 누적되어
+    //   `current_distance >= target_distance` 로 완주 판정이 난다. 그러면 헤딩이 25° 틀어진
+    //   기동이 `status 0`(성공)으로 상위에 올라가고 다음 기동이 그 자세에서 출발한다.
+    //   −7·−8 을 넣은 목적의 절반이 이 지점에서 샜다.
+    //   임계는 **정확도 규격이 아니라 조용한 실패를 막는 가드**다 — 실기에서 검증된 기동을
+    //   깨지 않도록 넉넉히 잡고(기본 10°), 규격 논의는 별도다.
+    if (enable_final_yaw_check_ && std::fabs(final_err_deg) > final_yaw_tol_deg_)
+    {
+        RCLCPP_ERROR(node_->get_logger(),
+                     "YawControlReverse: 거리는 채웠으나 최종 헤딩 오차 %.2f° 가 허용 %.2f° 를 넘는다 — "
+                     "조향이 지령을 따라가지 못했는가(can_relay·모터 점검). abort(-9)",
+                     final_err_deg, final_yaw_tol_deg_.load());
+        finish_abort(-9, current_distance, final_yaw_deg, final_err_deg, start_time);
         return;
     }
 

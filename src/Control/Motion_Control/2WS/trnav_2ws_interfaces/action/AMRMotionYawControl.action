@@ -23,6 +23,9 @@ int8    status               # 0=success, -1=cancelled, -2=invalid, -3=timeout, 
                              #    측위는 멀쩡한데 IMU 쪽이 어긋난 상황. 재시도가 아니라 IMU 점검이 필요)
                              # -8=steer_unreachable (조향이 지령에 도달하지 못한 채 지속 —
                              #    구동은 가드가 0 으로 묶고 있다. can_relay·모터 쪽 점검이 필요)
+                             # -9=final_yaw_tolerance (거리는 채웠으나 최종 헤딩 오차가 허용 초과 —
+                             #    조향이 지령을 따라가지 못한 채 직진만 한 경우. IMU 와 맵이 둘 다
+                             #    「안 돌았다」로 일치해 -7 이 뜨지 않는 사각을 막는다)
 float64 actual_distance      # m
 float64 final_yaw_deg
 float64 final_error_deg

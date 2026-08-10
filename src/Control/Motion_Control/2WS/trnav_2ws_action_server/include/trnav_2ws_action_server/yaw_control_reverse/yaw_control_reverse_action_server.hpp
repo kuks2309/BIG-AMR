@@ -54,6 +54,12 @@ class YawControlReverseActionServer
     //   스레드에서 돈다. 비-atomic 이면 UB 이고, 최적화기가 루프 밖으로 로드를 끌어올리면
     //   hot-reload 가 진행 중 goal 에 **비결정적으로 반영되지 않는다**(고치려던 증상의 재발).
     //   베이스가 같은 이유로 atomic 을 쓴다(`qd_action_server_base.hpp`).
+    // 최종 헤딩 오차 허용(−9). **정확도 규격이 아니라 조용한 실패 가드**다 —
+    // 조향이 죽으면 IMU·맵이 둘 다 「안 돌았다」로 일치해 −7 이 뜨지 않고 거리만 채워
+    // `status 0` 이 나간다. 실기 검증 기동을 깨지 않도록 넉넉히 잡는다.
+    std::atomic<double> final_yaw_tol_deg_{10.0};
+    std::atomic<bool> enable_final_yaw_check_{true};
+
     std::atomic<double> max_timeout_sec_{60.0};
     std::atomic<bool> enable_localization_watchdog_{true};
     std::atomic<double> walk_accel_limit_{0.5};
