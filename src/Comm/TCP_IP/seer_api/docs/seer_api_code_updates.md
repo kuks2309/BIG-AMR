@@ -40,8 +40,8 @@
   **아무것도 변조하지 않는다.** 「미검출」을 보고 시험을 의심했으나 범인은 돌연변이였다.
   블록 통째 치환으로 고치고 "미검출이면 시험보다 돌연변이를 먼저 의심한다"를 주석으로 박았다.
 - **잔여(⚠)**: 지령 포트 쓰기 API 6종(`stop`·`open_loop_move`·`relocate`·`go_target`·`set_do`·
-  `download_map`)은 **실기 미호출** — 단위 시험(가짜 소켓)만 통과. broker 미착수(**debt-055**),
-  HAL 메시지 계약 미확정(**debt-056**).
+  `download_map`)은 **실기 미호출** — 단위 시험(가짜 소켓)만 통과. broker 미착수(**debt-060**),
+  HAL 메시지 계약 미확정(**debt-061**).
   경위 기록: [docs/claude-mistake/2026-08-07-002](../../../../../docs/claude-mistake/2026-08-07-002_vendor-question-drafted-while-holding-the-source.md).
 
 ## 2026-08-07 / (pending commit) — 패키지 신설: Seer TCP/IP API 클라이언트 3층
