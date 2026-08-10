@@ -189,6 +189,9 @@ class SeerPosePublisher(Node):
         except (OSError, SeerError) as exc:
             self._warn_throttled(f"맵 확인 실패: {exc}")
             self._map_ok = False
+            # 같은 이유로 소켓을 버린다 — 어긋난 스트림에서는 맵 이름도 믿을 수 없고,
+            # 닫지 않으면 이 경로가 영원히 같은 쓰레기를 읽는다(실기에서 관측된 형태다).
+            self._close()
             return False
 
         name = info.get("current_map", "")
@@ -234,9 +237,14 @@ class SeerPosePublisher(Node):
         except (OSError, socket.timeout, SeerError) as exc:
             self._fail_streak += 1
             self._warn_throttled(f"1004 실패({self._fail_streak}회 연속): {exc}")
-            if self._fail_streak >= 3:
-                self._close()          # 소켓이 상했다고 보고 다음 주기에 다시 연다
-                self._fail_streak = 0
+            # ⚠ **한 번이라도 실패하면 소켓을 버린다.** 이 프로토콜에는 요청 ID 가 없어
+            #   응답을 요청과 맞출 수단이 없다. 타임아웃 뒤 늦게 도착한 응답은 버퍼에
+            #   남아 있다가 **다음 읽기에서 헤더로 해석**되고, 그때부터 스트림이 영구히
+            #   어긋난다(실기 2026-08-10: `bad sync byte 0x7B`=`{`, `0x22`=`"` — JSON 본문을
+            #   헤더로 읽고 있었다). 종전에는 3회 연속이어야 닫아서, 그 사이에 이미
+            #   어긋난 소켓으로 계속 읽었고 **복구 경로가 없었다.**
+            self._close()
+            self._fail_streak = 0
             return
 
         self._fail_streak = 0

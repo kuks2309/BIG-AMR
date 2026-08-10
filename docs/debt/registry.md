@@ -902,3 +902,5 @@ SIL 에서 「자기보고 − 지상진값」 괴리가 **−0.001°** 로 사�
 | debt-066 | ~~기술~~ **상환(2026-08-10)** | `translate_forward` · `translate_reverse` · `crab_linear` · `mpc` · `mpc_reverse` 의 지역 `velProfile` | `yaw_control` 전진판에서 발견한 **부호 있는 비교로 인한 가·감속 한계 뒤바뀜**이 다른 서버 사본에도 있는지 미확인. 후진을 허용하는 서버라면 같은 결함(제동거리 2배)이다. 공용 `trnav_2ws_core::rampToward` 는 이미 있다 | **상환** | 전수 조사: 후진판 2개는 정상, `crab_linear`·`translate_forward`·`mpc` 가 부호 비교였다. `crab_linear` 은 **후방 크랩**(θ 90~270°, `direction=−1`)에서 실제 도달. 전진 전용 2개는 양수 구간 차이 0 임을 증명 후 치환. 지역 사본 0 |
 
 | debt-067 | 이해 | `yaw_control*` 의 −7·−8 | 이번에 바꾼 두 가드의 **실기 확인이 남았다**. −8 진전 기반 로직은 즉응 플랜트라 SIL 로 발화시킬 수 없고, −7 의 pose 샘플 디바운스는 SIL(50 Hz)에서 종전과 구분되지 않는다(실차는 10 Hz) | 미확인 | 실기에서 ① `max_steer_deg=90` goal 1회(−8 오탐 없음 확인) ② `/robot_pose` 를 10 Hz 로 둔 선회 1회(−7 오탐 없음 확인) |
+
+| debt-068 | 이해 | `seer_pose_publisher` ↔ 2WS 액션 서버 토픽 배선 | 발행은 `/seer/robot_pose`, 구독은 `/robot_pose`(`localization_monitor.hpp` 기본값·yaml 동일). 검색 범위에서 리맵도 다른 발행자도 못 찾았으나 **「없다」로 단정하지 않는다**. 어긋나 있다면 실차에서 측위 기반 가드(−4·−5·−7)가 전부 무의미해진다 | 미확인 | 전체 스택 기동 후 `ros2 topic info -v /robot_pose` 로 발행자 확정. `translate_*`·`mpc` 의 `pose_topic: /rtabmap/localization_pose` 가 죽은 키인지도 함께 |
