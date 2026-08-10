@@ -66,7 +66,9 @@
     # 근거·설계: docs/adr/2026-08-10-yaw-control-heading-divergence-guard.md
     yaw_control_enable_heading_divergence_guard: true
     yaw_control_heading_divergence_deg: 5.0
-    yaw_control_heading_divergence_count: 10   # 연속 cycle (50 Hz 기준 0.2 s)
+    yaw_control_# ⚠ 단위는 **제어 cycle 이 아니다** — 제어는 50 Hz 인데 실차 /robot_pose 는 10 Hz 라
+    #   cycle 을 세면 같은 pose 를 5 번 세게 되어 「10 연속」이 실제로는 샘플 2개였다.
+    heading_divergence_count: 10   # **서로 다른 pose 샘플** 수 (실차 10 Hz 기준 약 1.0 s)
 
     # ── 조향 미도달 지속 감시 ──
     # gate_blocked(조향 오차로 구동 0)은 정상 안전 동작이지만 조향축이 비응답이면 영원히

@@ -900,3 +900,5 @@ SIL 에서 「자기보고 − 지상진값」 괴리가 **−0.001°** 로 사�
 | debt-065 | 이해 | `trnav_2ws_core/src/motion_profile.cpp` 생성자 | `entry_speed` 실현가능성 가드가 `getSpeed` 를 통해 **관측 불가능**하다(5개 조합 전 구간 차이 0). 가드 발동 조건이 곧 `accel_dist_=0` 이라 ACCEL 분기가 실행되지 않고, DECEL 식은 `entry_speed` 를 쓰지 않는다. 방어적 대수로 남길지 죽은 코드로 제거할지 판단 필요 | 미판단 | 연속 기동(`crab_linear`)에서 `entry_speed` 가 실제로 어떤 값으로 들어오는지 확인 후 결정. 등가성은 시험으로 고정해 뒀다 |
 
 | debt-066 | 기술 | `translate_forward` · `translate_reverse` · `crab_linear` · `mpc` · `mpc_reverse` 의 지역 `velProfile` | `yaw_control` 전진판에서 발견한 **부호 있는 비교로 인한 가·감속 한계 뒤바뀜**이 다른 서버 사본에도 있는지 미확인. 후진을 허용하는 서버라면 같은 결함(제동거리 2배)이다. 공용 `trnav_2ws_core::rampToward` 는 이미 있다 | 미확인 | 각 사본을 `rampToward` 와 대조 → 동일하면 치환, 다르면 왜 다른지 확인. 실기 검증된 코드이므로 한 서버씩 |
+
+| debt-067 | 이해 | `yaw_control*` 의 −7·−8 | 이번에 바꾼 두 가드의 **실기 확인이 남았다**. −8 진전 기반 로직은 즉응 플랜트라 SIL 로 발화시킬 수 없고, −7 의 pose 샘플 디바운스는 SIL(50 Hz)에서 종전과 구분되지 않는다(실차는 10 Hz) | 미확인 | 실기에서 ① `max_steer_deg=90` goal 1회(−8 오탐 없음 확인) ② `/robot_pose` 를 10 Hz 로 둔 선회 1회(−7 오탐 없음 확인) |

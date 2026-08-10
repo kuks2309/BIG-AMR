@@ -79,6 +79,8 @@ class YawControlReverseActionServer
     // 임계는 정상 조향 이동 시간보다 길어야 오탐이 없다 — 실측상 0→31° 이동에 약 3 초.
     // 근거·설계: docs/adr/2026-08-10-yaw-control-gate-blocked-guard.md
     std::atomic<double> gate_blocked_timeout_sec_{5.0};
+    // 게이트 임계 사본 — −8 에피소드를 히스테리시스로 닫는 데 쓴다(생성자에서만 설정).
+    double runtime_gate_threshold_deg_{15.0};
 
     // hot-reload 콜백 핸들 (거짓 성공 제거 — ADR 2026-08-10-yaw-control-param-callback)
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr params_cb_handle_;

@@ -74,5 +74,7 @@
     #       docs/adr/2026-08-10-yaw-control-gate-blocked-guard.md
     yaw_control_reverse_enable_heading_divergence_guard: true
     yaw_control_reverse_heading_divergence_deg: 5.0
-    yaw_control_reverse_heading_divergence_count: 10
+    yaw_control_reverse_# ⚠ 단위는 **제어 cycle 이 아니다** — 제어는 50 Hz 인데 실차 /robot_pose 는 10 Hz 라
+    #   cycle 을 세면 같은 pose 를 5 번 세게 되어 「10 연속」이 실제로는 샘플 2개였다.
+    heading_divergence_count: 10
     yaw_control_reverse_gate_blocked_timeout_sec: 5.0
