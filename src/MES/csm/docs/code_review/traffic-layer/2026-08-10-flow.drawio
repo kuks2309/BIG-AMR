@@ -1,0 +1,49 @@
+<mxGraphModel dx="1100" dy="900" grid="0" page="1" pageWidth="850" pageHeight="1600">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="A" value="drive tick" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="40" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="B" value="pose known?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="110" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="Z" value="return: never command blind" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="520" y="110" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="C" value="exit leg active?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="180" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="D" value="_drive_to_exit" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="250" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="Z2" value="return" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="520" y="250" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="E" value="no job or no goal?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="320" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="F" value="_go_home" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="390" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="Z3" value="return" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="520" y="390" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="G" value="docking started?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="460" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="H" value="_run_docking" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="530" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="Z4" value="return" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="520" y="530" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="I" value="give way: _threat then who_yields" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="600" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="J" value="am I the yielder?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="670" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="K" value="_sidestep_target then _drive_toward" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="740" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="Z5" value="return" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="520" y="740" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="L" value="partner stood aside?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="810" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="M" value="stop and wait" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="880" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="Z6" value="return" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="520" y="880" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="N" value="_junction_control" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="950" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="O" value="stop" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="1020" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="P" value="repulsion and crab to goal" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="120" y="1090" width="240" height="50" as="geometry"/></mxCell>
+    <mxCell id="e0" value="" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="A" target="B"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e1" value="no" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="B" target="Z"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e2" value="yes" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="B" target="C"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e3" value="yes" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="C" target="D"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e4" value="" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="D" target="Z2"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e5" value="no" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="C" target="E"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e6" value="yes" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="E" target="F"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e7" value="" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="F" target="Z3"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e8" value="no" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="E" target="G"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e9" value="yes" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="G" target="H"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e10" value="" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="H" target="Z4"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e11" value="no" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="G" target="I"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e12" value="" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="I" target="J"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e13" value="yes" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="J" target="K"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e14" value="" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="K" target="Z5"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e15" value="no" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="J" target="L"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e16" value="no" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="L" target="M"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e17" value="" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="M" target="Z6"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e18" value="yes" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="L" target="N"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e19" value="red" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="N" target="O"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e20" value="green" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="N" target="P"><mxGeometry relative="1" as="geometry"/></mxCell>
+  </root>
+</mxGraphModel>
