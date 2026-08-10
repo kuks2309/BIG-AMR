@@ -62,4 +62,14 @@ install(DIRECTORY include/
 # Export for downstream packages (trnav_2ws_motion, trnav_2ws_action_server, amr_dock_align, ...)
 ament_export_targets(trnav_2ws_kinematics_targets HAS_LIBRARY_TARGET)
 
+# ── 시험 ────────────────────────────────────────────────────────────────
+# `computeSpin` 은 범용 IK 를 풀지 않고 ±90° 를 **강제**한다. 그 강제와 `isInline`
+# 전제 검사, 그리고 원호 조향 항등식(atan(x_i / R))을 고정한다 — 대칭 근사나
+# 범용 IK 로 되돌아가면 제자리 회전이 조용히 병진으로 바뀐다.
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_qd_inverse_kinematics test/test_qd_inverse_kinematics.cpp)
+  target_link_libraries(test_qd_inverse_kinematics qd_inverse_kinematics)
+endif()
+
 ament_package()
