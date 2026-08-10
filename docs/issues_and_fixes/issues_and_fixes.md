@@ -67,9 +67,49 @@
 전량 실행의 실패든 크래시든 보일 수가 없었다. 출력이 `1 skipped` 뿐이라
 **「문제 없다」로 읽히는 것이 가장 위험한 부분**이었다.
 
-### [Open] 전량 실행이 **간헐적으로** 종료 시 segfault (exit 139) — `debt-058`
+### [Fix] `RelayBackend.start()` 브링업 회귀 5건 신설 (debt-047 상환)
 
-수집이 정상화되자 드러났다. 테스트는 모두 통과한 뒤 **인터프리터 종료 시점**에 죽는다.
+2026-08-08 의 두 수정 중 **어느 쪽이 실제로 고정돼 있는지 돌연변이로 먼저 확인**했다.
+
+```
+A  조향 게이트를 self._homed 로 되돌림   → 1 failed   ← 이미 고정돼 있었다
+   (test_backend.py::test_low_cmd_steer_allowed_when_drive_reports_homed, 타 세션 b0bbc62)
+B  start() 의 브링업 호출 2줄 제거        → 393 passed · **미검출**
+```
+
+B 만 비어 있었으므로 그쪽에 회귀 5건을 붙였다(`test/test_relay_bringup.py`).
+`_write_bringup()` 을 직접 부르지 않고 **`start()` 를 돌려** 배선을 지나가게 했다.
+
+```
+돌연변이 확인
+  ① start() 브링업 호출 제거   → test_start_sends_drive_bringup_when_enabled 실패
+  ② 조향축까지 브링업          → test_bringup_is_not_sent_to_steer_axes 실패
+  ③ allow_bringup 플래그 무시  → test_no_bringup_when_disabled 실패
+  원복                         → 5 passed
+```
+
+작성 중 **오탐 1건** — `0x60FF=0`(목표속도 0)은 정상 지령 루프도 보내므로 「브링업이 안 나갔다」를
+검사할 수 없다. 브링업 **고유** 프레임 4개(`0x6040=0x86`·`0x100C`·`0x100D`·`0x6060=3`)만
+보도록 좁혔다. `DirectBackend` 시험 때와 **같은 종류의 오탐**을 두 번 냈다.
+
+**회귀 결과**: `test_gui_node.py` 단독 15 passed(exit 0) + 나머지 전량 383 passed·8 skipped(exit 0)
+= **398개 통과, 실패 0**. 한 프로세스로 합치면 아래 `debt-058` 로 죽으므로 분리 실행했다.
+
+### [Open→정정] 전량 실행 간헐 segfault (exit 139) — `debt-058`
+
+⚠ **종전 서술 「모두 통과 뒤 종료 시점」은 틀렸다.** faulthandler 로 지점을 특정했다:
+
+```
+Current thread:
+  rclpy/node.py:1468 create_service
+  can_relay/driver_node.py:218 __init__
+  test/test_gui_node.py:66 rig          ← 약 53% 지점, 실행 중
+```
+
+요약줄만 보고 「종료 시점」이라 추정한 것이었다. 실제로는 `test_gui_node.py` 의 rclpy 노드·
+서비스 생성 중에 죽으며 **간헐적**이다. 분리하면 양쪽 다 정상(15 + 383).
+
+수집이 정상화되자 드러났다.
 
 ```
 전량        exit 0 · 393 passed, 8 skipped   × 4회
