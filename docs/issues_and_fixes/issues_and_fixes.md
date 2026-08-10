@@ -47,6 +47,216 @@
 
 ## 2026-08-10
 
+### [Fix] pytest 수집 중단 해소 — 모듈 레벨 skip → fixture (debt-057 상환)
+
+`test_master_frame_match.py` 가 캡처 부재 시 **모듈 최상위**에서
+`pytest.skip(..., allow_module_level=True)` 를 내어 **디렉터리 전체 수집이 중단**됐다.
+
+```
+수정 전  pytest test/   → collected 0 items / 1 skipped   ← 앞선 파일 6개도 수집 안 됨
+수정 후  pytest test/   → 393 passed, 8 skipped (exit 0)
+```
+
+원인은 `MASTER = _master_frames()` 를 모듈 최상위에서 부른 것이다. 그 자리의 주석은
+`allow_module_level=True` 가 「수집 오류로 다른 시험까지 죽는 것」을 막는다고 적고 있었으나,
+**실제로는 그 방식 자체가 디렉터리 수집을 죽인다**(pytest 6.2.5 실측).
+`master` **fixture** 로 옮겨 skip 을 함수 단위로 내리자 이 파일의 8개만 건너뛰고 나머지는
+정상 수집·실행된다.
+
+⚠ **이 함정이 다른 문제를 가리고 있었다** — 수집이 0이라 아무것도 돌지 않았으므로
+전량 실행의 실패든 크래시든 보일 수가 없었다. 출력이 `1 skipped` 뿐이라
+**「문제 없다」로 읽히는 것이 가장 위험한 부분**이었다.
+
+### [Open] 전량 실행이 **간헐적으로** 종료 시 segfault (exit 139) — `debt-058`
+
+수집이 정상화되자 드러났다. 테스트는 모두 통과한 뒤 **인터프리터 종료 시점**에 죽는다.
+
+```
+전량        exit 0 · 393 passed, 8 skipped   × 4회
+--ignore    exit 139 Segmentation fault      × 1회 (같은 조합 이후 2회는 exit 0)
+```
+
+- **제 수정과 무관하다** — 크래시는 `--ignore` 조합에서 났고, 수정 후 전량 실행은 4회 모두 exit 0.
+- 한 프로세스에 **PyQt5 와 rclpy 확장 모듈이 함께 적재**되며(faulthandler 출력에 둘 다 등장),
+  종료 순서 문제로 보인다. **기전 미확정.**
+- ⚠ **종료코드를 봐야 안다.** 요약줄은 `393 passed` 로 정상이고 크래시는 그 **뒤**에 난다 —
+  요약만 보고 성공으로 읽으면 CI 가 붉어지는 이유를 못 찾는다.
+  (내가 앞선 보고에서 종료코드를 확인하지 않았다.)
+
+### [Fix] `DirectBackend` 에 구동축 브링업 추가 + 회귀 4건 (debt-045 상환)
+
+2026-08-08 의 구동축 브링업 수정이 `RelayBackend` **한쪽에만** 들어가 UI 직결 경로는 같은 고장
+(프로세스 재시작 뒤 구동축이 `0x60FF` 를 받고도 안 돎)이 그대로 재현되는 상태였다.
+
+`RelayBackend.start()` 와 **같은 위치**(제어권 확인 후 · 폴 스레드 시작 전)에 같은 프레임을 넣었다.
+`P.drive_init_frames(n, MOTOR_BUS)` 를 쓰므로 두 경로의 바이트가 같다 —
+이 백엔드의 존재 이유가 「UI 는 같은데 백엔드만 다르다」는 비교 기준이기 때문이다.
+조건 없이 보낸다(ROS 경로의 `allow_bringup` 은 배포 yaml 이 true 라 실질 동작이 같고,
+여기에 쓰이지 않는 손잡이를 새로 만들지 않는다).
+
+**회귀 4건 신설** (`test/test_direct_bringup.py`) — 핸들러를 직접 부르지 않고 **가짜 판다로
+`set_engaged(True)` 를 끝까지 돌려** 배선을 지나가게 했다(2026-08-04-001 의 실패 형태 회피).
+
+```
+돌연변이 확인 (통과 숫자가 아니라 이것이 커버리지 근거다)
+  ① set_engaged 의 _write_bringup() 호출 제거   → 3 failed  (누락·바이트·순서)
+  ② 조향축까지 브링업                            → 1 failed  (조향 제외 시험)
+  원복                                           → 4 passed
+```
+
+시험 작성 중 **오탐을 한 번 냈다** — 「조향축으로 나간 모든 프레임」을 금지로 판정했더니
+폴 루프의 정상 SDO 읽기(`0x40`, `0x6064`·`0x606C`·`0x6078`·`0x6041`)가 걸렸다.
+판정 대상을 **조향축에 대한 브링업 프레임**으로 좁혀 고쳤다.
+
+**전체 회귀**: `393 passed` (실패 0). 제외한 것은 `test_master_frame_match.py` 하나이며
+캡처 파일 부재로 어차피 skip 되는 파일이다 — 아래 [Trap] 참조.
+
+### [Trap] `pytest <디렉터리>` 가 **수집을 통째로 중단**한다 — "1 skipped" 로 끝난다
+
+```
+python3 -m pytest test/                    → collected 0 items / 1 skipped
+python3 -m pytest test/test_protocol.py    → 29 passed
+python3 -m pytest test/ --ignore=test/test_master_frame_match.py → 393 passed
+```
+
+`test_master_frame_match.py:31` 이 캡처 파일(`Log/homing_capture_220350.jsonl`) 부재로
+**모듈 레벨 skip** 을 내는데, 그 순간 **전체 수집이 0으로 끝난다**(pytest 6.2.5).
+알파벳 순서상 그 파일 앞에 6개가 있는데도 하나도 수집되지 않는다.
+
+⚠ **위험한 형태다.** 출력이 `1 skipped` 뿐이라 **「돌릴 게 없다 / 문제 없다」로 읽힌다.**
+실패가 있어도 보이지 않는다. 캡처 파일이 있는 환경에서는 정상 수집되므로 **환경에 따라
+조용히 달라진다.** → `debt-057` 등록.
+
+### [Fix] `yaw_control` 계열 SIL 런치 신설 — 로봇 없이 가드 회귀 가능 (debt-056 상환)
+
+기존 8개 기동에는 `sil_*.launch.py` 가 있는데 `yaw_control`·`yaw_control_reverse` 만 없어
+**SIL 검증 이력이 0** 이었다. 오늘 `−7`·`−8` 가드 검증도 전부 실기로만 했다.
+
+**다른 SIL 런치와 다른 점 — `sil_pose_adapter_node` 를 포함한다.**
+
+```
+플랜트 translate_sim_odom_node → map→base TF + /rtabmap/localization_pose(PoseWithCovariance, BEST_EFFORT)
+sil_pose_adapter_node          → /robot_pose (PoseStamped, RELIABLE)     ← 기본 토픽이 맞아 리맵 불요
+```
+
+`turn`·`spin` 등은 IMU yaw 만 쓰고 `LocalizationMonitor` 를 쓰지 않아 어댑터가 필요 없다
+(기존 8개 런치 중 **어느 것도 어댑터를 포함하지 않는다**). `yaw_control` 은 시작 시 맵 자세로
+`yaw_offset` 을 잡고, `−7` 가드가 맵 yaw 와 대조하며, `LocalizationMonitor` 가 `/robot_pose` 를
+구독하므로 어댑터가 필수다.
+
+**검증 (2026-08-10, 도메인 7 격리)**
+
+```
+정상 주행       /robot_pose 50.0 Hz · status 0 · 거리 0.500 m · 헤딩오차 0.000°
+파라미터 콜백    임계 0.001 시도 → "out of range [0.01, 90.00]" 로 거부 (SIL 에서도 동작)
+−7 가드 재현    imu_yaw_noise:=3.0 주입 + 임계 0.5° → status −7 · 0.5 s · 8 mm
+                로그: |IMU기준 -4.52° − 맵 0.00°| = 4.52° > 0.50° 가 10 cycle 연속
+```
+
+⚠ **SIL 의 구조적 한계 2건 — 기록해 둔다.**
+1. **플랜트는 IMU 와 맵 자세를 같은 지상진값에서 만든다** → 괴리가 **정확히 0.000°** 다.
+   `−7` 을 보려면 `imu_yaw_noise` 로 IMU 만 오염시켜야 한다. 그냥 돌리면 영원히 발화하지 않는다.
+2. **즉응 플랜트는 조향 지연이 없어 `gate_blocked` 가 발생하지 않는다** → `−8` 을 SIL 로 보려면
+   `steer_rate` 를 낮게 줘야 한다. 이 두 조건을 런치 docstring 에 적어 두었다.
+
+### [Fix] `yaw_control` 계열 파라미터 콜백 신설 — **거짓 성공 제거** (debt-055 상환)
+
+콜백이 없어 모든 파라미터가 생성자 전용이었고, `ros2 param set` 이 **성공을 반환하면서 거동을
+바꾸지 않았다**(2026-08-10 실측: 발산 임계를 set 으로 낮췄으나 가드가 발화하지 않음).
+근거·설계: `docs/adr/2026-08-10-yaw-control-param-callback.md`.
+
+**핵심은 화이트리스트가 아니라 「명시적 거부」다.** `spin` 의 기존 콜백은 화이트리스트 밖 키를
+**조용히 통과**시켜 거짓 성공이 그대로 남는다. `yaw_control` 계열은 자기 네임스페이스
+(`yaw_control*_` · `transient_`)의 비-화이트리스트 키를 만나면 **거부하고 이유를 돌려준다.**
+
+**검증 (2026-08-10, 전진·후진 양판)**
+
+```
+(a) 화이트리스트   heading_divergence_deg 5.0 → 3.0        성공 · get 으로 값 반영 확인
+(b) 생성자 전용    yaw_control_pose_topic                   실패 + "생성자에서만 읽힌다 — 재기동할 것"
+(b2) transient_    transient_runtime_gate_threshold_deg     실패 + 같은 이유
+(c) 범위 밖        heading_divergence_deg 200.0             실패 + "out of range [0.01, 90.00]"
+회귀 주행          헤딩 유지 0.4 m                          status 0 · 거리 0.402 m · 오차 +0.009°
+```
+
+**죽은 키 5개 삭제** — 감사에서 읽는 코드가 0건인 키가 나왔다. 값은 goal 필드로 준다.
+
+```
+전진판  yaw_control_max_steer_deg · yaw_control_i_max_deg
+후진판  yaw_control_reverse_max_steer_deg · _i_max_deg · _pose_qos
+⇒ 이제 그 이름으로 get 하면 "Parameter not set" 으로 즉시 드러난다
+```
+
+⚠ **범위 한정**: 다른 네임스페이스(기하·플랫폼 등 베이스 소관)는 건드리지 않았다 — 이 노드가
+판단할 근거가 없다. 그 범위의 거짓 성공은 남으며, `spin`·`mpc`·`translate_*` 의 화이트리스트 밖
+거짓 성공도 그대로다(별건).
+
+### [Retract→Fix] `debt-050` 오진 정정 — `yaw_control_reverse` 는 pose 를 정상 수신한다
+
+**종전 기록이 틀렸다.** 「`yaw_control_reverse` 가 `/rtabmap/localization_pose` 를 구독하는데
+발행자가 0개라 pose 를 못 받는다」고 적었으나, 소스·실행 양쪽으로 확인하니 사실이 아니다.
+
+```
+yaw_control_reverse_pose_topic 을 읽는 코드          0건 (죽은 yaml 키)
+LocalizationMonitor::Params::pose_topic 기본값       "/robot_pose"  (localization_monitor.hpp:27)
+⇒ reverse 는 pose_topic 을 설정하지 않으므로 기본값 /robot_pose 를 쓴다
+```
+
+**실행 확인**: 노드 기동 시 `/robot_pose` 구독자 1 → 2 증가, 노드 구독 목록에 `/robot_pose` 존재,
+`/rtabmap/localization_pose` 는 **토픽 자체가 없음**(구독조차 안 함).
+
+⇒ 나를 속인 것은 **읽히지도 않는 yaml 키가 실재하지 않는 토픽을 가리키고 있었던 것**이다.
+yaml 만 보고 코드를 확인하지 않아 없는 결함을 등록했다.
+
+**조치 (2026-08-10)**
+
+1. **죽은 키를 살렸다** — `lm_params.pose_topic = safeParam("yaw_control_reverse_pose_topic", "/robot_pose")`
+   를 코드에 추가하고 yaml 값을 `/robot_pose` 로 정정했다. 이제 전진판과 같은 규약이며
+   fused pose 로 redirect 할 수 있다.
+2. **`−7`·`−8` 가드를 이식했다** — 전진판에 넣은 헤딩 발산 탐지와 조향 미도달 감시를
+   `yaw_control_reverse` 에도 같은 규약으로 넣었다(파라미터 접두만 `yaw_control_reverse_`).
+
+**`yaw_control_reverse` 첫 실기 검증 (2026-08-10)**
+
+```
+헤딩 유지 · 0.4 m · vx_max 0.05(magnitude)
+status 0 · 거리 0.401 m · 최종 헤딩오차 +0.020° · 가드 오탐 0
+```
+
+이 액션은 그동안 **실기 이력이 0** 이었다 — 이번이 첫 확인이다.
+
+### [Fix] `yaw_control` 조향 미도달 지속 감시 — `status −8` 신설 (debt-052)
+
+조향축 비응답 시 `yaw_control` 이 **60초를 아무 진단 없이 대기**했다(실측: 지령 −20.2°,
+실제 0.00°, 거리 0.001 m, `status −3`). `TransientGuard` 가 구동을 0 으로 묶는 것은
+**정상 안전 동작**이지만, 그 상태가 무한 지속돼도 보고하는 경로가 없었다.
+근거·설계: `docs/adr/2026-08-10-yaw-control-gate-blocked-guard.md`.
+
+```cpp
+gate_blocked 연속 지속 > yaw_control_gate_blocked_timeout_sec(5.0) → abort(−8)
+```
+
+임계 5.0 s 는 **정상 조향 이동 시간(실측 0→31° 에 약 3 s)보다 길게** 잡은 값이다.
+`steer_timeout_sec`(조향이 목표에 닿는 데 허용하는 시간)와 의미가 같아 같은 값을 쓴다.
+
+**실기 검증 2건 (2026-08-10)**
+
+```
+(a) 정상 주행 · 임계 5 s              status 0 · 거리 0.400 m          ⇒ 오탐 0
+(b) 가드 임계 0.5° · 지속 임계 0.1 s   status −8 · 0.1 s · 이동 1 mm    ⇒ 발화·코드 정상
+    로그: 조향 미도달 0.1 s 지속 — 지령 F=-7.59°/R=0.00° 대 실제 F=-0.02°/R=-0.02°
+```
+
+- **(b) 를 두 번 실패하고서야 조건을 알았다.** 주행 중 가드는 `steer_gate_threshold`(3°)가
+  아니라 **`runtime_gate_threshold`(15°)** 를 쓴다(`transient_guard.cpp:53`, Phase 0 만 3°).
+  게다가 `steer_rate_limit` 이 지령을 완만하게 올려 **정상 주행에서는 조향 오차가 15° 에
+  도달하지 않는다.** 즉 `gate_blocked` 는 실제로 조향이 실패했을 때만 참이 된다 —
+  어제 발화한 것은 지령 −20.2° 대 실제 0° 로 20° 오차가 났기 때문이다.
+  → 재현하려면 가드 임계 자체를 낮춰야 했다.
+- ⚠ **원인은 고치지 않았다.** 조향축이 왜 비응답이 되는지(`debt-051`)는 그대로다.
+  본 수정은 **5초 안에 드러나게** 할 뿐이다.
+- ⚠ `turn`·`turn_reverse`·`spin` 은 손대지 않았다 — 셋 다 Phase 0 에서 이미 abort 한다.
+
 ### [Fix] `yaw_control` 에 조대(粗大) 헤딩 발산 탐지기 — `status −7` 신설 (debt-053)
 
 IMU 가 회전을 놓쳐도 알 방법이 없어 **25° 틀어진 채 `status 0`(성공)** 을 반환한 사례가 있었다.
@@ -191,8 +401,12 @@ translator /motor/low_cmd                 node3 target_pos 1,048,066 = 18.28°
 실제      /wheel_motor_state              −0.00°               ← 여기서 끊긴다
 ```
 
-- **`yaw_control` 고유 문제가 아니다.** 같은 시각 `turn` 으로 대조하니 +31.13/−30.80° 지령에
-  실제 0.00° 로 **똑같이 실패**하고 Phase 0 타임아웃(5 s)으로 포기했다. 조향축 전반의 문제다.
+- **조향축 자체의 문제다(액션 고유 아님).** 같은 시각 `turn` 으로 대조하니 +31.13/−30.80° 지령에
+  실제 0.00° 로 똑같이 움직이지 않았다. 다만 **`turn` 은 Phase 0 타임아웃(5 s)에서 `status −3` 로
+  정상 abort** 했다 — 즉 `turn` 의 보고는 제대로 동작했다.
+  ⚠ 2026-08-10 정정: 이 대비를 근거로 「`turn` 도 보고가 없다」고 적었던 서술(`debt-052`)은 틀렸다.
+  `turn`·`turn_reverse`·`spin` 셋 다 Phase 0 에서 abort 한다. 진단이 없는 것은 **`yaw_control`
+  뿐**이며, 그쪽은 Phase 0 목표가 δ=0 이라 통과해 버리고 주 루프 가드가 조용히 구동을 막는다.
 - **제어권 반납 → 재획득으로 즉시 회복**됐다(재획득 후 2초 만에 +31.13/−30.80° 도달).
 - 오늘 초저녁 같은 `turn` 으로 ±31° 가 정상 동작했으므로, 그 사이 어느 시점에 비응답으로 빠졌다.
   engage/disengage 를 여러 번 반복한 구간이다. **`debt-046`(재시작이 축 상태를 지운다) ·

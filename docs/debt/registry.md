@@ -788,7 +788,7 @@ E7 의 **상수 적정성**(`SEER_HOME_ZERO_N3/N4` 가 옳은 목표인지) — 
 
 | id | 유형 | 위치 | 사유 | 식별일 | 상태 | 상환계획 |
 | --- | --- | --- | --- | --- | --- | --- |
-| **debt-045** | 기술 | `src/Comm/CAN/can_relay/can_relay/ui/backend_direct.py` `DirectBackend.set_engaged` | 브링업 수정이 `RelayBackend` 한쪽에만 들어갔다. UI 직결 백엔드는 여전히 구동축 브링업을 보내지 않으므로 **같은 고장이 그 경로에서 재현**된다(2026-08-08 실측: node1 0.1 rpm / node2 78.2 rpm). 기록에 「PC 경로 전부 고쳤다」로 읽힐 서술이 있었다 | 2026-08-08 | 미해결 | `DirectBackend` 제어권 획득 경로에 동일한 **구동축 전용** 브링업을 추가하고, 같은 재현 절차(프로세스 재시작 → 구동 시험)로 확인 |
+| **debt-045** | 기술 | `src/Comm/CAN/can_relay/can_relay/ui/backend_direct.py` `DirectBackend.set_engaged` | 브링업 수정이 `RelayBackend` 한쪽에만 들어갔다. UI 직결 백엔드는 여전히 구동축 브링업을 보내지 않으므로 **같은 고장이 그 경로에서 재현**된다(2026-08-08 실측: node1 0.1 rpm / node2 78.2 rpm). 기록에 「PC 경로 전부 고쳤다」로 읽힐 서술이 있었다 | 2026-08-08 | **상환 완료(2026-08-10)** — 브링업 추가 + 회귀 4건(돌연변이 2건 검출 확인) | `DirectBackend` 제어권 획득 경로에 동일한 **구동축 전용** 브링업을 추가하고, 같은 재현 절차(프로세스 재시작 → 구동 시험)로 확인 |
 | **debt-046** | 이해 | `src/Comm/CAN/can_relay/can_relay/backend.py` `_write_bringup` 주변 | **왜 `node1` 만 상태를 잃고 `node2` 는 멀쩡했는지 미규명.** 「프로세스 재시작이 축 브링업 상태를 지운다」는 관측이며 기전은 확정되지 않았다. 기전을 모르면 다른 축·다른 기체에서 재발해도 같은 시간을 다시 태운다 | 2026-08-08 | 미해결 | 재시작 전후로 `0x6060`(modes) · `0x6041`(statusword) · `0x603F`(error code)를 축별로 폴링해 무엇이 달라지는지 대조. 판다 Seer 게이트의 재개방 동작도 후보 |
 | **debt-047** | 기술 | `src/Comm/CAN/can_relay/test/` | 2026-08-08 의 두 수정(조향 게이트 `homed_effective` 통일 · 구동축 브링업)을 **덮는 회귀 시험이 0건**이다. 통과 숫자(364 passed)는 커버리지 근거가 아니다 — 두 변경을 되돌려도 시험은 전부 통과한다 | 2026-08-08 | 미해결 | 각 수정을 수정 전으로 되돌리면 실패하는 시험을 추가하고, `Tools/amr_test_gui/mutation_check.py` 방식의 돌연변이 확인으로 검출됨을 증명 |
 
@@ -830,7 +830,7 @@ SIL 에서 「자기보고 − 지상진값」 괴리가 **−0.001°** 로 사�
 
 | id | 유형 | 위치 | 사유 | 식별일 | 상태 | 상환계획 |
 | --- | --- | --- | --- | --- | --- | --- |
-| **debt-050** | 기술 | `trnav_2ws_action_server/config/yaw_control_reverse_params.yaml:48` | `yaw_control_reverse_pose_topic: "/rtabmap/localization_pose"` 를 구독하는데 **이 스택에 그 발행자가 0개**다(`rtabmap` 미가동, 측위는 `mcl2d` → `sil_pose_adapter` → `/robot_pose`). 그대로 실행하면 측위 입력이 오지 않아 헤딩 제어가 성립하지 않는다. 게다가 `yaw_control` 이 `vx_max` 음수로 후진을 지원하므로(`.action` 명시) **별도 액션의 존재 의의 자체가 불명확**하다 — 2026-08-10 후진 시험은 `yaw_control` 로 수행했다 | 2026-08-10 | 미해결 | ① 토픽을 `/robot_pose` 로 정정하고 실기 확인, 또는 ② `yaw_control` 이 양방향을 덮으므로 `yaw_control_reverse` 를 폐기(mux 소스 id 7 회수 포함). 결정 전 `yaw_control_reverse` 를 실기에 쓰지 말 것 |
+| **debt-050** | 기술 | `trnav_2ws_action_server/config/yaw_control_reverse_params.yaml:48` | ⚠ **2026-08-10 오진 정정.** 「pose 를 못 받는다」는 **틀렸다** — `yaw_control_reverse_pose_topic` 은 **읽는 코드가 0건인 죽은 키**였고, `LocalizationMonitor::Params::pose_topic` 기본값이 `/robot_pose`(`localization_monitor.hpp:27`)라 실제로는 **정상 수신**했다(실행 확인: `/robot_pose` 구독자 1→2, `/rtabmap/localization_pose` 는 토픽 자체 부재). yaml 만 보고 코드를 확인하지 않아 없는 결함을 등록했다. 남은 실질 문제는 **죽은 키가 실재하지 않는 토픽을 가리켜 오독을 유발한 것**이다. | 2026-08-10 | **상환 완료(2026-08-10)** | ① 죽은 키를 살렸다 — 코드에 `lm_params.pose_topic = safeParam("yaw_control_reverse_pose_topic", "/robot_pose")` 추가, yaml 값도 `/robot_pose` 로 정정. ② `−7`(헤딩 발산)·`−8`(조향 미도달) 가드를 전진판과 같은 규약으로 이식. ③ **첫 실기 검증 통과** — 헤딩 유지 0.4 m, `status 0`, 최종 헤딩오차 +0.020°, 가드 오탐 0. ⚠ 「`yaw_control` 이 양방향을 덮으므로 폐기」안은 채택하지 않았다 — 두 액션은 `vx_max` 의미(부호 포함 대 magnitude)와 mux 소스 id 가 다르고, 저장소의 방향쌍 패턴을 따른다 |
 
 
 ---
@@ -840,7 +840,7 @@ SIL 에서 「자기보고 − 지상진값」 괴리가 **−0.001°** 로 사�
 | id | 유형 | 위치 | 사유 | 식별일 | 상태 | 상환계획 |
 | --- | --- | --- | --- | --- | --- | --- |
 | **debt-051** | 기술 | `can_relay` 조향 경로 (또는 그 이하) | **조향축이 비응답 상태로 빠진다.** 지령이 `/motor/low_cmd` 까지 정상값으로 내려가는데(node3 target_pos = 지령각과 일치) 모터가 안 움직인다. `yaw_control`·`turn` 양쪽에서 동일 재현. **제어권 반납→재획득으로 회복.** `debt-046`(재시작이 축 상태를 지운다)·타 세션 `4aea32d`(구동축 CiA402 운전 상태 복구)와 같은 계열로 보인다 | 2026-08-10 | 미해결 | 비응답 상태에서 `0x6041`(statusword)·`0x6060`(modes)·`0x603F`(error code)를 조향축별로 읽어 무엇이 달라졌는지 확정. 회복 조건(engage 사이클)이 무엇을 다시 쓰는지 `backend.py` 에서 대조 |
-| **debt-052** | 기술 | `trnav_2ws_action_server` 전 액션 (조향 도달 판정) | **조향이 지령에 도달하지 못해도 오류로 보고하는 경로가 없다.** `yaw_control` 은 60초 기다려 타임아웃만, `turn` 은 Phase 0 타임아웃 경고만 남기고 넘어간다. 조향이 안 움직이는데 하위 토픽은 정상값이 흐르므로 **상위에서 알 방법이 없다** | 2026-08-10 | 미해결 | Phase 0/주행 중 `|조향 지령 − 실제|` 가 임계를 넘어 지속되면 전용 오류코드로 abort. `turn` 의 Phase 0 타임아웃도 경고가 아니라 실패로 승격 검토 |
+| **debt-052** | 기술 | `trnav_2ws_action_server` 전 액션 (조향 도달 판정) | **`yaw_control` 이 조향 미도달을 진단 없이 60초 대기한다.** ⚠ 2026-08-10 정정: 종전 서술 「`turn` 은 Phase 0 타임아웃 경고만 남기고 넘어간다」는 **틀렸다** — 소스 확인 결과 `turn`·`turn_reverse`·`spin` **셋 다** Phase 0 타임아웃에서 `status −3` + `abort()` 로 동일하게 처리한다(각 `:162` · `:165` · `:219`). 경고만 내는 것은 **Phase 4**(기동 완료 후 조향 복귀)이며 셋 다 `non-critical` 라벨이고 그 판단은 타당하다. 실제 결함은 `yaw_control` 고유다 — Phase 0 목표가 δ=0 이라 대개 이미 충족돼 즉시 통과하고, 조향 목표는 **주행 중 계속 바뀌므로** Phase 0 에서 잡히지 않는다. 그 뒤 주 루프의 `TransientGuard` 가 조향 미도달로 `gate_blocked` 를 걸어 구동을 0 으로 묶는데, **가드가 막고 있다는 사실을 보고하는 경로가 없어** 전역 타임아웃(60 s)까지 조용히 대기한 뒤 `status −3` 만 낸다(2026-08-10 실측: 지령 −20.2°, 실제 0.00°, 거리 0.001 m) | 2026-08-10 | **상환 완료(2026-08-10)** — status −8 감시 추가, 실기 2건 확인 | `yaw_control` 주 루프에 **가드 차단 지속 감시**를 넣는다 — `gate_blocked` 가 N 초 연속이면 전용 오류코드로 abort 하고 「조향이 지령에 도달하지 못한다」를 로그에 남긴다. 전역 타임아웃까지 기다리지 않는다. ⚠ `turn`·`spin` 은 손댈 것이 없다(이미 Phase 0 에서 abort) |
 | **debt-053** | 기술 | `yaw_control_action_server.cpp:184` 및 주행 루프 | **조대(粗大) 고장 탐지기가 없다.** IMU 가 회전을 못 읽은 2026-08-10 시험에서 **25° 틀어진 채 `status 0`(성공)** 을 반환했다. localization watchdog 은 pose 두절·점프만 본다. ⚠ **「오프셋 1회 + IMU 추종」구조 자체는 결함이 아니다**(사용자 정정) — 현재 측위는 heading 정밀도를 보정해 줄 만큼 정확하지 않아, 미세 제어를 측위로 닫으면 오히려 나빠진다. 측위가 절대 기준을 1회 주고 정밀한 IMU 가 추종하는 현 구조가 맞다. 빠진 것은 **제어 보정이 아니라 고장 탐지**다 | 2026-08-10 | **상환 완료(2026-08-10)** — status −7 탐지기 추가, 실기 2건 확인 | 주행 루프에 `\|보정 yaw − 맵 yaw\| > 임계` 가 N cycle 연속이면 전용 오류코드로 abort. **제어 소스는 IMU 그대로 두고 탐지만 추가한다.** 임계는 **맵 heading 잡음보다 훨씬 크게**(수 도 급) 잡아 오탐을 피하고, 25° 급 고장만 잡는 것이 목적이다 — 정밀도에는 관여하지 않는다. 임계·N 은 주행 중 맵-IMU 괴리 분포를 실측해 정한다 |
 | **debt-054** | 이해 | IMU(iahrs) 회전 추종 | **저속 회전(약 0.5 °/s)에서 IMU 가 실제 회전을 거의 읽지 못했다**(실제 +24.7° → IMU +1.7°). 정지 시 드리프트는 정상(10초 0.023°, gyro_z −0.004 °/s)이라 고장은 아니다. 같은 날 제자리 spin 대조(10 dps·2.8 dps)에서는 일치했다 — **회전율 의존인지 병진 동반 여부인지 미확정.** ⚠ **검증 완료된 `turn`·`spin` 은 이 구간이 아니다** — 오늘 실기는 전부 ω ≥ 2.8 °/s 였고(`spin` 10·2.8 dps 비 0.991·1.015, `turn` R=1.0·v=0.05 → ω=2.86 °/s, n=8 왕복 폐합 확인) 거기서 IMU 는 정확했다. **위험 구간은 ω ≲ 1 °/s 로, `turn` 에서는 큰 반경(v=0.05 기준 R ≳ 3 m)에 해당하며 미검증이다** | 2026-08-10 | **규명 완료(2026-08-10) — 유효 구간 확정, 기전은 미확정** | 제자리 spin 을 0.3 / 0.5 / 1.0 / 2.8 dps 로 돌려 IMU 대 맵 비율을 회전율의 함수로 측정. 병진 동반 여부를 가르려면 같은 회전율의 turn 과 대조. 드라이버 설정(바이어스 추정 시상수·ZRU)도 조사 대상 |
 
@@ -868,5 +868,23 @@ SIL 에서 「자기보고 − 지상진값」 괴리가 **−0.001°** 로 사�
 
 | id | 유형 | 위치 | 사유 | 식별일 | 상태 | 상환계획 |
 | --- | --- | --- | --- | --- | --- | --- |
-| **debt-055** | 기술 | `trnav_2ws_action_server/src/yaw_control/yaw_control_action_server.cpp` | **파라미터 콜백이 없어 전 파라미터가 생성자 전용**이다. `ros2 param set` 이 `Set parameter successful` 을 반환하면서 **거동은 바뀌지 않는다**(2026-08-10 실측). 현장에서 값을 조정했다고 믿고 시험하면 결과를 오독한다. `spin` 은 콜백이 있어(`spin_action_server.cpp:38`) 일부 키가 hot-reload 된다 | 2026-08-10 | 미해결 | `spin` 과 같은 형태로 `add_on_set_parameters_callback` + 화이트리스트 + 범위 검증 추가. 화이트리스트에 넣지 않을 키는 **선언 자체를 read-only 로** 두어 set 이 실패하게 만든다 — 거짓 성공이 가장 나쁘다 |
-| **debt-056** | 기술 | `trnav_2ws_action_server/launch/` | **`yaw_control` 만 SIL 런치가 없다.** 다른 8개 기동(`turn`·`turn_reverse`·`spin`·`crab_linear`·`translate_*`·`mpc*`)에는 `sil_*.launch.py` 가 있는데 `yaw_control`·`yaw_control_reverse` 는 없어 **SIL 검증 이력이 0**이다. 2026-08-10 의 탐지기 검증도 실기에서만 했다 | 2026-08-10 | 미해결 | `sil_turn.launch.py` 를 본떠 `sil_yaw_control.launch.py` 신설. `/robot_pose` 공급원(SIL 플랜트 → 어댑터)을 어떻게 채울지가 관건이며, 그것이 정해지면 발산 탐지기의 (b) 시험도 SIL 로 옮길 수 있다 |
+| **debt-055** | 기술 | `trnav_2ws_action_server/src/yaw_control/yaw_control_action_server.cpp` | **파라미터 콜백이 없어 전 파라미터가 생성자 전용**이다. `ros2 param set` 이 `Set parameter successful` 을 반환하면서 **거동은 바뀌지 않는다**(2026-08-10 실측). 현장에서 값을 조정했다고 믿고 시험하면 결과를 오독한다. `spin` 은 콜백이 있어(`spin_action_server.cpp:38`) 일부 키가 hot-reload 된다 | 2026-08-10 | **상환 완료(2026-08-10)** — 콜백 신설 + 비-화이트리스트 명시 거부 + 죽은 키 5개 삭제, 검증 4종 | `spin` 과 같은 형태로 `add_on_set_parameters_callback` + 화이트리스트 + 범위 검증 추가. 화이트리스트에 넣지 않을 키는 **선언 자체를 read-only 로** 두어 set 이 실패하게 만든다 — 거짓 성공이 가장 나쁘다 |
+| **debt-056** | 기술 | `trnav_2ws_action_server/launch/` | **`yaw_control` 만 SIL 런치가 없다.** 다른 8개 기동(`turn`·`turn_reverse`·`spin`·`crab_linear`·`translate_*`·`mpc*`)에는 `sil_*.launch.py` 가 있는데 `yaw_control`·`yaw_control_reverse` 는 없어 **SIL 검증 이력이 0**이다. 2026-08-10 의 탐지기 검증도 실기에서만 했다 | 2026-08-10 | **상환 완료(2026-08-10)** — sil_yaw_control(_reverse).launch.py 신설, 정상 주행·콜백·−7 재현 확인 | `sil_turn.launch.py` 를 본떠 `sil_yaw_control.launch.py` 신설. `/robot_pose` 공급원(SIL 플랜트 → 어댑터)을 어떻게 채울지가 관건이며, 그것이 정해지면 발산 탐지기의 (b) 시험도 SIL 로 옮길 수 있다 |
+
+
+---
+
+## [2026-08-10 등록] debt-057 — pytest 수집 중단
+
+| id | 유형 | 위치 | 사유 | 식별일 | 상태 | 상환계획 |
+| --- | --- | --- | --- | --- | --- | --- |
+| **debt-057** | 기술 | `src/Comm/CAN/can_relay/test/test_master_frame_match.py:31` | **모듈 레벨 skip 이 전체 수집을 중단시킨다.** 캡처 파일(`Log/homing_capture_220350.jsonl`)이 없으면 `pytest test/` 가 `collected 0 items / 1 skipped` 로 끝난다 — 알파벳 순서상 앞선 6개 파일도 수집되지 않는다(pytest 6.2.5). 출력이 `1 skipped` 뿐이라 **「돌릴 게 없다/문제 없다」로 읽히고 실패가 보이지 않는다.** 캡처가 있는 환경에서는 정상 수집되므로 **환경에 따라 조용히 달라진다** | 2026-08-10 | **상환 완료(2026-08-10)** — fixture 로 전환, `pytest test/` 가 393 passed / 8 skipped (exit 0) | 모듈 레벨 skip 대신 **테스트 함수 단위 skip**(`@pytest.mark.skipif`)으로 바꿔 수집이 계속되게 한다. 또는 캡처 부재 시 fixture 에서 skip. 고친 뒤 `pytest test/` 가 393+ 를 수집하는지로 검증 |
+
+
+---
+
+## [2026-08-10 등록] debt-058 — 전량 실행 종료 시 간헐 segfault
+
+| id | 유형 | 이해 | 위치 | 사유 | 식별일 | 상태 | 상환계획 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **debt-058** | 이해 | — | `src/Comm/CAN/can_relay/test/` 전량 실행 | **테스트가 모두 통과한 뒤 인터프리터 종료 시점에 간헐적으로 segfault(exit 139)** 한다. 6회 중 1회 관측. 한 프로세스에 PyQt5 와 rclpy 확장 모듈이 함께 적재되며 종료 순서 문제로 보이나 **기전 미확정**. ⚠ 요약줄은 `393 passed` 로 정상이고 크래시는 그 뒤에 나므로 **종료코드를 봐야 안다** — 요약만 보면 성공으로 읽힌다 | 2026-08-10 | 미해결 | 크래시 재현 조건을 좁힌다(PyQt5 시험만 / rclpy 시험만 분리 실행해 어느 쪽이 필요한지). 필요하면 `pytest-forked` 또는 파일 그룹 분리 실행으로 격리. **먼저 CI 에서 종료코드를 보는지 확인할 것** — 안 보면 이 크래시는 영원히 조용하다 |
