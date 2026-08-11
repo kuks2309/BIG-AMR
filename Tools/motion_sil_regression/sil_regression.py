@@ -109,6 +109,39 @@ def launch(launch_file: str, extra: list[str], log_path: str):
                             start_new_session=True), fh
 
 
+def _kill_adapter_in_group(proc) -> int:
+    """이 케이스가 띄운 **프로세스 그룹 안의** 어댑터만 죽인다.
+
+    ⚠ `pkill -f sil_pose_adapter` 를 쓰면 **같은 실행파일을 쓰는 실기 노드가 함께 죽는다.**
+      실제로 실기 `/robot_pose` 브리지(`hw_pose_bridge`, 같은 실행파일)를 두 번 죽였다.
+      저장소 규칙(`issues_and_fixes.md` 2026-08-11 운용 메모)이 「실행파일명이 아니라
+      ROS_DOMAIN_ID 또는 프로세스 그룹으로 범위를 잡는다」고 못박은 그 사고다.
+    """
+    import signal as _sig
+    try:
+        pgid = os.getpgid(proc.pid)
+    except Exception:
+        return 0
+    killed = 0
+    try:
+        out = subprocess.run(["ps", "-eo", "pid,pgid,cmd", "--no-headers"],
+                             capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return 0
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid_s, pgid_s, cmd = parts
+        if pgid_s != str(pgid) or "sil_pose_adapter" not in cmd:
+            continue
+        try:
+            os.kill(int(pid_s), _sig.SIGKILL); killed += 1
+        except Exception:
+            pass
+    return killed
+
+
 def teardown(proc, fh):
     try:
         os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
@@ -238,7 +271,7 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
             #   신선도(stamp 나이) 검사는 통과하므로 종전 가드로는 못 잡았고, 액션은
             #   진행거리 0 으로 「목표 미달」이라 판단해 지령을 계속 냈다(개루프 주행).
             #   어댑터를 죽이고, 마지막 자세를 새 stamp 로 재발행하는 위조기를 붙인다.
-            subprocess.run(["pkill", "-f", "[s]il_pose_adapter"], capture_output=True, text=True)
+            _kill_adapter_in_group(proc)
             time.sleep(1.0)
             frozen = st["pose"]
             import threading as _th
@@ -269,20 +302,20 @@ def run_case(name: str, keep: bool) -> tuple[bool, str]:
             #   검사가 유일하게 결정적인 곳이다 — 정지 상태(`max_cmd_speed≈0`)에서는
             #   `checkLocalizationHealth` 가 조기 true 를 반환하므로 워치독(−4)이 잡지
             #   못하고, 종전에는 **얼어붙은 시작 자세로 전체 궤적을 계산**했다.
-            subprocess.run(["pkill", "-f", "[s]il_pose_adapter"], capture_output=True, text=True)
+            _kill_adapter_in_group(proc)
             time.sleep(1.5)
 
         if name == "yaw_loc":
             # 주행이 시작된 뒤 측위 발행을 끊는다. 워치독이 살아 있으면 −4 로 중단하고,
             # 죽어 있으면 **얼어붙은 자세로 시한까지 계속 주행**한다(그것이 종전 상태였다).
-            # ⚠ 자기 자신을 매칭하지 않도록 대괄호 정규식을 쓴다 — 예전에 자기 pkill 로
-            #   프로세스를 죽여 오진한 적이 있다.
+            # ⚠ **실행파일명으로 죽이지 않는다.** 실기 `/robot_pose` 브리지가 같은
+            #   실행파일이라 함께 죽는다(실제로 두 번 죽였다). 이 케이스가 띄운
+            #   프로세스 그룹 안의 것만 종료한다.
             import threading as _th
 
             def _kill_pose():
                 time.sleep(3.0)
-                subprocess.run(["pkill", "-f", "[s]il_pose_adapter"],
-                               capture_output=True, text=True)
+                _kill_adapter_in_group(proc)
             _th.Thread(target=_kill_pose, daemon=True).start()
 
         gh_f = cl.send_goal_async(g)
