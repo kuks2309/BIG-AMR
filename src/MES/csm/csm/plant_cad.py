@@ -122,31 +122,55 @@ SLITTER_Y = (224.03, 233.81, 247.53, 257.31)
 # aisle. That is exactly the behaviour that produced the deadlocks and the one
 # measured collision this week. The real plant designed the problem out.
 
-#: THREE COLUMNS AT THE COATERS, NOT TWO.
+#: THE COATER LD AND ULD STATIONS — CORRECTED 2026-08-11 FROM THE SYSTEM DECK.
 #:
-#: Corrected 2026-08-11. The first reading found two columns because it mined
-#: only the `涂布-3.5T大AGV` layer. Collecting every placement of the AGV symbol
-#: blocks across all layers gives three, at a uniform 3.54 m pitch:
+#: The deck [S16] marks eight white boxes at the coater row: "Coater LD 1Set x
+#: 4EA" on the LEFT column and "Coater ULD 1Set x 4EA" on the RIGHT. Two columns
+#: of four, one box per coater. The project lead read them off the slide; block
+#: `zw$4E78` in [D1] then confirms it, repeating per coater row:
 #:
-#:     x 144.98   4.0 m from the machine face   dock
-#:     x 148.51   7.5 m                          queue 1
-#:     x 152.05  11.1 m                          queue 2
+#:     x 125.58   pair 1.61 m apart, rot 0 and rot 180   ->  Coater LD
+#:     x 136.58   SAME y as the LD pair, rot 0 / rot 180 ->  Coater ULD
 #:
-#: So a machine can hold one robot docked and two more waiting, all off the
-#: lane. Our current model has no queue at all.
-COATER_DOCK_X = 144.98
-COATER_QUEUE_X = (148.51, 152.05)
-#: Dock column to the coater east face (138.08). Was recorded as 4.0 m against
-#: the merged-variant east face of 141.00; with the correct face it is 6.90 m.
-DOCK_STANDOFF = 6.90
+#: LD AND ULD DIFFER IN x, NOT IN y. Both stations of a coater sit at the same
+#: y; only their x differs, by 11.0 m. Everything below the previous version of
+#: this section assumed the opposite — that the pair 4.10 m apart in y was
+#: LD/ULD — and picked between them with PORT_ORDER_LD_FIRST. That constant was
+#: answering a question the plant does not ask.
+#:
+#: THIS ALSO EXPLAINS THE LANE-THROUGH-COATER CONTRADICTION. `audit_cad_world`
+#: reported four lanes running up to 13.5 m into the coater bounding box, and it
+#: was read as either drive-in bays or a wrong footprint. Neither: COATER_X is
+#: the coater CELL INCLUDING ITS AGV APRON, and a lane reaching x 124.56 is
+#: simply serving the LD station at 125.58. The audit finding stands as drawn;
+#: its interpretation was wrong.
+COATER_LD_X = 125.58
+COATER_ULD_X = 136.58
 
-#: Every coater now has its LD/ULD pair, 4.10 m apart — the earlier gap at CTR1
-#: and CTR4 was an extraction miss, not a feature of the plant:
+#: One station per coater, at the midpoint of its rot-0 / rot-180 pair. Same y
+#: for LD and ULD.
+COATER_STATION_Y = (231.47, 245.14, 255.45, 269.76)
+
+#: The two symbols of a station, this far apart in y, facing each other. Read as
+#: the roll position and the bobbin position of one exchange.
+COATER_STATION_PAIR = 1.61
+
+#: CTR4's ULD IS INFERRED, NOT MEASURED. `zw$4E78` has 22 placements; CTR1-3
+#: carry both LD and ULD, CTR4 carries only LD. The deck says ULD is 4EA, so the
+#: fourth exists — this is the same single-layer extraction gap that hid the CTR1
+#: and CTR4 port pairs before. Taken at the symmetric position and flagged here
+#: rather than silently filled.
+COATER_ULD_MEASURED = (True, True, True, False)
+
+#: WHAT THE x 145 / 148.5 / 152 POSITIONS ARE IS NOW REOPENED.
 #:
-#:     CTR1  229.43 / 233.53      CTR2  243.29 / 247.39
-#:     CTR3  253.30 / 257.40      CTR4  267.66 / 271.76
-COATER_PORT_Y = ((229.43, 233.53), (243.29, 247.39),
-                 (253.30, 257.40), (267.66, 271.76))
+#: They were recorded as the coater dock and two queue columns. They are not the
+#: LD/ULD stations — those are at 125.58 and 136.58 — so what they are is an open
+#: question. They sit on layers `涂布-3.5T大AGV` (coating 3.5T Big AGV) and
+#: `AGV接机需求` (AGV docking requirement) with 6, 8 and 12 placements, which is
+#: too many for the deck's 4EA of anything. Candidates: queue positions on the
+#: aisle, or the WIP Coater racks (13EA). Do not use them as docks.
+COATER_AISLE_X = (144.98, 148.51, 152.05)
 
 #: THE CORRIDOR AT x 183..186 SERVES MACHINES ON BOTH SIDES.
 #:
@@ -247,21 +271,21 @@ PORT_SEPARATION = 4.10
 #: Adjacent AGV positions along a face.
 POSITION_PITCH = 3.54
 
-#: WHICH OF THE PAIR IS LD — A CONVENTION, NOT A MEASUREMENT.
+#: RETIRED 2026-08-11 — LD AND ULD ARE NOT RESOLVED BY y.
 #:
-#: The drawing shows two positions per machine face 4.10 m apart, one at rot 0
-#: and one at rot 180, and the protocol workbook confirms 上料工位 (loading) and
-#: 下料工位 (unloading) are separate stations with separate handshakes. Neither
-#: says which physical position is which.
+#: This constant answered "of the two positions 4.10 m apart in y, which is LD?"
+#: and took the lower one, reasoning that material flows north. At the coaters
+#: the deck [S16] and block `zw$4E78` both show LD and ULD at the SAME y, 11.0 m
+#: apart in x (see COATER_LD_X / COATER_ULD_X). The question this answered is not
+#: the question the plant asks.
 #:
-#: Taken: the lower-y position is LD. Material flows north through the cell
-#: (ASRS south, slitter north), so a machine's input sits on its upstream side.
+#: Kept as False rather than deleted so that any code still reading it gets the
+#: inert value instead of a plausible-looking True. Nothing reads it today.
 #:
-#: THE COST OF BEING WRONG IS 4.10 m OF DRIVING. It does not invert the job
-#: model: that lives in plant.FEEDS, which is material flow and already correct
-#: independently of geometry. Flip this one constant if a photograph or the
-#: handshake spec says otherwise.
-PORT_ORDER_LD_FIRST = True
+#: Whether the gravures and slitters follow the coaters' x-separated pattern is
+#: NOT yet checked — do not generalise this correction to them without going back
+#: to the drawing.
+PORT_ORDER_LD_FIRST = False
 
 # ------------------------------------------------------------------ lanes
 

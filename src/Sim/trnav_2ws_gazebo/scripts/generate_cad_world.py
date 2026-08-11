@@ -32,6 +32,7 @@ WHAT IS DRAWN AND WHAT THAT MEANS
     lane paint      37 rectangles, flat on the floor      VISUAL ONLY
     junctions       30 crossings, small pale squares      VISUAL ONLY
     AGV positions   45 pads with a nose stripe            VISUAL ONLY
+    coater LD/ULD   8 named stations, green / orange      VISUAL ONLY
     charging bays   4 pads                                VISUAL ONLY
     grid posts      every 50 m on the hall edge           solid, thin
 
@@ -40,12 +41,19 @@ drivable surface, which is the opposite of what a lane is. The same reasoning th
 first generator learned the hard way with docking markers: a printed label is not
 an obstacle.
 
-NOT DRAWN, BECAUSE THE DRAWING DOES NOT SAY — see
+NOT DRAWN, BECAUSE WE DO NOT YET KNOW IT — see
 `docs/gazebo_world/open-questions.md`:
 
-  * lane DIRECTION — the arrows are all outside the cell area
+  * lane DIRECTION. The deck's slide 16 DOES carry direction arrows over the
+    cell; they have not yet been read off into a direction per lane.
   * the anode cell (y < 100), which is in the hall but not in our model
-  * WIP racks, structural columns, the ASRS's real docking arrangement
+  * WIP racks — the deck counts 2 gravure, 13 coater, 30 slitter, and we have
+    the position of none of them
+  * structural columns
+  * 4 of the 5 cathode Big AGV chargers
+  * the gravure and slitter LD/ULD stations. The coaters' are now placed from
+    the deck; whether the other machines follow the same x-separated pattern is
+    NOT checked, and must not be assumed.
 """
 
 import math
@@ -210,6 +218,38 @@ def main():
                          py + math.sin(yaw) * (l / 2 - 0.15),
                          PAINT_Z + PAINT_T + 0.005,
                          0.30, w * 0.8, 0.01, (0.05, 0.35, 0.10, 1), yaw, solid=False))
+
+    # ------------------------------------------------- coater LD / ULD
+    #
+    # The first stations in this world that are NAMED rather than merely
+    # measured. The deck [S16] says Coater LD 4EA and Coater ULD 4EA; block
+    # `zw$4E78` puts LD at x 125.58 and ULD at x 136.58, both at the same y —
+    # they differ in x, not y.
+    #
+    # Drawn as a pad plus a post so they read as stations from across a 300 m
+    # hall, where a flat pad is invisible. The post is VISUAL ONLY: a station is
+    # a place to stand, not an obstacle.
+    LD_RGBA = (0.15, 0.75, 0.30, 1)
+    ULD_RGBA = (0.95, 0.55, 0.10, 1)
+    for i, sy in enumerate(P.COATER_STATION_Y):
+        for kind, sx, rgba in (("ld", P.COATER_LD_X, LD_RGBA),
+                               ("uld", P.COATER_ULD_X, ULD_RGBA)):
+            # The two symbols of one station, facing each other across it.
+            for j, dy in ((0, -P.COATER_STATION_PAIR / 2),
+                          (1, +P.COATER_STATION_PAIR / 2)):
+                parts.append(box(f"ctr{i+1}_{kind}_{j}", sx, sy + dy,
+                                 PAINT_Z + PAINT_T / 2, l, w, PAINT_T,
+                                 rgba, 0.0, solid=False))
+            parts.append(box(f"ctr{i+1}_{kind}_post", sx, sy, 1.2,
+                             0.35, 0.35, 2.4, rgba, solid=False))
+
+    # CTR4's ULD is inferred, not measured — drawn hollow-pale so the world does
+    # not present a guess with the same confidence as a measurement.
+    for i, measured in enumerate(P.COATER_ULD_MEASURED):
+        if not measured:
+            parts.append(box(f"ctr{i+1}_uld_inferred", P.COATER_ULD_X,
+                             P.COATER_STATION_Y[i], 2.8,
+                             0.9, 0.9, 0.9, (0.95, 0.55, 0.10, 0.35), solid=False))
 
     # ------------------------------------------------------------ charging
     cw, ch = P.CHARGING_BAY_SIZE
