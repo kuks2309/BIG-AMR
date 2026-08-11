@@ -608,8 +608,6 @@ void TranslateForwardActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
         double clamped_projection = std::max(0.0, projection);
         auto prof_out = profile.getSpeed(clamped_projection);
         double vx_profile = prof_out.speed;
-        max_cmd_speed_.store(vx_profile);
-        loc_monitor_->setMaxCmdSpeed(vx_profile);
 
         if (projection < 0.0)
         {
@@ -633,6 +631,12 @@ void TranslateForwardActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
             {
                 vx_profile = min_vx_;
             }
+        // ⚠ **바닥값을 적용한 뒤에 알린다.** 이전에는 프로파일 속도(바닥 적용 전)를 넣어,
+        //   진행이 0 에 고정되면 `getSpeed(0)=0` → 감시기가 「정지 중」으로 조기 통과했다.
+        //   그 사이 바퀴에는 바닥값이 그대로 나가 **개루프 주행**이 된다(실기 사고 형태).
+        //   감시기 계약은 「**실제로 바퀴에 나가는 지령속도**」다.
+        max_cmd_speed_.store(vx_profile);
+        loc_monitor_->setMaxCmdSpeed(vx_profile);
 
             if (prof_out.phase == ProfilePhase::DONE || projection >= target_distance)
             {

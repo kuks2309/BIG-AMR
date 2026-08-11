@@ -405,13 +405,19 @@ def main() -> int:
     # ⚠ 문자열 비교로는 `""`·`"00"`·`" 0"` 이 전부 빠져나가고, ROS 는 그것을 도메인 0 으로
     #   읽는다. 정수로 파싱해 판정한다. 섞이면 SIL 런치가 `/motor/wheel_cmd` 를 실기에
     #   발행하고 `/safety/estop=false`·`/safety/lidar=safe` 까지 위조한다 — 로봇이 움직인다.
+    # ⚠ **「0 이 아니면 통과」는 이 PC 에서 무력하다** — `~/.bashrc` 가 `ROS_DOMAIN_ID=125`
+    #   (운용 도메인)를 이미 export 하므로 `dom<=0` 이 영원히 성립하지 않는다. 접두를
+    #   빠뜨리고 실행하면 경고 없이 **운용 도메인에서 돌아** SIL 런치가 `/motor/wheel_cmd`
+    #   와 위조 안전신호를 실기에 뿌린다. 그래서 **양성 허용목록**으로 바꾼다.
+    SIL_DOMAINS = {7, 42, 43, 77}
     try:
         dom = int(str(os.environ.get("ROS_DOMAIN_ID", "")).strip())
     except ValueError:
         dom = 0
-    if dom <= 0:
-        print("⚠ ROS_DOMAIN_ID 가 0(또는 미설정·해석 불가)이다 — 실기 스택과 섞인다. "
-              "ROS_DOMAIN_ID=7 로 분리해 실행할 것", file=sys.stderr)
+    if dom not in SIL_DOMAINS:
+        print(f"⚠ ROS_DOMAIN_ID={dom or '(미설정)'} 는 SIL 전용 도메인이 아니다 "
+              f"{sorted(SIL_DOMAINS)} — 실기와 섞이면 로봇이 움직인다. "
+              f"`ROS_DOMAIN_ID=7 python3 …` 로 실행할 것", file=sys.stderr)
         return 2
 
     bad = preflight_yaml()

@@ -636,8 +636,6 @@ void MpcReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         double clamped_projection = std::max(0.0, projection);
         auto prof_out = profile.getSpeed(clamped_projection);
         double vx_profile = prof_out.speed;
-        max_cmd_speed_.store(vx_profile);
-        loc_monitor_->setMaxCmdSpeed(vx_profile);
 
         if (projection < 0.0)
             vx_profile = behind_start_speed_;
@@ -648,6 +646,10 @@ void MpcReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         bool near_goal = (remaining < goal_reach_threshold_);
         if (prof_out.phase != ProfilePhase::DONE && !near_goal && vx_profile < min_vx_)
             vx_profile = min_vx_;
+        // ⚠ **바닥값 적용 뒤에 알린다** — 진행이 0 에 고정되면 `getSpeed(0)=0` 이라
+        //   감시기가 「정지 중」으로 조기 통과하는데 바퀴에는 바닥값이 나간다(개루프 주행).
+        max_cmd_speed_.store(vx_profile);
+        loc_monitor_->setMaxCmdSpeed(vx_profile);
 
         // 종료 조건: remaining_x 제거 (effective_yaw 적용 시 부호 반전으로 오작동)
         if (prof_out.phase == ProfilePhase::DONE || projection >= target_distance)

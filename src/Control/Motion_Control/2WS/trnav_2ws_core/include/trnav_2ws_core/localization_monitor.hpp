@@ -74,6 +74,13 @@ class LocalizationMonitor
         bool prev = enable_watchdog_.exchange(enable);
         if (enable && !prev)
         {
+            // ⚠ 값-정지 타이머도 함께 재장전한다. 이것이 없으면 직전 goal 이 abort 로
+            //   끝나며 남긴 `max_cmd_speed_`(비-0)와 낡은 `last_move_ns_` 조합 때문에
+            //   **다음 goal 이 첫 주기에 즉시 STUCK 으로 죽고, 그 abort 가 다시 같은 상태를
+            //   남겨 자기증식한다**(노드 재시작 전까지 wedge).
+            last_move_ns_.store(node_->get_clock()->now().nanoseconds());
+            move_ref_x_.store(last_x_.load());
+            move_ref_y_.store(last_y_.load());
             // off→on 전환 — 다음 health check 가 baseline 재구축
             std::lock_guard<std::mutex> lock(jump_mutex_);
             prev_jump_valid_ = false;

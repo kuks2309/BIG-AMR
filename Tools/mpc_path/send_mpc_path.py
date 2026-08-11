@@ -210,17 +210,25 @@ def main() -> int:
 
     gh_box: dict = {"gh": None}
 
-    def cancel_and_exit(signum, frame):
+    def _send_cancel() -> bool:
+        """취소를 실제로 보내고 **보냈는지**를 돌려준다. 보고와 사실을 어긋나지 않게 한다."""
         gh = gh_box.get("gh")
-        if gh is not None:
-            try:
-                gh.cancel_goal_async()
-            except Exception:
-                pass
+        if gh is None:
+            return False
+        try:
+            gh.cancel_goal_async()
+            return True
+        except Exception:
+            return False
+
+    def cancel_and_exit(signum, frame):
+        _send_cancel()
         raise KeyboardInterrupt(f"signal {signum}")
 
     # SIGTERM(kill)·SIGHUP(ssh 끊김)에서도 취소가 나가게 한다. SIGKILL 은 막을 수 없다.
-    for sg in (signal.SIGTERM, signal.SIGHUP):
+    # ⚠ **SIGINT(Ctrl-C) 포함.** 가장 흔한 중단 수단인데 종전에는 빠져 있었고,
+    #   `except KeyboardInterrupt` 는 「취소를 보냈다」고 출력만 했다 — 거짓 보고였다.
+    for sg in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sg, cancel_and_exit)
 
     rc = 0
@@ -287,9 +295,17 @@ def main() -> int:
         print(f"  소요 {res.elapsed_time:.2f} s")
         rc = 0 if res.status == 0 else 1
     except KeyboardInterrupt:
-        print("\n중단 — 취소 요청을 보냈다", file=sys.stderr)
-        pump(3.0)
+        sent = _send_cancel()
+        print(f"\n중단 — 취소 {'송신함' if sent else '**미송신**(목표 미접수 상태)'}", file=sys.stderr)
+        pump(4.0)
         rc = 4
+    except BaseException as exc:
+        # 어떤 예외든 goal 을 남긴 채 죽지 않는다 — 감시자가 사라지면 로봇만 남는다.
+        sent = _send_cancel()
+        print(f"\n⚠ 예외 {type(exc).__name__}: {exc} — 취소 "
+              f"{'송신함' if sent else '**미송신**'}", file=sys.stderr)
+        pump(4.0)
+        rc = 1
     finally:
         try:
             node.destroy_node()
