@@ -154,6 +154,27 @@ This decides the whole traffic design. With directions, two-lane corridors carry
 opposing flows and robots never meet head-on. Without them, every corridor needs
 segment reservation, which is a harder problem and a deadlock risk.
 
+#### Correction, 2026-08-11 — arrows DO exist in the cell, but not on AGV layers
+
+Overlaying the drawing on the world put arrow glyphs on screen inside the cell,
+which contradicted the sentence above. Extracting them settles it, and the
+original claim was wrong in its reason though right in its conclusion:
+
+**42 thick arrow glyphs exist in the cathode cell.** Every single one is on an
+EQUIPMENT layer — `_COATER CATHODE` (36), `_MIXING EQ_CATHODE` (5),
+`FOIL ASRS_CATHODE` (1). They are machine-internal material-flow arrows, 0.5-5 m
+long, several of them double-headed. A further 36 thin glyphs on layer `4` are
+dimension leaders, 2-3 cm thick.
+
+**None is on an AGV layer, and none annotates a lane rectangle.** So the answer
+does not change — the drawing still does not say which way AGV traffic runs — but
+"no arrows lie inside the cell area" was false, and anyone re-checking this would
+have found them and concluded the search had been careless.
+
+Worth noting for A5: the densest cluster of these equipment arrows sits at
+x 134-137, the coater's east end, which is exactly where the lanes penetrate the
+coater bounding box.
+
 > **Ask:** Are the AGV lanes one-way? For the two-lane corridors, which lane runs
 > which way?
 
