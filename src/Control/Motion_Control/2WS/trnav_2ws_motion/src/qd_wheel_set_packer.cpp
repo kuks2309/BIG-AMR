@@ -16,10 +16,10 @@ trnav_msgs::msg::WheelSetArray TwoWsWheelSetPacker::pack(double velocity_front, 
     {
     case trnav_2ws_core::Platform::QD_DIAGONAL: {
         msg.wheels.resize(2);
-        // wheels[0] = W1 (전-좌)
+        // wheels[0] = W1 (앞)
         msg.wheels[0].velocity = velocity_front;
         msg.wheels[0].steering = angle_front;
-        // wheels[1] = W2 (후-우)
+        // wheels[1] = W2 (뒤)
         msg.wheels[1].velocity = velocity_rear;
         msg.wheels[1].steering = angle_rear;
         break;
@@ -27,8 +27,9 @@ trnav_msgs::msg::WheelSetArray TwoWsWheelSetPacker::pack(double velocity_front, 
     case trnav_2ws_core::Platform::DD:
     case trnav_2ws_core::Platform::FWS_INDEPENDENT:
     case trnav_2ws_core::Platform::ACKERMANN:
-        // Non-QD platforms must use sibling packers (trnav_motion_dd, etc.).
-        // After ADR-012 (2026-05-21) QD/DD layer separation, mixing platforms
+        // Non-QD platforms must use sibling packers (trnav_motion_dd, etc. — not present
+        // in this repository). After the 2026-05-21 QD/DD layer separation (ADR-012),
+        // mixing platforms
         // in one packer is rejected as an architectural violation. We fall
         // through to QD packing to avoid silent empty output if config is
         // misconfigured for this binary; the caller should construct with

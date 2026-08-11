@@ -66,7 +66,7 @@ YawControlReverseActionServer::YawControlReverseActionServer(rclcpp::Node::Share
     runtime_gate_threshold_deg_ = tg_params.runtime_gate_threshold;
     guard_ = std::make_unique<TransientGuard>(tg_params);
 
-    // LocalizationMonitor (TF-only, topic 폐기 2026-05-18)
+    // LocalizationMonitor — /robot_pose PoseStamped 토픽 구독 (2026-05-18 topic 기반, 분산 TF lookup 폐기)
     LocalizationMonitor::Params lm_params;
     lm_params.localization_timeout_sec = safeParam("yaw_control_reverse_localization_timeout_sec", 2.0);
     lm_params.position_jump_threshold = safeParam("yaw_control_reverse_position_jump_threshold", 0.3);
@@ -381,8 +381,8 @@ void YawControlReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_han
 
     bool reached = false;
     // 헤딩 발산(−7) 판정에 쓸 맵 자세의 최대 나이. 측위 타임아웃(2.0 s)보다 훨씬 짧아야
-    // 한다 — −7 은 10 cycle(50 Hz 기준 0.2 s)이면 발화하므로, 그보다 느슨하면 얼어붙은
-    // 맵 자세로 IMU 를 탓하게 된다.
+    // 한다 — −7 은 서로 다른 pose 샘플 10개(실차 10 Hz 기준 약 1.0 s)면 발화하므로, 그보다
+    // 느슨하면 얼어붙은 맵 자세로 IMU 를 탓하게 된다.
     constexpr double kHeadingPoseMaxAgeSec = 0.3;
     int heading_diverge_cnt = 0; // 조대 헤딩 발산 연속 카운터 — **서로 다른 pose 샘플**을 센다
     rclcpp::Time heading_last_stamp(0, 0, RCL_ROS_TIME); // 마지막으로 센 pose 의 stamp

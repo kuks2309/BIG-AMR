@@ -122,7 +122,7 @@ MpcActionServer::MpcActionServer(rclcpp::Node::SharedPtr node, ActionMutex actio
     bicycle_model_ = std::make_unique<BicycleModel>(wheels);
     wheelbase_ = std::fabs(w1_x - w2_x);
 
-    // ── Pure Pursuit specific parameters ──
+    // ── MPC specific parameters ──
     lookahead_distance_ = safeParam("mpc_lookahead_distance", 0.6);
     double max_lateral_offset = safeParam("mpc_max_lateral_offset", 1.0);
     double heading_threshold_deg = safeParam("mpc_heading_threshold_deg", 45.0);
@@ -166,7 +166,7 @@ MpcActionServer::MpcActionServer(rclcpp::Node::SharedPtr node, ActionMutex actio
     tg_params.runtime_gate_threshold = runtime_gate_deg;
     guard_ = std::make_unique<TransientGuard>(tg_params);
 
-    // ── LocalizationMonitor (TF-only, topic 폐기 2026-05-18) ──
+    // ── LocalizationMonitor (/robot_pose 토픽 구독 기반, 분산 TF lookup 폐기 2026-05-18) ──
     double loc_timeout = safeParam("mpc_localization_timeout_sec", 2.0);
     double jump_threshold = safeParam("mpc_position_jump_threshold", 0.3);
 
@@ -322,7 +322,7 @@ bool MpcActionServer::validateGoal(std::shared_ptr<const Mpc::Goal> goal)
 }
 
 // ════════════════════════════════════════════════════════
-//  execute: Phase 0 (steer align) → 1-3 (trapezoidal + Pure Pursuit) → 4 (steer return)
+//  execute: Phase 0 (steer align) → 1-3 (trapezoidal + MPC) → 4 (steer return)
 // ════════════════════════════════════════════════════════
 void MpcActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 {
@@ -473,7 +473,7 @@ void MpcActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         path_viz_pub_->publish(path_msg);
     }
 
-    // ── IMU receive check (위치는 TF lookupMapToBase 가 처리) ──
+    // ── IMU receive check (위치는 /robot_pose 구독 스냅샷 lookupMapToBase 가 처리) ──
     if (!imu_received_.load())
     {
         RCLCPP_ERROR(node_->get_logger(), "IMU data not received, aborting mpc");

@@ -1,5 +1,44 @@
 # trnav_2ws_action_server — code updates
 
+2026-08-11 / 22:37 - (pending) / **주석 감사 — 코드와 모순되는 주석 일괄 정정** (코드 무변경)
+
+- 범위: 2WS 스택 전체(~15,400줄). **주석·docstring·`<description>` 만 수정, 실행 코드는 한 줄도 바꾸지 않았다.**
+- 방법: 10인 독립 리더가 슬라이스별로 후보를 내고 슬라이스마다 적대적 반박 2인(원문 변호 / 대체문 감사)이
+  코드로 재검증. 1차 82후보 → 반박 통과 79 + 저자 판정 3 = 82 적용. 2차(죽은 참조·inline↔대각 잔재·
+  1차 0건 파일 전수 재독) 39후보 → 29 적용, 9 기각(변호인 반박 성립), 1 중복.
+- 코드 무변경 증명: 변경 63파일 전부를 언어별 파서로 대조 — C++ 28개 `gcc -fpreprocessed -E -P` 출력 동일,
+  Python 13개 AST(Abstract Syntax Tree) 동일(모듈 docstring 제외), YAML/`.action`/CMake 19개 `#` 주석 제거 후 동일,
+  `package.xml` 3개 `<description>` 제외 XML 동일. **차이 0건.**
+- 검증: `colcon build --packages-up-to trnav_2ws_action_server …` 6패키지 PASS(0 error) ·
+  `colcon test` 67 tests / 0 failures / 0 errors.
+- 기각 사례(기록): 상류 설계문서 인용(`AMR_Motion_Control_Implementation_Plan.md` §1.6.2,
+  `Implementation Plan §5.4.3`, `trnav_motion_mux_architecture.md`, `dual_steer_engine.py … lines N-M`,
+  `ADR-012`)을 「죽은 참조」로 고치려던 5건은 **반박당해 원상 유지**했다 — 저장소 상대경로가 아니라
+  이식물의 정상적인 출처 표기이고, 「고치면」 오히려 이 저장소에서 확인되지 않는 상류 소재를
+  새로 심게 된다. `Platform::QD_DIAGONAL` enum 정의 주석 계열 4건도 taxonomy 서술이라 기각.
+- 수정 `src/{mpc,mpc_reverse,translate_forward,translate_reverse}/…cpp` — `LocalizationMonitor (TF-only, topic 폐기)`
+  → **정반대**였다: `/robot_pose` 토픽 구독 기반이고 폐기된 쪽이 분산 TF lookup(2026-05-18).
+- 수정 `src/crab_linear/crab_linear_action_server.cpp` — 파일 머리 알고리즘 서술이 실제 cruise 루프와 달랐다
+  (`omega_cmd → DualSteerIK` → 실제는 `TwoWsCrabIK.compute(vx, theta_body, delta_cte, delta_heading)`, omega 0 고정).
+- 수정 `src/spin/spin_action_server.cpp` — Stage 2(fine) 주석의 「|omega| 하한 `min_speed_dps_`」 삭제:
+  하한 floor 는 Stage 1 에만 적용되고 fine 은 상한만 clamp 한다(:418 이 이미 그렇게 적고 있었다).
+- 수정 `src/translate_reverse/…cpp` — 「램프 입력은 항상 ≥ 0」 → `kReverseDir(-1)` 이 곱해져 항상 ≤ 0
+  (전진판 문장의 복사 잔재).
+- 수정 `config/yaw_control_params.yaml` — 「`add_on_set_parameters_callback` 이 없어 `ros2 param set` 이 안 먹는다」
+  → 콜백은 실재하며(`yaw_control_action_server.cpp:90`) 화이트리스트 10키는 hot-reload, 나머지는 명시적 거부.
+- 수정 `config/*_params.yaml` 8종 — Tongyi 참조 줄 앵커 `…protocol-reference.md:11-15` → `:42-46`(휠 좌표표 실제 위치).
+- 수정 `launch/sil_turn_reverse.launch.py` — docstring 이 `active source = turn, id=5`·`/motion/wheel_cmd/turn`
+  로 전진판을 가리켰다 → `turn_reverse, id=12`·`/motion/wheel_cmd/turn_reverse`.
+- 수정 `launch/{sil,hil}_mpc{,_reverse}.launch.py` — mux source id `7`/`10` → 실제 `8`/`9`.
+- 수정 `launch/sil_{mpc,mpc_reverse,translate_forward,translate_reverse}.launch.py` — 인용한 에러 문구가 2026-08-10 에
+  교체된 옛 문구(`TF2 map->base_link not available`)였다 → 현행 문구. 그 옛 문구는 이제 QD 스택에만 남아 있다.
+- 수정 `launch/{crab_linear,mpc,translate_forward,yaw_control}.launch.py` — 부재 문서
+  `docs/plan/2026-06-09_phase2_robot_pose_replacement.md` 를 「이 저장소에 없음」으로 명시.
+- 수정 헤더 6종 — `docs/abstraction/motion_source_id_contract.md`(부재) → 계약 정본은 `trnav_motion_mux.yaml` 주석;
+  `turn`/`turn_reverse` 의 `max_timeout_sec_` 옆 주석이 **다른 멤버(이동평균 샘플 수)** 설명이던 것 정정 등.
+
+---
+
 2026-07-04 / 09:52 - (pending) / **QD 운동학 include·link 경로 이관** (AD-012 개정 — `trnav_2ws_kinematics` 분리)
 
 - 수정 헤더 8종 include 경로 `trnav_2ws_motion/qd_{bicycle_model,crab_inverse_kinematics}.hpp` → `trnav_2ws_kinematics/...`: `mpc`, `mpc_reverse`, `yaw_control`, `yaw_control_reverse`, `translate_forward`, `translate_reverse`, `turn` (bicycle), `crab_linear` (crab). `spin` 은 `qd_action_server_base` 만 사용 — 무변경

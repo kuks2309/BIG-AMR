@@ -5,8 +5,8 @@
 SIL(Software In the Loop) closed-loop launch for amr_turn_reverse_node.
 
 체인:
-  amr_turn_reverse_node ─ /motion/wheel_cmd/turn ─→ trnav_motion_mux
-  trnav_motion_supervisor ─ service ─→ trnav_motion_mux  (active source = turn, id=5)
+  amr_turn_reverse_node ─ /motion/wheel_cmd/turn_reverse ─→ trnav_motion_mux
+  trnav_motion_supervisor ─ service ─→ trnav_motion_mux  (active source = turn_reverse, id=12)
   trnav_motion_mux ─ /motor/wheel_cmd ─→ translate_sim_odom_node
   translate_sim_odom_node ─→ TF + /rtabmap/localization_pose + /imu/data + /wheel_motor_state
 
@@ -16,8 +16,8 @@ turn 은 **반경 R 의 원호 주행**이다(spin 은 제자리 회전). `v = �
 turn 은 spin 과 마찬가지로 **IMU yaw 만** 쓰고 LocalizationMonitor 를 쓰지 않는다
 (turn_action_server.cpp 는 robot_pose 를 구독하지 않는다) → sil_pose_adapter 불포함.
 
-⚠ 2026-08-05 신설. 상류(kuks2309/TR_Nav_ros2_ws)에도 sil_turn 은 없다 — turn 은 상류에서도
-   SIL 로 돌려본 적이 없다(있는 것은 플랜트 없는 turn.launch.py 뿐).
+⚠ 2026-08-09 신설(전진판 `sil_turn.launch.py` 의 짝, ADR docs/adr/2026-08-09-turn-reverse.md).
+   플랜트 없는 짝 런치는 turn_reverse.launch.py 다.
 
 실 라이다·실 모터·실 IMU 미사용. 더미 safety publishers 추가.
 """

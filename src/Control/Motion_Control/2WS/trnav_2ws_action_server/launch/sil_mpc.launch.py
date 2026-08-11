@@ -3,7 +3,7 @@ SIL closed-loop launch for amr_mpc_node.
 
 체인:
   amr_mpc_node ─ /motion/wheel_cmd/mpc ─→ trnav_motion_mux
-  trnav_motion_supervisor ─ service ─→ trnav_motion_mux  (active source = mpc, id=7)
+  trnav_motion_supervisor ─ service ─→ trnav_motion_mux  (active source = mpc, id=8)
   trnav_motion_mux ─ /motor/wheel_cmd ─→ translate_sim_odom_node
   translate_sim_odom_node ─→ TF + /rtabmap/localization_pose + /imu/data + /wheel_motor_state
                             ─→ amr_mpc_node (피드백)
@@ -36,11 +36,14 @@ def generate_launch_description():
     # LocalizationMonitor 는 **TF 가 아니라 /robot_pose 토픽 캐시**만 쓴다
     # (localization_monitor.cpp:137-150). SIL 에선 이 어댑터가 그 토픽을 낸다.
     # 없으면 액션이 시작 즉시 abort(-3) 한다 — 에러 문구는
-    # "TF2 map->base_link not available" 이지만 실제 원인은 이 토픽 부재다.
+    # "/robot_pose 미수신 또는 낡음(신선도 초과) — TF 문제가 아니다 …" 다
+    # (mpc_action_server.cpp:487. 종전 문구 "TF2 map->base_link not available" 는 2026-08-10 교체됐고,
+    #  지금은 QD 스택 액션 서버(trnav_motion_action_server) 들만 그 문구를 낸다).
     # ⚠ 실차에서 /robot_pose 를 무엇이 내는지는 **이 저장소에서 확인되지 않는다.**
     #   QD 문서가 `src/Navigation/trnav_pose_publisher` 를 가리키나 그 경로는 부재이고
-    #   (src/Navigation/ = icp_odometry_bringup · mcl2d_*), 근거는 sil_pose_adapter_node.cpp:8
-    #   주석 한 줄뿐이다. 실기 브링업에서 발행자를 확인할 것.
+    #   (src/Navigation/ = icp_odometry_bringup · mcl2d_* · seer_pose_publisher — 다만
+    #   seer_pose_publisher 의 기본 발행은 /seer/robot_pose 다), 배선 정리는
+    #   docs/code_review/pose-topic-wiring/2026-08-10.md 를 볼 것.
     pose_adapter_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([

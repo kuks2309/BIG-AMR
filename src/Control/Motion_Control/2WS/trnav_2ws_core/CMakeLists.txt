@@ -22,8 +22,9 @@ find_package(tf2_ros REQUIRED)
 
 # ── Platform-agnostic primitives only.
 #    QD-specific controllers (path controller, mpc, wheel set packer, TwoWsActionServerBase)
-#    live in `trnav_2ws_motion`. DD-specific in `trnav_motion_dd`. Kinematics (IK / bicycle
-#    model) live in `trnav_2ws_kinematics` / `trnav_dd_kinematics` (src/Control/Kinematics/).
+#    live in `trnav_2ws_motion`. DD-specific in `trnav_motion_dd` (not present in this
+#    repository). Kinematics (IK / bicycle model) live in `trnav_2ws_kinematics`
+#    (src/Control/Motion_Control/2WS/).
 #    See ADR-012 (2026-05-21) + amendment (2026-07-04) for the separation rationale. ──
 
 # ── Motion Profile (no ROS dep) ──
@@ -63,7 +64,8 @@ ament_target_dependencies(localization_monitor
 set_target_properties(localization_monitor PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Header-only utilities (no add_library — installed via install(DIRECTORY include/)):
-#   action_mutex.hpp, math_utils.hpp, recursive_moving_average.hpp, robot_geometry.hpp
+#   action_mutex.hpp, math_utils.hpp, recursive_moving_average.hpp, robot_geometry.hpp,
+#   velocity_ramp.hpp
 
 # ── Install ──
 install(TARGETS

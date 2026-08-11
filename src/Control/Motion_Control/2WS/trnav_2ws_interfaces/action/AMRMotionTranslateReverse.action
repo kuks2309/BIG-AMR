@@ -19,7 +19,7 @@ bool    hold_steer           # true: skip Phase 4 steer return
 float64 exit_steer_angle     # deg: Phase 4 target steer (ignored if hold_steer)
 float64 exit_speed           # m/s (0=완전정지, >0=이 magnitude 로 종료, 기본=0)
 float64 entry_speed          # m/s (0=start from stop, >0=resume at this magnitude)
-bool    has_next             # true=다음 Segment 존재 → 감속 안 함
+bool    has_next             # 미사용 필드 — action server 가 읽지 않는다 (속도 연속 종료는 exit_speed>0 로 지정)
 # Control mode: 0=node param default, 1=Bicycle, 2=Sequential CTE, 3=Pure Stanley
 uint8   CTRL_DEFAULT     = 0
 uint8   CTRL_MODE_A      = 1

@@ -1,12 +1,12 @@
-# AMRMotionPurePursuitReverse Action — nav_msgs/Path 다중 waypoint 후진 추종 (BICYCLE 전륜)
-# trnav_2ws_interfaces/action/AMRMotionPurePursuitReverse
+# AMRMotionMpcReverse Action — nav_msgs/Path 다중 waypoint 후진 추종 (BICYCLE 전륜)
+# trnav_2ws_interfaces/action/AMRMotionMpcReverse
 #
-# 알고리즘: Pure Pursuit Reverse (translate_reverse 패턴 준용)
-#   effective_yaw = robot_yaw + π 보정 후 PurePursuitController 그대로 사용
+# 알고리즘: MPC Reverse (translate_reverse 패턴 준용)
+#   effective_yaw = robot_yaw + π 보정 후 TwoWsMpcController 그대로 사용
 #   → delta_f 부호 자동 반전, e_theta 자동 보정
 #   wheel velocity 출력 × -1 (후진)
 #
-# AMRMotionPurePursuit 와 동일 필드 — 역방향 전용 노드 분리 (translate_forward/reverse 패턴)
+# AMRMotionMpc 와 동일 필드 — 역방향 전용 노드 분리 (translate_forward/reverse 패턴)
 
 # Goal
 nav_msgs/Path path           # map frame 다중 waypoint (>=2 poses, frame_id="map")
@@ -21,7 +21,7 @@ uint8   CTRL_DEFAULT     = 0
 uint8   CTRL_MODE_A      = 1
 uint8   control_mode 0
 # Per-goal Localization watchdog 토글 (acs_gui Link.enable_localization_watchdog 전파, 2026-05-18)
-# Effective = 본 필드 AND node param (translate_enable_localization_watchdog 등). 둘 다 true 여야 작동.
+# Effective = 본 필드 AND node param (mpc_enable_localization_watchdog). 둘 다 true 여야 작동.
 bool enable_localization_watchdog true
 ---
 # Result

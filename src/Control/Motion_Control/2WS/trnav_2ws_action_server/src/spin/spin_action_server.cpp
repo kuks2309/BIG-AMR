@@ -34,7 +34,8 @@ SpinActionServer::SpinActionServer(rclcpp::Node::SharedPtr node, trnav_2ws_core:
 
     // ── Hot-reload param 콜백 (HIL 게인 튜닝용; mpc/translate 선례 패턴) ──
     // 화이트리스트: kp_spin/ki_spin/kd_spin/pid_band_deg/min_speed_dps/integral_limit_deg/
-    //               fine_correction_threshold_deg. 범위 외 reject. ros2 param set 으로 실시간 반영.
+    //               fine_correction_threshold_deg/control_rate_hz/spin_max_timeout_sec.
+    //               범위 외 reject. ros2 param set 으로 실시간 반영(control_rate_hz 는 다음 goal 부터).
     params_cb_handle_ = node_->add_on_set_parameters_callback(
         [this](const std::vector<rclcpp::Parameter> &params) -> rcl_interfaces::msg::SetParametersResult {
             rcl_interfaces::msg::SetParametersResult result;
@@ -246,7 +247,7 @@ void SpinActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     // 시작 1회 샘플의 IMU 노이즈가 절대 target 기준(target_imu_yaw) 전체를 오프셋하므로,
     // 차체 정지(Phase 0: 구동속도 0) 직후 N 샘플을 평균한다. yaw 는 ±π wrap 이므로 선형 평균은
     // ±180° 부근에서 오평균(179°,-179°→0°) → 반드시 원형평균 atan2(Σsin, Σcos).
-    // 윈도우 = N / control_rate_hz (yaml control_rate_hz=20 → N=10 ≈ 0.5s, 정지 구간이라 무해).
+    // 윈도우 = N / control_rate_hz (yaml control_rate_hz=50 → N=10 = 0.2s, 정지 구간이라 무해).
     double sin_sum = 0.0, cos_sum = 0.0;
     for (int i = 0; i < start_yaw_window_ && rclcpp::ok(); ++i)
     {
@@ -337,8 +338,8 @@ void SpinActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 
     // ── Stage 2 (Fine, PID): 남은 오차 ≤ pid_band — bang-bang 대체 ──
     // omega_dps = Kp·e + Ki·∫e + Kd·de/dt,  e = 부호 포함 남은 오차[deg] (overshoot 시 부호 반전→역보정).
-    // |omega| 하한 min_speed_dps_(정지마찰 극복) / 상한 max_angular_speed, 방향 보존.
-    // 종료: |e| ≤ fine_correction_threshold_deg or fine timeout.
+    // |omega| 상한 max_angular_speed 만 clamp — 하한 floor 없음(fine 은 0 으로 자연 정착), 방향 보존.
+    // 종료: (|e| ≤ fine_correction_threshold_deg AND |회전율| ≤ settle_rate_dps) 가 settle_count cycle 연속, or fine timeout.
     double integral = 0.0;
     int settle_cnt = 0;   // settle 게이트: |오차|≤threshold AND |실측 회전율|≤settle_rate 연속 cycle 카운트
     double prev_error = remaining_signed_deg(last_yaw_rad_.load());

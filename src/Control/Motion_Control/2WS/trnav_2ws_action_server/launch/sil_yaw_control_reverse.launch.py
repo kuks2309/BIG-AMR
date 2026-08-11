@@ -73,7 +73,7 @@ def generate_launch_description():
     )
 
     # /rtabmap/localization_pose (PoseWithCovarianceStamped) → /robot_pose (PoseStamped).
-    # yaw_control 전용 — 다른 SIL 런치에는 없다.
+    # yaw_control_reverse 도 LocalizationMonitor 를 쓰므로 포함한다 — sil_spin·sil_turn·sil_turn_reverse 만 제외.
     pose_adapter_node = Node(
         package='sil_pose_adapter',
         executable='sil_pose_adapter_node',

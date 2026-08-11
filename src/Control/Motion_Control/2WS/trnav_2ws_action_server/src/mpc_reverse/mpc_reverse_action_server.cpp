@@ -155,7 +155,7 @@ MpcReverseActionServer::MpcReverseActionServer(rclcpp::Node::SharedPtr node,
     tg_params.runtime_gate_threshold = safeParam("transient_runtime_gate_threshold_deg", 15.0);
     guard_ = std::make_unique<TransientGuard>(tg_params);
 
-    // ── LocalizationMonitor (TF-only, topic 폐기 2026-05-18) ──
+    // ── LocalizationMonitor (/robot_pose 토픽 구독 기반, 분산 TF lookup 폐기 2026-05-18) ──
     double loc_timeout = safeParam("mpc_localization_timeout_sec", 2.0);
     double jump_threshold = safeParam("mpc_position_jump_threshold", 0.3);
 
@@ -462,7 +462,7 @@ void MpcReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         path_viz_pub_->publish(path_msg);
     }
 
-    // ── IMU receive check (위치는 TF lookupMapToBase 가 처리) ──
+    // ── IMU receive check (위치는 /robot_pose 구독 기반 lookupMapToBase 가 처리) ──
     if (!imu_received_.load())
     {
         RCLCPP_ERROR(node_->get_logger(), "IMU data not received, aborting mpc_reverse");
@@ -784,8 +784,9 @@ void MpcReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
             double acc_step = walk_accel_limit_ * dt;
             double dec_step = walk_decel_limit_ * dt;
             // 지역 사본을 폐기하고 공용 `trnav_2ws_core::rampToward` 를 쓴다.
-            // 이 서버의 램프 입력은 항상 ≥ 0 이라 **거동이 바뀌지 않는다**(양수 구간 전수
-            // 비교 결과 차이 0.000e+00). 사본이 갈라져 한쪽만 고쳐지는 일을 막는 통일이다.
+            // 이 서버의 램프 입력은 kReverseDir(−1) 을 곱한 뒤라 항상 ≤ 0 이다. rampToward 는
+            // 부호가 아니라 크기(|tgt| vs |cur|)로 가·감속을 판정하므로 음수 구간에서도
+            // a_step/d_step 매핑이 뒤집히지 않는다. 사본이 갈라져 한쪽만 고쳐지는 일을 막는 통일이다.
             vel_f = trnav_2ws_core::rampToward(prev_cmd_vel_f, vel_f, acc_step, dec_step);
             vel_r = trnav_2ws_core::rampToward(prev_cmd_vel_r, vel_r, acc_step, dec_step);
             prev_cmd_vel_f = vel_f;

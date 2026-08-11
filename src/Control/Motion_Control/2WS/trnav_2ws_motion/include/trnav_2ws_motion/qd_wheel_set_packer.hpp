@@ -9,11 +9,13 @@ namespace trnav::motion::two_ws
 
 // QD-diagonal platform packer: converts legacy (vel_f, ang_f, vel_r, ang_r) tuple
 // into trnav_msgs/WheelSetArray for QD_DIAGONAL platform.
-// wheels[0] = W1 (전-좌), wheels[1] = W2 (후-우).
+// wheels[0] = W1 (앞), wheels[1] = W2 (뒤).
 //
-// Note: For non-QD platforms (DD, FWS, Ackermann) a separate packer lives in
-// trnav_motion_dd / future packages — this is intentionally QD-only after the
-// 2026-05-21 QD/DD layer separation (ADR-012).
+// Note: For non-QD platforms (DD, FWS, Ackermann) a separate packer would live in
+// trnav_motion_dd / future packages — neither is present in this repository. This is
+// intentionally QD-only after the 2026-05-21 QD/DD layer separation (ADR-012; that
+// decision is recorded upstream, its in-repo trace is
+// trnav_2ws_core/docs/amr_motion_core_code_updates.md).
 class TwoWsWheelSetPacker
 {
   public:

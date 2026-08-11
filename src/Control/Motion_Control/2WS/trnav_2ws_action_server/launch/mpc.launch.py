@@ -7,7 +7,8 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     # Phase2 (2026-06-09): /robot_pose 구독을 pose_topic 으로 remap. default=/robot_pose (현행).
-    # 검증/적용 시 pose_topic:=/robot_pose_fused (fused odometry 노드 필요). 근거 docs/plan/2026-06-09_phase2_robot_pose_replacement.md
+    # 검증/적용 시 pose_topic:=/robot_pose_fused (fused odometry 노드 필요). ⚠ 근거로 적혀 있던
+    # docs/plan/2026-06-09_phase2_robot_pose_replacement.md 는 이 저장소에 없다(docs/plan/ 디렉터리 자체가 부재, git 이력에도 0건).
     pose_topic = LaunchConfiguration('pose_topic')
     return LaunchDescription([
         DeclareLaunchArgument('pose_topic', default_value='/robot_pose',

@@ -19,10 +19,12 @@ namespace trnav::motion::two_ws
 // yaw 능동 보정을 만든다 (bicycle-like rear-steer).
 //
 // 가정:
-//  - num_wheels = 2, wheels[0]=W1 (front-left, w1_x>0), wheels[1]=W2 (rear-right, w2_x<0)
+//  - num_wheels = 2, wheels[0]=W1 (front, w1_x>0), wheels[1]=W2 (rear, w2_x<0)
 //  - dir>0 (정방향): rear = W2 (wheels[1])
 //  - dir<0 (역방향): rear = W1 (wheels[0])  — walk 진행 방향 기준 뒤
-//  - rear_steer_offset = -dir × delta_heading  (시뮬레이션으로 부호 검증)
+//  - rear_raw = base_raw - delta_heading  (dir 계수 없음 — 구현 기준,
+//    qd_crab_inverse_kinematics.cpp:62. 종전 표기 `-dir × delta_heading` 과의
+//    불일치 경위는 같은 .cpp :55-60)
 //  - walk direction 은 vx_path 부호 (+ wrap 시 wheel 별 flip 가능)
 //  - wheel speed 양 휠 동일 |vx_path|
 class TwoWsCrabIK

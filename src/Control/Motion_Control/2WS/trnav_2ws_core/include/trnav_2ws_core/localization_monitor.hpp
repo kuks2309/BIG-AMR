@@ -14,7 +14,9 @@ namespace trnav_2ws_core
 {
 
 /// 정공법 (2026-05-18) — /robot_pose 토픽 구독 기반 LocalizationMonitor.
-/// 분산 TF lookup 폐기 (trnav_pose_publisher 가 단일 발행). 자원 효율 + SSOT.
+/// 분산 TF lookup 폐기 — pose_topic(기본 /robot_pose) 하나만 구독한다. 자원 효율 + SSOT.
+/// ⚠ 상류 원본의 trnav_pose_publisher 는 이 저장소에 없다(실기 발행자 미구현, SIL 은 src/Sim/sil_pose_adapter)
+///   — 배선 정리는 docs/code_review/pose-topic-wiring/2026-08-10.md.
 ///
 /// Atomic snapshot 주의: last_x_/y_/yaw_/stamp_ns_ 는 각각 독립 std::atomic.
 /// 단일 필드 reader 는 일관된 값을 보지만, 여러 필드 cross-field atomicity 보장 안 됨.
@@ -91,7 +93,7 @@ class LocalizationMonitor
     /// 3-arg overload — 토픽 snapshot 반환 (yaw 포함, stamp 무시).
     bool lookupMapToBase(double &x, double &y, double &yaw) const;
 
-    /// 4-arg overload — stamp 포함 snapshot 반환 (checkLocalizationHealth 사용).
+    /// 4-arg overload — stamp 포함 snapshot 반환 (3인자 판이 이 함수로 위임한다).
     bool lookupMapToBase(double &x, double &y, double &yaw, rclcpp::Time &stamp) const;
 
   private:

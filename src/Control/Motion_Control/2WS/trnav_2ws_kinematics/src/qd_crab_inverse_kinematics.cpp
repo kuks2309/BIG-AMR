@@ -20,9 +20,10 @@ void TwoWsCrabIK::setInitial(double initial_base_steer, int initial_walk_dir)
 namespace
 {
 // ±(π/2 + margin) wrap + walk direction flip.
-// 모터 ±90° 한계 반영. cruise 중 ±90° boundary 미세 진동 (walk dir flip 토글) 회피 위해
-// ±20° 마진 적용 — wrap threshold = ±110°. 본 마진 안에서는 wrap 안 함, motor saturate
-// (±90° strict 시 최대 ±20° wheel cmd 어긋남) 으로 robot 진행은 거의 정확.
+// ±90° 는 IK 유일해 정규화 기준이지 모터 한계가 아니다(docs/adr/2026-07-26-qd-ik-pm90-unique-solution.md).
+// cruise 중 ±90° boundary 미세 진동(walk dir flip 토글) 회피 위해 ±25° 마진 — wrap threshold = ±115°.
+// 종전 「motor saturate」 표기는 클램프 90° 전제였다 — 2026-08-06 결정으로 하류 클램프는 115°
+// (can_relay machine yaml `steer_limit_deg`)이고 상류 가드는 영점 오프셋만큼 낮은 113.32° 라 이 마진을 수용한다.
 constexpr double WRAP_MARGIN = 25.0 * M_PI / 180.0; // 25° = 0.436 rad (HIL 분석 결과 cruise 최대 ±6° + 안전마진)
 double wrapSteer(double steer, int &dir)
 {
@@ -52,8 +53,8 @@ IKResult TwoWsCrabIK::compute(double vx_path, double theta_body, double delta_ct
     // base steer = theta_body + delta_cte (front wheel)
     // rear steer = base - delta_heading
     //
-    // ⚠ 헤더 :25 는 `rear_steer_offset = −dir × delta_heading` 이라 적혀 있으나 여기엔 dir 이
-    //   없다 — 문서와 구현의 불일치는 실재한다(2026-08-08 확인). 다만 `dir` 을 넣어 SIL 로
+    // ⚠ 종전 헤더 표기는 `rear_steer_offset = −dir × delta_heading` 이었으나 여기엔 dir 이
+    //   없다 — 그 불일치는 실재했고(2026-08-08 확인) 헤더를 구현 기준으로 정정해 해소했다. 다만 `dir` 을 넣어 SIL 로
     //   재어 보니 거동이 유의미하게 바뀌지 않았다(2 m·목표 yaw 10° 오차: 10.13° → 10.47°).
     //   crab 은 base steer 가 90° 부근이라 `omega ∝ Δ·cos(base)`, `cos(89.3°)=0.012` 로
     //   **heading 보정의 권한 자체가 거의 0** 이기 때문이다. 어느 쪽이 옳은지는 미결이므로
@@ -64,7 +65,7 @@ IKResult TwoWsCrabIK::compute(double vx_path, double theta_body, double delta_ct
     int front_dir, rear_dir;
     double front_steer, rear_steer;
 
-    constexpr double CLAMP_MARGIN = 25.0 * M_PI / 180.0; // ±25° (어제 결정)
+    constexpr double CLAMP_MARGIN = 25.0 * M_PI / 180.0; // ±25° (WRAP_MARGIN 과 같은 값)
 
     if (initialized_)
     {
@@ -107,7 +108,7 @@ IKResult TwoWsCrabIK::compute(double vx_path, double theta_body, double delta_ct
         rear_steer = wrapSteer(rear_raw, rear_dir);
     }
 
-    // wheels[0] = W1 (front-left, w1_x>0), wheels[1] = W2 (rear-right, w2_x<0)
+    // wheels[0] = W1 (front, w1_x>0), wheels[1] = W2 (rear, w2_x<0)
     // 진행 방향 기준 rear: walk dir > 0 → W2, walk dir < 0 → W1.
     // initialized 시 initial_walk_dir_ 기준, 아니면 wrap 후 front_dir 기준 (동등).
     const bool w2_is_rear = (front_dir > 0);

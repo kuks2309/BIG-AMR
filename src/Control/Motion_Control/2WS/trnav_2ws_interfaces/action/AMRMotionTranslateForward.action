@@ -14,8 +14,10 @@ bool    hold_steer           # true: skip Phase 4 steer return
 float64 exit_steer_angle     # deg: Phase 4 target steer (ignored if hold_steer)
 float64 exit_speed           # m/s (0=완전정지, >0=이 속도로 종료, 기본=0)
 float64 entry_speed          # m/s (0=start from stop, >0=resume at this speed)
-bool    has_next             # true=다음 Segment 존재 → 감속 안 함
-# Control mode: 0=node param default, 1=Bicycle, 2=Sequential CTE, 3=Pure Stanley
+bool    has_next             # true=다음 Segment 존재 (서버 미사용 — 종단 속도연속은 exit_speed>0 로 지정)
+# Control mode: 0=CTRL_DEFAULT, 1=Bicycle — 서버는 0·1 만 수락하고 둘 다 BICYCLE 로 고정한다
+#   (node param translate_control_mode 는 읽고 버린다 — translate_forward_action_server.cpp:81-83)
+# 2=Sequential CTE, 3=Pure Stanley 는 미구현(ControlMode 열거형에 BICYCLE=1 뿐) — validateGoal 이 reject 한다
 uint8   CTRL_DEFAULT     = 0
 uint8   CTRL_MODE_A      = 1
 uint8   CTRL_MODE_B      = 2
