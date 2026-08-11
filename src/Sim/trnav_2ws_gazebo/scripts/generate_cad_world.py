@@ -182,10 +182,41 @@ def main():
     parts.append(rect("wall_east", wx1, wy0, wx1 + WALL_T, wy1, 0, WALL_H, wall))
 
     # ------------------------------------------------------------ machines
+    #
+    # A COATER IS DRAWN AS AN OUTLINE, NOT A SOLID.
+    #
+    # COATER_X spans 24.83 m, which Q1 established is the coater CELL INCLUDING
+    # ITS AGV APRON — its LD station is at x 125.58 and its ULD at 136.58, both
+    # inside that span, and the spur runs in to x 124.56 to serve them. Drawing
+    # the cell as a filled 3 m box put the machine on top of its own stations:
+    # they were in the world, correctly placed, and completely hidden.
+    #
+    # It would also be wrong physically. A robot is meant to drive in there, so
+    # the cell must not be an obstacle. Where the actual machine stands inside
+    # the cell is NOT known — the drawing gives the cell, not the body — so the
+    # honest thing is a boundary and empty floor, not a guessed smaller box.
+    #
+    # The gravure (6.9 m) and slitter (13.05 m) footprints are machine-sized
+    # rather than cell-sized and stay solid, but whether they are also cells has
+    # NOT been checked. See docs/gazebo_world/open-questions.md.
     for name, x0, y0, x1, y1 in P.machines():
         rgba = COLOURS.get(name[:4] if name == "ASRS" else name[:3],
                            (0.55, 0.55, 0.58, 1))
-        parts.append(rect(f"m_{name}", x0, y0, x1, y1, 0, MACHINE_H, rgba))
+        if name.startswith("CTR"):
+            t = 0.25
+            for tag, ex0, ey0, ex1, ey1 in (
+                    ("s", x0, y0, x1, y0 + t), ("n", x0, y1 - t, x1, y1),
+                    ("w", x0, y0, x0 + t, y1), ("e", x1 - t, y0, x1, y1)):
+                parts.append(rect(f"cell_{name}_{tag}", ex0, ey0, ex1, ey1,
+                                  0, 0.35, rgba, solid=False))
+            # Corner posts, so the cell reads as a bounded area from across the
+            # hall without walling it off.
+            for cx in (x0, x1):
+                for cy in (y0, y1):
+                    parts.append(box(f"cell_{name}_p{cx:.0f}_{cy:.0f}", cx, cy,
+                                     1.5, 0.3, 0.3, 3.0, rgba, solid=False))
+        else:
+            parts.append(rect(f"m_{name}", x0, y0, x1, y1, 0, MACHINE_H, rgba))
 
     # -------------------------------------------------------------- lanes
     #
