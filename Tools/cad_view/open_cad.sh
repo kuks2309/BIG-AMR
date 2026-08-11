@@ -25,7 +25,14 @@
 #    Convert with LibreDWG's dwg2dxf first (see docs/gazebo_world/sources.md).
 set -euo pipefail
 
-DEFAULT="$HOME/Desktop/BIG-AMR/References/local/gazebo-world/extracted/cathode_cell_trimmed.dxf"
+# The ORIGIN-ANCHORED copy by default. The absolute-coordinate file is correct
+# for measuring against plant_cad.py, but every viewer we have opens at 0,0 and
+# the drawing lives 100 m away, so it comes up as a blank black canvas and looks
+# broken. This one lands under the cursor. To read true CAD coordinates off it,
+# add (42.22, 166.36) m — or open cathode_cell_trimmed.dxf and use View -> Auto
+# zoom.
+EXTRACT="$HOME/Desktop/BIG-AMR/References/local/gazebo-world/extracted"
+DEFAULT="$EXTRACT/cathode_cell_at_origin.dxf"
 FILE="${1:-$DEFAULT}"
 
 if [[ ! -f "$FILE" ]]; then
@@ -46,6 +53,10 @@ esac
 
 echo "opening $(basename "$FILE") ($(du -h "$FILE" | cut -f1))"
 echo "give it ~30 s for a large file; the window is blank until it finishes."
+case "$FILE" in
+    *at_origin*) echo "coordinates are SHIFTED — add (42.22, 166.36) m for true CAD" ;;
+    *trimmed*)   echo "absolute CAD coordinates — press View -> Auto zoom to find the drawing" ;;
+esac
 
 exec env -i \
     HOME="$HOME" \
