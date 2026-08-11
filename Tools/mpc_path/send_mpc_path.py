@@ -49,6 +49,10 @@ SCAN_STALE_S = 0.5
 POSE_STALE_S = 0.5
 
 
+def trnav_wrap(a: float) -> float:
+    return math.atan2(math.sin(a), math.cos(a))
+
+
 def yaw_of(q) -> float:
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y ** 2 + q.z ** 2))
 
@@ -64,8 +68,15 @@ def main() -> int:
     ap.add_argument("--min-clearance", type=float, default=MIN_CLEARANCE_M,
                     help="진행방향 최소 여유 [m]")
     ap.add_argument("--pose-topic", default="/robot_pose")
+    ap.add_argument("--reverse", action="store_true",
+                    help="후진(mpc_reverse). 경로를 로봇 **뒤쪽**으로 만들고 pose 방향을 yaw+π 로 둔다 "
+                         "— 서버가 effective_yaw = robot_yaw + π 로 보정한 뒤 Pure Pursuit 을 돌리므로 "
+                         "경로 접선이 그 방향과 맞아야 validateInitialPose 를 통과한다.")
     ap.add_argument("--dry-run", action="store_true", help="계획만 출력하고 보내지 않는다")
     ap.add_argument("--timeout", type=float, default=180.0, help="결과 대기 상한 [s]")
+    ap.add_argument("--freeze-sec", type=float, default=1.5, help="측위 값 정지 허용 [s]")
+    ap.add_argument("--pose-stale", type=float, default=0.5, help="측위 두절 허용 [s]")
+    ap.add_argument("--overrun", type=float, default=1.3, help="지령 대비 이동량 상한 배수")
     a = ap.parse_args()
 
     if a.points < 2:
@@ -82,17 +93,23 @@ def main() -> int:
     from rclpy.node import Node
     from rclpy.qos import qos_profile_sensor_data
     from sensor_msgs.msg import LaserScan
-    from trnav_2ws_interfaces.action import AMRMotionMpc
+    from trnav_2ws_interfaces.action import AMRMotionMpc, AMRMotionMpcReverse
 
     rclpy.init()
     node = Node("send_mpc_path")
-    st: dict = {"pose": None, "pose_at": 0.0, "scan": None, "scan_at": 0.0}
+    st: dict = {"pose": None, "pose_at": 0.0, "moved_at": 0.0,
+                "scan": None, "scan_at": 0.0}
 
-    node.create_subscription(
-        PoseStamped, a.pose_topic,
-        lambda m: (st.__setitem__("pose", (m.pose.position.x, m.pose.position.y,
-                                           yaw_of(m.pose.orientation))),
-                   st.__setitem__("pose_at", time.time())), 10)
+    def on_pose(m):
+        p = (m.pose.position.x, m.pose.position.y, yaw_of(m.pose.orientation))
+        prev = st["pose"]
+        now = time.time()
+        # 값이 **변한** 시각을 따로 둔다 — stamp 나이는 「살아있음」을 뜻하지 않는다.
+        if prev is None or math.hypot(p[0] - prev[0], p[1] - prev[1]) > 1e-4:
+            st["moved_at"] = now
+        st["pose"], st["pose_at"] = p, now
+
+    node.create_subscription(PoseStamped, a.pose_topic, on_pose, 10)
     node.create_subscription(
         LaserScan, "/scan_merged",
         lambda m: (st.__setitem__("scan", m), st.__setitem__("scan_at", time.time())),
@@ -123,7 +140,10 @@ def main() -> int:
         print("⚠ /scan_merged 미수신 — 라이다를 확인하라", file=sys.stderr)
         return 2
 
-    x0, y0, th0 = st["pose"]
+    x0, y0, th0_raw = st["pose"]
+    # 후진은 서버가 robot_yaw + π 로 보정하므로 경로도 그 방향으로 만든다.
+    th0 = trnav_wrap(th0_raw + math.pi) if a.reverse else th0_raw
+    travel_dir = math.pi if a.reverse else 0.0     # 여유를 볼 차체 기준 방향
 
     # ── 경로 생성: 현재 자세에서 시작하는 직선 또는 정곡률 호 ──
     poses = []
@@ -141,13 +161,15 @@ def main() -> int:
                       th0 + dth))
 
     xe, ye, the = poses[-1]
-    clr = clearance(0.0)
-    print(f"현재 자세 : ({x0:+.4f}, {y0:+.4f}) yaw {math.degrees(th0):+.2f}°")
+    clr = clearance(travel_dir)
+    print(f"현재 자세 : ({x0:+.4f}, {y0:+.4f}) yaw {math.degrees(th0_raw):+.2f}°"
+          + (f"  (경로 기준 {math.degrees(th0):+.2f}° = yaw+180°)" if a.reverse else ""))
+    print(f"방향      : {'후진(mpc_reverse)' if a.reverse else '전진(mpc)'}")
     print(f"경로      : {'직선' if abs(a.radius) < 1e-6 else f'호 R={a.radius:+.1f} m'} "
           f"· 길이 {a.distance:.2f} m · waypoint {a.points}")
     print(f"종점      : ({xe:+.4f}, {ye:+.4f}) yaw {math.degrees(the):+.2f}°")
     print(f"속도      : 최대 {a.speed:.3f} m/s · 가속 {a.accel:.3f} m/s²")
-    print(f"전방 여유 : {clr:.3f} m (임계 {a.min_clearance:.2f} m)")
+    print(f"{'후방' if a.reverse else '전방'} 여유 : {clr:.3f} m (임계 {a.min_clearance:.2f} m)")
 
     if clr < a.min_clearance:
         print(f"⚠ 여유 부족 — 보내지 않는다", file=sys.stderr)
@@ -156,9 +178,11 @@ def main() -> int:
         print("[dry-run] 보내지 않음")
         return 0
 
-    cl = ActionClient(node, AMRMotionMpc, "/amr_motion_mpc_abstract")
+    act_type = AMRMotionMpcReverse if a.reverse else AMRMotionMpc
+    act_name = "/amr_motion_mpc_reverse_abstract" if a.reverse else "/amr_motion_mpc_abstract"
+    cl = ActionClient(node, act_type, act_name)
     if not cl.wait_for_server(timeout_sec=15.0):
-        print("⚠ /amr_motion_mpc_abstract 서버 없음", file=sys.stderr)
+        print(f"⚠ {act_name} 서버 없음", file=sys.stderr)
         return 2
 
     path = Path()
@@ -172,7 +196,7 @@ def main() -> int:
         p.pose.orientation.w = math.cos(pth / 2.0)
         path.poses.append(p)
 
-    g = AMRMotionMpc.Goal()
+    g = act_type.Goal()
     g.path = path
     g.max_linear_speed = a.speed
     g.acceleration = a.accel
@@ -222,8 +246,31 @@ def main() -> int:
 
         rf = gh.get_result_async()
         t0 = time.time()
+        st["moved_at"] = time.time()
+        stop_why = None
+        x0, y0, _ = st["pose"]
         while not rf.done() and time.time() - t0 < a.timeout:
             rclpy.spin_once(node, timeout_sec=0.05)
+            now = time.time()
+            x, y, _th = st["pose"]
+            d = math.hypot(x - x0, y - y0)
+            # ⚠ 액션 자기보고를 감시로 쓰지 않는다 — 그 보고의 입력이 고장나면 보고도
+            #   같이 고장난다(진행 0 으로 보고하며 개루프 주행). 독립 관측으로만 판정한다.
+            if now - st["pose_at"] > a.pose_stale:
+                stop_why = f"측위 메시지 {a.pose_stale}s 두절"
+            elif now - st["moved_at"] > a.freeze_sec:
+                stop_why = (f"측위 **값**이 {a.freeze_sec}s 동안 변하지 않음 — "
+                            f"얼어붙은 자세로 개루프 주행 의심")
+            elif clearance(travel_dir) < a.min_clearance:
+                stop_why = (f"{'후방' if a.reverse else '전방'} 여유 "
+                            f"{clearance(travel_dir):.2f} m < {a.min_clearance:.2f} m")
+            elif d > a.distance * a.overrun:
+                stop_why = f"이동 {d:.2f} m 가 지령 {a.distance:.2f} m 의 {a.overrun}배 초과"
+            if stop_why:
+                print(f"\n⚠ 감시 발동 — 취소: {stop_why}", file=sys.stderr)
+                gh.cancel_goal_async()
+                pump(4.0)
+                return 5
         if not rf.done():
             print("⚠ 결과 시한 초과 — 취소 요청", file=sys.stderr)
             gh.cancel_goal_async()
@@ -235,6 +282,8 @@ def main() -> int:
         print(f"  주행거리 {res.actual_distance:.3f} m (지령 {a.distance:.3f})")
         print(f"  최종 횡오차 {res.final_lateral_error:+.4f} m · "
               f"헤딩오차 {res.final_heading_error:+.2f}°")
+        xf, yf, _ = st["pose"]
+        print(f"  실제 이동(측위) {math.hypot(xf-x0, yf-y0):.3f} m ← 액션보고와 대조할 것")
         print(f"  소요 {res.elapsed_time:.2f} s")
         rc = 0 if res.status == 0 else 1
     except KeyboardInterrupt:
