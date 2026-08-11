@@ -201,15 +201,40 @@ COATER_SPUR = (
 #: one spur serves BOTH of its coater's stations, ULD first then LD.
 COATER_SPUR_X = (124.56, 157.94)
 
-#: WHAT THE x 145 / 148.5 / 152 POSITIONS ARE IS NOW REOPENED.
+#: THE WIP RACKS — x 148.51 AND 152.05, FOUR GROUPS ALIGNED WITH THE COATERS.
 #:
-#: They were recorded as the coater dock and two queue columns. They are not the
-#: LD/ULD stations — those are at 125.58 and 136.58 — so what they are is an open
-#: question. They sit on layers `涂布-3.5T大AGV` (coating 3.5T Big AGV) and
-#: `AGV接机需求` (AGV docking requirement) with 6, 8 and 12 placements, which is
-#: too many for the deck's 4EA of anything. Candidates: queue positions on the
-#: aisle, or the WIP Coater racks (13EA). Do not use them as docks.
-COATER_AISLE_X = (144.98, 148.51, 152.05)
+#: Identified by the project lead as the WIP Slitter racks: "4 WIP slitters
+#: almost align with LD and CTR, same road structure between them." The geometry
+#: agrees to a degree that is not coincidence — each column carries four PAIRS
+#: 4.10 m apart, and the pair centres sit on the coater stations:
+#:
+#:     pair centre 231.48  vs CTR1 station 231.47   off by 0.01 m
+#:     pair centre 245.34  vs CTR2 station 245.14   off by 0.20 m
+#:     pair centre 255.35  vs CTR3 station 255.45   off by 0.10 m
+#:     pair centre 269.71  vs CTR4 station 269.76   off by 0.05 m
+#:
+#: and one position of every pair lies ON that coater's spur. So a rack group is
+#: reached from the same road as its coater's stations — the spur serves ULD,
+#: then LD, then the rack, all on one run.
+#:
+#: THESE ARE ACCESS POINTS, NOT SLOTS. The deck counts WIP Slitter 30EA and WIP
+#: Coater 13EA, and there are nowhere near that many positions here. Read as: a
+#: rack holds many rolls and the AGV positions are where a robot stands to reach
+#: it. That reading is an INFERENCE from the count mismatch, not something the
+#: drawing states — the rack envelopes themselves are still not extracted.
+#:
+#: Which groups are WIP Slitter and which WIP Coater is NOT settled. The deck
+#: marks both in this area (WIP Coater 4EA and 9EA, WIP Slitter 30EA), so two
+#: rack families may share these columns.
+WIP_ACCESS_X = (148.51, 152.05)
+WIP_GROUP_Y = ((229.43, 233.53), (243.29, 247.39),
+               (253.30, 257.40), (267.66, 271.76))
+WIP_PAIR_SEPARATION = 4.10
+
+#: A third column at x 145.0-145.3, 10 positions, on layers `涂布-3.5T大AGV` and
+#: `AGV接机需求`. Six sit at the WIP pair y-values and four at rot +/-90 near the
+#: station y-values. Not identified. Recorded so it is not silently dropped.
+UNIDENTIFIED_X145 = 145.0
 
 #: THE CORRIDOR AT x 183..186 SERVES MACHINES ON BOTH SIDES.
 #:

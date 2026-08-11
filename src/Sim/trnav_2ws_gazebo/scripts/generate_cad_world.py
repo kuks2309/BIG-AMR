@@ -262,6 +262,23 @@ def main():
                              P.COATER_STATION_Y[i], 2.8,
                              0.9, 0.9, 0.9, (0.95, 0.55, 0.10, 0.35), solid=False))
 
+    # ------------------------------------------------------- WIP racks
+    #
+    # Access points, not slots — see plant_cad.WIP_ACCESS_X. Drawn as pads on
+    # the two columns, one per position, in a colour of their own so they are
+    # never mistaken for a machine station.
+    WIP_RGBA = (0.55, 0.35, 0.75, 1)
+    for gi, (ya, yb) in enumerate(P.WIP_GROUP_Y, 1):
+        for ci, wx in enumerate(P.WIP_ACCESS_X, 1):
+            for pi, wy in enumerate((ya, yb), 1):
+                parts.append(box(f"wip_g{gi}_c{ci}_{pi}", wx, wy,
+                                 PAINT_Z + PAINT_T / 2, l, w, PAINT_T,
+                                 WIP_RGBA, 0.0, solid=False))
+        # One post per group, so four groups read as four racks from a distance.
+        parts.append(box(f"wip_g{gi}_post", sum(P.WIP_ACCESS_X) / 2,
+                         (ya + yb) / 2, 1.0, 0.30, 0.30, 2.0,
+                         WIP_RGBA, solid=False))
+
     # ------------------------------------------------------------ charging
     cw, ch = P.CHARGING_BAY_SIZE
     for group, bays in P.CHARGING.items():

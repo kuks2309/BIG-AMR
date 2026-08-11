@@ -2707,6 +2707,266 @@
         </visual>
       </link>
     </model>
+    <model name="wip_g1_c1_1">
+      <static>true</static>
+      <pose>148.510 229.430 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g1_c1_2">
+      <static>true</static>
+      <pose>148.510 233.530 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g1_c2_1">
+      <static>true</static>
+      <pose>152.050 229.430 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g1_c2_2">
+      <static>true</static>
+      <pose>152.050 233.530 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g1_post">
+      <static>true</static>
+      <pose>150.280 231.480 1.000 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.300 0.300 2.000</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g2_c1_1">
+      <static>true</static>
+      <pose>148.510 243.290 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g2_c1_2">
+      <static>true</static>
+      <pose>148.510 247.390 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g2_c2_1">
+      <static>true</static>
+      <pose>152.050 243.290 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g2_c2_2">
+      <static>true</static>
+      <pose>152.050 247.390 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g2_post">
+      <static>true</static>
+      <pose>150.280 245.340 1.000 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.300 0.300 2.000</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g3_c1_1">
+      <static>true</static>
+      <pose>148.510 253.300 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g3_c1_2">
+      <static>true</static>
+      <pose>148.510 257.400 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g3_c2_1">
+      <static>true</static>
+      <pose>152.050 253.300 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g3_c2_2">
+      <static>true</static>
+      <pose>152.050 257.400 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g3_post">
+      <static>true</static>
+      <pose>150.280 255.350 1.000 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.300 0.300 2.000</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g4_c1_1">
+      <static>true</static>
+      <pose>148.510 267.660 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g4_c1_2">
+      <static>true</static>
+      <pose>148.510 271.760 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g4_c2_1">
+      <static>true</static>
+      <pose>152.050 267.660 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g4_c2_2">
+      <static>true</static>
+      <pose>152.050 271.760 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wip_g4_post">
+      <static>true</static>
+      <pose>150.280 269.710 1.000 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.300 0.300 2.000</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.75 1</ambient>
+            <diffuse>0.55 0.35 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="charge_gravure_1_5T_1">
       <static>true</static>
       <pose>177.220 131.990 0.020 0 0 0.0000</pose>
