@@ -116,6 +116,46 @@ everyone's way.
 - `plant.py` assumptions **A1–A6** therefore remain invented for aisle
   positions and hall extent, though the position data above now constrains them.
 
+## Opening the drawings — solved 2026-08-11
+
+`Tools/cad_view/open_cad.sh` opens the trimmed cell in LibreCAD. Two traps it
+works around, both of which look like a broken install and are not:
+
+**LibreCAD cannot read our DWGs.** It opens an AC1032 (AutoCAD 2018) file to an
+EMPTY document — no error, no drawing, a blank sheet. The tell is memory: it
+settles at ~130 MB with nothing loaded, against ~250 MB when geometry is really
+there. Convert with `dwg2dxf` first.
+
+**A terminal inside the VS Code snap kills it.** The snap exports `LOCPATH`,
+`GTK_PATH` and friends pointing into `/snap/code/<rev>/`; LibreCAD is a system
+binary and picks up snap's glibc, dying with
+
+    symbol lookup error: /snap/core20/.../libpthread.so.0:
+    undefined symbol: __libc_pthread_init, version GLIBC_PRIVATE
+
+`env -i` fixes it. The same binary launched from the GNOME app menu is fine.
+
+### The trimmed cell
+
+`Tools/cad_view/trim_dxf.py` flattens the block tree once and keeps only the
+entities inside x 100..235 m, y 155..295 m — the area `cad_plant.world` covers:
+
+| | full drawing | trimmed |
+| --- | --- | --- |
+| size | 167 MB | 57 MB |
+| entities | 2,181,327 scanned | 310,113 kept, 19 layers |
+| viewer | resolves the whole block tree | flat model space |
+
+Two defects in the first write were invisible until a human opened it, and are
+worth remembering for anything else we export:
+
+* **no layer colours** — LibreCAD drew black entities on a black canvas
+* **no `$EXTMIN`/`$EXTMAX`** — the viewer opened at the origin, 100 m from the
+  nearest line, so the drawing was loaded and off screen
+
+Both are set now. If a drawing still looks empty, try **View -> Auto zoom**
+before believing it.
+
 ## What IS documented, and what we contradict
 
 From the system deck, slide 2 "1.1 AGV model" — verified by reading the slide
