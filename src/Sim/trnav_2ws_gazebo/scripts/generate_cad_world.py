@@ -263,14 +263,20 @@ def main():
 
     # -------------------------------------------- spur-to-station links
     #
-    # Two per spur, one to LD and one to ULD. Only two of the eight are in the
-    # lane data (both on the ULD column); the rest are derived from the spur and
-    # station geometry. Derived ones are drawn PALER, so the world never shows a
-    # derivation with the same weight as a measurement.
-    for x0, y0, x1, y1, ci, kind, measured in P.coater_connectors():
-        rgba = (0.85, 0.45, 0.40, 1) if measured else (0.85, 0.45, 0.40, 0.45)
+    # One per station, hugging its east edge, running to the spur. ALL EIGHT ARE
+    # DERIVED from the project lead's sketch — none is in the drawing — so all
+    # eight are drawn at reduced opacity. Nothing here should read as measured.
+    for x0, y0, x1, y1, ci, kind in P.coater_connectors():
         parts.append(rect(f"link_CTR{ci}_{kind}", x0, y0, x1, y1,
-                          PAINT_Z + PAINT_T, PAINT_T, rgba, solid=False))
+                          PAINT_Z + PAINT_T, PAINT_T,
+                          (0.85, 0.45, 0.40, 0.5), solid=False))
+
+    # The two long north-south roads on the ULD column, from the lane data. These
+    # ARE measured, and they are NOT connectors: each runs from one coater's spur
+    # past the next coater's station, linking adjacent rows.
+    for li, (x0, y0, x1, y1) in enumerate(P.COATER_LINK_ROADS, 1):
+        parts.append(rect(f"coater_link_{li}", x0, y0, x1, y1,
+                          PAINT_Z, PAINT_T, (0.62, 0.66, 0.72, 1), solid=False))
 
     # ------------------------------------------------- coater LD / ULD
     #

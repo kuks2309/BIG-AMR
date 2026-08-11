@@ -201,48 +201,77 @@ COATER_SPUR = (
 #: one spur serves BOTH of its coater's stations, ULD first then LD.
 COATER_SPUR_X = (124.56, 157.94)
 
-#: EACH SPUR HAS TWO CONNECTORS — one down to LD, one down to ULD.
+#: EACH STATION HAS ITS OWN SHORT CONNECTOR, IMMEDIATELY EAST OF IT.
 #:
-#: Described by the project lead: "that road has two small connector roads, one
-#: for coater LD and another for coater ULD, x 125-130 and 135-140". The geometry
-#: demands it — a station sits 3.16-3.40 m off its spur, so something has to join
-#: them — and two of the eight are in the lane data already:
+#: From the project lead's sketch of the coater row. Per coater: the spur runs
+#: east-west, and each of its two stations has a SHORT road of its own running
+#: from the spur to the station, placed hard against the station's east side.
 #:
-#:     x 136.01..138.61  y 243.10..253.47   contains ULD_X, reaches CTR2 station
-#:     x 136.01..138.61  y 260.00..271.65   contains ULD_X, reaches CTR4 station
+#:     spur ═══════════════════════════════════
+#:            ║              ║
+#:          [LD][R]        [ULD][R]
 #:
-#: Both are 2.60 m wide and both sit on the ULD column (136.58 falls inside
-#: 136.01..138.61). So the described structure is confirmed where the drawing
-#: shows it; the other six are an extraction gap of exactly the kind that has hit
-#: this file before — one layer mined, the rest missed.
+#: Three things this gets right that the previous version did not:
 #:
-#: THE OTHER SIX ARE DERIVED, NOT MEASURED. They are generated from the spur and
-#: station geometry by `coater_connectors()` below, and `CONNECTOR_MEASURED` says
-#: which two are real. Do not quote a derived connector as a drawing fact.
+#:   * the connector is BESIDE the station, not on top of it. Station and road
+#:     share an edge; a robot on the road has the station on its left, which is
+#:     why the station symbols face across the road (rot 0 / rot 180) rather than
+#:     along it.
+#:   * it is SHORT — the height of the station plus the reach to the spur, about
+#:     3.7 m. Not a road crossing the gap to the next coater.
+#:   * there is one per station, so two per spur, eight in the row.
+#:
+#: I PREVIOUSLY CALLED TWO LANES 'MEASURED CONNECTORS'. They are not:
+#:
+#:     x 136.01..138.61  y 243.10..253.47   10.4 m long
+#:     x 136.01..138.61  y 260.00..271.65   11.7 m long
+#:
+#: Both run from one coater's spur past the NEXT coater's station, which is not
+#: what a connector does. They are north-south link roads between coater rows,
+#: and they are recorded as such below. The coincidence that drew me in — that
+#: ULD_X falls 0.57 m inside their west edge — is because they run along the same
+#: column, not because they are the connector.
+#:
+#: SO ALL EIGHT CONNECTORS ARE DERIVED. None is measured. The drawing does not
+#: appear to contain them at all, which is consistent with the other
+#: single-layer gaps in this file, but it means the whole set is our
+#: construction from the sketch and must be labelled that way.
 CONNECTOR_WIDTH = 2.60
 
-#: (coater index 0-3, "ld"|"uld") for the connectors the drawing actually shows.
-CONNECTOR_MEASURED = ((1, "uld"), (3, "uld"))
+#: Clearance between the station's east edge and the connector's west edge.
+#: Zero — the sketch shows them touching.
+CONNECTOR_GAP = 0.0
+
+#: The two long north-south roads on the ULD column, verbatim from the lane data.
+#: NOT connectors — see above. Each runs from one coater's spur to just short of
+#: the next, so they link adjacent coater rows on the ULD side.
+COATER_LINK_ROADS = (
+    (136.01, 243.10, 138.61, 253.47),
+    (136.01, 260.00, 138.61, 271.65),
+)
 
 
 def coater_connectors():
-    """Every spur-to-station connector as (x0, y0, x1, y1, coater, kind, measured).
+    """Every station's connector as (x0, y0, x1, y1, coater, kind).
 
-    A connector runs along the station's own column, from the near edge of the
-    spur to just past the far position of the station pair, so a robot leaves the
-    spur, covers the connector and is at the station.
+    ALL DERIVED from the sketch — none is in the drawing. A connector hugs the
+    station's east edge and runs from the far side of the station pair to the
+    spur, so a robot turns off the spur onto it and stops with the station
+    alongside.
     """
     out = []
-    half = CONNECTOR_WIDTH / 2.0
-    reach = COATER_STATION_PAIR / 2.0 + 0.6      # clear the far position
+    half_len = ROBOT_3_5T[1] / 2.0          # station x half-extent, facing +/-x
+    half_wid = ROBOT_3_5T[0] / 2.0          # station y half-extent
+    span = COATER_STATION_PAIR / 2.0 + half_wid
     for i, ((sy0, sy1, side), sty) in enumerate(zip(COATER_SPUR, COATER_STATION_Y)):
         for kind, cx in (("ld", COATER_LD_X), ("uld", COATER_ULD_X)):
-            if side == "north":                  # spur above the station
-                y0, y1 = sty - reach, sy0
-            else:                                # spur below the station
-                y0, y1 = sy1, sty + reach
-            out.append((cx - half, y0, cx + half, y1, i + 1, kind,
-                        (i, kind) in CONNECTOR_MEASURED))
+            x0 = cx + half_len + CONNECTOR_GAP
+            x1 = x0 + CONNECTOR_WIDTH
+            if side == "north":             # spur above: road runs up to it
+                y0, y1 = sty - span, sy0
+            else:                           # spur below: road runs down to it
+                y0, y1 = sy1, sty + span
+            out.append((x0, y0, x1, y1, i + 1, kind))
     return out
 
 
