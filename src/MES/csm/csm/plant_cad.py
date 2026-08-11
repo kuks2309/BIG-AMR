@@ -242,13 +242,40 @@ CONNECTOR_WIDTH = 2.60
 #: Zero — the sketch shows them touching.
 CONNECTOR_GAP = 0.0
 
-#: The two long north-south roads on the ULD column, verbatim from the lane data.
-#: NOT connectors — see above. Each runs from one coater's spur to just short of
-#: the next, so they link adjacent coater rows on the ULD side.
-COATER_LINK_ROADS = (
+#: TWO LANE RECTANGLES IN THE COATER AREA THAT ARE NOT ROADS.
+#:
+#:     x 136.01..138.61  y 243.10..253.47   10.4 m
+#:     x 136.01..138.61  y 260.00..271.65   11.7 m
+#:
+#: Both are in the drawing's lane data (blocks *U2937 and *U2939), and I first
+#: mistook them for the station connectors — ULD_X falls 0.57 m inside their west
+#: edge, which is a coincidence of sharing a column, not a relationship.
+#:
+#: EXCLUDED FROM THE WORLD on the project lead's instruction: there are no such
+#: roads in the coater area. Kept here rather than deleted because they ARE in
+#: the drawing, so the record should show what was measured and why it was left
+#: out — not silently lose it. If they turn out to be something else (a cable
+#: tray, a maintenance access, a lane from an older revision), this is where that
+#: gets written down.
+#:
+#: The world generator filters these out of LANES as well as skipping them
+#: directly, since they appear in both.
+EXCLUDED_LANES = (
     (136.01, 243.10, 138.61, 253.47),
     (136.01, 260.00, 138.61, 271.65),
 )
+
+
+def lanes_drawn():
+    """LANES minus the rectangles that are known not to be roads."""
+    out = []
+    for L in LANES:
+        if any(abs(L[0]-e[0]) < 0.5 and abs(L[1]-e[1]) < 0.5
+               and abs(L[2]-e[2]) < 0.5 and abs(L[3]-e[3]) < 0.5
+               for e in EXCLUDED_LANES):
+            continue
+        out.append(L)
+    return tuple(out)
 
 
 def coater_connectors():

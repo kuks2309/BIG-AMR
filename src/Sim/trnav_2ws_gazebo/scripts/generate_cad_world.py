@@ -29,7 +29,7 @@ WHAT IS DRAWN AND WHAT THAT MEANS
 
     walls           hall shell, 306 x 209 m               solid
     machines        13 bodies, coloured by family         solid
-    lane paint      37 rectangles, flat on the floor      VISUAL ONLY
+    lane paint      35 rectangles, flat on the floor      VISUAL ONLY
     junctions       30 crossings, small pale squares      VISUAL ONLY
     AGV positions   45 pads with a nose stripe            VISUAL ONLY
     coater LD/ULD   8 named stations, green / orange      VISUAL ONLY
@@ -221,7 +221,7 @@ def main():
     # -------------------------------------------------------------- lanes
     #
     # Painted, not built. See the module docstring: a collidable lane is a kerb.
-    for i, (x0, y0, x1, y1) in enumerate(P.LANES, 1):
+    for i, (x0, y0, x1, y1) in enumerate(P.lanes_drawn(), 1):
         parts.append(rect(f"lane_{i:02d}", x0, y0, x1, y1,
                           PAINT_Z, PAINT_T, (0.62, 0.66, 0.72, 1), solid=False))
 
@@ -270,13 +270,6 @@ def main():
         parts.append(rect(f"link_CTR{ci}_{kind}", x0, y0, x1, y1,
                           PAINT_Z + PAINT_T, PAINT_T,
                           (0.85, 0.45, 0.40, 0.5), solid=False))
-
-    # The two long north-south roads on the ULD column, from the lane data. These
-    # ARE measured, and they are NOT connectors: each runs from one coater's spur
-    # past the next coater's station, linking adjacent rows.
-    for li, (x0, y0, x1, y1) in enumerate(P.COATER_LINK_ROADS, 1):
-        parts.append(rect(f"coater_link_{li}", x0, y0, x1, y1,
-                          PAINT_Z, PAINT_T, (0.62, 0.66, 0.72, 1), solid=False))
 
     # ------------------------------------------------- coater LD / ULD
     #
@@ -370,7 +363,8 @@ def main():
     print(f"wrote {out}")
     print(f"  hall      {wx1 - wx0:.0f} x {wy1 - wy0:.0f} m, absolute CAD coordinates")
     print(f"  machines  {len(ms)}")
-    print(f"  lanes     {len(P.LANES)} painted, {len(P.JUNCTIONS)} junctions")
+    print(f"  lanes     {len(P.lanes_drawn())} painted "
+          f"({len(P.EXCLUDED_LANES)} excluded), {len(P.JUNCTIONS)} junctions")
     print(f"  AGV pads  {len(P.AGV_POSITIONS)}")
     print(f"  charging  {sum(len(b) for b in P.CHARGING.values())} bays, {posts} grid posts")
     return 0

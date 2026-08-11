@@ -937,32 +937,6 @@
     </model>
     <model name="lane_23">
       <static>true</static>
-      <pose>137.310 248.285 0.020 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>2.600 10.370 0.020</size></box></geometry>
-          <material>
-            <ambient>0.62 0.66 0.72 1</ambient>
-            <diffuse>0.62 0.66 0.72 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="lane_24">
-      <static>true</static>
-      <pose>137.310 265.825 0.020 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>2.600 11.650 0.020</size></box></geometry>
-          <material>
-            <ambient>0.62 0.66 0.72 1</ambient>
-            <diffuse>0.62 0.66 0.72 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="lane_25">
-      <static>true</static>
       <pose>159.240 250.635 0.020 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
@@ -974,7 +948,7 @@
         </visual>
       </link>
     </model>
-    <model name="lane_26">
+    <model name="lane_24">
       <static>true</static>
       <pose>161.340 250.635 0.020 0 0 0.0000</pose>
       <link name="link">
@@ -987,7 +961,7 @@
         </visual>
       </link>
     </model>
-    <model name="lane_27">
+    <model name="lane_25">
       <static>true</static>
       <pose>171.750 253.815 0.020 0 0 0.0000</pose>
       <link name="link">
@@ -1000,7 +974,7 @@
         </visual>
       </link>
     </model>
-    <model name="lane_28">
+    <model name="lane_26">
       <static>true</static>
       <pose>171.780 193.620 0.020 0 0 0.0000</pose>
       <link name="link">
@@ -1013,7 +987,7 @@
         </visual>
       </link>
     </model>
-    <model name="lane_29">
+    <model name="lane_27">
       <static>true</static>
       <pose>181.430 195.045 0.020 0 0 0.0000</pose>
       <link name="link">
@@ -1026,7 +1000,7 @@
         </visual>
       </link>
     </model>
-    <model name="lane_30">
+    <model name="lane_28">
       <static>true</static>
       <pose>181.430 255.110 0.020 0 0 0.0000</pose>
       <link name="link">
@@ -1039,7 +1013,7 @@
         </visual>
       </link>
     </model>
-    <model name="lane_31">
+    <model name="lane_29">
       <static>true</static>
       <pose>186.500 195.765 0.020 0 0 0.0000</pose>
       <link name="link">
@@ -1052,7 +1026,7 @@
         </visual>
       </link>
     </model>
-    <model name="lane_32">
+    <model name="lane_30">
       <static>true</static>
       <pose>187.080 243.760 0.020 0 0 0.0000</pose>
       <link name="link">
@@ -1065,7 +1039,7 @@
         </visual>
       </link>
     </model>
-    <model name="lane_33">
+    <model name="lane_31">
       <static>true</static>
       <pose>188.100 195.765 0.020 0 0 0.0000</pose>
       <link name="link">
@@ -1078,7 +1052,7 @@
         </visual>
       </link>
     </model>
-    <model name="lane_34">
+    <model name="lane_32">
       <static>true</static>
       <pose>189.180 243.760 0.020 0 0 0.0000</pose>
       <link name="link">
@@ -1091,7 +1065,7 @@
         </visual>
       </link>
     </model>
-    <model name="lane_35">
+    <model name="lane_33">
       <static>true</static>
       <pose>210.090 242.285 0.020 0 0 0.0000</pose>
       <link name="link">
@@ -1104,7 +1078,7 @@
         </visual>
       </link>
     </model>
-    <model name="lane_36">
+    <model name="lane_34">
       <static>true</static>
       <pose>214.300 223.415 0.020 0 0 0.0000</pose>
       <link name="link">
@@ -1117,7 +1091,7 @@
         </visual>
       </link>
     </model>
-    <model name="lane_37">
+    <model name="lane_35">
       <static>true</static>
       <pose>215.900 229.055 0.020 0 0 0.0000</pose>
       <link name="link">
@@ -2842,32 +2816,6 @@
           <material>
             <ambient>0.85 0.45 0.4 0.5</ambient>
             <diffuse>0.85 0.45 0.4 0.5</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="coater_link_1">
-      <static>true</static>
-      <pose>137.310 248.285 0.020 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>2.600 10.370 0.020</size></box></geometry>
-          <material>
-            <ambient>0.62 0.66 0.72 1</ambient>
-            <diffuse>0.62 0.66 0.72 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="coater_link_2">
-      <static>true</static>
-      <pose>137.310 265.825 0.020 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>2.600 11.650 0.020</size></box></geometry>
-          <material>
-            <ambient>0.62 0.66 0.72 1</ambient>
-            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
