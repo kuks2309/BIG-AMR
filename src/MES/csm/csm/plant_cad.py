@@ -78,17 +78,31 @@ GRAVURE_X = (173.19, 180.07)
 GRAVURE_SIZE = (6.9, 17.1)
 GRAVURE_Y = (182.90, 209.61, 240.77, 267.48)
 
-#: Coater x4 — `Cathode Coater type1` / `Cathode Coater template` [D1], with
-#: positions taken from the COATER (C) area labels [D2] because only two of the
-#: four bodies survived extraction (the rot-180 placements have a mirrored
-#: bounding box spanning 256 m and were filtered out as composites).
+#: Coater x4 — `Cathode Coater template` [D1], positioned from the COATER (C)
+#: area labels [D2] because only two of the four bodies survived extraction (the
+#: rot-180 placements have a mirrored bounding box spanning 256 m and were
+#: filtered out as composites).
 #:
 #: PITCH 12.0 m, four machines — matching the deck's "Coater 4 EA". An earlier
-#: reading of 23.96 m was this author measuring alternate machines; both
-#: numbers were real, one was of the wrong thing.
-COATER_X = (113.25, 141.00)
-COATER_SIZE = (24.0, 7.6)
-COATER_Y = (232.87, 244.63, 256.83, 268.88)
+#: reading of 23.96 m was this author measuring alternate machines; both numbers
+#: were real, one was of the wrong thing.
+#: CORRECTED 2026-08-11. This was (113.25, 141.00), 27.75 m — which is the UNION
+#: of two different block variants, not a machine:
+#:
+#:     Cathode Coater type1     x 116.98..141.00  24.02 m  bodies at y 40..72
+#:     Cathode Coater template  x 113.25..138.08  24.83 m  bodies at y 242..274
+#:
+#: y < 100 is the ANODE cell and y > 200 the CATHODE cell, so the cathode line
+#: uses the TEMPLATE variant. Merging the two inflated the width by 3.7 m and
+#: put the east face 2.9 m too far out, which would have made every dock
+#: standoff wrong.
+COATER_X = (113.25, 138.08)
+COATER_SIZE = (24.83, 7.72)
+#: Area-label anchors. Body centres sit ~1.15 m north of them (measured at the
+#: two coaters whose bodies survived extraction: label 244.63 -> centre 245.72,
+#: label 268.88 -> centre 270.11), so machine centres are label + 1.15.
+COATER_LABEL_Y = (232.87, 244.63, 256.83, 268.88)
+COATER_Y = tuple(round(y + 1.15, 2) for y in COATER_LABEL_Y)
 
 #: Slitter x4 — blocks `BLOCK5_1` / `BLOCK6_1` inside block `Slitting` [D2].
 #: Paired spacing: gaps of 9.78, 13.72, 9.78 m.
@@ -122,7 +136,9 @@ SLITTER_Y = (224.03, 233.81, 247.53, 257.31)
 #: lane. Our current model has no queue at all.
 COATER_DOCK_X = 144.98
 COATER_QUEUE_X = (148.51, 152.05)
-DOCK_STANDOFF = 4.0
+#: Dock column to the coater east face (138.08). Was recorded as 4.0 m against
+#: the merged-variant east face of 141.00; with the correct face it is 6.90 m.
+DOCK_STANDOFF = 6.90
 
 #: Every coater now has its LD/ULD pair, 4.10 m apart — the earlier gap at CTR1
 #: and CTR4 was an extraction miss, not a feature of the plant:
@@ -143,7 +159,28 @@ COATER_PORT_Y = ((229.43, 233.53), (243.29, 247.39),
 #:
 #: This is the busiest part of the network: one corridor, two machine rows.
 GRAVURE_DOCK_X = 183.5
-SLITTER_DOCK_X = 185.6
+SLITTER_DOCK_X = 185.62
+
+#: THE SLITTERS ARE SERVED DIFFERENTLY FROM THE COATERS.
+#:
+#: A coater has its own dock and two queue positions on its own face. The four
+#: slitters share ONE north-south line of eight positions at x 185.62, pitched
+#: 3.54 m, covering y 233..260 — a queue line for the whole row rather than a
+#: dock per machine. Rotations are all +/-90, i.e. facing across the corridor.
+#:
+#: That matters for traffic: eight positions on one line, on the corridor that
+#: also serves the gravures from its other side, is the densest conflict point
+#: in the network.
+SLITTER_DOCK_Y = (233.15, 236.69, 240.22, 245.73,
+                  249.27, 252.80, 256.56, 260.10)
+
+#: THE ASRS IS ESSENTIALLY UNSERVED IN THIS DRAWING — one position found, at
+#: (151.85, 219.43). The ASRS body spans y 166..223, so a single position at its
+#: northern end is not a full docking arrangement. Either the ASRS is served on
+#: a face this drawing does not cover, or its positions are on a layer not yet
+#: found. Do not invent them: segment A (ASRS -> Gravure LD) cannot be laid out
+#: from the drawing until this is resolved.
+ASRS_DOCK_FOUND = ((151.85, 219.43),)
 
 #: Two ports on the same machine face, this far apart, facing opposite ways
 #: (rot 0 and rot 180 in the drawing) [D1].
