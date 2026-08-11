@@ -219,6 +219,17 @@ def main():
                          PAINT_Z + PAINT_T + 0.005,
                          0.30, w * 0.8, 0.01, (0.05, 0.35, 0.10, 1), yaw, solid=False))
 
+    # --------------------------------------------------- coater spurs
+    #
+    # Each coater owns one spur, so paint them in the coater's own colour rather
+    # than generic lane grey. A spur that belongs to a machine is a different
+    # object from a through-lane, and the routing will have to treat it so.
+    for i, (sy0, sy1, _side) in enumerate(P.COATER_SPUR, 1):
+        parts.append(rect(f"spur_CTR{i}", P.COATER_SPUR_X[0], sy0,
+                          P.COATER_SPUR_X[1], sy1,
+                          PAINT_Z + PAINT_T, PAINT_T,
+                          (0.85, 0.45, 0.40, 1), solid=False))
+
     # ------------------------------------------------- coater LD / ULD
     #
     # The first stations in this world that are NAMED rather than merely

@@ -2330,6 +2330,58 @@
         </visual>
       </link>
     </model>
+    <model name="spur_CTR1">
+      <static>true</static>
+      <pose>141.250 234.830 0.040 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>33.380 2.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.85 0.45 0.4 1</ambient>
+            <diffuse>0.85 0.45 0.4 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="spur_CTR2">
+      <static>true</static>
+      <pose>141.250 241.980 0.040 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>33.380 2.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.85 0.45 0.4 1</ambient>
+            <diffuse>0.85 0.45 0.4 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="spur_CTR3">
+      <static>true</static>
+      <pose>141.250 258.700 0.040 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>33.380 2.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.85 0.45 0.4 1</ambient>
+            <diffuse>0.85 0.45 0.4 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="spur_CTR4">
+      <static>true</static>
+      <pose>141.250 266.360 0.040 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>33.380 2.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.85 0.45 0.4 1</ambient>
+            <diffuse>0.85 0.45 0.4 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="ctr1_ld_0">
       <static>true</static>
       <pose>125.580 230.665 0.020 0 0 0.0000</pose>

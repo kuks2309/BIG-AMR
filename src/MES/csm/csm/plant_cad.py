@@ -43,9 +43,13 @@ Measured: every machine footprint and position, the lane widths, the AGV dock
 and queue columns, the dock standoff, the charging bays, the building shell.
 
 NOT measured, and flagged at each site below:
-  * which port of a pair is LD and which is ULD (see PORT_ORDER)
+  * lane DIRECTION. Deck slide 16 carries direction arrows over the cell; they
+    have not been read off into a direction per lane yet.
   * lane connectivity — the drawing gives 49 lane rectangles, not a graph
-  * WIP rack envelopes
+  * WIP rack envelopes. The deck counts 2 gravure, 13 coater, 30 slitter; we
+    have the position of none of them.
+  * the gravure and slitter LD/ULD stations. The coaters' are settled (see
+    COATER_LD_X); whether the other rows follow the same pattern is NOT checked.
 """
 
 # ---------------------------------------------------------------- building
@@ -112,15 +116,16 @@ SLITTER_Y = (224.03, 233.81, 247.53, 257.31)
 
 # ------------------------------------------------------------------- AGV
 #
-# THE DRAWING HAS TWO DOCK COLUMNS PER MACHINE ROW, NOT ONE.
+# A MACHINE'S STATIONS SIT INSIDE ITS CELL, AND ITS SPUR REACHES THEM.
 #
-# At every coater there is a 2x2 arrangement: an inner column where the robot
-# docks and an outer column 3.54 m behind it. The outer column is a QUEUE
-# position — a robot waits there, off the lane, rather than on it.
+# Settled at the coaters on 2026-08-11 (below). A coater cell spans x 113-138;
+# its ULD station is at x 136.58 and its LD at 125.58, both INSIDE that span,
+# and the spur runs west from the spine to x 124.56 to serve them.
 #
-# Our current model has no queue position, so a waiting robot stands on the
-# aisle. That is exactly the behaviour that produced the deadlocks and the one
-# measured collision this week. The real plant designed the problem out.
+# An earlier version of this section described "two dock columns per machine
+# row" with an inner dock and an outer queue 3.54 m behind. That model was built
+# from the positions at x 145-152, which are now known NOT to be the coater
+# stations. It is removed rather than corrected, because none of it survived.
 
 #: THE COATER LD AND ULD STATIONS — CORRECTED 2026-08-11 FROM THE SYSTEM DECK.
 #:
@@ -161,6 +166,40 @@ COATER_STATION_PAIR = 1.61
 #: and CTR4 port pairs before. Taken at the symmetric position and flagged here
 #: rather than silently filled.
 COATER_ULD_MEASURED = (True, True, True, False)
+
+#: EACH COATER OWNS ONE SPUR — the road structure at the coater row.
+#:
+#: Described by the project lead and confirmed against the lane rectangles: the
+#: row reads CTR1 · road · CTR2 CTR3 · road · CTR4, and the two roads in each
+#: gap are NOT a pair serving the gap — one belongs to each coater.
+#:
+#:     CTR1  station 231.47   spur y 233.53..236.13   from the north
+#:     CTR2  station 245.14   spur y 240.68..243.28   from the south
+#:     CTR3  station 255.45   spur y 257.40..260.00   from the north
+#:     CTR4  station 269.76   spur y 265.06..267.66   from the south
+#:
+#: Spur centre to station centre is 3.16-3.40 m in every case, and road edge to
+#: the near position of the station pair is 1.05-1.29 m. So a robot runs west
+#: along its coater's spur and steps off it into the station — the station is
+#: perpendicular to the road, not alongside it.
+#:
+#: This is why the station y values are unevenly spaced (gaps 13.67, 10.31,
+#: 14.31): the spurs are interleaved between them, and CTR2/CTR3 have no
+#: coater-reaching road between them at all — the lanes there stop at x 145.57.
+#:
+#: Each entry is (spur_y_min, spur_y_max, approach) with approach the side the
+#: spur lies on relative to the station.
+COATER_SPUR = (
+    (233.53, 236.13, "north"),
+    (240.68, 243.28, "south"),
+    (257.40, 260.00, "north"),
+    (265.06, 267.66, "south"),
+)
+
+#: The spurs run from the main north-south spine at x 157.94 west to x 124.56 —
+#: past the ULD station at 136.58 and terminating just past the LD at 125.58. So
+#: one spur serves BOTH of its coater's stations, ULD first then LD.
+COATER_SPUR_X = (124.56, 157.94)
 
 #: WHAT THE x 145 / 148.5 / 152 POSITIONS ARE IS NOW REOPENED.
 #:
