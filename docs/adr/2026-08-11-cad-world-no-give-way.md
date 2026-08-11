@@ -34,9 +34,41 @@ A 3.5T-Big AGV is **1.60 m wide** (system deck slide 2). A 2.1 m lane leaves
 **0.25 m per side**. There is nowhere to pull over. The manoeuvre give-way
 depends on cannot be performed.
 
-Two-way traffic is handled instead by **parallel lane pairs** — e.g. lanes at
-x 250.08..252.18 and x 253.04..255.14, 5.06 m combined, enough for two robots
-to pass side by side (3.2 m of body).
+### Correction, 2026-08-11 — the network is mixed, not uniformly paired
+
+The first version of this ADR said two-way traffic is handled by **parallel lane
+pairs**, generalising from a single example (x 250.08..252.18 alongside
+253.04..255.14). Grouping all 20 north-south lanes into corridors shows that is
+true of some and false of others:
+
+**Two-lane corridors** — side-by-side rectangles spanning the *same* y-range, so
+two robots can run abreast:
+
+| corridor x | width | |
+| --- | --- | --- |
+| 157.94..162.64 | 4.70 m | two lanes, both y 227..274 |
+| 185.45..190.48 | 5.03 m | two lanes y 172..220, two more y 220..267 |
+| 213.25..216.95 | 3.70 m | two lanes y 175..271 / 175..283 |
+| 257.53..261.23 | 3.70 m | two lanes, both y 174..196 |
+
+**Single-lane corridors** — one rectangle, or two covering *different* stretches
+of y (the same lane drawn in segments):
+
+| corridor x | width | |
+| --- | --- | --- |
+| 170.55..172.98 | 2.43 m | y 170..217, then y 230..278 |
+| 180.23..182.63 | 2.40 m | y 170..220, then y 230..280 |
+| 209.04..211.14 | 2.10 m | single |
+| 239.61..241.71 | 2.10 m | single |
+| 136.01..138.61 | 2.60 m | two short segments |
+
+So the plant uses **wide two-lane spines for the main runs and single lanes for
+spurs and links**.
+
+This does not change the decision — a 2.1 m single lane cannot hold the
+stand-aside manoeuvre either, so give-way is impossible there too. It does change
+the *replacement*: routing over parallel pairs covers only part of the network.
+The single-lane sections need their own answer (see "To be built").
 
 And every machine has a **queue position 3.54 m behind its dock** (measured at
 the coaters, `BIG& SMALL AGV Layout V1 20260810.dwg`). A robot waiting for a bay
@@ -67,12 +99,24 @@ Kept, because they are not give-way and remain necessary:
 - **The true-footprint body model** — `STOP_GAP` as real clearance rather than a
   capsule axis separation.
 
-To be built:
+To be built — and the two corridor kinds need different answers:
 
-- **One-way routing** over the parallel lane pairs, so two robots are never
-  scheduled toward each other on the same lane.
+- **Two-lane corridors** (4.70, 5.03, 3.70, 3.70 m): assign a direction per lane
+  so the pair carries opposing flows. Two robots never meet head-on because they
+  are never on the same lane travelling toward each other.
+- **Single-lane corridors** (2.10–2.60 m): a direction alone is not enough,
+  because two robots routed the *same* way still queue nose-to-tail and a robot
+  entering against the flow has nowhere to go. These need **segment reservation**
+  — the whole lane between two junctions held by one robot at a time, not just
+  the junction. That is the bay interlock's shape applied to a length of lane,
+  and the interlock has been faultless.
 - **Queue positions** at each machine, so a robot waiting for a bay is off the
   lane by construction.
+
+Segment reservation on a single lane is the piece with no precedent in the
+current code. Junction reservation holds a point; this must hold a span, which
+means a robot has to acquire the next segment before leaving the current one, or
+release-then-acquire and risk being stranded mid-corridor.
 
 ## Consequences
 
@@ -95,8 +139,25 @@ work in a 2.1 m lane, which is arithmetic, not that its replacement is proven.
 
 ## Open
 
-- **Are the parallel lanes actually one-way, and in which directions?** The
-  `方向箭头` (direction arrow) blocks all sit at x≈390, outside the cell area.
-  If the pairs are bidirectional the routing premise weakens. Worth asking the
-  customer — a better question than the LD/ULD one.
-- Lane connectivity is not yet a graph: 49 rectangles, no nodes or edges.
+- **Are the two-lane corridors one-way, and in which directions?** The
+  `方向箭头` (direction arrow) blocks all sit at x≈390, outside the cell area,
+  so the drawing does not say. If those corridors are bidirectional instead, the
+  routing premise weakens and more of the network falls back on segment
+  reservation. Worth asking the customer — a better question than the LD/ULD one.
+- **Deadlock under segment reservation is unproven.** Two robots approaching a
+  single-lane corridor from opposite ends, each holding the segment behind them,
+  is a circular wait — the same shape as the junction hold-and-wait that caused
+  the worst failures on 2026-08-10. The fix there was to release on a failed
+  claim; whether that is sufficient for spans rather than points is untested.
+- Lane graph now exists: 49 rectangles reduced to 11 corridors with **51
+  junctions** (`References/local/gazebo-world/extracted/lane_graph.json`).
+  Direction of travel is still absent.
+
+## Record of correction
+
+The first version of this ADR generalised "parallel lane pairs" from one
+measured example to the whole network. Grouping all 20 north-south lanes showed
+four corridors are genuinely two-lane and five are single. The decision stands —
+give-way does not fit a 2.1 m lane either way — but the replacement design was
+wrong for half the network, and single-lane segment reservation is a harder
+problem than the paired-lane routing originally proposed.
