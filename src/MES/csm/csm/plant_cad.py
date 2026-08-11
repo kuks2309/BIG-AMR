@@ -108,13 +108,42 @@ SLITTER_Y = (224.03, 233.81, 247.53, 257.31)
 # aisle. That is exactly the behaviour that produced the deadlocks and the one
 # measured collision this week. The real plant designed the problem out.
 
-#: Distance from a machine face to the inner (docking) column [D1].
-DOCK_STANDOFF = 4.71
-#: Inner and outer column x at the coater row [D1].
-COATER_DOCK_X = 145.7
-COATER_QUEUE_X = 149.3
-#: Gravures are served from their EAST face at x ~183.5 [D1], a 3.4 m standoff.
+#: THREE COLUMNS AT THE COATERS, NOT TWO.
+#:
+#: Corrected 2026-08-11. The first reading found two columns because it mined
+#: only the `涂布-3.5T大AGV` layer. Collecting every placement of the AGV symbol
+#: blocks across all layers gives three, at a uniform 3.54 m pitch:
+#:
+#:     x 144.98   4.0 m from the machine face   dock
+#:     x 148.51   7.5 m                          queue 1
+#:     x 152.05  11.1 m                          queue 2
+#:
+#: So a machine can hold one robot docked and two more waiting, all off the
+#: lane. Our current model has no queue at all.
+COATER_DOCK_X = 144.98
+COATER_QUEUE_X = (148.51, 152.05)
+DOCK_STANDOFF = 4.0
+
+#: Every coater now has its LD/ULD pair, 4.10 m apart — the earlier gap at CTR1
+#: and CTR4 was an extraction miss, not a feature of the plant:
+#:
+#:     CTR1  229.43 / 233.53      CTR2  243.29 / 247.39
+#:     CTR3  253.30 / 257.40      CTR4  267.66 / 271.76
+COATER_PORT_Y = ((229.43, 233.53), (243.29, 247.39),
+                 (253.30, 257.40), (267.66, 271.76))
+
+#: THE CORRIDOR AT x 183..186 SERVES MACHINES ON BOTH SIDES.
+#:
+#: Gravure east face is at x 180.07 and slitter west face at x 191.64, so a
+#: position at x 185.6 is 5.5 m from one and 6.0 m from the other — nearest
+#: machine cannot tell them apart. The two sub-columns do:
+#:
+#:     x ~183.5  serves the GRAVURES (their east face)
+#:     x ~185.6  serves the SLITTERS (their west face)
+#:
+#: This is the busiest part of the network: one corridor, two machine rows.
 GRAVURE_DOCK_X = 183.5
+SLITTER_DOCK_X = 185.6
 
 #: Two ports on the same machine face, this far apart, facing opposite ways
 #: (rot 0 and rot 180 in the drawing) [D1].
