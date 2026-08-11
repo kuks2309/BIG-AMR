@@ -261,6 +261,17 @@ def main():
                           PAINT_Z + PAINT_T, PAINT_T,
                           (0.85, 0.45, 0.40, 1), solid=False))
 
+    # -------------------------------------------- spur-to-station links
+    #
+    # Two per spur, one to LD and one to ULD. Only two of the eight are in the
+    # lane data (both on the ULD column); the rest are derived from the spur and
+    # station geometry. Derived ones are drawn PALER, so the world never shows a
+    # derivation with the same weight as a measurement.
+    for x0, y0, x1, y1, ci, kind, measured in P.coater_connectors():
+        rgba = (0.85, 0.45, 0.40, 1) if measured else (0.85, 0.45, 0.40, 0.45)
+        parts.append(rect(f"link_CTR{ci}_{kind}", x0, y0, x1, y1,
+                          PAINT_Z + PAINT_T, PAINT_T, rgba, solid=False))
+
     # ------------------------------------------------- coater LD / ULD
     #
     # The first stations in this world that are NAMED rather than merely

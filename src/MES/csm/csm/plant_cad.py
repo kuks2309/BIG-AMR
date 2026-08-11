@@ -201,6 +201,51 @@ COATER_SPUR = (
 #: one spur serves BOTH of its coater's stations, ULD first then LD.
 COATER_SPUR_X = (124.56, 157.94)
 
+#: EACH SPUR HAS TWO CONNECTORS — one down to LD, one down to ULD.
+#:
+#: Described by the project lead: "that road has two small connector roads, one
+#: for coater LD and another for coater ULD, x 125-130 and 135-140". The geometry
+#: demands it — a station sits 3.16-3.40 m off its spur, so something has to join
+#: them — and two of the eight are in the lane data already:
+#:
+#:     x 136.01..138.61  y 243.10..253.47   contains ULD_X, reaches CTR2 station
+#:     x 136.01..138.61  y 260.00..271.65   contains ULD_X, reaches CTR4 station
+#:
+#: Both are 2.60 m wide and both sit on the ULD column (136.58 falls inside
+#: 136.01..138.61). So the described structure is confirmed where the drawing
+#: shows it; the other six are an extraction gap of exactly the kind that has hit
+#: this file before — one layer mined, the rest missed.
+#:
+#: THE OTHER SIX ARE DERIVED, NOT MEASURED. They are generated from the spur and
+#: station geometry by `coater_connectors()` below, and `CONNECTOR_MEASURED` says
+#: which two are real. Do not quote a derived connector as a drawing fact.
+CONNECTOR_WIDTH = 2.60
+
+#: (coater index 0-3, "ld"|"uld") for the connectors the drawing actually shows.
+CONNECTOR_MEASURED = ((1, "uld"), (3, "uld"))
+
+
+def coater_connectors():
+    """Every spur-to-station connector as (x0, y0, x1, y1, coater, kind, measured).
+
+    A connector runs along the station's own column, from the near edge of the
+    spur to just past the far position of the station pair, so a robot leaves the
+    spur, covers the connector and is at the station.
+    """
+    out = []
+    half = CONNECTOR_WIDTH / 2.0
+    reach = COATER_STATION_PAIR / 2.0 + 0.6      # clear the far position
+    for i, ((sy0, sy1, side), sty) in enumerate(zip(COATER_SPUR, COATER_STATION_Y)):
+        for kind, cx in (("ld", COATER_LD_X), ("uld", COATER_ULD_X)):
+            if side == "north":                  # spur above the station
+                y0, y1 = sty - reach, sy0
+            else:                                # spur below the station
+                y0, y1 = sy1, sty + reach
+            out.append((cx - half, y0, cx + half, y1, i + 1, kind,
+                        (i, kind) in CONNECTOR_MEASURED))
+    return out
+
+
 #: THE WIP RACKS — x 148.51 AND 152.05, FOUR GROUPS ALIGNED WITH THE COATERS.
 #:
 #: Identified by the project lead as the WIP Slitter racks: "4 WIP slitters

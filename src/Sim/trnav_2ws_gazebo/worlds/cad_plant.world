@@ -2742,6 +2742,110 @@
         </visual>
       </link>
     </model>
+    <model name="link_CTR1_ld">
+      <static>true</static>
+      <pose>125.580 231.798 0.040 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.600 3.465 0.020</size></box></geometry>
+          <material>
+            <ambient>0.85 0.45 0.4 0.45</ambient>
+            <diffuse>0.85 0.45 0.4 0.45</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="link_CTR1_uld">
+      <static>true</static>
+      <pose>136.580 231.798 0.040 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.600 3.465 0.020</size></box></geometry>
+          <material>
+            <ambient>0.85 0.45 0.4 0.45</ambient>
+            <diffuse>0.85 0.45 0.4 0.45</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="link_CTR2_ld">
+      <static>true</static>
+      <pose>125.580 244.912 0.040 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.600 3.265 0.020</size></box></geometry>
+          <material>
+            <ambient>0.85 0.45 0.4 0.45</ambient>
+            <diffuse>0.85 0.45 0.4 0.45</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="link_CTR2_uld">
+      <static>true</static>
+      <pose>136.580 244.912 0.040 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.600 3.265 0.020</size></box></geometry>
+          <material>
+            <ambient>0.85 0.45 0.4 1</ambient>
+            <diffuse>0.85 0.45 0.4 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="link_CTR3_ld">
+      <static>true</static>
+      <pose>125.580 255.722 0.040 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.600 3.355 0.020</size></box></geometry>
+          <material>
+            <ambient>0.85 0.45 0.4 0.45</ambient>
+            <diffuse>0.85 0.45 0.4 0.45</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="link_CTR3_uld">
+      <static>true</static>
+      <pose>136.580 255.722 0.040 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.600 3.355 0.020</size></box></geometry>
+          <material>
+            <ambient>0.85 0.45 0.4 0.45</ambient>
+            <diffuse>0.85 0.45 0.4 0.45</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="link_CTR4_ld">
+      <static>true</static>
+      <pose>125.580 269.413 0.040 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.600 3.505 0.020</size></box></geometry>
+          <material>
+            <ambient>0.85 0.45 0.4 0.45</ambient>
+            <diffuse>0.85 0.45 0.4 0.45</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="link_CTR4_uld">
+      <static>true</static>
+      <pose>136.580 269.413 0.040 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.600 3.505 0.020</size></box></geometry>
+          <material>
+            <ambient>0.85 0.45 0.4 1</ambient>
+            <diffuse>0.85 0.45 0.4 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="ctr1_ld_0">
       <static>true</static>
       <pose>125.580 230.665 0.020 0 0 0.0000</pose>
