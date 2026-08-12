@@ -3,7 +3,8 @@
 
 // 후진 원호(R-turn reverse) 액션 서버.
 //
-// 전진판은 `turn/turn_action_server.hpp`. 두 파일은 IK 입력의 vx 부호를 빼면 같다 —
+// 전진판은 `turn/turn_action_server.hpp`. 두 파일의 차이는 IK 입력 vx 의 부호,
+// feedback.current_linear_speed 를 크기(|vx|)로 내보내는 것, motion_source_id 기본값(12)뿐이다 —
 // 한쪽을 고치면 다른 쪽도 고쳐야 한다(중복 비용은 ADR 이 명시적으로 수용).
 // 근거·설계: docs/adr/2026-08-09-turn-reverse.md
 

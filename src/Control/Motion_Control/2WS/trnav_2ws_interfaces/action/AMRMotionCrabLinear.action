@@ -21,7 +21,7 @@ bool    hold_steer           # true: skip Phase 4 steer return
 float64 exit_steer_angle     # deg: Phase 4 target steer (ignored if hold_steer)
 float64 exit_speed           # m/s (0=완전정지, >0=이 속도로 종료, 기본=0)
 float64 entry_speed          # m/s (0=start from stop, >0=resume at this speed)
-bool    has_next             # true=다음 Segment 존재 → 감속 안 함
+bool    has_next             # 미사용 필드 — action server 가 읽지 않는다 (속도 연속 종료는 exit_speed>0 로 지정)
 # Per-goal Localization watchdog 토글 (acs_gui Link.enable_localization_watchdog 전파)
 # Effective = 본 필드 AND node param (crab_linear_enable_localization_watchdog). 둘 다 true 여야 작동.
 bool enable_localization_watchdog true
@@ -35,7 +35,7 @@ float64 elapsed_time         # sec
 ---
 # Feedback
 float64 current_distance     # m (projection distance along path)
-float64 current_lateral_error # m (cross-track error, + left, - right)
+float64 current_lateral_error # m (cross-track error, + robot right of path, - robot left of path)
 float64 current_heading_error # deg (heading error = target_yaw - robot_yaw)
 float64 current_vx           # m/s (body-frame x velocity command)
 float64 current_vy           # m/s (body-frame y velocity command)

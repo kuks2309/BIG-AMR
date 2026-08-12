@@ -1,6 +1,6 @@
 /trnav_turn_node:
   ros__parameters:
-    # ── Platform (trnav_2ws_core::loadGeometry) ──
+    # ── Platform (trnav::motion::two_ws::TwoWsActionServerBase::loadGeometry — trnav_2ws_motion/include/trnav_2ws_motion/qd_action_server_base.hpp) ──
     platform: "QD_DIAGONAL"
 
     # ── 로봇 기하 — Foil_A082 실측 (2026-08-05 적용) ──────────────────────
@@ -28,7 +28,7 @@
     wheel_radius: 0.125
     steer_limit_deg: 90.0     # deg (조향 플립 기준)
 
-    # ── 감속비 (motors_canopen.hpp 확인값, Feedback RPM 계산용) ──
+    # ── 감속비 (정본 trnav_2ws_core/config/robot_geometry_2ws.yaml gear_walk, Feedback RPM 계산용) ──
     gear_walk: 32.0
 
     # ── 제어 파라미터 ──

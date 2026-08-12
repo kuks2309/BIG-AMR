@@ -22,8 +22,8 @@ namespace
 // ±(π/2 + margin) wrap + walk direction flip.
 // ±90° 는 IK 유일해 정규화 기준이지 모터 한계가 아니다(docs/adr/2026-07-26-qd-ik-pm90-unique-solution.md).
 // cruise 중 ±90° boundary 미세 진동(walk dir flip 토글) 회피 위해 ±25° 마진 — wrap threshold = ±115°.
-// 종전 「motor saturate」 표기는 클램프 90° 전제였다 — 2026-08-06 결정으로 하류 클램프는 115°
-// (can_relay machine yaml `steer_limit_deg`)이고 상류 가드는 영점 오프셋만큼 낮은 113.32° 라 이 마진을 수용한다.
+// 하류 클램프는 115°(can_relay machine yaml `steer_limit_deg`, foil_a082.yaml:200)이고 상류 가드는
+// 영점 오프셋만큼 낮은 113.32°(qd_action_server_base.hpp:58)라 이 마진을 수용한다.
 constexpr double WRAP_MARGIN = 25.0 * M_PI / 180.0; // 25° = 0.436 rad (HIL 분석 결과 cruise 최대 ±6° + 안전마진)
 double wrapSteer(double steer, int &dir)
 {
@@ -53,8 +53,8 @@ IKResult TwoWsCrabIK::compute(double vx_path, double theta_body, double delta_ct
     // base steer = theta_body + delta_cte (front wheel)
     // rear steer = base - delta_heading
     //
-    // ⚠ 종전 헤더 표기는 `rear_steer_offset = −dir × delta_heading` 이었으나 여기엔 dir 이
-    //   없다 — 그 불일치는 실재했고(2026-08-08 확인) 헤더를 구현 기준으로 정정해 해소했다. 다만 `dir` 을 넣어 SIL 로
+    // ⚠ rear offset 에 `dir` 계수가 없다 — `rear_steer_offset = −dir × delta_heading` 이 아니라
+    //   진행 방향과 무관한 −delta_heading 이다. `dir` 을 넣어 SIL 로
     //   재어 보니 거동이 유의미하게 바뀌지 않았다(2 m·목표 yaw 10° 오차: 10.13° → 10.47°).
     //   crab 은 base steer 가 90° 부근이라 `omega ∝ Δ·cos(base)`, `cos(89.3°)=0.012` 로
     //   **heading 보정의 권한 자체가 거의 0** 이기 때문이다. 어느 쪽이 옳은지는 미결이므로

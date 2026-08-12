@@ -639,7 +639,7 @@ void MpcActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
             return;
         }
 
-        // ── Pure Pursuit update ──
+        // ── MPC update ──
         pp_out = pp_ctrl_->update(robot_x, robot_y, robot_yaw, 0.0, dt); helper = computePathHelper(waypoints, robot_x, robot_y, robot_yaw, lookahead_distance_);
         double projection = helper.projection;
         double remaining = target_distance - projection;

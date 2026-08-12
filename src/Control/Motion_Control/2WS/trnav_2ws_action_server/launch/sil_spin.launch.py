@@ -9,7 +9,7 @@ SIL closed-loop launch for amr_spin_node.
 
 실 라이다·실 모터·실 IMU 미사용. 더미 safety publishers 추가.
 spin 은 LocalizationMonitor 미사용 (IMU yaw 만 사용) → sil_pose_adapter 불포함.
-translate_sim_odom 은 omega closed-loop (omega=(vx1-vx2)/dy, dyaw=omega·dt) 로
+translate_sim_odom 은 omega closed-loop (inline 2WS 는 x 간격이 분모: omega=(vy1-vy2)/dx, dyaw=omega·dt) 로
 제자리 회전 yaw 적분을 시뮬 → /imu/data yaw 가 실제로 변하므로 spin 완주 검증 가능.
 """
 

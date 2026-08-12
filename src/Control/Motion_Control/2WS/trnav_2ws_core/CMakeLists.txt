@@ -22,9 +22,8 @@ find_package(tf2_ros REQUIRED)
 
 # ── Platform-agnostic primitives only.
 #    QD-specific controllers (path controller, mpc, wheel set packer, TwoWsActionServerBase)
-#    live in `trnav_2ws_motion`. DD-specific in `trnav_motion_dd` (not present in this
-#    repository). Kinematics (IK / bicycle model) live in `trnav_2ws_kinematics`
-#    (src/Control/Motion_Control/2WS/).
+#    live in `trnav_2ws_motion`, DD-specific in `trnav_motion_dd`. Kinematics
+#    (IK / bicycle model) live in `trnav_2ws_kinematics` (src/Control/Motion_Control/2WS/).
 #    See ADR-012 (2026-05-21) + amendment (2026-07-04) for the separation rationale. ──
 
 # ── Motion Profile (no ROS dep) ──
@@ -86,7 +85,7 @@ install(DIRECTORY config/
   DESTINATION share/${PROJECT_NAME}/config
 )
 
-# Export for downstream packages (trnav_2ws_motion, trnav_motion_dd, trnav_2ws_action_server, ...)
+# Export for downstream packages (trnav_2ws_motion, trnav_2ws_action_server, ...)
 ament_export_targets(trnav_2ws_core_targets HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   rclcpp

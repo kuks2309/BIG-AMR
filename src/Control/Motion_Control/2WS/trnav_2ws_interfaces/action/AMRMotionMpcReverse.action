@@ -16,7 +16,7 @@ bool    hold_steer           # true: skip Phase 4 steer return
 float64 exit_steer_angle     # deg: Phase 4 target steer (ignored if hold_steer)
 float64 exit_speed           # m/s (0=완전정지, >0=이 속도로 종료, 기본=0)
 float64 entry_speed          # m/s (0=정지에서 시작, >0=이 속도로 시작)
-bool    has_next             # true=다음 segment 존재 → 감속 안 함
+bool    has_next             # 미사용 필드 — action server 가 읽지 않는다 (속도 연속 종료는 exit_speed>0 로 지정)
 uint8   CTRL_DEFAULT     = 0
 uint8   CTRL_MODE_A      = 1
 uint8   control_mode 0

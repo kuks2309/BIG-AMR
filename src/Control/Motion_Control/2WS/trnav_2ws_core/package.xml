@@ -3,7 +3,7 @@
 <package format="3">
   <name>trnav_2ws_core</name>
   <version>0.1.0</version>
-  <description>AMR Motion Core - platform-agnostic abstraction library (TrapezoidalProfile, TransientGuard, LocalizationMonitor, RobotGeometry, RecursiveMovingAverage, math_utils, ActionMutex) for trnav_motion_mux consumers. Platform-specific controllers/packer/ActionServerBase live in trnav_2ws_motion (the DD sibling trnav_motion_dd is not present in this repository) per ADR-012 (2026-05-21); kinematics (IK/BicycleModel) live in trnav_2ws_kinematics under src/Control/Motion_Control/2WS/ (trnav_dd_kinematics is not present) per the 2026-07-04 amendment. In-repo trace of both decisions: docs/amr_motion_core_code_updates.md.</description>
+  <description>AMR Motion Core - platform-agnostic abstraction library (TrapezoidalProfile, TransientGuard, LocalizationMonitor, RobotGeometry, RecursiveMovingAverage, math_utils, ActionMutex) for trnav_motion_mux consumers. Platform-specific controllers/packer/ActionServerBase live in trnav_2ws_motion per ADR-012 (2026-05-21); kinematics (IK/BicycleModel) live in trnav_2ws_kinematics under src/Control/Motion_Control/2WS/ per the 2026-07-04 amendment.</description>
   <maintainer email="amap@t-robotics.com">amap</maintainer>
   <license>Apache-2.0</license>
 

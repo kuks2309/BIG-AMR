@@ -10,7 +10,7 @@
   #   `steer_tolerance_deg` · `steer_timeout_sec`)는 콜백이 걸러 내지 않아 set 이
   #   **성공을 반환하면서 거동은 바뀌지 않는다** — 이 파일을 고치고 노드를 재기동해야 한다.
   ros__parameters:
-    # ── Platform (trnav_2ws_core::loadGeometry) ──
+    # ── Platform (trnav::motion::two_ws::TwoWsActionServerBase::loadGeometry — trnav_2ws_motion/include/trnav_2ws_motion/qd_action_server_base.hpp) ──
     platform: "QD_DIAGONAL"
 
     # ── 로봇 기하 — Foil_A082 실측 (2026-08-05 적용) ──────────────────────

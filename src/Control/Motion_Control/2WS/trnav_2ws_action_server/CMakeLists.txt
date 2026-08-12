@@ -193,7 +193,7 @@ target_link_libraries(amr_turn_node
 )
 
 # ── TurnReverse pilot node (후진 원호, 2026-08-09 신설) ──
-#    전진판 amr_turn_node 와 IK 입력 vx 부호만 다르다. ADR: docs/adr/2026-08-09-turn-reverse.md
+#    전진판 amr_turn_node 와 IK 입력 vx 부호 · feedback 선속도의 크기(|vx|) 보고 · source_id 기본값(12) 만 다르다. ADR: docs/adr/2026-08-09-turn-reverse.md
 add_executable(amr_turn_reverse_node
   src/turn_reverse/turn_reverse_main.cpp
   src/turn_reverse/turn_reverse_action_server.cpp

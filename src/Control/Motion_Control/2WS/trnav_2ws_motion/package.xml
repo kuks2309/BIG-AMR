@@ -16,7 +16,7 @@
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
-  <!-- System dep: NLopt (SLSQP solver) used by qd_mpc_controller. rosdep key 'nlopt' → libnlopt-cxx-dev/libnlopt-dev. Big-AMR 이식 시 명시(원본 미선언 보완). -->
+  <!-- System dep: NLopt (SLSQP solver) used by qd_mpc_controller. 선언 rosdep key 'libnlopt-dev' → apt libnlopt-dev. qd_mpc_controller.cpp 가 include 하는 <nlopt.hpp> 는 libnlopt-cxx-dev 제공. Big-AMR 이식 시 명시(원본 미선언 보완). -->
   <depend>libnlopt-dev</depend>
 
   <export>

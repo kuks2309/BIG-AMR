@@ -3,7 +3,7 @@
     # ⚠ `translate_pose_topic` 키는 삭제했다 — **코드가 읽지 않는 죽은 키**였고(`lm_params.pose_topic` 미설정),
     #   값 `/rtabmap/localization_pose` 는 발행자 0 인 토픽이었다(2026-08-06 실측).
     #   자세 토픽을 바꾸려면 **런치 인자**를 쓴다: `pose_topic:=/seer/robot_pose`
-    # ── Platform (trnav_2ws_core::loadGeometry) ──
+    # ── Platform (trnav::motion::two_ws::TwoWsActionServerBase::loadGeometry — trnav_2ws_motion/include/trnav_2ws_motion/qd_action_server_base.hpp) ──
     platform: "QD_DIAGONAL"
 
     # ── 로봇 기하 — Foil_A082 실측 (2026-08-05 적용) ──────────────────────

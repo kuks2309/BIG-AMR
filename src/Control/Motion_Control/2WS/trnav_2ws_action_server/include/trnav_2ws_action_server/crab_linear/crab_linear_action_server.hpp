@@ -37,7 +37,7 @@ class CrabLinearActionServer
     bool validateGoal(std::shared_ptr<const CrabLinear::Goal> goal) override;
     void execute(std::shared_ptr<GoalHandle> goal_handle) override;
 
-    // Override: wheel-state timestamp tracking (actual-steer-based speed)
+    // Override: wheel-state timestamp tracking (feedback freshness check)
     void wheelStateCallback(const trnav_msgs::msg::WheelMotor::SharedPtr msg) override;
 
   private:

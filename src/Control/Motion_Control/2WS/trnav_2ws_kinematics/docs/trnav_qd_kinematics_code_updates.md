@@ -2,6 +2,40 @@
 
 > 형식: `YYYY-MM-DD / HH:MM - 커밋해시(7자리) / 추가·수정·삭제 + 패키지 내 상대 경로`
 
+2026-08-13 / 04:21 - (pending) / **주석 라인 단위 재독 — 남은 모순 정정 + 주석에서 이력 제거** (코드 무변경)
+
+- 규약 확정: **코드 주석에는 이력을 넣지 않는다.** 주석은 코드가 지금 무엇을 하는지만 적고,
+  「무엇을 언제 왜 바꿨나」는 본 문서(code updates)가 보유한다. 직전 커밋 `6fb9663` 이 주석에
+  변경 이력·감사 서술(「종전 …이었다」·「…교체됐고」·「…정정해 해소했다」·「(YYYY-MM-DD 확인)」·
+  「… 는 이 저장소에 없다」)을 섞어 넣었던 것을 이번에 전량 걷어냈다.
+- 범위: 2WS 스택 **16,174줄 전량**을 12 슬라이스로 나눠 라인 단위 재독.
+  슬라이스마다 적대적 반박 2인(원문 변호 / 대체문 감사)이 코드로 재검증.
+  86후보 → **69 적용**(모순 정정 47 + 이력 제거 22) / **17 기각**(변호 성립으로 원상 유지).
+- 코드 무변경 증명: 변경 45파일을 언어별 파서로 대조 — C++ 16개 `gcc -fpreprocessed -E -P` 출력 동일,
+  Python 13개 AST(Abstract Syntax Tree) 동일(모듈 docstring 제외), YAML/`.action`/CMake 13개
+  `#` 주석 제거 후 동일, `package.xml` 3개 `<description>` 제외 XML 동일. **차이 0건.**
+  이력 문구 잔존 스캔(`종전|정정해|해소했|교체됐|이 저장소에 없다|확인\)|not present in this repository`) **0건**.
+- 검증: `colcon build --packages-up-to trnav_2ws_action_server …` 6패키지 PASS(0 error) ·
+  `colcon test --packages-select trnav_2ws_core trnav_2ws_kinematics` 67 tests / 0 failures / 0 errors.
+- 기각 사례(재발 방지용 기록) — 지적이 틀렸던 것들:
+  · `amr_dock_align` 은 패키지가 아니라 **노드(실행파일) 이름**이라 「부재 패키지」 지적이 오독이었다.
+  · turn 의 `R > 1.44 m`(v=0.05 기준 ω_max < 하한 2.0 dps)를 `1.43` 으로 「정밀화」하려 했으나
+    R=1.431 m 에서 ω_max=2.0019 dps 라 **거짓이 된다** — 원문이 옳다.
+  · `−dir × delta_heading` 은 죽은 표기가 아니라 QD 형제 코드(`trnav_qd_kinematics`)에 살아 있는
+    grep 앵커이자 미결 쟁점의 참조점이라 토큰을 보존했다.
+  · `분산 TF lookup 폐기`·`src/Control/Kinematics/` 언급은 이력이 아니라 **설계 근거·범위 제약**이라 유지.
+- 수정 `src/qd_crab_inverse_kinematics.cpp` — wrap 마진 블록에서 이력 서술 제거, 남긴 것은 기능뿐:
+  하류 클램프 115°(`can_relay` machine yaml `steer_limit_deg`)·상류 가드 113.32°(`qd_action_server_base.hpp:58`)가
+  이 ±25° 마진을 수용한다. (직전 커밋이 적었던 「2026-08-06 결정」은 실제 `foil_a082.yaml` 변경일이 **2026-08-05** 라 날짜도 틀렸다.)
+  rear offset 주석도 「헤더를 정정해 해소했다」 대신 현재 사실(`dir` 계수 없이 −delta_heading)만 남겼다.
+- 수정 `include/…/qd_crab_inverse_kinematics.hpp` — rear offset 가정에서 개정 경위 안내 삭제,
+  구현 상호참조 줄 앵커를 `.cpp:62` → `:63`(`rear_raw` 실제 위치)으로 정정.
+- 수정 `package.xml` — `<description>` 표제 `QD (Quad-Drive diagonal) platform kinematics`
+  → `2WS (inline dual-steer) platform kinematics`. 이 패키지의 대상 기체는 대각이 아니라 인라인이며
+  같은 패키지 헤더 2종은 이미 그렇게 서술하고 있었다.
+
+---
+
 2026-08-11 / 22:37 - (pending) / **주석 감사 — 코드와 모순되는 주석 일괄 정정** (코드 무변경)
 
 - 범위: 2WS 스택 전체(~15,400줄). **주석·docstring·`<description>` 만 수정, 실행 코드는 한 줄도 바꾸지 않았다.**

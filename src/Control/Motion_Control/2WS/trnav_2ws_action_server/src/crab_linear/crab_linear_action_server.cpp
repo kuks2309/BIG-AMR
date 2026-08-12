@@ -81,7 +81,7 @@ CrabLinearActionServer::CrabLinearActionServer(rclcpp::Node::SharedPtr node, Act
     pc_params.max_delta = max_delta_;
     path_ctrl_ = std::make_unique<PathController>(pc_params);
 
-    // ── Crab IK (DualSteerIK 의 ±90° normalize edge 회피 — 양 휠 동일 steer 직접 출력) ──
+    // ── Crab IK (DualSteerIK 의 ±90° normalize edge 회피 — base steer = theta_body + delta_cte 를 atan2 없이 직접 출력, rear 만 −delta_heading offset) ──
     {
         const auto &geom = this->geometry();
         crab_ik_ = std::make_unique<trnav::motion::two_ws::TwoWsCrabIK>(

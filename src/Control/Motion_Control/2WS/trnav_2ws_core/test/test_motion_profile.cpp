@@ -94,9 +94,10 @@ TEST(TrapezoidalProfile, ExitSpeedIsHonored)
 // ── 전이점·연속성 (돌연변이로 실증된 구멍이었다) ─────────────────────────
 TEST(TrapezoidalProfile, TransitionPointsAreAtTheComputedDistances)
 {
-    // ⚠ **감사가 돌연변이로 실증했다.** `accel_dist_` 나 `decel_start_` 를 0.5배로 바꿔도
-    //   기존 시험 14건이 전부 통과했다 — 즉 「감속을 절반 늦게 시작한다(오버슈트)」와
-    //   「속도가 7.07 → 10.0 으로 계단 점프한다」를 아무도 잡지 못했다. 원인은
+    // ⚠ **감사가 돌연변이로 실증했다.** `accel_dist_` 를 0.5배로 줄이거나 감속 거리를 0.5배로
+    //   줄여 `decel_start_` 를 80 → 85 로 미뤄도 기존 시험 14건이 전부 통과했다 — 즉
+    //   「감속을 절반 늦게 시작한다(오버슈트)」와 「속도가 7.07 → 10.0 으로 계단 점프한다」를
+    //   아무도 잡지 못했다. 원인은
     //   `PhaseOrderIsAccelThenCruiseThenDecel` 이 s=1/45/89 **세 점만** 봤다는 것이다.
     //   전이점 자체를 못 박는다: d_accel = v²/(2a) = 100/10 = 10, decel_start = 90 − 10 = 80.
     TrapezoidalProfile p(90.0, 10.0, 5.0);

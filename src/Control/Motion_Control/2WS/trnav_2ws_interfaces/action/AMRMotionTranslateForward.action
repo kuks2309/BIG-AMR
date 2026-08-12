@@ -39,7 +39,7 @@ float64 elapsed_time         # sec
 ---
 # Feedback
 float64 current_distance     # m (projection distance along path)
-float64 current_lateral_error # m (cross-track error, + left, - right)
+float64 current_lateral_error # m (cross-track error, + robot right of path, - robot left of path)
 float64 current_heading_error # deg (heading error)
 float64 current_vx           # m/s (forward velocity)
 float64 current_vy           # m/s (lateral velocity)

@@ -1,5 +1,63 @@
 # trnav_2ws_action_server — code updates
 
+2026-08-13 / 04:21 - (pending) / **주석 라인 단위 재독 — 남은 모순 정정 + 주석에서 이력 제거** (코드 무변경)
+
+- 규약 확정: **코드 주석에는 이력을 넣지 않는다.** 주석은 코드가 지금 무엇을 하는지만 적고,
+  「무엇을 언제 왜 바꿨나」는 본 문서(code updates)가 보유한다. 직전 커밋 `6fb9663` 이 주석에
+  변경 이력·감사 서술(「종전 …이었다」·「…교체됐고」·「…정정해 해소했다」·「(YYYY-MM-DD 확인)」·
+  「… 는 이 저장소에 없다」)을 섞어 넣었던 것을 이번에 전량 걷어냈다.
+- 범위: 2WS 스택 **16,174줄 전량**을 12 슬라이스로 나눠 라인 단위 재독.
+  슬라이스마다 적대적 반박 2인(원문 변호 / 대체문 감사)이 코드로 재검증.
+  86후보 → **69 적용**(모순 정정 47 + 이력 제거 22) / **17 기각**(변호 성립으로 원상 유지).
+- 코드 무변경 증명: 변경 45파일을 언어별 파서로 대조 — C++ 16개 `gcc -fpreprocessed -E -P` 출력 동일,
+  Python 13개 AST(Abstract Syntax Tree) 동일(모듈 docstring 제외), YAML/`.action`/CMake 13개
+  `#` 주석 제거 후 동일, `package.xml` 3개 `<description>` 제외 XML 동일. **차이 0건.**
+  이력 문구 잔존 스캔(`종전|정정해|해소했|교체됐|이 저장소에 없다|확인\)|not present in this repository`) **0건**.
+- 검증: `colcon build --packages-up-to trnav_2ws_action_server …` 6패키지 PASS(0 error) ·
+  `colcon test --packages-select trnav_2ws_core trnav_2ws_kinematics` 67 tests / 0 failures / 0 errors.
+- 기각 사례(재발 방지용 기록) — 지적이 틀렸던 것들:
+  · `amr_dock_align` 은 패키지가 아니라 **노드(실행파일) 이름**이라 「부재 패키지」 지적이 오독이었다.
+  · turn 의 `R > 1.44 m`(v=0.05 기준 ω_max < 하한 2.0 dps)를 `1.43` 으로 「정밀화」하려 했으나
+    R=1.431 m 에서 ω_max=2.0019 dps 라 **거짓이 된다** — 원문이 옳다.
+  · `−dir × delta_heading` 은 죽은 표기가 아니라 QD 형제 코드(`trnav_qd_kinematics`)에 살아 있는
+    grep 앵커이자 미결 쟁점의 참조점이라 토큰을 보존했다.
+  · `분산 TF lookup 폐기`·`src/Control/Kinematics/` 언급은 이력이 아니라 **설계 근거·범위 제약**이라 유지.
+- 수정 `src/yaw_control/…cpp`·`src/yaw_control_reverse/…cpp` — 「`lookupMapToBase` 는 **신선도를 보지 않는다**」가
+  현재 구현과 모순(스탬프 나이가 `localization_timeout_sec` 초과면 false). 「−7 이 **0.2 s** 만에 발화」도
+  cycle 계수 시절 수치라 같은 파일의 `1.0 s` 서술과 충돌 — pose 샘플 10개(실차 10 Hz ≈ 1.0 s)로 통일.
+  `Pre-check: … 위치는 TF lookupMapToBase 가 처리`·`Acquire start pose from tf2` 도 `/robot_pose` 스냅샷으로 정정
+  (저장소에서 이 4줄이 마지막 TF 잔재였다).
+- 수정 `src/mpc/mpc_action_server.cpp` — `// ── Pure Pursuit update ──` → `// ── MPC update ──`.
+  이 지점은 `TwoWsMpcController::update()` 로 NLopt SLSQP 를 1회 돌린다. PurePursuit 는 이 스택에 클래스도 없다.
+- 수정 `src/spin/spin_action_server.cpp` — 「종료는 fine timeout 으로만」이 코드와 반대. 정상 종료 경로는
+  settle 게이트(|e|≤threshold AND |회전율|≤settle_rate 가 settle_count cycle 연속)이고 timeout 은 미수렴 안전망이다.
+  남은 오차 부호 규약도 CW(sign=−1)에서 반대였던 것을 「부호가 sign 과 같으면 더 회전 필요」로 정정.
+- 수정 `src/crab_linear/…cpp`·`…hpp` — Crab IK 주석의 「양 휠 동일 steer」가 사실과 다르다
+  (front=base, rear=base−δ_heading, 그 차이가 yaw 능동 보정 그 자체). wheel-state override 목적도
+  「actual-steer-based speed」가 아니라 feedback 신선도 판정이다.
+- 수정 `include/…/translate_reverse/…hpp` — `yaml — translate_reverse_*` 는 존재하지 않는 접두사.
+  이 서버가 읽는 키는 forward 와 같은 `translate_*` 다(핫리로드 화이트리스트도 `translate_*` 5키).
+- 수정 `config/turn_params.yaml`·`turn_reverse_params.yaml` — `trnav_2ws_core::loadGeometry` 는 존재하지 않는 심볼.
+  실제 소유자는 `TwoWsActionServerBase::loadGeometry`(`trnav_2ws_motion/…/qd_action_server_base.hpp`).
+  `turn_reverse_params.yaml` 머리의 「후진 원호는 아직 실측되지 않았다」도 같은 파일 43-47 의 실기·SIL 근거와 모순이라 정정.
+- 수정 `launch/sil_{mpc,mpc_reverse,translate_forward,translate_reverse}.launch.py` — 에러 문구 인용에서
+  「종전 문구 …는 교체됐고 지금은 QD 스택만 낸다」는 이력 제거, 현행 문구와 발생 위치만 유지.
+  `/robot_pose` 발행자 안내도 디렉터리 나열을 빼고 배선 함정(저장소 유일 후보 `seer_pose_publisher` 의
+  기본 발행은 `/seer/robot_pose`)만 남겼다.
+- 수정 `launch/{crab_linear,mpc,translate_forward,yaw_control}.launch.py` — 부재 문서 인용을 삭제
+  (부재 사실을 서술하지 않는다).
+- 수정 `launch/sil_yaw_control.launch.py`·`sil_yaw_control_reverse.launch.py` — `yaw_offset` 산출이 「TF 경유」가
+  아니라 `/robot_pose` 경유다.
+- 수정 `launch/sil_spin.launch.py` — omega closed-loop 식이 분모 0 인 QD 분기(`(vx1-vx2)/dy`)였다.
+  inline 2WS 는 x 간격이 분모(`(vy1-vy2)/dx`).
+- 수정 `launch/sil_crab_linear.launch.py` — 살아 있는 발행 타입 `trnav_msgs::msg::SafetyStatus` 를
+  「폐기된」 것으로 지목하던 서술 제거, 워치독 구독 타입 일치 요건만 남김.
+- 수정 `include/…/mpc_reverse/…hpp` — `motion_source_id_` 주석의 계약 정본을 실재하는
+  `trnav_motion_mux/config/trnav_motion_mux.yaml` Reserved IDs 주석으로 통일(전진판과 동일 표기).
+- 수정 `CMakeLists.txt`·`include/…/turn_reverse/…hpp` — 노드·타깃 서술을 실제 구성에 맞춤.
+
+---
+
 2026-08-11 / 22:37 - (pending) / **주석 감사 — 코드와 모순되는 주석 일괄 정정** (코드 무변경)
 
 - 범위: 2WS 스택 전체(~15,400줄). **주석·docstring·`<description>` 만 수정, 실행 코드는 한 줄도 바꾸지 않았다.**

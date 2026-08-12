@@ -266,7 +266,7 @@ void SpinActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     const double dt = 1.0 / control_rate_hz_;
     const double eps_rad = kBoundaryEpsDeg * M_PI / 180.0;
 
-    // 부호 포함 남은 오차[deg] (global, antipode-safe). +면 sign 방향으로 더 회전 필요, −면 overshoot.
+    // 부호 포함 남은 오차[deg] (global, antipode-safe). 부호가 sign 과 같으면 그 방향으로 더 회전 필요, 반대면 overshoot.
     // 시작 antipode(|e|≈180°)는 부호 모호 → 결정화된 sign 으로 고정.
     auto remaining_signed_deg = [&](double cur_yaw) -> double {
         double e = trnav_2ws_core::normalizeAngle(target_imu_yaw - cur_yaw);
@@ -356,8 +356,9 @@ void SpinActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         double remaining_deg = std::fabs(error_deg);
         final_traveled_pid = sign * (target_abs - remaining_deg);
 
-        // (|e|≤threshold 즉시 종료 제거 — 순서 PID 는 setpoint 를 계속 제어해 정착시킨다.
-        //  종료는 fine timeout 으로만. PID 가 e→0 이면 ω=Kp·e→0 으로 목표서 정지 유지.)
+        // (|e|≤threshold 만으로는 종료하지 않는다 — PID 가 setpoint 를 계속 제어해 정착시킨다.
+        //  종료는 아래 settle 게이트(|e|≤threshold AND |회전율|≤settle_rate 가 settle_count cycle 연속)
+        //  또는 fine timeout. PID 가 e→0 이면 ω=Kp·e→0 으로 목표서 정지 유지.)
 
         if (goal_handle->is_canceling())
         {
