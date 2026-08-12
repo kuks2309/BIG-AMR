@@ -28,13 +28,12 @@ anything.
 WHAT IS DRAWN AND WHAT THAT MEANS
 
     walls           hall shell, 306 x 209 m               solid
-    machines        13 bodies, coloured by family         solid
+    machines        9 + GRV1                                solid
     lane paint      35 rectangles, flat on the floor      VISUAL ONLY
     junctions       30 crossings, small pale squares      VISUAL ONLY
     AGV positions   45 pads with a nose stripe            VISUAL ONLY
     coater LD/ULD   8 named stations, green / orange      VISUAL ONLY
-    gravure LD/ULD  8 named stations, same colours        VISUAL ONLY
-    charging bays   4 pads                                VISUAL ONLY
+    charging bay    1 of the 5 the deck says exist        VISUAL ONLY
     grid posts      every 50 m on the hall edge           solid, thin
 
 Lane paint is paint. Making it collidable would put a 2.1 m kerb around every
@@ -75,6 +74,16 @@ WALL_T = 0.30
 #: fighting it for the same pixels.
 PAINT_Z = 0.01
 PAINT_T = 0.02
+
+#: HOW TALL A STATION MARKER STANDS.
+#:
+#: This world is 305 x 209 m. A 2 x 1.6 m pad on the floor is invisible from any
+#: viewpoint that shows more than one machine, and the first version put the
+#: stations in the world correctly and left them impossible to find. The marker
+#: is a sightline aid, not plant data — nothing in the drawing says a station has
+#: a post — so it is deliberately taller than the 3.0 m machines it stands beside.
+STATION_POST_H = 7.0
+STATION_POST_W = 0.5
 
 COLOURS = {
     "ASRS": (0.95, 0.75, 0.15, 1),      # store
@@ -203,6 +212,17 @@ def main():
     for name, x0, y0, x1, y1 in P.machines():
         rgba = COLOURS.get(name[:4] if name == "ASRS" else name[:3],
                            (0.55, 0.55, 0.58, 1))
+        if name.startswith("GRV"):
+            # NOT DRAWN. GRAVURE_X is an AREA OUTLINE, not a machine: the box
+            # holds 41 drawing entities while the real structure sits at
+            # x 183.3..185.6 with 167,565. Drawing it as a solid 3 m body put a
+            # blue block on empty floor and — worse — made it an obstacle a
+            # robot could never pass, in a place robots have to reach.
+            #
+            # Nothing replaces it. Where the gravure machine actually is has not
+            # been established well enough to draw, so the floor stays empty and
+            # the two GRV1 stations stand on their own.
+            continue
         if name.startswith("CTR"):
             t = 0.25
             for tag, ex0, ey0, ex1, ey1 in (
@@ -293,8 +313,9 @@ def main():
                 parts.append(box(f"ctr{i+1}_{kind}_{j}", sx, sy + dy,
                                  PAINT_Z + PAINT_T / 2, l, w, PAINT_T,
                                  rgba, 0.0, solid=False))
-            parts.append(box(f"ctr{i+1}_{kind}_post", sx, sy, 1.2,
-                             0.35, 0.35, 2.4, rgba, solid=False))
+            parts.append(box(f"ctr{i+1}_{kind}_post", sx, sy,
+                             STATION_POST_H / 2, STATION_POST_W, STATION_POST_W,
+                             STATION_POST_H, rgba, solid=False))
 
     # CTR4's ULD is inferred, not measured — drawn hollow-pale so the world does
     # not present a guess with the same confidence as a measurement.
@@ -304,18 +325,29 @@ def main():
                              P.COATER_STATION_Y[i], 2.8,
                              0.9, 0.9, 0.9, (0.95, 0.55, 0.10, 0.35), solid=False))
 
-    # ------------------------------------------------ gravure stations
+    # ------------------------------------------------------------ GRV1
     #
-    # LD and ULD separated in y here, not x — a gravure is long and narrow where
-    # a coater is wide and shallow. Order alternates per machine, so adjacent
-    # machines mirror. Derived positions at reduced opacity, as everywhere.
-    for gi, kind, gy, measured in P.GRAVURE_STATIONS:
-        rgba = ((0.15, 0.75, 0.30, 1.0 if measured else 0.4) if kind == "LD"
-                else (0.95, 0.55, 0.10, 1.0 if measured else 0.4))
-        parts.append(box(f"grv{gi}_{kind.lower()}", P.GRAVURE_PORT_X, gy,
-                         PAINT_Z + PAINT_T / 2, l, w, PAINT_T, rgba, 0.0, solid=False))
-        parts.append(box(f"grv{gi}_{kind.lower()}_post", P.GRAVURE_PORT_X, gy, 1.2,
-                         0.35, 0.35, 2.4, rgba, solid=False))
+    # Built from the project lead's diagram: a machine between the two roads,
+    # LD at one end, ULD at the other, a connector road across each gap.
+    gx0, gy0, gx1, gy1 = P.GRAVURE1_BODY
+    parts.append(rect("m_GRV1", gx0, gy0, gx1, gy1, 0, MACHINE_H,
+                      (0.30, 0.55, 0.90, 1)))
+    parts.append(box("m_GRV1_label", (gx0+gx1)/2, (gy0+gy1)/2, MACHINE_H + 2.0,
+                     0.6, 0.6, 4.0, (0.20, 0.40, 0.75, 1), solid=False))
+
+    for sx, sy, kind in P.GRAVURE_STATIONS:
+        rgba = (0.15, 0.75, 0.30, 1) if kind == "LD" else (0.95, 0.55, 0.10, 1)
+        parts.append(box(f"grv1_{kind.lower()}", sx, sy, MACHINE_H + 0.05,
+                         2.4, 2.4, 0.10, rgba, solid=False))
+        parts.append(box(f"grv1_{kind.lower()}_post", sx, sy,
+                         MACHINE_H + STATION_POST_H / 2,
+                         STATION_POST_W, STATION_POST_W, STATION_POST_H,
+                         rgba, solid=False))
+
+    for ci, (cx0, cy0, cx1, cy1) in enumerate(P.GRAVURE1_CONNECTORS, 1):
+        parts.append(rect(f"grv1_connector_{ci}", cx0, cy0, cx1, cy1,
+                          PAINT_Z + PAINT_T, PAINT_T,
+                          (0.85, 0.45, 0.40, 1), solid=False))
 
     # ------------------------------------------------------- WIP racks
     #
@@ -331,15 +363,25 @@ def main():
                                  WIP_RGBA, 0.0, solid=False))
         # One post per group, so four groups read as four racks from a distance.
         parts.append(box(f"wip_g{gi}_post", sum(P.WIP_ACCESS_X) / 2,
-                         (ya + yb) / 2, 1.0, 0.30, 0.30, 2.0,
-                         WIP_RGBA, solid=False))
+                         (ya + yb) / 2, STATION_POST_H / 2 * 0.7,
+                         STATION_POST_W * 0.8, STATION_POST_W * 0.8,
+                         STATION_POST_H * 0.7, WIP_RGBA, solid=False))
 
     # ------------------------------------------------------------ charging
+    #
+    # ONLY the one charging block actually found in the cathode cell. The old
+    # four-position set is wrong — two of them sat in the anode cell, drawn as
+    # blue pads on empty floor 100 m from anything we model — and is quarantined
+    # in plant_cad as CHARGING_UNRECONCILED.
+    #
+    # The deck says five. We draw the one we can point at, and the gap between
+    # one and five stays visible as a question rather than being padded out.
     cw, ch = P.CHARGING_BAY_SIZE
-    for group, bays in P.CHARGING.items():
-        for i, (bx, by) in enumerate(bays, 1):
-            parts.append(box(f"charge_{group}_{i}", bx, by, PAINT_Z + PAINT_T / 2,
-                             cw, ch, PAINT_T, (0.25, 0.45, 0.85, 1), solid=False))
+    for i, (bx, by) in enumerate(P.CHARGING_MEASURED, 1):
+        parts.append(box(f"charge_{i}", bx, by, PAINT_Z + PAINT_T / 2,
+                         cw, ch, PAINT_T, (0.25, 0.45, 0.85, 1), solid=False))
+        parts.append(box(f"charge_{i}_post", bx, by, 2.5, 0.4, 0.4, 5.0,
+                         (0.25, 0.45, 0.85, 1), solid=False))
 
     # ---------------------------------------------------------- grid posts
     #
@@ -376,11 +418,14 @@ def main():
 
     print(f"wrote {out}")
     print(f"  hall      {wx1 - wx0:.0f} x {wy1 - wy0:.0f} m, absolute CAD coordinates")
-    print(f"  machines  {len(ms)}")
+    drawn = sum(1 for m in ms if not m[0].startswith("GRV"))
+    print(f"  machines  {drawn} drawn, {len(ms) - drawn} gravure NOT drawn "
+          f"(GRAVURE_X is an area outline, not a body)")
     print(f"  lanes     {len(P.lanes_drawn())} painted "
           f"({len(P.EXCLUDED_LANES)} excluded), {len(P.JUNCTIONS)} junctions")
     print(f"  AGV pads  {len(P.AGV_POSITIONS)}")
-    print(f"  charging  {sum(len(b) for b in P.CHARGING.values())} bays, {posts} grid posts")
+    print(f"  charging  {len(P.CHARGING_MEASURED)} of "
+          f"{P.CHARGING_EXPECTED_CATHODE} bays, {posts} grid posts")
     return 0
 
 

@@ -75,11 +75,18 @@ COLUMN_PITCH_X = (10.0, 11.8)
 #: ASRS — one unit, the source of every roll. Block `foil ASRS` [D1].
 ASRS = {"x": (129.95, 140.88), "y": (166.35, 223.09), "size": (10.9, 56.7)}
 
-#: Gravure x4 — blocks `FDVCXVCX` / `FDSAFVDSVCS` [D2]. The block names are
-#: meaningless CAD identifiers; these were identified by the GRAVURE area label
-#: at (174.20, 224.89) lying on them, not by name.
+#: Gravure x4 — blocks `FDVCXVCX` / `FDSAFVDSVCS` [D2], found via the GRAVURE
+#: area label at (174.20, 224.89) lying on them, not by name.
 #:
-#: Note the y centres are NOT evenly pitched: gaps are 26.7, 31.2, 26.7 m.
+#: THIS IS AN AREA OUTLINE, NOT THE MACHINE. The box holds 41 drawing entities;
+#: the dense structure is at x 183.3..185.6 with 167,565 vertices, between the
+#: two roads that run along the row. Kept because it is a real extent in the
+#: drawing and the area is worth knowing, but do NOT put stations on its faces —
+#: that is what the retracted 8-station placement did.
+#:
+#: Note the y centres are NOT evenly pitched: gaps are 26.7, 31.2, 26.7 m. The
+#: 17.10 m length is also unconfirmed as a machine dimension: GRV4's measured
+#: AGV positions span 13.17 m and GRV2's 8.35 m.
 GRAVURE_X = (173.19, 180.07)
 GRAVURE_SIZE = (6.9, 17.1)
 GRAVURE_Y = (182.90, 209.61, 240.77, 267.48)
@@ -112,56 +119,69 @@ COATER_Y = tuple(round(y + 1.15, 2) for y in COATER_LABEL_Y)
 
 # ------------------------------------------------------- gravure stations
 #
-# THE GRAVURE SEPARATES LD AND ULD IN y, NOT x — AND THE ORDER ALTERNATES.
+# ONLY GRV1 IS PLACED. GRV2, GRV3 AND GRV4 ARE DELIBERATELY ABSENT.
 #
-# The coaters put LD and ULD 11.0 m apart in x because a coater cell is 24.83 m
-# wide and only 7.7 m deep. A gravure is the other way round: 6.9 m wide, 17.1 m
-# long. So its two stations sit one above the other on the machine's east face.
+# Structure, from the project lead's diagram of the row:
 #
-# The project lead gave the order down the whole row:
+#     ============================================  road   x 180.23..182.63
+#      [ LD  GRV2  ULD ]  +  [ ULD  GRV1  LD ]  T
+#     ============================================  road   x 185.45..187.55
 #
-#     LD -> ULD -> ULD -> LD -> LD -> ULD -> ULD -> LD
+#   * two roads run ALONG the row, one on each side
+#   * the machines sit BETWEEN them — band x 182.63..185.45, which is where the
+#     dense structure actually is (183.3..185.6, 167,565 vertices). Our old
+#     GRAVURE_X box at 173.19..180.07 holds 41 entities: it is an AREA OUTLINE
+#     from the GRAVURE label, not a machine.
+#   * each machine carries LD at one end and ULD at the other, along its long
+#     axis, which is what deck slide 19 draws — Unwinder at one end of the
+#     gravure, Rewinder at the other.
+#   * adjacent machines MIRROR, so the two ULDs face each other across the gap
+#     and share the connector road between them. Bottom to top that reads
+#     LD ULD | ULD LD | LD ULD | ULD LD.
 #
-# which pairs as (LD ULD)(ULD LD)(LD ULD)(ULD LD) — adjacent machines MIRROR each
-# other. That is the same logic as the coater spurs alternating north/south: a
-# pair of machines shares the road between them, so their stations face it.
+# WHY ONLY GRV1. Taking positions from the gravure's OWN layer
+# `凹版1.5T大AGV路线` — not the x 185.62 line, which is `涂布-3.5T大AGV` and
+# belongs to amr3 — only GRV1 has both ends:
 #
-# Applying it to the five measured ports on block `zw$4E78` at x 180.71 fills the
-# row and every derived position lands inside its own machine body:
+#     GRV1   173.76 .. 190.87   span 17.11 m   against a 17.10 m body   OK
+#     GRV2   199.17 .. 207.52   span  8.35 m                            no
+#     GRV3   239.97 only                                                no
+#     GRV4   259.85 .. 273.02   span 13.17 m                            no
 #
-#     GRV1  LD  174.18 measured     GRV1  ULD 183.52 measured
-#     GRV2  ULD 203.45 measured     GRV2  LD  212.79 derived
-#     GRV3  LD  238.18 measured     GRV3  ULD 247.52 derived
-#     GRV4  ULD 264.34 derived      GRV4  LD  273.68 measured
-#
-# The 9.34 m separation is GRV1's own pair — the only complete one in the
-# drawing — so it is a measurement of one machine generalised to four. If a
-# fifth port ever turns up at a different spacing, this is the assumption to
-# revisit.
+# The three incomplete ones are NOT filled in by symmetry. An earlier version of
+# this section did exactly that — took GRV1's south position and its MIDDLE one
+# as the pair, got a 9.34 m separation, and generated six more stations from it.
+# Nine metres for a pair at the two ends of a seventeen metre machine should have
+# stopped that on its own. The spans above also suggest the 17.10 m body figure
+# is not reliable, so anything derived from it would inherit the same fault.
 
-#: East face of the gravure body is 180.07; the port column sits 0.64 m proud.
-GRAVURE_PORT_X = 180.71
+#: GRV1, BUILT FROM THE PROJECT LEAD'S DIAGRAM. Not from the drawing.
+#:
+#:     ======================================  road  x 180.23..182.63
+#:       T  [ LD   GRV1   ULD ]  +
+#:     ======================================  road  x 185.45..187.55
+#:
+#: body     x 182.63..185.45   the gap between the two roads
+#:          y 173.76..190.87   LD end to ULD end
+#: LD       south end, low y
+#: ULD      north end, high y
+#: connectors  short roads across the gaps at each end, joining the two roads
+GRAVURE1_BODY = (182.63, 173.76, 185.45, 190.87)
 
-#: Between a gravure's LD and its ULD, from GRV1.
-GRAVURE_PAIR_SEPARATION = 9.34
-
-#: (machine 1-4, kind, y, measured) bottom to top.
-GRAVURE_STATIONS = (
-    (1, "LD",  174.18, True),
-    (1, "ULD", 183.52, True),
-    (2, "ULD", 203.45, True),
-    (2, "LD",  212.79, False),
-    (3, "LD",  238.18, True),
-    (3, "ULD", 247.52, False),
-    (4, "ULD", 264.34, False),
-    (4, "LD",  273.68, True),
+#: The two connectors either side of GRV1, spanning road to road.
+GRAVURE1_CONNECTORS = (
+    (180.23, 171.26, 187.55, 173.66),     # south of GRV1
+    (180.23, 190.97, 187.55, 193.37),     # north of GRV1
 )
 
-#: Where the robot stands to work a gravure port — the AGV route layer
-#: `凹版1.5T大AGV路线` ("gravure 1.5T Big AGV route") at x 183.2-184.7. The port is
-#: on the machine and the robot is on the road beside it, the same two-part
-#: arrangement the coaters have.
-GRAVURE_ROBOT_X = (183.20, 184.68)
+#: LD at the low-y end, ULD at the high-y end, on the body's centreline.
+GRAVURE_STATIONS = (
+    (184.04, 175.26, "LD"),
+    (184.04, 189.37, "ULD"),
+)
+
+#: Not placed. GRV2, GRV3 and GRV4 wait for the same drawing GRV1 came from.
+GRAVURE_INCOMPLETE = (2, 3, 4)
 
 
 #: Slitter x4 — blocks `BLOCK5_1` / `BLOCK6_1` inside block `Slitting` [D2].
@@ -524,10 +544,36 @@ PORT_ORDER_LD_FIRST = False
 LANE_WIDTHS = (2.1, 2.4, 2.6)
 LANE_COUNT_CELL_AREA = 49
 
-#: Charging bays — block `大AGV充电站双` ("Big AGV charging station, double")
-#: [D1]. These are the real parking positions.
+#: CHARGING — THREE SOURCES, THREE ANSWERS. Only the measured one is drawn.
+#:
+#:   * this file used to carry FOUR positions, from an early extraction never
+#:     reconciled with anything since. Two of them sit at y ~132, in the ANODE
+#:     cell, which we do not model — so the world drew blue pads on empty floor
+#:     100 m south of the cathode line.
+#:   * searching [D1] for charging blocks finds ONE type, `大AGV充电站双`
+#:     ("Big AGV charging station, DOUBLE"), 3 placements in the whole drawing
+#:     and exactly ONE in the cathode cell: (193.61, 242.31).
+#:   * the system deck [S15][S30] says FIVE chargers for the cathode Big AGV
+#:     fleet, five more for the anode.
+#:
+#: The world draws the one we can point at. The gap between one and five stays
+#: visible as a question rather than being padded out — a wrong charger is worse
+#: than a missing one, because a missing one looks like a question and a wrong
+#: one looks like an answer.
+#:
+#: This is not tidiness. Ten cathode Big AGVs sharing five chargers at 2 hours
+#: per 30% [S15] is a real limit on fleet availability, and it is contention we
+#: have never simulated.
 CHARGING_BAY_SIZE = (5.2, 2.2)
-CHARGING = {
+
+#: The single charging block actually found in the cathode cell.
+CHARGING_MEASURED = ((193.61, 242.31),)
+
+#: Deck [S15][S30].
+CHARGING_EXPECTED_CATHODE = 5
+
+#: The old unreconciled set. Kept so the numbers are not lost. NOT DRAWN.
+CHARGING_UNRECONCILED = {
     "gravure_1_5T": ((177.22, 131.99), (197.12, 241.21)),
     "coating_3_5T": ((226.22, 131.96), (192.36, 241.37)),
 }
