@@ -33,6 +33,7 @@ WHAT IS DRAWN AND WHAT THAT MEANS
     junctions       30 crossings, small pale squares      VISUAL ONLY
     AGV positions   45 pads with a nose stripe            VISUAL ONLY
     coater LD/ULD   8 named stations, green / orange      VISUAL ONLY
+    gravure LD/ULD  8 named stations, same colours        VISUAL ONLY
     charging bays   4 pads                                VISUAL ONLY
     grid posts      every 50 m on the hall edge           solid, thin
 
@@ -302,6 +303,19 @@ def main():
             parts.append(box(f"ctr{i+1}_uld_inferred", P.COATER_ULD_X,
                              P.COATER_STATION_Y[i], 2.8,
                              0.9, 0.9, 0.9, (0.95, 0.55, 0.10, 0.35), solid=False))
+
+    # ------------------------------------------------ gravure stations
+    #
+    # LD and ULD separated in y here, not x — a gravure is long and narrow where
+    # a coater is wide and shallow. Order alternates per machine, so adjacent
+    # machines mirror. Derived positions at reduced opacity, as everywhere.
+    for gi, kind, gy, measured in P.GRAVURE_STATIONS:
+        rgba = ((0.15, 0.75, 0.30, 1.0 if measured else 0.4) if kind == "LD"
+                else (0.95, 0.55, 0.10, 1.0 if measured else 0.4))
+        parts.append(box(f"grv{gi}_{kind.lower()}", P.GRAVURE_PORT_X, gy,
+                         PAINT_Z + PAINT_T / 2, l, w, PAINT_T, rgba, 0.0, solid=False))
+        parts.append(box(f"grv{gi}_{kind.lower()}_post", P.GRAVURE_PORT_X, gy, 1.2,
+                         0.35, 0.35, 2.4, rgba, solid=False))
 
     # ------------------------------------------------------- WIP racks
     #

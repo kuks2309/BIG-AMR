@@ -3145,6 +3145,214 @@
         </visual>
       </link>
     </model>
+    <model name="grv1_ld">
+      <static>true</static>
+      <pose>180.710 174.180 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.15 0.75 0.3 1.0</ambient>
+            <diffuse>0.15 0.75 0.3 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv1_ld_post">
+      <static>true</static>
+      <pose>180.710 174.180 1.200 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.350 0.350 2.400</size></box></geometry>
+          <material>
+            <ambient>0.15 0.75 0.3 1.0</ambient>
+            <diffuse>0.15 0.75 0.3 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv1_uld">
+      <static>true</static>
+      <pose>180.710 183.520 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.95 0.55 0.1 1.0</ambient>
+            <diffuse>0.95 0.55 0.1 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv1_uld_post">
+      <static>true</static>
+      <pose>180.710 183.520 1.200 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.350 0.350 2.400</size></box></geometry>
+          <material>
+            <ambient>0.95 0.55 0.1 1.0</ambient>
+            <diffuse>0.95 0.55 0.1 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv2_uld">
+      <static>true</static>
+      <pose>180.710 203.450 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.95 0.55 0.1 1.0</ambient>
+            <diffuse>0.95 0.55 0.1 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv2_uld_post">
+      <static>true</static>
+      <pose>180.710 203.450 1.200 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.350 0.350 2.400</size></box></geometry>
+          <material>
+            <ambient>0.95 0.55 0.1 1.0</ambient>
+            <diffuse>0.95 0.55 0.1 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv2_ld">
+      <static>true</static>
+      <pose>180.710 212.790 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.15 0.75 0.3 0.4</ambient>
+            <diffuse>0.15 0.75 0.3 0.4</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv2_ld_post">
+      <static>true</static>
+      <pose>180.710 212.790 1.200 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.350 0.350 2.400</size></box></geometry>
+          <material>
+            <ambient>0.15 0.75 0.3 0.4</ambient>
+            <diffuse>0.15 0.75 0.3 0.4</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv3_ld">
+      <static>true</static>
+      <pose>180.710 238.180 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.15 0.75 0.3 1.0</ambient>
+            <diffuse>0.15 0.75 0.3 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv3_ld_post">
+      <static>true</static>
+      <pose>180.710 238.180 1.200 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.350 0.350 2.400</size></box></geometry>
+          <material>
+            <ambient>0.15 0.75 0.3 1.0</ambient>
+            <diffuse>0.15 0.75 0.3 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv3_uld">
+      <static>true</static>
+      <pose>180.710 247.520 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.95 0.55 0.1 0.4</ambient>
+            <diffuse>0.95 0.55 0.1 0.4</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv3_uld_post">
+      <static>true</static>
+      <pose>180.710 247.520 1.200 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.350 0.350 2.400</size></box></geometry>
+          <material>
+            <ambient>0.95 0.55 0.1 0.4</ambient>
+            <diffuse>0.95 0.55 0.1 0.4</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv4_uld">
+      <static>true</static>
+      <pose>180.710 264.340 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.95 0.55 0.1 0.4</ambient>
+            <diffuse>0.95 0.55 0.1 0.4</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv4_uld_post">
+      <static>true</static>
+      <pose>180.710 264.340 1.200 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.350 0.350 2.400</size></box></geometry>
+          <material>
+            <ambient>0.95 0.55 0.1 0.4</ambient>
+            <diffuse>0.95 0.55 0.1 0.4</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv4_ld">
+      <static>true</static>
+      <pose>180.710 273.680 0.020 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <material>
+            <ambient>0.15 0.75 0.3 1.0</ambient>
+            <diffuse>0.15 0.75 0.3 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="grv4_ld_post">
+      <static>true</static>
+      <pose>180.710 273.680 1.200 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.350 0.350 2.400</size></box></geometry>
+          <material>
+            <ambient>0.15 0.75 0.3 1.0</ambient>
+            <diffuse>0.15 0.75 0.3 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
     <model name="wip_g1_c1_1">
       <static>true</static>
       <pose>148.510 229.430 0.020 0 0 0.0000</pose>

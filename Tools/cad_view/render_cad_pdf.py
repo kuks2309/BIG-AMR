@@ -80,9 +80,21 @@ def clip(segs, box, pad=2.0):
 def draw(ax, segs, box, world, lw, title):
     ax.add_collection(LineCollection(segs, colors="#222222", linewidths=lw, zorder=2))
     if world:
-        for lx0, ly0, lx1, ly1 in P.LANES:
+        for lx0, ly0, lx1, ly1 in P.lanes_drawn():
             ax.add_patch(Rectangle((lx0, ly0), lx1 - lx0, ly1 - ly0,
                                    fc="#4a90d9", ec="none", alpha=0.18, zorder=1))
+        # Spurs in the coater's own colour — a spur belongs to a machine, a lane
+        # does not, and routing will have to tell them apart.
+        for sy0, sy1, _side in P.COATER_SPUR:
+            ax.add_patch(Rectangle((P.COATER_SPUR_X[0], sy0),
+                                   P.COATER_SPUR_X[1] - P.COATER_SPUR_X[0],
+                                   sy1 - sy0, fc="#d96a5a", ec="none",
+                                   alpha=0.30, zorder=1))
+        # Connectors are DERIVED, not measured — dashed so the page says so.
+        for cx0, cy0, cx1, cy1, _ci, _kind in P.coater_connectors():
+            ax.add_patch(Rectangle((cx0, cy0), cx1 - cx0, cy1 - cy0,
+                                   fc="#d96a5a", ec="#a03020", lw=0.8, ls="--",
+                                   alpha=0.30, zorder=1))
         for name, mx0, my0, mx1, my1 in P.machines():
             key = "ASRS" if name == "ASRS" else name[:3]
             ax.add_patch(Rectangle((mx0, my0), mx1 - mx0, my1 - my0, fc="none",
@@ -97,8 +109,28 @@ def draw(ax, segs, box, world, lw, title):
             yaw = math.radians(rot)
             c, s = abs(math.cos(yaw)), abs(math.sin(yaw))
             hw, hh = (c * L + s * W) / 2, (s * L + c * W) / 2
-            ax.add_patch(Rectangle((px - hw, py - hh), 2 * hw, 2 * hh, fc="#2fb355",
-                                   ec="#12461f", lw=0.7, alpha=0.8, zorder=5))
+            ax.add_patch(Rectangle((px - hw, py - hh), 2 * hw, 2 * hh, fc="#9aa8b8",
+                                   ec="#4a5560", lw=0.6, alpha=0.7, zorder=4))
+        # Named stations on top of the raw pads, so what is identified is
+        # distinguishable from what is merely measured.
+        for i, sty in enumerate(P.COATER_STATION_Y):
+            for kind, sx, col in (("LD", P.COATER_LD_X, "#12b33f"),
+                                  ("ULD", P.COATER_ULD_X, "#f08000")):
+                inferred = kind == "ULD" and not P.COATER_ULD_MEASURED[i]
+                for dy in (-P.COATER_STATION_PAIR / 2, P.COATER_STATION_PAIR / 2):
+                    ax.add_patch(Rectangle((sx - L / 2, sty + dy - W / 2), L, W,
+                                           fc=col, ec="black", lw=0.8,
+                                           alpha=0.35 if inferred else 0.9, zorder=6))
+                if box[0] < sx < box[2] and box[1] < sty < box[3]:
+                    ax.text(sx, sty, f"{kind}{i+1}", ha="center", va="center",
+                            fontsize=7, weight="bold", zorder=8,
+                            bbox=dict(fc="white", ec="none", alpha=0.7, pad=0.6))
+        for gi, (ya, yb) in enumerate(P.WIP_GROUP_Y, 1):
+            for wx in P.WIP_ACCESS_X:
+                for wy in (ya, yb):
+                    ax.add_patch(Rectangle((wx - L / 2, wy - W / 2), L, W,
+                                           fc="#8c59bf", ec="#4a2470", lw=0.7,
+                                           alpha=0.85, zorder=6))
 
     x0, y0, x1, y1 = box
     step = 10 if (x1 - x0) > 60 else 5

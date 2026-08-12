@@ -48,8 +48,10 @@ NOT measured, and flagged at each site below:
   * lane connectivity — the drawing gives 49 lane rectangles, not a graph
   * WIP rack envelopes. The deck counts 2 gravure, 13 coater, 30 slitter; we
     have the position of none of them.
-  * the gravure and slitter LD/ULD stations. The coaters' are settled (see
-    COATER_LD_X); whether the other rows follow the same pattern is NOT checked.
+  * the SLITTER LD/ULD stations. The coaters' and gravures' are settled (see
+    COATER_LD_X and GRAVURE_STATIONS) and they do NOT share a pattern — the
+    coater separates LD/ULD in x, the gravure in y — so the slitter must be
+    worked out on its own evidence, not assumed from either.
 """
 
 # ---------------------------------------------------------------- building
@@ -107,6 +109,60 @@ COATER_SIZE = (24.83, 7.72)
 #: label 268.88 -> centre 270.11), so machine centres are label + 1.15.
 COATER_LABEL_Y = (232.87, 244.63, 256.83, 268.88)
 COATER_Y = tuple(round(y + 1.15, 2) for y in COATER_LABEL_Y)
+
+# ------------------------------------------------------- gravure stations
+#
+# THE GRAVURE SEPARATES LD AND ULD IN y, NOT x — AND THE ORDER ALTERNATES.
+#
+# The coaters put LD and ULD 11.0 m apart in x because a coater cell is 24.83 m
+# wide and only 7.7 m deep. A gravure is the other way round: 6.9 m wide, 17.1 m
+# long. So its two stations sit one above the other on the machine's east face.
+#
+# The project lead gave the order down the whole row:
+#
+#     LD -> ULD -> ULD -> LD -> LD -> ULD -> ULD -> LD
+#
+# which pairs as (LD ULD)(ULD LD)(LD ULD)(ULD LD) — adjacent machines MIRROR each
+# other. That is the same logic as the coater spurs alternating north/south: a
+# pair of machines shares the road between them, so their stations face it.
+#
+# Applying it to the five measured ports on block `zw$4E78` at x 180.71 fills the
+# row and every derived position lands inside its own machine body:
+#
+#     GRV1  LD  174.18 measured     GRV1  ULD 183.52 measured
+#     GRV2  ULD 203.45 measured     GRV2  LD  212.79 derived
+#     GRV3  LD  238.18 measured     GRV3  ULD 247.52 derived
+#     GRV4  ULD 264.34 derived      GRV4  LD  273.68 measured
+#
+# The 9.34 m separation is GRV1's own pair — the only complete one in the
+# drawing — so it is a measurement of one machine generalised to four. If a
+# fifth port ever turns up at a different spacing, this is the assumption to
+# revisit.
+
+#: East face of the gravure body is 180.07; the port column sits 0.64 m proud.
+GRAVURE_PORT_X = 180.71
+
+#: Between a gravure's LD and its ULD, from GRV1.
+GRAVURE_PAIR_SEPARATION = 9.34
+
+#: (machine 1-4, kind, y, measured) bottom to top.
+GRAVURE_STATIONS = (
+    (1, "LD",  174.18, True),
+    (1, "ULD", 183.52, True),
+    (2, "ULD", 203.45, True),
+    (2, "LD",  212.79, False),
+    (3, "LD",  238.18, True),
+    (3, "ULD", 247.52, False),
+    (4, "ULD", 264.34, False),
+    (4, "LD",  273.68, True),
+)
+
+#: Where the robot stands to work a gravure port — the AGV route layer
+#: `凹版1.5T大AGV路线` ("gravure 1.5T Big AGV route") at x 183.2-184.7. The port is
+#: on the machine and the robot is on the road beside it, the same two-part
+#: arrangement the coaters have.
+GRAVURE_ROBOT_X = (183.20, 184.68)
+
 
 #: Slitter x4 — blocks `BLOCK5_1` / `BLOCK6_1` inside block `Slitting` [D2].
 #: Paired spacing: gaps of 9.78, 13.72, 9.78 m.
