@@ -20,7 +20,8 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
 # ── Kinematics (IK / Crab IK / Bicycle Model) ──
-#    trnav_2ws_kinematics (src/Control/Kinematics/) 로 이동 — AD-012 개정 2026-07-04.
+#    trnav_2ws_kinematics (src/Control/Motion_Control/2WS/trnav_2ws_kinematics) 로 이동
+#    — ADR-012 개정 2026-07-04.
 #    qd_action_server_base.hpp 가 trnav_2ws_kinematics/qd_inverse_kinematics.hpp include.
 
 # ── Path Controller (BICYCLE mode only; Wave 2)

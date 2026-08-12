@@ -28,7 +28,7 @@
     steer_tolerance_deg: 1.0
     steer_timeout_sec: 5.0
 
-    # ── MPC 알고리즘 파라미터 (forward 와 동일) ──
+    # ── MPC 알고리즘 파라미터 (mpc_lookahead_distance 만 forward 의 0.6 과 다름 — 나머지는 동일) ──
     mpc_lookahead_distance: 0.4
     mpc_max_lateral_offset: 1.0
     mpc_heading_threshold_deg: 90.0

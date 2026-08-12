@@ -2,11 +2,11 @@
 //
 // 알고리즘 (PathController + LocalizationMonitor):
 //   매 cycle: theta_body = atan2(end-start) - robot_yaw  (path 진행 방향을 body frame 으로 사영)
-//             omega_cmd  = PD(target_yaw - robot_yaw)
-//             VelocityCommand = {vx_profile * cos(theta_body),
-//                                vx_profile * sin(theta_body),
-//                                omega_cmd}
-//             → DualSteerIK.compute(...) → wheel cmd
+//             delta_cte     = atan2(K_stanley × e_d, K_soft + |vx_profile|)
+//             delta_heading = clamp(Kp_heading × yaw_err + Kd_heading × d(yaw_err)/dt, ±15°)
+//             → TwoWsCrabIK.compute(vx_profile, theta_body, delta_cte, delta_heading)
+//               → wheel cmd  (omega 지령은 만들지 않는다 — 0 고정)
+//             DualSteerIK(ik_) 는 Phase 0 steer 정렬에서만 쓴다.
 //   PathController 는 projection / e_d / e_theta 측정용 (CTE feedback). δ_f/δ_r 출력은 무시.
 //   heading abort: |target_yaw - robot_yaw| > crab_linear_heading_threshold_deg → status=-4.
 
@@ -81,7 +81,7 @@ CrabLinearActionServer::CrabLinearActionServer(rclcpp::Node::SharedPtr node, Act
     pc_params.max_delta = max_delta_;
     path_ctrl_ = std::make_unique<PathController>(pc_params);
 
-    // ── Crab IK (DualSteerIK 의 ±90° normalize edge 회피 — 양 휠 동일 steer 직접 출력) ──
+    // ── Crab IK (DualSteerIK 의 ±90° normalize edge 회피 — base steer = theta_body + delta_cte 를 atan2 없이 직접 출력, rear 만 −delta_heading offset) ──
     {
         const auto &geom = this->geometry();
         crab_ik_ = std::make_unique<trnav::motion::two_ws::TwoWsCrabIK>(
@@ -101,7 +101,7 @@ CrabLinearActionServer::CrabLinearActionServer(rclcpp::Node::SharedPtr node, Act
     tg_params.runtime_gate_threshold = runtime_gate_deg;
     guard_ = std::make_unique<TransientGuard>(tg_params);
 
-    // ── LocalizationMonitor (TF-only) ──
+    // ── LocalizationMonitor (/robot_pose 토픽 구독) ──
     double loc_timeout = safeParam("crab_linear_localization_timeout_sec", 2.0);
     double jump_threshold = safeParam("crab_linear_position_jump_threshold", 0.3);
 
@@ -125,7 +125,7 @@ CrabLinearActionServer::CrabLinearActionServer(rclcpp::Node::SharedPtr node, Act
 
     // ── Hot-reload param callback (PathController 5 게인 한정) ──
     // 화이트리스트: crab_linear_Kp_heading / Kd_heading / K_stanley / K_soft / max_delta_deg.
-    // Kp/Kd 는 자체 omega PD 식 (omega = Kp*yaw_err + Kd*de_yaw) 에도 사용됨 — 멤버 갱신으로 동시 반영.
+    // Kp/Kd 는 자체 heading PD 식 (delta_heading = Kp*yaw_err + Kd*de_yaw) 에도 사용됨 — 멤버 갱신으로 동시 반영.
     params_cb_handle_ = node_->add_on_set_parameters_callback(
         [this](const std::vector<rclcpp::Parameter> &params) -> rcl_interfaces::msg::SetParametersResult {
             rcl_interfaces::msg::SetParametersResult result;
@@ -388,7 +388,7 @@ void CrabLinearActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         return;
     }
 
-    // ── Initial pose from tf2 map->base_link ──
+    // ── Initial pose from /robot_pose (LocalizationMonitor) ──
     double robot_x = 0.0, robot_y = 0.0, robot_yaw = 0.0;
     if (!loc_monitor_->lookupMapToBase(robot_x, robot_y, robot_yaw))
     {
@@ -630,7 +630,7 @@ void CrabLinearActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 
         // Heading 보정 (rear-steer offset, 2026-05-25):
         //   δ_heading = Kp × yaw_err + Kd × de_yaw, saturate ±15°
-        //   TwoWsCrabIK 가 rear wheel 만 (-dir × δ_heading) offset 적용 → yaw 능동 보정
+        //   TwoWsCrabIK 가 rear wheel 만 (−δ_heading) offset 적용 → yaw 능동 보정 (구현에 dir 계수 없음)
         double de_yaw = (yaw_err - prev_yaw_err) / dt;
         prev_yaw_err = yaw_err;
         double delta_heading_raw = Kp_heading_ * yaw_err + Kd_heading_ * de_yaw;
@@ -697,7 +697,7 @@ void CrabLinearActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         double cmd_vy = guard_out.vy_limited;
         double cmd_omega = guard_out.omega_limited;
 
-        // ── Actual-steer-based IK for wheel speed ──
+        // ── Wheel speed 용 IK (feedback 신선 시 재계산 — 입력은 지령값 그대로) ──
         IKResult ik_for_speed = ik_expected;
         {
             bool feedback_fresh = true;
@@ -713,7 +713,7 @@ void CrabLinearActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 
             if (feedback_fresh)
             {
-                // actual steer 기준 wheel speed 재계산 (translate 패턴과 동일 의도 — IK 출력 일관)
+                // 지령 입력(vx_profile/theta_body/delta_cte/delta_heading) 그대로 재계산 — actual steer 는 반영하지 않는다
                 ik_for_speed = crab_ik_->compute(vx_profile, theta_body, delta_cte, delta_heading);
             }
         }

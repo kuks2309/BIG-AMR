@@ -1,12 +1,12 @@
-# AMRMotionPurePursuitReverse Action — nav_msgs/Path 다중 waypoint 후진 추종 (BICYCLE 전륜)
-# trnav_2ws_interfaces/action/AMRMotionPurePursuitReverse
+# AMRMotionMpcReverse Action — nav_msgs/Path 다중 waypoint 후진 추종 (BICYCLE 전륜)
+# trnav_2ws_interfaces/action/AMRMotionMpcReverse
 #
-# 알고리즘: Pure Pursuit Reverse (translate_reverse 패턴 준용)
-#   effective_yaw = robot_yaw + π 보정 후 PurePursuitController 그대로 사용
+# 알고리즘: MPC Reverse (translate_reverse 패턴 준용)
+#   effective_yaw = robot_yaw + π 보정 후 TwoWsMpcController 그대로 사용
 #   → delta_f 부호 자동 반전, e_theta 자동 보정
 #   wheel velocity 출력 × -1 (후진)
 #
-# AMRMotionPurePursuit 와 동일 필드 — 역방향 전용 노드 분리 (translate_forward/reverse 패턴)
+# AMRMotionMpc 와 동일 필드 — 역방향 전용 노드 분리 (translate_forward/reverse 패턴)
 
 # Goal
 nav_msgs/Path path           # map frame 다중 waypoint (>=2 poses, frame_id="map")
@@ -16,12 +16,12 @@ bool    hold_steer           # true: skip Phase 4 steer return
 float64 exit_steer_angle     # deg: Phase 4 target steer (ignored if hold_steer)
 float64 exit_speed           # m/s (0=완전정지, >0=이 속도로 종료, 기본=0)
 float64 entry_speed          # m/s (0=정지에서 시작, >0=이 속도로 시작)
-bool    has_next             # true=다음 segment 존재 → 감속 안 함
+bool    has_next             # 미사용 필드 — action server 가 읽지 않는다 (속도 연속 종료는 exit_speed>0 로 지정)
 uint8   CTRL_DEFAULT     = 0
 uint8   CTRL_MODE_A      = 1
 uint8   control_mode 0
 # Per-goal Localization watchdog 토글 (acs_gui Link.enable_localization_watchdog 전파, 2026-05-18)
-# Effective = 본 필드 AND node param (translate_enable_localization_watchdog 등). 둘 다 true 여야 작동.
+# Effective = 본 필드 AND node param (mpc_enable_localization_watchdog). 둘 다 true 여야 작동.
 bool enable_localization_watchdog true
 ---
 # Result

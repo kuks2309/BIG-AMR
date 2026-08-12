@@ -1,5 +1,67 @@
 # trnav_2ws_interfaces — code updates
 
+2026-08-13 / 04:21 - (pending) / **주석 라인 단위 재독 — 남은 모순 정정 + 주석에서 이력 제거** (코드 무변경)
+
+- 규약 확정: **코드 주석에는 이력을 넣지 않는다.** 주석은 코드가 지금 무엇을 하는지만 적고,
+  「무엇을 언제 왜 바꿨나」는 본 문서(code updates)가 보유한다. 직전 커밋 `6fb9663` 이 주석에
+  변경 이력·감사 서술(「종전 …이었다」·「…교체됐고」·「…정정해 해소했다」·「(YYYY-MM-DD 확인)」·
+  「… 는 이 저장소에 없다」)을 섞어 넣었던 것을 이번에 전량 걷어냈다.
+- 범위: 2WS 스택 **16,174줄 전량**을 12 슬라이스로 나눠 라인 단위 재독.
+  슬라이스마다 적대적 반박 2인(원문 변호 / 대체문 감사)이 코드로 재검증.
+  86후보 → **69 적용**(모순 정정 47 + 이력 제거 22) / **17 기각**(변호 성립으로 원상 유지).
+- 코드 무변경 증명: 변경 45파일을 언어별 파서로 대조 — C++ 16개 `gcc -fpreprocessed -E -P` 출력 동일,
+  Python 13개 AST(Abstract Syntax Tree) 동일(모듈 docstring 제외), YAML/`.action`/CMake 13개
+  `#` 주석 제거 후 동일, `package.xml` 3개 `<description>` 제외 XML 동일. **차이 0건.**
+  이력 문구 잔존 스캔(`종전|정정해|해소했|교체됐|이 저장소에 없다|확인\)|not present in this repository`) **0건**.
+- 검증: `colcon build --packages-up-to trnav_2ws_action_server …` 6패키지 PASS(0 error) ·
+  `colcon test --packages-select trnav_2ws_core trnav_2ws_kinematics` 67 tests / 0 failures / 0 errors.
+- 기각 사례(재발 방지용 기록) — 지적이 틀렸던 것들:
+  · `amr_dock_align` 은 패키지가 아니라 **노드(실행파일) 이름**이라 「부재 패키지」 지적이 오독이었다.
+  · turn 의 `R > 1.44 m`(v=0.05 기준 ω_max < 하한 2.0 dps)를 `1.43` 으로 「정밀화」하려 했으나
+    R=1.431 m 에서 ω_max=2.0019 dps 라 **거짓이 된다** — 원문이 옳다.
+  · `−dir × delta_heading` 은 죽은 표기가 아니라 QD 형제 코드(`trnav_qd_kinematics`)에 살아 있는
+    grep 앵커이자 미결 쟁점의 참조점이라 토큰을 보존했다.
+  · `분산 TF lookup 폐기`·`src/Control/Kinematics/` 언급은 이력이 아니라 **설계 근거·범위 제약**이라 유지.
+- 수정 `action/AMRMotionTranslateForward.action`·`TranslateReverse`·`CrabLinear` — `final_lateral_error` /
+  `current_lateral_error` 의 부호 규약 `+ left, - right` → **`+ robot right of path, - robot left of path`**.
+  값은 `TwoWsPathController` 의 `e_d`(`rx*uy_ - ry*ux_`)라 경로 진행방향 기준 우측이 양수다.
+- 수정 `action/AMRMotionTranslateReverse.action`·`AMRMotionMpc.action` — `control_mode` 서술 정정.
+  서버는 0·1 만 수락하고 둘 다 BICYCLE 로 고정하며, 존재하지 않는 모드 2·3 을 선택지처럼 적고 있었다.
+  `0=node param default` 도 사실이 아니다(읽고 버리거나 대응 param 자체가 없다).
+- 수정 `action/AMRMotionMpc.action` — `enable_localization_watchdog` 의 짝 node param 이름
+  `translate_enable_localization_watchdog` → `mpc_enable_localization_watchdog`(전자는 이 액션에 없다).
+  「Reverse 방향은 후속 wave 에서 분리」는 이미 분리 완료라 실제 액션명으로 교체.
+- 수정 `action/AMRMotionCrabLinear.action`·`Mpc`·`MpcReverse` — `has_next` 를 미사용 필드로 명시
+  (서버가 읽지 않는다 — 속도 연속 종료는 `exit_speed>0`).
+
+---
+
+2026-08-11 / 22:37 - (pending) / **주석 감사 — 코드와 모순되는 주석 일괄 정정** (코드 무변경)
+
+- 범위: 2WS 스택 전체(~15,400줄). **주석·docstring·`<description>` 만 수정, 실행 코드는 한 줄도 바꾸지 않았다.**
+- 방법: 10인 독립 리더가 슬라이스별로 후보를 내고 슬라이스마다 적대적 반박 2인(원문 변호 / 대체문 감사)이
+  코드로 재검증. 1차 82후보 → 반박 통과 79 + 저자 판정 3 = 82 적용. 2차(죽은 참조·inline↔대각 잔재·
+  1차 0건 파일 전수 재독) 39후보 → 29 적용, 9 기각(변호인 반박 성립), 1 중복.
+- 코드 무변경 증명: 변경 63파일 전부를 언어별 파서로 대조 — C++ 28개 `gcc -fpreprocessed -E -P` 출력 동일,
+  Python 13개 AST(Abstract Syntax Tree) 동일(모듈 docstring 제외), YAML/`.action`/CMake 19개 `#` 주석 제거 후 동일,
+  `package.xml` 3개 `<description>` 제외 XML 동일. **차이 0건.**
+- 검증: `colcon build --packages-up-to trnav_2ws_action_server …` 6패키지 PASS(0 error) ·
+  `colcon test` 67 tests / 0 failures / 0 errors.
+- 기각 사례(기록): 상류 설계문서 인용(`AMR_Motion_Control_Implementation_Plan.md` §1.6.2,
+  `Implementation Plan §5.4.3`, `trnav_motion_mux_architecture.md`, `dual_steer_engine.py … lines N-M`,
+  `ADR-012`)을 「죽은 참조」로 고치려던 5건은 **반박당해 원상 유지**했다 — 저장소 상대경로가 아니라
+  이식물의 정상적인 출처 표기이고, 「고치면」 오히려 이 저장소에서 확인되지 않는 상류 소재를
+  새로 심게 된다. `Platform::QD_DIAGONAL` enum 정의 주석 계열 4건도 taxonomy 서술이라 기각.
+- 수정 `action/AMRMotionMpcReverse.action`·`AMRMotionMpc.action` — 헤더가 자기 이름·경로를 폐기된
+  `AMRMotionPurePursuit(Reverse)` 로, 컨트롤러를 `PurePursuitController` 로 적고 있었다 → 실제 이름·`TwoWsMpcController`.
+- 수정 `action/AMRMotionCrabLinear.action` — 매 cycle 계산 서술이 서버 동작과 달랐다(`omega_cmd → VelocityCommand →
+  DualSteerIK`) → 실제 `delta_cte`/`delta_heading` → `TwoWsCrabIK.compute`(omega 지령 없음); status -2 코드명 정정.
+- 수정 `action/AMRMotionTranslateForward.action`·`TranslateReverse` — `has_next # true=다음 Segment 존재 → 감속 안 함`
+  → 서버가 읽지 않는 미사용 필드임을 명시(속도 연속은 `exit_speed>0` 로 지정).
+- 수정 `action/AMRMotionYawControl.action`·`YawControlReverse` — 형제 복사 잔재 및 값 불일치 정정.
+
+---
+
 2026-05-28 / HH:MM - (pending commit) / **PP → MPC 마이그레이션 (Phase B)** — action type rename
 
 - **rename** `action/AMRMotionPurePursuit.action` → `action/AMRMotionMpc.action` (git mv, 필드 동일)

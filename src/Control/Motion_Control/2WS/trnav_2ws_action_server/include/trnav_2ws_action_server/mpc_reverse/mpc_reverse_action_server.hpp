@@ -63,7 +63,7 @@ class MpcReverseActionServer
 
     // mux active source 전환 — execute() 진입 시 호출. action server 가 자기 source_id 책임 (정공법).
     rclcpp::Client<trnav_msgs::srv::SelectMotionSource>::SharedPtr select_source_client_;
-    int motion_source_id_{9};  // mpc_reverse = 9 (2026-05-16 10→9, docs/abstraction/motion_source_id_contract.md)
+    int motion_source_id_{9};  // mpc_reverse = 9 (2026-05-16 10→9, 정본: trnav_motion_mux/config/trnav_motion_mux.yaml 의 Reserved IDs 주석)
 
     double lookahead_distance_{0.6};
     double goal_reach_threshold_{0.05};

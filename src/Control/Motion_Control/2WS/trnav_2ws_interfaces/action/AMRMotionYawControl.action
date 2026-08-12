@@ -14,7 +14,7 @@ bool    hold_steer           # true: skip Phase 4
 float64 exit_steer_angle     # Phase 4 target steer (deg, ignored if hold_steer)
 float64 max_timeout_sec
 # Per-goal Localization watchdog 토글 (acs_gui Link.enable_localization_watchdog 전파, 2026-05-18)
-# Effective = 본 필드 AND node param (translate_enable_localization_watchdog 등). 둘 다 true 여야 작동.
+# Effective = 본 필드 AND node param (yaw_control_enable_localization_watchdog). 둘 다 true 여야 작동.
 bool enable_localization_watchdog true
 ---
 # Result

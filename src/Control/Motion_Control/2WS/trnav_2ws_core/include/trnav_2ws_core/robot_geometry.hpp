@@ -17,7 +17,7 @@ enum class Platform
 };
 
 // Platform-independent robot geometry.
-// Populated from YAML via fromParams() — one yaml per robot variant.
+// Populated from YAML via loadGeometry() (trnav_2ws_motion/qd_action_server_base.hpp) — one yaml per robot variant.
 struct RobotGeometry
 {
     Platform platform;

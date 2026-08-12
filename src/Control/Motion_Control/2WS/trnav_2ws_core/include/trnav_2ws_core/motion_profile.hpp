@@ -29,8 +29,9 @@ struct ProfileOutput
  * Reference: Implementation Plan §5.4.3
  *
  * Automatically selects trapezoidal or triangular profile:
- * - Trapezoidal: distance >= 2 * accel_distance  (accel + cruise + decel)
- * - Triangular:  distance <  2 * accel_distance   (accel + decel, reduced peak)
+ * - Trapezoidal: distance >= accel_distance + decel_distance  (accel + cruise + decel)
+ * - Triangular:  distance <  accel_distance + decel_distance  (accel + decel, reduced peak)
+ *   (the two distances are equal only when entry_speed == exit_speed, e.g. the 3-arg form below)
  *
  * Usage:
  *   TrapezoidalProfile profile(target, max_speed, acceleration);
@@ -116,7 +117,7 @@ class TrapezoidalProfile
 
     // Computed in constructor
     double peak_speed_;  // Actual peak speed (may be < max_speed for triangular)
-    double accel_dist_;  // Distance to accelerate from 0 to peak_speed
+    double accel_dist_;  // End position of the accel phase = distance to accelerate from entry_speed to peak_speed
     double decel_start_; // Position where deceleration begins
     bool is_triangular_; // True if profile is triangular (no cruise phase)
 };

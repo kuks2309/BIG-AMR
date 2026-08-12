@@ -65,7 +65,7 @@ class TranslateReverseActionServer
     rclcpp::Client<trnav_msgs::srv::SelectMotionSource>::SharedPtr select_source_client_;
     int motion_source_id_{2};  // translate_reverse = 2 (trnav_motion_mux.yaml source_2)
 
-    // Control parameters (yaml — translate_reverse_*)
+    // Control parameters (yaml — forward 와 같은 translate_* 키)
     double min_vx_{0.02};
     double behind_start_speed_{0.2};
     double vy_ramp_time_{1.0};

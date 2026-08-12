@@ -34,7 +34,7 @@ TEST(RampToward, ForwardDecelUsesDecelLimit)
 TEST(RampToward, ReverseAccelUsesAccelLimitNotDecel)
 {
     // 크기가 커지는 것이 가속이다. 부호 있는 비교라면 `tgt < cur` 이라 감속한계(1.0)를
-    // 써서 -1.10 이 나온다 — **설계값의 2배로 가속**한다.
+    // 써서 -1.60 이 나온다 — **설계값의 2배로 가속**한다.
     EXPECT_NEAR(rampToward(-0.60, -5.0, kAccel, kDecel), -1.10, 1e-12)
         << "후진 가속에 감속한계가 쓰였다 — 지령보다 빠르게 가속한다";
 }

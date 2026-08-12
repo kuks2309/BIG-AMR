@@ -35,11 +35,11 @@ struct WheelOutput
 /// IK result for all wheels
 struct IKResult
 {
-    std::vector<WheelOutput> wheels; // [0]=W1(front-left), [1]=W2(rear-right)
+    std::vector<WheelOutput> wheels; // [0]=W1(front, x>0), [1]=W2(rear, x<0)
 };
 
 /**
- * TwoWsDualSteerIK — QD diagonal-pair platform-specific free (unconstrained) inverse kinematics
+ * TwoWsDualSteerIK — inline dual-steer platform free (unconstrained) inverse kinematics
  *
  * Ported from: dual_steer_engine.py::KinematicEngine
  * Reference: §1.6.2 of AMR_Motion_Control_Implementation_Plan.md

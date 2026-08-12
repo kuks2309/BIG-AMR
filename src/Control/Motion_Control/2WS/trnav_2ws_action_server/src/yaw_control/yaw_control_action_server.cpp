@@ -276,7 +276,7 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 
     auto start_time = node_->now();
 
-    // ── Pre-check: IMU received (위치는 TF lookupMapToBase 가 처리) ──
+    // ── Pre-check: IMU received (위치는 /robot_pose 구독 스냅샷 lookupMapToBase 가 처리) ──
     if (!imu_received_.load())
     {
         RCLCPP_ERROR(node_->get_logger(), "YawControl: IMU data not received, aborting (-4)");
@@ -284,7 +284,7 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         return;
     }
 
-    // ── Acquire start pose from tf2 ──
+    // ── Acquire start pose from /robot_pose (LocalizationMonitor snapshot) ──
     double start_x = 0.0, start_y = 0.0, start_yaw_map = 0.0;
     if (!loc_monitor_->lookupMapToBase(start_x, start_y, start_yaw_map))
     {
@@ -369,8 +369,8 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 
     bool reached = false;
     // 헤딩 발산(−7) 판정에 쓸 맵 자세의 최대 나이. 측위 타임아웃(2.0 s)보다 훨씬 짧아야
-    // 한다 — −7 은 10 cycle(50 Hz 기준 0.2 s)이면 발화하므로, 그보다 느슨하면 얼어붙은
-    // 맵 자세로 IMU 를 탓하게 된다.
+    // 한다 — −7 은 서로 다른 pose 샘플 10개(실차 10 Hz 기준 약 1.0 s)면 발화하므로, 그보다
+    // 느슨하면 얼어붙은 맵 자세로 IMU 를 탓하게 된다.
     constexpr double kHeadingPoseMaxAgeSec = 0.3;
     int heading_diverge_cnt = 0; // 조대 헤딩 발산 연속 카운터 — **서로 다른 pose 샘플**을 센다
     rclcpp::Time heading_last_stamp(0, 0, RCL_ROS_TIME); // 마지막으로 센 pose 의 stamp
@@ -393,11 +393,11 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         if (loc_monitor_->lookupMapToBase(rx, ry, map_yaw_rad, map_stamp))
         {
             tf_fail_count = 0;
-            // ⚠ `lookupMapToBase` 는 **신선도를 보지 않는다** — `pose_received_` 가 한 번
-            //   참이 되면 영원히 참을 돌려주고 마지막 값을 준다. 그래서 종전의
-            //   `map_yaw_fresh = true` 는 「이번 주기 유효」가 아니라 「언젠가 1회 수신」이었다.
+            // ⚠ `lookupMapToBase` 의 신선도 기준은 `localization_timeout_sec`(2.0 s) 하나뿐이라
+            //   (`trnav_2ws_core/src/localization_monitor.cpp:200-206`) 헤딩 판정에는 너무
+            //   느슨하다 — 여기서 `kHeadingPoseMaxAgeSec`(0.3 s)로 다시 좁힌다.
             //   측위가 얼면 맵 yaw 만 고정되고 IMU 는 계속 도므로 괴리가 회전량만큼 커져
-            //   **−7 이 0.2 s 만에 발화**하고 「측위는 멀쩡한데 IMU 가 어긋났다」고 오진한다
+            //   **−7 이 약 1.0 s 만에 발화**하고 「측위는 멀쩡한데 IMU 가 어긋났다」고 오진한다
             //   (측위 타임아웃은 2.0 s 라 −4 보다 −7 이 먼저 뜬다). 실제로는 정반대다.
             //   판단 근거가 낡았으면 판단을 보류하고 카운터도 리셋한다.
             const double pose_age_sec = (node_->now() - map_stamp).seconds();
@@ -497,7 +497,7 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         // `checkLocalizationHealth` 는 `max_cmd_speed_ <= 0.01` 이면 **즉시 true 로 조기
         // 반환**한다(정지 중에는 측위가 낡아도 위험하지 않다는 설계). yaw 계열은 이 값을
         // **한 번도 설정하지 않아** 0 으로 고정돼 있었고, 그래서 status −4(측위 타임아웃)·
-        // −5(점프)·−6(조회 실패)이 전부 발화할 수 없었다 — 위 380행의 검사가 항상 통과했다.
+        // −5(점프)·−6(조회 실패)이 전부 발화할 수 없었다 — 위 `checkLocalizationHealth` 검사가 항상 통과했다.
         // `translate_*`·`crab_linear`·`mpc*` 는 모두 이 배선을 갖고 있고 여기만 빠졌다.
         {
             loc_monitor_->setMaxCmdSpeed(vx_profile);
@@ -523,7 +523,7 @@ void YawControlActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
             double diverge_deg =
                 std::fabs(normalizeAngleDeg(current_yaw_deg - map_yaw_rad * 180.0 / M_PI));
             // ⚠ **제어 cycle 이 아니라 서로 다른 pose 샘플을 센다.** 제어 루프는 50 Hz 인데
-            //   실차 `/robot_pose` 는 10 Hz 다(`seer_pose_publisher` 는 10 Hz 초과를 막는다).
+            //   실차 `/robot_pose` 는 10 Hz 다(`seer_pose_publisher` 기본 `rate_hz`=10, 초과 설정 시 경고만 남긴다).
             //   cycle 을 세면 같은 pose 가 5 회 재사용되어 「10 cycle 연속」이 실제로는
             //   **서로 다른 샘플 2개**에 불과하다 — pose 가 5 Hz 로 떨어지면 **튄 샘플 하나로**
             //   abort 한다. 순간 튐 오탐을 막겠다는 디바운스의 취지가 성립하지 않았다.

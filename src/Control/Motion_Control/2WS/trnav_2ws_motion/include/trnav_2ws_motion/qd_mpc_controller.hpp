@@ -31,7 +31,7 @@ struct MpcOutput
     bool valid = false;
     double delta_f = 0.0;   // rad — 전륜 조향
     double cost = 0.0;       // optimizer 의 최종 cost
-    int n_iter = 0;          // optimizer 반복 횟수
+    int n_iter = 0;          // optimizer 목적함수 평가 횟수 (NLopt get_numevals)
     double e_d = 0.0;        // 현재 cycle 의 lat_err (debug)
     double e_theta = 0.0;    // heading_err (debug, rad)
     double remaining_to_goal = 0.0;  // m
