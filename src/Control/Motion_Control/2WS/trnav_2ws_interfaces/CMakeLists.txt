@@ -33,6 +33,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/AMRMotionYawControlReverse.action"
   "action/AMRMotionMpc.action"
   "action/AMRMotionMpcReverse.action"
+  "action/AMRMotionLineFollow.action"
   "srv/AMRControlStop.srv"
   DEPENDENCIES nav_msgs
 )

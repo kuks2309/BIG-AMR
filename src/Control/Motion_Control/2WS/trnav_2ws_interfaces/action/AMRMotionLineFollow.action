@@ -1,0 +1,37 @@
+# AMRMotionLineFollow.action
+# 바닥 라인 추종 (YOLOv8-seg 인식 → 조향 PD). 라인 오차는 /line/error
+# (ai_msgs/LineError) 토픽으로 수신하며, 여기는 임무 파라미터만 받는다.
+# 게인·임계는 config/line_follow_params.yaml (goal 마다 재적재 — 런타임 튜닝).
+
+# Goal
+float64 max_linear_speed     # 최대 종속도 크기 (m/s, > 0)
+bool    reverse              # true = 후진(후방 카메라). 조향 부호가 뒤집힌다
+float64 max_duration_sec     # 최대 주행 시간 (s), 0 = 무제한 (cancel 까지)
+float64 max_distance         # 최대 주행 경로장 (m), 0 = 무제한. 측위 적산
+float64 line_lost_coast_sec  # 라인 소실 시 coast(조향유지·감속) 유예 (s)
+bool    hold_steer           # true: Phase 4(조향 복귀) 생략
+float64 exit_steer_angle     # Phase 4 목표 조향각 (deg, hold_steer 면 무시)
+bool    enable_localization_watchdog true
+---
+# Result
+int8    status               # 0=success (max_duration_sec 또는 max_distance 도달)
+                             # -1=cancelled, -2=invalid, -3=timeout,
+                             # -4=loc_timeout, -5=loc_jump, -6=tf_lookup_fail,
+                             # -8=steer_unreachable (조향이 지령에 도달 못한 채 지속)
+                             # -9=line_lost (시작 대기 초과 또는 coast 초과)
+                             # -10=line_input_stale (/line/error 스트림 두절 — 인식 노드 점검)
+                             # -11=camera_mismatch (진행 방향과 다른 카메라의 오차 수신 —
+                             #     line_seg_node 의 direction 파라미터를 맞출 것)
+float64 traveled_distance    # m (측위 경로장 적산)
+float64 avg_abs_offset       # 추종 중 |offset| 평균 (주행 품질)
+float64 elapsed_time         # s
+---
+# Feedback
+float64 offset               # 현재 라인 횡오차 [-1,1]
+float64 angle                # 현재 라인 기울기 (rad)
+float64 confidence           # seg 신뢰도
+float64 current_speed        # 현재 종속도 지령 크기 (m/s)
+float64 current_steer_deg    # 현재 전륜 조향 지령 (deg)
+float64 traveled_distance    # m
+uint8   phase                # 0=wait_line, 1=following, 2=lost_coast, 3=stopping, 4=steer_return
+string  camera               # 오차를 만든 카메라 논리명 (cam_f / cam_r)

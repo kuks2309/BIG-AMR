@@ -1,0 +1,58 @@
+/trnav_line_follow_node:
+  ros__parameters:
+    # ── 기체 기하 (인라인 듀얼스티어 Foil_A082) ──
+    # 베이스가 이 값으로 IK·자전거 모형을 만든다. 빠지면 QD 대각 기본값으로 조용히 풀리므로
+    # (2026-08-08 실증) 반드시 함께 준다.
+    platform: "QD_DIAGONAL"
+    w1_x: 0.6039
+    w1_y: 0.0
+    w2_x: -0.5961
+    w2_y: 0.0
+    wheel_radius: 0.125
+    gear_walk: 32.0
+
+    control_rate_hz: 50.0
+    steer_tolerance_deg: 1.0
+    steer_timeout_sec: 5.0
+
+    # ── 조향 PD (영상 횡오차 → 전륜 조향각) ──
+    # 원본(2WD 차동)의 각속도 PD 를 조향각 공간으로 옮긴 값이다. 차동 기체에서 검증된
+    # 게인이므로 이 기체에서는 **출발점일 뿐** — 실기 재조정 대상.
+    line_follow_kp_offset: 1.2         # 횡오차 P (rad steer per unit offset)
+    line_follow_kd_offset: 0.15        # 횡오차 D
+    line_follow_kp_angle: 0.6          # 라인 기울기 P (rad steer per rad)
+    line_follow_max_steer_deg: 25.0    # 조향 포화
+    line_follow_slow_gain: 0.7         # 커브 감속 v = v_max*(1 - slow*|offset|)
+
+    # ── 속도 ramp ──
+    line_follow_accel: 0.3             # 가속 (m/s^2)
+    line_follow_coast_decel: 0.15      # 소실 coast 감속 (m/s^2)
+    line_follow_stop_decel: 0.5        # 정지 감속 (m/s^2)
+
+    # ── 소실·두절 ──
+    line_follow_conf_threshold: 0.5        # 추종·재개 최소 신뢰도
+    line_follow_resume_max_offset: 0.9     # coast 재개 허용 |offset| (가장자리 오검출 배제)
+    line_follow_wait_line_timeout_sec: 3.0 # 시작 시 라인 대기 한도
+    line_follow_input_stale_timeout_sec: 0.5  # /line/error 두절 임계 — 유예 없이 정지
+    line_follow_offset_filter_window: 5    # offset 이동평균 창
+
+    # ── 방향 ↔ 카메라 정합 검사 ──
+    # line_vision 로스터의 위치 논리명과 같아야 한다. 불일치하면 abort(-11).
+    line_follow_forward_camera: "cam_f"
+    line_follow_reverse_camera: "cam_r"
+
+    # ── 지령 변화율 제한·가드 (yaw_control 과 같은 역할·기본값) ──
+    line_follow_steer_rate_limit: 0.35
+    line_follow_walk_accel_limit: 0.5
+    line_follow_walk_decel_limit: 1.0
+    line_follow_gate_blocked_timeout_sec: 5.0
+    line_follow_max_timeout_sec: 120.0
+
+    # ── 측위 ──
+    line_follow_enable_localization_watchdog: true
+    line_follow_pose_topic: "/robot_pose"
+    line_follow_localization_timeout_sec: 2.0
+    line_follow_position_jump_threshold: 0.3
+
+    # ── mux ──
+    line_follow_motion_source_id: 13
