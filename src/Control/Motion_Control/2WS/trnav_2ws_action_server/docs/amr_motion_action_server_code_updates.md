@@ -1,5 +1,35 @@
 # trnav_2ws_action_server — code updates
 
+2026-08-13 / 09:44 - (pending) / **검사기 신설에 딸린 주석 정정 3종 + 앞 커밋 건수 정정** (코드 무변경)
+
+- 수정 `config/crab_linear_params.yaml`·`config/spin_params.yaml` — `trnav_2ws_core::loadGeometry` 는
+  존재하지 않는 소속이다. 실제 소유자는 `trnav::motion::two_ws::TwoWsActionServerBase::loadGeometry`
+  (`trnav_2ws_motion/include/trnav_2ws_motion/qd_action_server_base.hpp:224`).
+  같은 오기가 param yaml **9개**에 있었고 2026-08-13 감사가 7개만 고쳤다 — 남은 2개를 여기서 정정한다.
+  발견 경로: 신설 검사기의 `symbol` 검사(스코프 대조)와 codex 적대 검토가 각각 독립으로 지목했다.
+- 수정 `launch/sil_{mpc,mpc_reverse,translate_forward,translate_reverse}.launch.py` —
+  `/robot_pose` 발행자 안내에서 **부재 서술**(「QD 문서가 `src/Navigation/trnav_pose_publisher` 를
+  가리키나 그 경로는 부재이고」)을 빼고 운영 제약만 남겼다: 실기 발행자 미정(debt-068) → 기동 시
+  `pose_topic:=` 명시, 저장소 유일 후보 `seer_pose_publisher` 의 기본 발행은 `/seer/robot_pose`.
+  「부재를 서술하지 말고 인용을 삭제한다」는 규칙의 잔여분이며, 신설 검사기의 `path` 검사가 찾아냈다.
+
+**⚠ 앞 커밋 `2cf1971` 의 건수 정정 — 커밋 메시지가 틀렸다**
+
+- 제목 「남은 모순 **70건** 정정」과 본문 「기각했던 1건은 … 재판정·적용(총 70건)」은 **사실이 아니다.**
+  실제 적용은 **69건**이다(적용 목록 실측). 재판정된 1건은 그 69 안에 포함된 것이지 추가분이 아니다.
+- 따라서 3개 커밋의 정확한 합계는 **111 + 69 = 180건**이다. `Tools/comment_check/README.md` 와
+  `debt-070` 이 쓰는 「180」이 이 값이다.
+- 커밋은 이미 `origin/main` 에 병합돼 메시지를 고칠 수 없으므로 정정을 여기에 남긴다.
+- 발견 경로: codex 적대 검토가 `111 + 70 = 181` 과 커밋 본문의 69 가 어긋난다고 지적했다.
+
+**신설 도구** — `Tools/comment_check/`(비-ROS 독립 도구라 저장소 규약상 `Tools/`).
+검사 5종(`anchor`·`path`·`symbol`·`const` 기본 + `history` 옵트인) + 회귀 테스트.
+실측: 2WS 113파일 오탐 0 · 알려진 결함 180건 중 25건 검출(재현율 14%). 사용법·한계·미해결은
+`Tools/comment_check/README.md` 가 정본이다. **에이전트 감사를 대체하지 않는다** — 알려진 결함의
+86%가 의미 판정을 필요로 했다.
+
+---
+
 2026-08-13 / 04:21 - (pending) / **주석 라인 단위 재독 — 남은 모순 정정 + 주석에서 이력 제거** (코드 무변경)
 
 - 규약 확정: **코드 주석에는 이력을 넣지 않는다.** 주석은 코드가 지금 무엇을 하는지만 적고,

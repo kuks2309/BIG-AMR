@@ -1,6 +1,6 @@
 /trnav_crab_linear_node:
   ros__parameters:
-    # ── Platform (trnav_2ws_core::loadGeometry) ──
+    # ── Platform (trnav::motion::two_ws::TwoWsActionServerBase::loadGeometry — trnav_2ws_motion/include/trnav_2ws_motion/qd_action_server_base.hpp) ──
     platform: "QD_DIAGONAL"
 
     # ── 로봇 기하 — Foil_A082 실측 (2026-08-05 적용) ──────────────────────
