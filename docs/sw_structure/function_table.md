@@ -13,6 +13,7 @@
 | `seer_pose_publisher` (Seer→/robot_pose) | [src/Navigation/seer_pose_publisher/docs/function_table.md](../../src/Navigation/seer_pose_publisher/docs/function_table.md) | 8 (+이너 0) | 전수 | 2026-08-06 |
 | `mcl2d_core` | [src/Navigation/mcl2d_core/docs/function_table.md](../../src/Navigation/mcl2d_core/docs/function_table.md) | — | (별도 세션 작성) | — |
 | `line_vision` (YOLOv8-seg 라인 인식) | [src/AI/line_vision/docs/code_review/ai-line-vision/2026-08-13.md](../../src/AI/line_vision/docs/code_review/ai-line-vision/2026-08-13.md) | 17 (+dataclass 1·상수 8) | 전수 | 2026-08-13 |
+| `trnav_2ws_action_server` / **line_follow 한정** | [src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md](../../src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md) | 13 (+struct 2·enum 1·클래스 2) | **부분** — line_follow 만 | 2026-08-14 |
 
 ## ⚠ 미등재 — inventory-gate 가 빈 통과하는 범위
 

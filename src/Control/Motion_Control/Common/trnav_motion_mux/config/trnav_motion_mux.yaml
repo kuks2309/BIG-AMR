@@ -21,10 +21,14 @@ trnav_motion_mux:
     #  11 = stanley_reverse      — (예약, 미구현) Stanley lateral control reverse
     #  12 = turn_reverse        — amr_turn_reverse_node (후진 원호. 2026-08-09 신설,
     #                             docs/adr/2026-08-09-turn-reverse.md. 10·11 예약을 피해 12)
+    #  13 = line_follow        — amr_line_follow_node (영상 라인 추종. 2026-08-14 신설,
+    #                            docs/adr/2026-08-14-line-follow-2ws-action.md. 10·11 예약을 피해 13)
     #  40 = dock               — amr_dock_align (Stage2 결합 closed-loop: marker 직접 피드백 vy+omega, 2026-06-02)
     # 짝 패턴: (1,2) translate, (5,12) turn, (6,7) yaw_control, (8,9) mpc, (10,11) stanley
-    # 단일: spin(3), crab(4), dock(40)
-    source_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 40]
+    # 단일: spin(3), crab(4), line_follow(13), dock(40)
+    #   line_follow 는 전진·후진을 goal 필드(reverse)로 받아 한 소스가 둘을 처리한다 —
+    #   방향 차이가 vx 부호 하나뿐이라 짝 슬롯을 만들지 않았다(ADR §D2).
+    source_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 40]
 
     # --- source_0: joystick ---
     # 수동 조이스틱 입력. default_source_id=0 이므로 부팅 직후 즉시 활성.
@@ -135,6 +139,16 @@ trnav_motion_mux:
     source_11:
       name: "stanley_reverse"
       topic: "/motion/wheel_cmd/stanley_reverse"
+      timeout_ms: 200
+
+    # --- source_13: line_follow (2026-08-14 신설) ---
+    # amr_line_follow_node 가 발행 — /line/error(ai_msgs/LineError) 영상 횡오차를 조향 PD 로
+    # 추종한다. 전진은 cam_f, 후진은 cam_r 을 보며 goal 의 reverse 필드가 vx 부호를 정한다.
+    # 라인 소실 시 조향 유지 + 감속 coast, 유예 초과 시 정지·abort.
+    # ADR: docs/adr/2026-08-14-line-follow-2ws-action.md
+    source_13:
+      name: "line_follow"
+      topic: "/motion/wheel_cmd/line_follow"
       timeout_ms: 200
 
     # --- source_40: dock (2026-06-02, amr_docking Stage2 결합 closed-loop) ---
