@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>line_vision</name>
+  <version>0.1.0</version>
+  <description>바닥 라인을 YOLOv8-seg 로 분할하고 중심선을 피팅해 횡오차를 발행하는 인식 노드. 카메라 장치를 직접 열지 않고 usb_cam_publisher 토픽만 구독한다.</description>
+  <maintainer email="kukwonko@gmail.com">kuks</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>ai_msgs</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
