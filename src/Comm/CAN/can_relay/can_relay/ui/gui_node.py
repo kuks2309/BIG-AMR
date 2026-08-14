@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import fcntl
+import os
 import signal
 import sys
 
@@ -23,6 +25,37 @@ from PyQt5.QtWidgets import QApplication
 from .app import MainWindow, RelayTabs
 
 SIGNAL_PUMP_MS = 50
+
+# 판다를 여는 GUI 는 한 번에 하나만 떠야 한다 — 단독 GUI(`Tools/amr_test_gui/gui.py`)와
+# **같은 파일**을 쓴다. 둘 중 어느 쪽이든 이미 떠 있으면 다른 쪽이 뜨지 않는다.
+SINGLE_INSTANCE_LOCK = "/tmp/amr_test_gui.lock"
+
+
+def acquire_single_instance(path: str = SINGLE_INSTANCE_LOCK):
+    """이 GUI 를 한 번에 하나만 띄우도록 잠근다. 반환 `(잠금 파일, 선점자 PID 문자열)`.
+
+    잠겼으면 `(None, "<PID>")`, 잡았으면 `(파일객체, None)` 이다. **반환된 파일객체를 살려
+    둬야 잠금이 유지된다** — 닫히면 그 순간 풀린다.
+
+    판다는 한 프로세스만 열 수 있다. 두 창이 동시에 USB 를 잡으면 나중 창의 연결이 계속
+    실패하고, 먼저 잡은 쪽이 무엇을 하고 있는지 화면으로는 알 수 없다.
+
+    `flock` 을 쓰는 이유: 프로세스가 죽으면 커널이 잠금을 자동으로 푼다. PID 파일만 두면
+    비정상 종료 뒤 찌꺼기가 남아 다음 실행을 영영 막는다.
+    """
+    fh = open(path, "a+")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.seek(0)
+        holder = fh.read().strip() or "?"
+        fh.close()
+        return None, holder
+    fh.seek(0)
+    fh.truncate()
+    fh.write(str(os.getpid()))
+    fh.flush()
+    return fh, None
 
 
 def _make_backend(name: str, log, ros_args):
@@ -53,6 +86,13 @@ def main(args=None) -> int:
     ap.add_argument("--backend", choices=("both", "ros2", "direct"), default="both",
                     help="both=탭 2개(기본) · ros2=드라이버 경유(운용) · direct=판다 직결(시험 전용)")
     known, rest = ap.parse_known_args(args if args is not None else sys.argv[1:])
+
+    lock, holder = acquire_single_instance()
+    if lock is None:
+        print(f"[gui] 이미 실행 중입니다 (PID {holder}) — 그 창을 쓰십시오.\n"
+              f"      판다는 한 프로세스만 열 수 있어 두 창이 동시에 USB 를 잡으면 둘 다 못 씁니다.",
+              flush=True)
+        return 1
 
     pending = []
 

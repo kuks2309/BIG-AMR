@@ -37,8 +37,9 @@ STEER_LIMIT_DEG = 90
 
 SEER_RESTORE_TIMEOUT_S = 20.0   # 제어권 반환 전 조향 복원을 기다리는 한도(초)
 SEER_MATCH_TOL_DEG = 3.0        # CAN 실측 ↔ Seer 판독 허용 차(°)
-SEER_MATCH_STREAK = 5           # 이만큼 연속 어긋나야 경보 — 과도 표본으로 떠들지 않는다
-SEER_MATCH_REWARN_S = 30.0      # 같은 축 재경보 최소 간격(초)
+SEER_JOG_DURATION_MS = 600      # Seer 개루프 운동(2010) 시한 — 재송신이 끊기면 이 안에 선다
+SEER_JOG_PERIOD_S = 0.2         # 그 시한보다 짧게 다시 보내 속도를 유지한다
+SEER_CONTROL_NICK = "can_relay_gui"  # Seer 제어권(4005) 획득 시 자기 식별 이름
 
 # 조그 방향표 — {이름: (조향각°, 구동 raw 부호, 방향 실측 여부)}.
 # 부호 규약: 조향 0° 에서 raw 음수가 전진(+x), 조향 +90° 에서 raw 양수가 좌 크랩.
@@ -181,8 +182,7 @@ class MainWindow(QWidget):
         self._seer_deg = {}
         self._seer_at_take = {}   # 제어권 잡기 직전 Seer 조향각(반환 시 복원 기준)
         self._steer_commanded = False   # 이번 세션에서 조향을 보냈는가(대조 중단 조건)
-        self._seer_mismatch_streak = {}
-        self._seer_mismatch_warned_at = {}
+        self._seer_checked = set()      # 이번 세션에서 기준 대조를 마친 축
         self._alarm_tick = 0
         self._alarm_seen = set()
         self._jog_th = None
@@ -518,38 +518,32 @@ class MainWindow(QWidget):
 
 
     def _check_seer_agreement(self, node: int, deg: float):
-        """CAN 실측과 Seer 판독이 같은 곳을 가리키는지 매 갱신 대조하고 어긋나면 알린다.
+        """CAN 실측과 Seer 판독이 같은 곳을 가리키는가 — **제어권 세션당 축별 1회**만 본다.
 
-        `SEER_MATCH_STREAK` 회 **연속** 어긋나야 경보한다 — 획득 직후 같은 과도 표본
-        하나로 떠들지 않기 위해서다. 같은 축 재경보는 `SEER_MATCH_REWARN_S` 간격을 둔다.
+        **제어권을 쥐면 Seer 는 모터를 못 읽는다** — 릴레이가 intercept 로 넘어가 Seer 쪽
+        판독이 굳는다. 그래서 대조가 유효한 값은 **잡기 직전에 읽어 둔 Seer 각도**
+        (`_seer_at_take`) 하나뿐이고, 비교 상대는 **획득 후 처음 들어온 신선한 CAN 실측**이다.
+        그 시점에는 아직 아무도 축을 움직이지 않았으므로 둘은 같은 자세를 가리켜야 한다.
 
-        **우리가 조향을 보낸 뒤에는 대조하지 않는다.** 제어권을 쥐면 Seer 는 모터 실측을
-        더 못 보고 값이 굳으므로, 그 상태로 대조하면 정상 조작마다 거짓 경보가 난다.
+        살아 있는 Seer 값(`_seer_deg`)과 매 표본 대조하면 **굳은 값과 비교하는 것**이라
+        거짓 경보만 난다 — 실측 갱신 자체가 제어권 보유 중에만 도므로 그 대조에는 유효한
+        창이 없다.
+
         어긋나면 알리기만 한다 — 판단은 운용자 몫이고 조용히 진행하는 것만 피한다.
         """
-        if self._steer_commanded:
+        if node in self._seer_checked:          # 이번 세션에서 이미 본 축
             return
-        ref = self._seer_deg.get(node)
-        if ref is None:
-            self._seer_mismatch_streak[node] = 0
+        ref = (self._seer_at_take or {}).get(node)
+        if ref is None:                          # 잡기 직전 기준이 없으면 판정하지 않는다
             return
+        self._seer_checked.add(node)
         diff = deg - ref
         if abs(diff) <= SEER_MATCH_TOL_DEG:
-            if self._seer_mismatch_streak.get(node, 0) >= SEER_MATCH_STREAK:
-                self.log_line.emit(f"N{node} 조향 기준 회복 — Seer {ref:+.2f}° ↔ CAN {deg:+.2f}°")
-            self._seer_mismatch_streak[node] = 0
             return
-        n = self._seer_mismatch_streak.get(node, 0) + 1
-        self._seer_mismatch_streak[node] = n
-        if n < SEER_MATCH_STREAK:
-            return
-        now = time.monotonic()
-        if now - self._seer_mismatch_warned_at.get(node, 0.0) < SEER_MATCH_REWARN_S:
-            return
-        self._seer_mismatch_warned_at[node] = now
         self.log_line.emit(
-            f"⚠ N{node} 조향 기준 불일치 {n}회 연속 — Seer {ref:+.2f}° 인데 CAN 실측 "
-            f"{deg:+.2f}° (차 {diff:+.2f}°). 0° 기준이 서로 다릅니다 — 조작 전 확인하세요")
+            f"⚠ N{node} 조향 기준 불일치 — 잡기 직전 Seer {ref:+.2f}° 인데 획득 후 첫 "
+            f"CAN 실측 {deg:+.2f}° (차 {diff:+.2f}°). 0° 기준이 서로 다릅니다 — "
+            f"조작 전 확인하세요")
 
     def _redraw_wheel(self):
         """바퀴 그림과 슬라이더 라벨을 실측으로 갱신한다.
@@ -621,6 +615,7 @@ class MainWindow(QWidget):
         self.btn_take.setText("제어권 해제" if on else "제어권 획득")
         if on:
             self._steer_commanded = False   # 새 세션 — 대조를 다시 연다
+            self._seer_checked = set()      # 기준 대조도 축별 1회씩 다시
             self._seer_at_take = {n: self._seer_deg.get(n) for n in STEER_NODES}
             have = {n: v for n, v in self._seer_at_take.items() if v is not None}
             self.log("인수인계 기준(Seer) — " +
@@ -680,12 +675,17 @@ class MainWindow(QWidget):
             self.log(f"조향 지령 실패 N{node}: {type(exc).__name__}: {exc}")
 
     def _jog(self, label: str):
-        """조그 진입 게이트. `정지` 는 즉시 처리하고 나머지는 조그 스레드를 띄운다.
+        """조그 진입 게이트. **제어권 보유 시 백엔드 경로, 미보유 시 Seer API 경로**로 갈린다.
 
-        호밍 중이거나 이미 조그가 돌고 있으면 새 조그를 받지 않는다.
+        제어권이 없으면 버스는 Seer 가 쓴다. 우리가 프레임을 낼 수 없으므로 같은 조그를
+        **Seer 개루프 운동(2010)** 으로 대신 보낸다. `정지` 는 즉시 처리하고 나머지는
+        조그 스레드를 띄운다. 호밍 중이거나 이미 조그가 돌고 있으면 새 조그를 받지 않는다.
         """
         if self._homing and label != "정지":
             self.log("호밍 진행 중 — 완료까지 기다리세요")
+            return
+        if not self._engaged():
+            self._jog_seer(label)
             return
         if label == "정지":
             self._jog_stop = True
@@ -699,6 +699,109 @@ class MainWindow(QWidget):
         self._jog_th = threading.Thread(target=self._jog_run, name="jog", daemon=True,
                                         args=(label, steer_deg, sign))
         self._jog_th.start()
+
+    def _engaged(self) -> bool:
+        """제어권을 쥐고 있는가 — 백엔드 상태의 세 번째 값이 그 답이다."""
+        try:
+            return bool(self.be.status()[2])
+        except Exception:
+            return False
+
+    @staticmethod
+    def _seer_velocity(steer_deg: float, sign: int, mmps: float) -> tuple:
+        """조그 표 한 항목을 Seer 차체 속도 `(vx, vy)`(m/s)로 옮긴다.
+
+        `JOG` 는 CAN 경로용이라 (조향각, 구동 raw 부호)로 적혀 있다. 같은 운동을 차체
+        속도로 쓰면 `v = −sign × (cos θ, −sin θ)` 다 — 표의 부호 규약 두 개가 그대로
+        나온다: 조향 0°·raw 음수 → +x(전진), 조향 +90°·raw 양수 → +y(좌).
+        `mmps` 는 GUI 속도 입력(mm/s)이고 Seer 는 m/s 를 받는다.
+        """
+        th = math.radians(steer_deg)
+        v = float(mmps) / 1000.0
+        return (-sign * math.cos(th) * v, -sign * -math.sin(th) * v)
+
+    def _seer_ctrl_client(self):
+        """Seer 제어용 클라이언트. 상태 폴링과 별개 연결이다(19205 는 배타 포트)."""
+        import sys
+        if self._seer_gui_path not in sys.path:
+            sys.path.insert(0, self._seer_gui_path)
+        from seer_core.client import RobokitClient
+        return RobokitClient(self._seer_ip)
+
+    def _jog_seer(self, label: str):
+        """제어권이 없을 때의 조그 — Seer 개루프 운동(2010)으로 보낸다.
+
+        `정지` 는 워커를 끊는다. 워커가 없을 때만 단발로 2000 을 시도한다 — 제어권이
+        없으면 `ret_code=40020` 이 로그에 남는다.
+        """
+        if label == "정지":
+            self._jog_stop = True
+            if self._jog_th is None or not self._jog_th.is_alive():
+                self._run_seer_ctrl("stop_motion")
+            return
+        if self._jog_th is not None and self._jog_th.is_alive():
+            self.log("조그 진행 중 — 먼저 정지하세요")
+            return
+        steer_deg, sign, _ = JOG[label]
+        vx, vy = self._seer_velocity(steer_deg, sign, self.spn_speed.value())
+        self._jog_stop = False
+        self._jog_th = threading.Thread(target=self._jog_seer_run, name="jog-seer",
+                                        daemon=True, args=(label, vx, vy))
+        self._jog_th.start()
+
+    def _run_seer_ctrl(self, method: str, *args):
+        """Seer 제어 포트(19205) 호출 1회를 작업 스레드에서 한다. 결과는 로그로 남긴다."""
+        def _work():
+            try:
+                res = getattr(self._seer_ctrl_client(), method)(*args)
+                self.log_line.emit(f"Seer {method} → {res}")
+            except Exception as exc:
+                self.log_line.emit(f"Seer {method} 실패: {type(exc).__name__}: {exc}")
+        threading.Thread(target=_work, daemon=True, name="seer-ctrl").start()
+
+    def _jog_seer_run(self, label: str, vx: float, vy: float):
+        """Seer 조그 워커 — 제어권 획득 → 2010 재송신 → 정지·반납.
+
+        Seer 는 standalone 조작 전에 **제어권(4005)** 을 요구한다. 없으면 2010·2000 이
+        `ret_code=40020`(control is preempted)으로 거부된다. 잡기 전에 현재 소유자를
+        1060 으로 읽어 로그에 남긴다 — **이 획득은 그 소유자의 제어권을 뺏는다.**
+
+        2010 의 `duration` 이 재송신 주기보다 길어야 사이가 끊기지 않고, 재송신이 멈추면
+        그 시한 안에 로봇이 선다. 끝날 때는 2000 을 보내고 4006 으로 반납한다.
+        """
+        try:
+            client = self._seer_ctrl_client()
+        except Exception as exc:
+            self.log_line.emit(f"Seer 연결 불가: {type(exc).__name__}: {exc}")
+            return
+        seized = False
+        try:
+            try:
+                self.log_line.emit(f"Seer 제어권 현재 소유자 — {client.control_owner()}")
+            except Exception as exc:
+                self.log_line.emit(f"Seer 소유자 조회 실패: {type(exc).__name__}: {exc}")
+            client.seize_control(SEER_CONTROL_NICK)
+            seized = True
+            self.log_line.emit(f"Seer 제어권 획득 — nick '{SEER_CONTROL_NICK}'")
+            self.log_line.emit(f"Seer 조그 '{label}' — vx {vx:+.3f} / vy {vy:+.3f} m/s")
+            while not self._jog_stop:
+                client.open_loop(vx=vx, vy=vy, w=0.0,
+                                 duration=int(SEER_JOG_DURATION_MS))
+                time.sleep(SEER_JOG_PERIOD_S)
+        except Exception as exc:
+            self.log_line.emit(f"Seer 조그 중단: {type(exc).__name__}: {exc}")
+        finally:
+            if seized:
+                try:
+                    client.stop_motion()
+                    self.log_line.emit("Seer 조그 종료 — 정지(2000) 송신")
+                except Exception as exc:
+                    self.log_line.emit(f"⚠ Seer 정지 송신 실패: {type(exc).__name__}: {exc}")
+                try:
+                    client.release_control()
+                    self.log_line.emit("Seer 제어권 반납(4006)")
+                except Exception as exc:
+                    self.log_line.emit(f"⚠ Seer 제어권 반납 실패: {type(exc).__name__}: {exc}")
 
     def _jog_run(self, label: str, steer_deg: float, sign: int):
         """조그 스레드 본체 — 구동 0 → 조향 → 정착 확인 → 구동 순서로 진행한다.
