@@ -54,6 +54,9 @@ class LineFollowActionServer
     LineSnapshot getLineSnapshot() const;
     /// goal 진입 시 캐시를 비운다 — 직전 goal 의 오차·카메라로 판단하지 않기 위해.
     void resetLineSnapshot();
+    /// mux 소스 전환 실패를 치명으로 볼지. 기본 true — 실패하면 지령이 바퀴에 도달하지
+    /// 않는데 영상 폐루프라 오차는 계속 들어와 「안 움직였는데 성공」이 된다. SIL 은 false.
+    bool require_motion_source_{true};
     std::string expectedCamera(bool reverse) const;
     void reloadTuning();
 
@@ -81,6 +84,8 @@ class LineFollowActionServer
     double walk_accel_limit_{0.5};
     double walk_decel_limit_{1.0};
     double gate_blocked_timeout_sec_{5.0};
+    // 전역 시한만 yaw_control(60)보다 길다 — 그쪽은 목표 거리가 있어 소요를 예측할 수 있지만
+    // 라인 추종은 라인 길이가 곧 주행 시간이라 짧은 시한이 정상 주행을 끊는다.
     double max_timeout_sec_{120.0};
     bool enable_localization_watchdog_{true};
 };

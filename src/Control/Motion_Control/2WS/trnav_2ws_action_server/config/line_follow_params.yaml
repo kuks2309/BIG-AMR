@@ -3,6 +3,9 @@
     # ── 기체 기하 (인라인 듀얼스티어 Foil_A082) ──
     # 베이스가 이 값으로 IK·자전거 모형을 만든다. 빠지면 QD 대각 기본값으로 조용히 풀리므로
     # (2026-08-08 실증) 반드시 함께 준다.
+    # platform 은 **바퀴 배열 순서**를 고르는 값이지 배치 기하가 아니다 — QD_DIAGONAL 은
+    # 「2륜, [0]=W1 · [1]=W2」를 뜻하며 인라인 기체도 이 값을 쓴다(turn_params.yaml 등 동일).
+    # 실제 배치는 아래 w1/w2 좌표가 정한다.
     platform: "QD_DIAGONAL"
     w1_x: 0.6039
     w1_y: 0.0
@@ -41,11 +44,14 @@
     line_follow_forward_camera: "cam_f"
     line_follow_reverse_camera: "cam_r"
 
-    # ── 지령 변화율 제한·가드 (yaw_control 과 같은 역할·기본값) ──
+    # ── 지령 변화율 제한·가드 (yaw_control 과 같은 역할·값) ──
     line_follow_steer_rate_limit: 0.35
     line_follow_walk_accel_limit: 0.5
     line_follow_walk_decel_limit: 1.0
     line_follow_gate_blocked_timeout_sec: 5.0
+
+    # 전역 시한만 yaw_control(60)보다 길다 — 목표 거리로 소요를 예측할 수 있는 그쪽과 달리
+    # 라인 추종은 라인 길이가 곧 주행 시간이라 짧은 시한이 정상 주행을 끊는다.
     line_follow_max_timeout_sec: 120.0
 
     # ── 측위 ──
@@ -56,3 +62,6 @@
 
     # ── mux ──
     line_follow_motion_source_id: 13
+    # 소스 전환 실패 시 abort(-13). false 로 내리면 경고만 하고 진행한다 — mux 없이 도는
+    # SIL·벤치 전용이며, 실기에서 false 로 두면 「안 움직였는데 성공」을 보고할 수 있다.
+    line_follow_require_motion_source: true

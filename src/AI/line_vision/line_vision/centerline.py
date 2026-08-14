@@ -1,8 +1,9 @@
 """라인 중심선 추출 — ROS·ultralytics 무의존 순수 로직(단위 테스트 대상).
 
-알고리즘 출처: `Welding_Robot_Ros2_ws/src/AI/seam_tracking/cpp/src/seam_centerline.cpp`
-의 `fit_seam_centerline`. 주방향(bbox 종횡비) 판정 후 스캔라인별 전경 무게중심을 모아
-최소자승(`cv2.fitLine`, DIST_L2) 직선 피팅한다. 구현은 per-pixel 루프 대신 numpy 벡터화.
+알고리즘 출처는 **타 저장소** `kuks2309/Welding_Robot_Ros2_ws` 의 `fit_seam_centerline` 이다:
+`Welding_Robot_Ros2_ws/src/AI/seam_tracking/cpp/src/seam_centerline.cpp:15` (comment-check: ignore — 저장소 밖 경로)
+주방향(bbox 종횡비) 판정 후 스캔라인별 전경 무게중심을 모아 최소자승
+(`cv2.fitLine`, DIST_L2, 0, 0.01, 0.01) 직선 피팅한다. 구현은 per-pixel 루프 대신 numpy 벡터화.
 
 좌표계: 입력 마스크 픽셀 좌표계 그대로. 프레임 변환 없음.
 """

@@ -8,7 +8,7 @@
 
 전·후방 카메라 이름은 **공용 로스터**(config/camera/camera_common.yaml)에서 파생한다.
 노드 기본값에 의존하면 로스터에서 카메라 이름을 바꿨을 때 없는 토픽을 구독해 **에러 없이
-검출 0** 이 된다(yolo_detector/detect.launch.py 와 같은 이유).
+검출 0** 이 된다(src/AI/yolo_detector/launch/detect.launch.py 와 같은 이유).
 """
 import os
 
