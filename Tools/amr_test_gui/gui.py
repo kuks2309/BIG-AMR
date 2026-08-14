@@ -28,20 +28,9 @@ from PyQt5.QtWidgets import (QApplication, QGridLayout, QGroupBox,
 SEER_BUS, MOTOR_BUS = 0, 2          # 판다 버스 번호
 SEER_GATE, CAN_KBPS = 30, 250       # safety_mode, 버스 속도
 COUNTS_PER_DEG = 57344              # 조향 counts/도
-# ══ 정정 2026-08-03 ══ 값 갱신 [7871810, 7839894] → [7871815, 7840086].
-#   **정본은 src/Comm/CAN/can_relay/config/machine/foil_a082.yaml `steer_home_counts` 하나다.**
-#   여기 값은 그 사본이며, 정본이 바뀌면 함께 갱신한다.
-#   이전 값은 0° 가 아니라 **raw 판독값**이었다 — 0° 는 Seer 각도로 역산해야 한다:
-#         0° = CAN_0x6064 + Seer_deg × 57344
-#   2026-08-02 종결은 이 식을 문서에 적어 놓고도 채택값에 적용하지 않았다. node3 은 그때
-#   Seer 가 +0.0001° 라 오차가 6c 에 그쳐 안 드러났고, node4 는 +0.0035° 여서 193c 로 드러났다.
-#   실측 확정 (2026-08-03 11:44, orin_steer_crosscheck.py, SILENT·passthrough, 송신 0건,
-#   사용자 확인 Seer 표시 0°, 2회 독립 실행이 counts 단위까지 동일):
-#     node3  CAN 7,871,823 + (−0.000°) → 0° = 7,871,816   (채택값과 1c 차)
-#     node4  CAN 7,840,052 + (+0.001°) → 0° = 7,840,087   (채택값과 1c 차)
-#   ⇒ 「구값은 출처 없는 값」이라는 2026-08-02 판정은 반증됐다 — 출처는 Seer 가 실시간으로
-#     내는 0x607A 조향 목표이고, 값도 맞다. 근거 docs/homing/2026-08-03-can-relay-homing-assets.md §10
-#   ⚠ 7882020 / 7859062 는 펌웨어 GOZERO 상수(호밍 후 정착 목표)이며 0° 가 아니다 — 별개 사안.
+# 조향 0° counts 의 **정본은 캘리브레이션 YAML 하나**이고 여기 값은 그 사본이다.
+#   0° 는 Seer 각도로 역산한 값이다:  0° = CAN_0x6064 + Seer_deg × 57344
+#   ⚠ 7882020 / 7859062 는 펌웨어 GOZERO 상수(호밍 후 정착 목표)이며 0° 가 아니다.
 _STEER_HOME_FALLBACK = {3: 7871815, 4: 7840086}
 _MACHINE_YAML = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -51,8 +40,7 @@ _MACHINE_YAML = os.path.join(
 def _load_steer_home():
     """조향 0° counts 를 **정본 YAML 에서 읽는다**. 실패하면 사본으로 내려간다.
 
-    사본이 정본과 어긋나면 조향이 통째로 어긋난다 — 실제로 2026-08-03 에 값이 정정되며
-    두 곳이 갈릴 뻔했다(리뷰 Medium ①). 그래서 **읽어 오고, 어긋나면 시끄럽게 알린다.**
+    사본이 정본과 어긋나면 조향이 통째로 어긋나므로 **읽어 오고, 어긋나면 시끄럽게 알린다.**
 
     반환 `(값, 출처 설명)`. 이 GUI 는 ROS 없이 단독 실행되므로 YAML 부재·PyYAML 부재는
     치명적이지 않다 — 사본으로 동작하되 그 사실을 남긴다.
@@ -78,7 +66,7 @@ STEER_HOME, STEER_HOME_SOURCE = _load_steer_home()   # 조향 0° 기준 counts
 SEER_IP = "192.168.44.82"
 SEER_GUI = os.environ.get("SEER_GUI_PATH", "/home/nvidia/T-Robot_seer_gui")
 #   ⚠ 절대경로 기본값은 이 PC 기준이다. 다른 계정·PC 에서는 `SEER_GUI_PATH` 로 덮는다 —
-#   예전에는 이 값이 코드에 박혀 있어 경로가 다르면 Seer 표·알람이 통째로 죽었다(리뷰 Medium ②).
+#   경로가 다르면 Seer 표·알람이 통째로 죽는다.
 VEL_PER_MMPS, VEL_MAX_UNITS = 24.447, 4889   # 구동 raw 환산, 상한(≈0.2 m/s)
 STEER_LIMIT_DEG = 90.0              # 조향 지령 허용 범위 ±90°
 MEAS_TTL_S = 1.0                    # 이보다 오래된 실측은 없는 것으로 친다
@@ -97,7 +85,7 @@ SEER_MATCH_REWARN_S = 30.0          # 같은 축 재경보 최소 간격
 SEER_RESTORE_TIMEOUT_S = 20.0       # 반환 전 조향 복원 대기 한도
 RX_TTL_S = 1.0                      # 이보다 오래 응답이 없으면 버스가 죽은 것으로 보고 구동을 0 으로
 #   폴링(≈0.2 s 주기)이 5회 연속 빠지면 만료다. 폴링 스레드가 죽어도 마지막 값이
-#   남아 정착 판정을 통과시키던 결함을 막는다(2026-08-03 리뷰 High ①).
+#   남아 정착 판정을 통과시키는 것을 막는다.
 
 # SDO abort 코드 — 드라이브가 쓰기를 거부한 사유. 진단 전용이며 동작에 관여하지 않는다.
 _ABORT = {
@@ -138,10 +126,10 @@ JOG = {
     "후진":     (0.0,  +1, True),    # ① 의 raw 부호 반전
     "좌 크랩":  (90.0, +1, True),    # ②
     "우 크랩":  (90.0, -1, True),    # ② 의 raw 부호 반전
-    "좌전 45°": (-45.0, -1, True),  # 도출 → **2026-08-04 밤 조그 실기에서 방향 확인**(사용자 확인 2026-08-05)
-    "우전 45°": (45.0,  -1, True),  # 도출 → **2026-08-04 밤 조그 실기에서 방향 확인**(사용자 확인 2026-08-05)
-    "좌후 45°": (45.0,  +1, True),  # 도출 → **2026-08-04 밤 조그 실기에서 방향 확인**(사용자 확인 2026-08-05)
-    "우후 45°": (-45.0, +1, True),  # 도출 → **2026-08-04 밤 조그 실기에서 방향 확인**(사용자 확인 2026-08-05)
+    "좌전 45°": (-45.0, -1, True),  # 도출
+    "우전 45°": (45.0,  -1, True),  # 도출
+    "좌후 45°": (45.0,  +1, True),  # 도출
+    "우후 45°": (-45.0, +1, True),  # 도출
 }
 
 _KIT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -286,7 +274,7 @@ class MainWindow(QWidget):
         self._alarm_seen = set()
         self._can_lock = threading.RLock()  # 폴링·조그가 버스를 공유한다
         #   RLock 인 이유: 「정지 여부 확인 → 구동 송신」을 한 임계구역에 넣어야 하는데
-        #   그 안에서 `_drive()` → `_sdo_write()` 가 같은 락을 다시 잡는다(리뷰 Low ①).
+        #   그 안에서 `_drive()` → `_sdo_write()` 가 같은 락을 다시 잡는다.
         self._jog_th = None
         self._jog_stop = False
         self._meas_deg = {3: None, 4: None}
@@ -420,7 +408,7 @@ class MainWindow(QWidget):
     def _build_jog(self) -> QGroupBox:
         """로봇 조그 — 3×3 방향 패드.
 
-        방향 구성(사용자 지시): 4방위 = 직진·후진·좌크랩·우크랩, 대각선 = 45° 크랩.
+        방향 구성: 4방위 = 직진·후진·좌크랩·우크랩, 대각선 = 45° 크랩.
         ⚠ 표시는 **직접 실측이 아니라 도출된 방향**이라는 뜻이다(저속 1회 육안 확인 후 사용).
           직접 실측: 조향 홈+raw 음수=전진 · 조향 +90°+raw 양수=좌(IMU ay 실증)
         """
@@ -625,16 +613,19 @@ class MainWindow(QWidget):
 
     @classmethod
     def _fill_row(cls, table: QTableWidget, node: int, values):
-        """노드 행에 (각도, 회전, 전류) 를 써 넣는다. None 인 칸은 '—' 로 남는다."""
+        """노드 행에 (각도, 회전, 전류) 를 써 넣는다. `None` 인 칸은 `—` 로 **덮어쓴다**.
+
+        값이 없을 때 칸을 그대로 두면 직전 숫자가 화면에 남아, 폴링이 끊겼거나 호밍 중이라
+        위치를 모르는 상황을 「그 값이 현재 값」으로 읽게 된다.
+        """
         r = {1: 0, 2: 1, 3: 2, 4: 3}.get(node)
         if r is None:
             return
         for (c, fmt), val in zip(cls.CELL_FMT, values):
-            if val is not None:
-                table.item(r, c).setText(fmt.format(val))
+            table.item(r, c).setText("—" if val is None else fmt.format(val))
 
     def _build_motors(self) -> QGroupBox:
-        """각 모터 값 — 각도·회전·전류만(사용자 지시).
+        """각 모터 값 — 각도·회전·전류만.
 
         노드: 1=FrontWalk 2=RearWalk 구동 · 3=FrontSteer 4=RearSteer 조향.
         각도는 조향축에서만 의미가 있어 구동축 각도 칸은 '—' 로 남는다.
@@ -725,7 +716,7 @@ class MainWindow(QWidget):
 
             # 알람(1050)은 4 주기(=약 2 s)에 한 번. **신규만** 로그에 남긴다 —
             # Seer 는 해제되지 않은 오래된 항목도 계속 목록에 들고 있어서
-            # 전량을 매번 찍으면 방금 난 것처럼 보인다(2026-07-27 오해 사례).
+            # 전량을 매번 찍으면 방금 난 것처럼 보인다.
             self._alarm_tick += 1
             if self._alarm_tick % 4 == 0:
                 try:
@@ -754,9 +745,8 @@ class MainWindow(QWidget):
                 # ⚠ **우리 규약(CAN)으로 정규화해 담는다.** Seer 각도와 CAN counts 는
                 #   **음의 상관**이다 — 정본 `config/machine/foil_a082.yaml` 의 0° 역산식
                 #   `0° = CAN_0x6064 + Seer_deg x 57344` 가 그 뜻이고,
-                #   실측 2026-08-04 20:34 도 같다: CAN +90.133°/+89.865° <-> Seer -90.1°/-89.9°.
-                #   예전에는 Seer 원값을 그대로 담아, 제어권을 잡고 놓을 때마다 `_meas_angle`
-                #   의 부호가 뒤집혔다(바퀴 그림·실측 라벨이 함께 뒤집힘).
+                #   Seer 원값을 그대로 담으면 제어권을 잡고 놓을 때마다 `_meas_angle` 의
+                #   부호가 뒤집힌다(바퀴 그림·실측 라벨이 함께 뒤집힌다).
                 #   ⚠ Seer **표**(`tbl_seer`)는 Seer 가 보고한 값을 그대로 보여야 하므로
                 #     정규화하지 않는다 — 여기서만 바꾼다.
                 self._seer_deg[node] = -deg
@@ -904,7 +894,7 @@ class MainWindow(QWidget):
         """어느 스레드에서 불러도 안전한 로그 — **항상 시그널을 거친다.**
 
         예전에는 GUI 스레드는 `log()`, 작업 스레드는 `log_line.emit()` 로 호출부가 매번
-        골라야 했고, 잘못 고르면 스레드 위반이 됐다(리뷰 Low ③). 이제 고를 일이 없다.
+        골라야 했고, 잘못 고르면 스레드 위반이 됐다. 이제 고를 일이 없다.
         위젯을 실제로 만지는 것은 슬롯 `_append_log` 하나뿐이다.
         """
         self.log_line.emit(msg)
@@ -936,7 +926,7 @@ class MainWindow(QWidget):
             self.log(f"판다 검출: {serials[0]}")
         else:
             # **차단한다.** 예전에는 경고만 하고 USB 버튼을 열어 줬는데, 그러면 어느 로봇에
-            # 지령이 갈지 모르는 채로 진행할 수 있었다(리뷰 Medium ③).
+            # 지령이 갈지 모르는 채로 진행할 수 있었다.
             self.lab_panda.setText(f"⚠ {len(serials)}대 검출 — 진행 불가")
             self.log(f"⚠ 판다 {len(serials)}대 검출({', '.join(serials)}) — 1 PC 1대 원칙 위반. "
                      f"어느 장치에 지령이 갈지 알 수 없으므로 **USB 연결을 막습니다.** "
@@ -994,8 +984,8 @@ class MainWindow(QWidget):
                 self._th = threading.Thread(target=self._loop, daemon=True, name="poll")
                 self._th.start()
                 # ── 인수인계 ① : **잡기 직전 Seer 가 보던 조향각을 기억한다.**
-                #   반환할 때 이 값으로 되돌려 놓고 넘긴다(아래 ②). 2026-08-04 실기에서
-                #   그냥 넘겼더니 Seer 가 자기 판단으로 조향을 90° 까지 움직였다.
+                #   반환할 때 이 값으로 되돌려 놓고 넘긴다(아래 ②). 그냥 넘기면 Seer 가
+                #   자기 판단으로 조향을 크게 움직인다.
                 #   (사용자 운영 철학: 「제어권을 가지기 전에 seer 의 조향각을 읽어야 하고
                 #    반환할 때도 seer 의 값을 주고 반환해야 한다」)
                 self._steer_commanded = False   # 새 세션 — 대조를 다시 연다
@@ -1012,7 +1002,7 @@ class MainWindow(QWidget):
                     self._drive(0)          # 반환 전 반드시 정지
                 except Exception as exc:
                     # 삼키지 않는다 — 정지 프레임이 못 나간 채 auth·intercept 를 내리면
-                    # 드라이브가 **마지막 속도를 문 채** Seer 로 넘어간다(리뷰 Medium ④).
+                    # 드라이브가 **마지막 속도를 문 채** Seer 로 넘어간다.
                     self.log(f"⚠ 제어권 반환 전 정지 송신 실패 — "
                              f"{type(exc).__name__}: {exc}. 드라이브가 마지막 지령을 "
                              f"유지할 수 있습니다. 하드웨어 E-STOP 을 확인하세요.")
@@ -1035,15 +1025,13 @@ class MainWindow(QWidget):
     def _check_seer_agreement(self, node: int, deg: float):
         """CAN 실측과 Seer 판독이 같은 곳을 가리키는가 — **매 표본 연속 대조**한다.
 
-        한 번만 보고 판정하지 않는다. 2026-08-05 실기에서 획득 직후 첫 표본이 +0.00° 로
-        읽혔다가 곧 +15.807° 가 됐고(그 사이 조향 지령 없음), 첫 표본 판정은 거짓 경보를 냈다.
-        과도 표본은 `SEER_MATCH_STREAK` 연속 조건이 걸러 낸다.
+        한 번만 보고 판정하지 않는다 — 획득 직후 첫 표본은 조향 지령 없이도 크게 튈 수 있어
+        거짓 경보가 난다. 과도 표본은 `SEER_MATCH_STREAK` 연속 조건이 걸러 낸다.
 
         ⚠ **우리가 조향을 보낸 뒤에는 대조하지 않는다.** 제어권을 쥐면 Seer 는 버스에서
-        끊겨 모터 실측을 더 못 본다 — 2026-08-05 실기: 우리가 +20.00° 로 움직이는 동안
-        Seer 판독은 +15.81° 에 **고정**돼 있었고, 반환하자 다시 +15.807° 로 일치했다.
-        (같은 날 「정지 상태 20초 동안 0.000° 일치」를 유효성의 근거로 삼았던 것은 오판이다 —
-         바퀴가 안 움직이면 「따라오는 것」과 「값이 굳은 것」이 구분되지 않는다.)
+        끊겨 모터 실측을 더 못 본다 — 우리가 축을 움직이는 동안 Seer 판독은 **고정**돼
+        있다가 반환한 뒤에야 다시 따라온다. 정지 상태의 값 일치는 유효성의 근거가 되지
+        못한다 — 바퀴가 안 움직이면 「따라오는 것」과 「값이 굳은 것」이 구분되지 않는다.
         따라서 유효한 구간은 **획득 직후 ~ 첫 조향 지령 전**뿐이다.
 
         어긋나면 **알리기만 한다**(막지 않는다). 조향 0° 기준이 서로 다르다는 뜻이므로
@@ -1077,8 +1065,8 @@ class MainWindow(QWidget):
     def _restore_steer_for_handover(self):
         """반환 직전, 조향을 **잡기 직전 Seer 값**으로 되돌린다.
 
-        되돌리지 않고 넘기면 Seer 가 자기 판단으로 조향을 움직인다 — 2026-08-04 실기에서
-        반환 후 90° 까지 돌았다. 기준이 없거나 실측이 신선하지 않으면 **움직이지 않고** 알린다.
+        되돌리지 않고 넘기면 Seer 가 자기 판단으로 조향을 크게 움직인다.
+        기준이 없거나 실측이 신선하지 않으면 **움직이지 않고** 알린다.
         """
         targets = {n: v for n, v in getattr(self, "_seer_at_take", {}).items() if v is not None}
         if not targets:
@@ -1115,7 +1103,7 @@ class MainWindow(QWidget):
         """
         if self.panda is None:
             # 진입부 가드 — 없으면 상위 `except` 가 AttributeError 를 「조그 중단」으로
-            # 뭉뚱그려 사유가 부정확해진다(리뷰 Low ②).
+            # 뭉뚱그려 사유가 부정확해진다.
             raise RuntimeError("판다 미연결 — USB 를 먼저 연결하세요")
         cmd = {1: 0x2F, 2: 0x2B, 4: 0x23}[size]
         payload = (val & 0xFFFFFFFF).to_bytes(4, "little")[:size]
@@ -1127,7 +1115,7 @@ class MainWindow(QWidget):
         """구동 노드에 속도 지령(0x60FF). units=0 이면 정지.
 
         지령을 **상태로 남긴다** — 폴 루프가 매 주기 같은 값을 재송신한다. 예전에는 여기서
-        한 번 보내고 끝이라 프레임 하나가 유실되면 그대로 끝이었다(2026-08-03 리뷰 High ③).
+        한 번 보내고 끝이라 프레임 하나가 유실되면 그대로 끝이었다.
         """
         units = int(units)
         self._drive_units = units
@@ -1142,7 +1130,6 @@ class MainWindow(QWidget):
 
         `None` 은 상태워드를 아직 못 받은 것이다. bit2 가 0 이면 `0x60FF` 를 아무리 보내도
         바퀴가 돌지 않는다 — 재송신도 소용없다(지령을 반복할 뿐 상태를 켜지 못한다).
-        2026-07-29 실기: 그 상태로 3 초를 지령해 엔코더가 1 count 도 안 움직였다.
         """
         return {n: (None if self._status.get(n) is None
                     else bool(self._status[n] & SW_OPERATION_ENABLED))
@@ -1160,7 +1147,7 @@ class MainWindow(QWidget):
         fault 가 서 있으면 **Fault Reset**(bit7 0→1 상승엣지)을 먼저 보내고, **fault 가
         걷힌 것을 확인한 뒤** Shutdown(0x06) → Switch On(0x07) → Enable Operation(0x0F).
         대기 없이 몰아 보내면 드라이브가 아직 Fault 에 있어 무시하고 `Switch On Disabled`
-        (0x8050)에서 멈춘다 — 2026-07-29 실기에서 node1 이 그렇게 걸렸다.
+        (0x8050)에서 멈춘다.
 
         ⚠ **fault 의 원인을 제거하지 않으면 곧 재발한다.** 그 사례는 node1
         `0x603F=0x0080` Motor overload alarm 이었고 Handbook §6.6.4 는 "부하가 정격을
@@ -1202,10 +1189,9 @@ class MainWindow(QWidget):
     def _ensure_drives_enabled(self, delay: float = 0.8) -> None:
         """제어권 획득 직후 구동축 운전 상태를 확인하고, **fault 가 없으면** 되살린다.
 
-        Seer 에게 제어권을 넘겼다 되찾으면 구동축이 `Switch On Disabled` 로 떨어져 있다 —
-        2026-07-29 실기: 13:24:35 반환 → 13:33:54 재획득 시 `enabled {1: False, 2: True}`
-        (node2 는 유지). 그 상태로 조그하면 조향만 되고 구동이 취소된다. 제어권을 잡는 쪽이
-        필요한 상태를 갖추는 것이 책임 분담이므로 여기서 갖춘다.
+        Seer 에게 제어권을 넘겼다 되찾으면 구동축이 `Switch On Disabled` 로 떨어져 있을 수
+        있다. 그 상태로 조그하면 조향만 되고 구동이 취소된다. 제어권을 잡는 쪽이 필요한
+        상태를 갖추는 것이 책임 분담이므로 여기서 갖춘다.
 
         **fault 가 서 있으면 자동으로 켜지 않는다** — 원인을 모른 채 재기동하면 과부하 등이
         재발하거나 모터를 상하게 한다. 그때는 운전자가 `구동축 활성화` 버튼으로 확인을 거친다.
@@ -1273,7 +1259,7 @@ class MainWindow(QWidget):
             ready = self._drives_ready()
             if not all(v for v in ready.values()):
                 # 이 확인이 없으면 지령만 나가고 바퀴는 가만히 있어 원인을 알 수 없다.
-                # 재송신도 소용없다 — 지령을 반복할 뿐 꺼진 축을 켜지 못한다(2026-07-29 실기).
+                # 재송신도 소용없다 — 지령을 반복할 뿐 꺼진 축을 켜지 못한다.
                 self.log_line.emit(
                     f"⚠ 구동 취소 — 구동축이 운전 가능 상태가 아닙니다 "
                     f"(operation enabled {ready}, fault {self._drive_faults()}). "
@@ -1282,7 +1268,7 @@ class MainWindow(QWidget):
                 return
             units = drive_units(mmps, raw_sign)
             # 확인과 송신을 **한 임계구역**에 넣는다 — 예전에는 확인 직후 정지 버튼이 눌리면
-            # 정지(0)가 먼저 나가고 구동이 뒤에 나갔다(리뷰 Low ①). 정지 경로도 같은 락을
+            # 정지(0)가 먼저 나가고 구동이 뒤에 나갔다. 정지 경로도 같은 락을
             # 지나므로(`_drive` → `_sdo_write`) 이 안에서는 끼어들 수 없다.
             with self._can_lock:
                 if self._jog_stop:
@@ -1415,7 +1401,7 @@ class MainWindow(QWidget):
                 # ⚠ **락 안에서 보낸다.** 예전에는 이 줄이 `with self._can_lock:` 밖이라,
                 #   조그·호밍 스레드가 락을 쥐고 `can_send` 하는 동안 폴링 스레드가 같은 USB
                 #   핸들에 심박을 낼 수 있었다. 심박이 실패하면 펌웨어 fail-safe 가 걸려
-                #   **주행 중 예고 없이 정지**한다(2026-08-03 리뷰 High ②).
+                #   **주행 중 예고 없이 정지**한다.
                 with self._can_lock:
                     self.panda._handle.controlWrite(P.REQUEST_OUT, 0xf3, 0, 0, b"")
                     for n in (1, 2, 3, 4):
@@ -1450,7 +1436,7 @@ class MainWindow(QWidget):
                     self._rx_at = time.monotonic()
                     self.motor_data.emit(out)
 
-                # ── 구동 재송신 + 피드백 워치독 (2026-08-03 리뷰 High ③) ──
+                # ── 구동 재송신 + 피드백 워치독 ──
                 # 재송신: 프레임 1장 유실이 곧 지령 소실이던 것을 막는다. 0 도 재송신한다 —
                 #         정지야말로 유실되면 안 되기 때문이다.
                 # 워치독: 응답이 RX_TTL_S 넘게 없으면 **버스 상태를 모르는 것**이므로 0 으로 간다.
@@ -1467,7 +1453,7 @@ class MainWindow(QWidget):
             except Exception as exc:
                 self._run = False
                 # 표시와 동작이 어긋나지 않게 한다 — 예전에는 폴링이 죽어도 버튼이
-                # 「제어권 획득」 상태로 남아 조작이 되는 것처럼 보였다(리뷰 Medium ⑤).
+                # 「제어권 획득」 상태로 남아 조작이 되는 것처럼 보였다.
                 self.log_line.emit(
                     f"⚠ 폴링 중단: {type(exc).__name__}: {exc} — 실측이 더 이상 갱신되지 "
                     f"않습니다. 제어권을 해제하고 다시 획득하세요.")
@@ -1530,7 +1516,7 @@ def main() -> int:
     모터 폴링은 **별도 스레드**라 메인 스레드에 파이썬 실행 기회를 주지 않으므로, 주기적으로
     인터프리터에 제어를 돌려주는 타이머가 반드시 필요하다.
 
-    2026-07-28 실측(PyQt5, offscreen, 하드웨어 무관):
+    타이머 유무에 따른 SIGTERM 거동:
 
     | 조건 | SIGTERM 결과 |
     | --- | --- |

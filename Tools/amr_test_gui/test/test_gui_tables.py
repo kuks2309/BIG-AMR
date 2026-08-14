@@ -66,11 +66,27 @@ def test_set_motor_values_writes_the_right_row_and_format(win):
     assert win.tbl_motor.item(row, 3).text() == "+1.23"   # 전류만 소수 2자리
 
 
-def test_none_leaves_the_cell_untouched(win):
+def test_none_overwrites_the_cell_with_a_dash(win):
+    """`None` 은 칸을 `—` 로 **덮어쓴다** — 직전 숫자가 남으면 안 된다.
+
+    빈 표에서 한 번 채우는 것만으로는 두 동작(덮어쓰기 / 건너뛰기)이 구분되지 않는다.
+    **숫자를 먼저 써 넣은 뒤** `None` 을 주어야 갈라진다. 값이 끊겼는데 옛 숫자가 남으면
+    폴링 정지·호밍 중 위치 무효를 「현재 값」으로 읽는다.
+    """
+    win._fill_row(win.tbl_seer, 4, (-7.0, 12.0, 0.5))
+    assert win.tbl_seer.item(3, 2).text() == "+12.0"
+
     win._fill_row(win.tbl_seer, 4, (-7.0, None, 0.5))
     assert win.tbl_seer.item(3, 1).text() == "-7.0"
-    assert win.tbl_seer.item(3, 2).text() == "—"          # None 은 덮어쓰지 않는다
+    assert win.tbl_seer.item(3, 2).text() == "—", "옛 숫자가 남았다"
     assert win.tbl_seer.item(3, 3).text() == "+0.50"
+
+
+def test_both_guis_render_missing_values_the_same(win):
+    """이식본(`can_relay/ui/app.py`)과 같은 규칙이어야 한다 — 표시가 갈리면 안 된다."""
+    import inspect
+    src = inspect.getsource(gui.MainWindow._fill_row)
+    assert '"—" if val is None else' in src, "이식본과 다른 규칙으로 되돌아갔다"
 
 
 def test_unknown_node_is_ignored(win):
