@@ -1,0 +1,29 @@
+line_sim_sensor:
+  ros__parameters:
+    # ── 라인 배치 ──
+    # 기준계 "start" = **로봇 시작 자세 기준**. 플랜트 초기 자세는 시나리오 웨이포인트라
+    # 맵 원점이 아니므로(sim_params.yaml: 4.952, -2.327), 맵 절대좌표로 놓으면 라인이
+    # 화각 밖에 떨어진다. "map" 으로 두면 line_x0/y0 를 맵 절대좌표로 해석한다.
+    line_frame: "start"
+    line_x0: 0.0           # m. 시작 지점 기준 전방 오프셋
+    line_y0: 0.10          # m. 시작 지점 기준 좌측 오프셋 → 초기 offset 은 음수(라인이 왼쪽)
+    line_heading_deg: 0.0
+    line_length: 10.0      # m. 끝나면 미검출 → coast → abort(-9) 경로가 시험된다
+
+    # ── 카메라 화각 모사 ──
+    # lookahead: 기준행(control_row_ratio 0.8)이 바라보는 지면 거리
+    # half_width: 그 거리에서 화면 반폭이 덮는 실제 폭 → offset 정규화 분모
+    lookahead_m: 1.0
+    half_width_m: 0.6
+
+    # ── 방향 ↔ 카메라 (제어의 정합 검사를 시험하려면 goal 의 reverse 와 맞춰야 한다) ──
+    direction: "forward"
+    forward_camera: "cam_f"
+    reverse_camera: "cam_r"
+
+    # 실카메라 실측 24.4 Hz. 제어 50 Hz 대비 측정율이 절반인 조건을 재현한다.
+    publish_hz: 25.0
+    confidence: 0.95
+
+    map_frame: "map"
+    base_frame: "base_link"

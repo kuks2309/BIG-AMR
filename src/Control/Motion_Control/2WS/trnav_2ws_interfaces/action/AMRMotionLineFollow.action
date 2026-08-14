@@ -22,6 +22,9 @@ int8    status               # 0=success (max_duration_sec 또는 max_distance �
                              # -10=line_input_stale (/line/error 스트림 두절 — 인식 노드 점검)
                              # -11=camera_mismatch (진행 방향과 다른 카메라의 오차 수신 —
                              #     line_seg_node 의 direction 파라미터를 맞출 것)
+                             # -12=node_shutdown (노드 종료로 주행이 중단됨 — 완주가 아니다)
+                             # -13=motion_source_unavailable (mux 소스 전환 실패 — 지령이 바퀴에
+                             #     도달하지 않는다. trnav_motion_mux 기동 여부를 확인할 것)
 float64 traveled_distance    # m (측위 경로장 적산)
 float64 avg_abs_offset       # 추종 중 |offset| 평균 (주행 품질)
 float64 elapsed_time         # s

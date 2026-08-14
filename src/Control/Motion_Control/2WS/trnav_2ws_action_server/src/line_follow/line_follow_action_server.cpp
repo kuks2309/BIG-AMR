@@ -87,6 +87,40 @@ void LineFollowActionServer::reloadTuning()
     walk_accel_limit_ = safeParam("line_follow_walk_accel_limit", 0.5);
     walk_decel_limit_ = safeParam("line_follow_walk_decel_limit", 1.0);
     gate_blocked_timeout_sec_ = safeParam("line_follow_gate_blocked_timeout_sec", 5.0);
+    require_motion_source_ = safeParam("line_follow_require_motion_source", true);
+
+    // ── 값 범위 강제 ──
+    // 파라미터는 런타임에 바뀔 수 있고 오타 하나가 제어를 못 쓰게 만든다. 특히 감속률이
+    // 0 이하이면 감속 루프의 속도가 줄지 않아 **정지 자체가 끝나지 않고**, 그 사이 액션
+    // 뮤텍스를 쥐고 있으므로 다른 지령도 전부 거부된다. 거부보다 하한 강제가 낫다 —
+    // 주행 중 goal 을 잃는 것보다 보수적 값으로 계속 서는 편이 안전하다.
+    auto floor_at = [this](double &v, double lo, const char *name) {
+        if (!(v >= lo)) // NaN 도 이 분기로 들어온다
+        {
+            RCLCPP_WARN(node_->get_logger(), "LineFollow: %s=%.4f 는 허용 범위를 벗어나 %.4f 로 강제한다", name, v, lo);
+            v = lo;
+        }
+    };
+    floor_at(accel_, 0.01, "line_follow_accel");
+    floor_at(coast_decel_, 0.01, "line_follow_coast_decel");
+    floor_at(stop_decel_, 0.05, "line_follow_stop_decel");
+    floor_at(steer_rate_limit_, 0.01, "line_follow_steer_rate_limit");
+    floor_at(walk_accel_limit_, 0.01, "line_follow_walk_accel_limit");
+    floor_at(walk_decel_limit_, 0.01, "line_follow_walk_decel_limit");
+    floor_at(wait_line_timeout_sec_, 0.1, "line_follow_wait_line_timeout_sec");
+    floor_at(input_stale_timeout_sec_, 0.05, "line_follow_input_stale_timeout_sec");
+    floor_at(gate_blocked_timeout_sec_, 0.1, "line_follow_gate_blocked_timeout_sec");
+    floor_at(max_timeout_sec_, 1.0, "line_follow_max_timeout_sec");
+    floor_at(gains_.max_steer_rad, 1.0 * M_PI / 180.0, "line_follow_max_steer_deg");
+    conf_threshold_ = std::min(1.0, std::max(0.0, conf_threshold_));
+    resume_max_offset_ = std::min(1.0, std::max(0.0, resume_max_offset_));
+    gains_.slow_gain = std::min(1.0, std::max(0.0, gains_.slow_gain));
+    if (offset_filter_window_ < 1)
+    {
+        RCLCPP_WARN(node_->get_logger(), "LineFollow: offset_filter_window=%d 는 1 미만이라 1 로 강제한다",
+                    offset_filter_window_);
+        offset_filter_window_ = 1;
+    }
 }
 
 void LineFollowActionServer::lineErrorCallback(const ai_msgs::msg::LineError::SharedPtr msg)
@@ -105,10 +139,10 @@ LineFollowActionServer::LineSnapshot LineFollowActionServer::getLineSnapshot() c
 
 void LineFollowActionServer::resetLineSnapshot()
 {
-    // 캐시는 goal 사이에도 남는다. 비우지 않으면 **직전 goal 이 남긴 오차·카메라**로 이번
-    // goal 의 첫 주기를 판단한다 — 방향을 바꾼 직후 전 카메라 이름이 그대로 남아 시작하자마자
-    // 카메라 불일치(-11)로 죽었다(스모크 실측: 소실 시나리오가 t=0.0s 에 -11 로 종료).
-    // 이번 goal 동안 도착한 데이터만 쓰게 하고, 아직 안 왔으면 WAIT_LINE 이 대기를 관리한다.
+    // 구독 캐시는 goal 경계를 넘어 남는다. 비우지 않으면 **직전 goal 이 남긴 오차·카메라**가
+    // 이번 goal 의 첫 주기 판단에 쓰인다 — 방향을 바꾼 직후라면 이전 카메라 이름이 그대로
+    // 읽혀 시작하자마자 카메라 불일치(-11)가 된다. 이번 goal 동안 도착한 데이터만 쓰게 하고,
+    // 아직 아무것도 안 왔으면 WAIT_LINE 이 wait_line_timeout 으로 대기를 관리한다.
     std::lock_guard<std::mutex> lock(line_mutex_);
     line_snapshot_.received = false;
 }
@@ -137,7 +171,9 @@ bool LineFollowActionServer::validateGoal(std::shared_ptr<const LineFollow::Goal
     }
     if (goal->max_duration_sec <= 0.0 && goal->max_distance <= 0.0)
     {
-        // 둘 다 0 이면 cancel 외에는 멈출 조건이 없다. 무인 주행에서 그 상태는 사고다.
+        // 둘 다 0 이면 **성공으로 끝날 조건이 없다** — cancel 하거나 전역 시한
+        // (line_follow_max_timeout_sec)이 abort(-3) 로 끊을 때까지 달린다. 무인 주행에서
+        // 그 상태는 사고이므로 goal 단계에서 막는다.
         RCLCPP_WARN(node_->get_logger(),
                     "LineFollow rejected: max_duration_sec 와 max_distance 가 모두 0 — 종료 조건이 없다");
         return false;
@@ -153,33 +189,57 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
 {
     ActionMutexGuard mutex_guard(action_mutex_);
 
-    // ── mux active source 전환 (정공법: action server 자체 책임) ──
-    if (select_source_client_ && select_source_client_->service_is_ready())
+    reloadTuning();       // 주행 사이 `ros2 param set` 튜닝을 이번 goal 부터 반영
+    resetLineSnapshot();  // 직전 goal 이 남긴 오차·카메라를 이번 판단에서 배제
+
+    // ── mux active source 전환 ──
+    // 전환에 실패하면 지령이 하류로 나가지 않는다. 라인 추종은 영상 폐루프라 바퀴가 멈춰
+    // 있어도 오차는 계속 들어오므로, 경고만 하고 진행하면 **한 번도 안 움직이고 max_duration
+    // 도달로 성공** 을 보고한다. 그래서 기본은 abort(-13) 다. mux 없이 도는 SIL·벤치에서는
+    // line_follow_require_motion_source 를 false 로 내려 종전 동작(경고 후 진행)을 쓴다.
     {
-        auto req = std::make_shared<trnav_msgs::srv::SelectMotionSource::Request>();
-        req->source_id = static_cast<uint8_t>(motion_source_id_);
-        auto future = select_source_client_->async_send_request(req);
-        if (future.wait_for(std::chrono::milliseconds(500)) == std::future_status::ready)
+        bool selected = false;
+        std::string fail_reason = "/select_motion_source service not ready";
+        if (select_source_client_ && select_source_client_->service_is_ready())
         {
-            auto resp = future.get();
-            if (!resp->success)
-                RCLCPP_WARN(node_->get_logger(), "LineFollow: SelectMotionSource(id=%d) failed: %s", motion_source_id_,
-                            resp->message.c_str());
+            auto req = std::make_shared<trnav_msgs::srv::SelectMotionSource::Request>();
+            req->source_id = static_cast<uint8_t>(motion_source_id_);
+            auto future = select_source_client_->async_send_request(req);
+            if (future.wait_for(std::chrono::milliseconds(500)) == std::future_status::ready)
+            {
+                auto resp = future.get();
+                selected = resp->success;
+                if (!selected)
+                    fail_reason = "SelectMotionSource rejected: " + resp->message;
+            }
             else
-                RCLCPP_INFO(node_->get_logger(), "LineFollow: mux active source → %d (line_follow)", motion_source_id_);
+            {
+                fail_reason = "SelectMotionSource timeout 500ms";
+            }
+        }
+        if (selected)
+        {
+            RCLCPP_INFO(node_->get_logger(), "LineFollow: mux active source → %d (line_follow)", motion_source_id_);
+        }
+        else if (require_motion_source_)
+        {
+            RCLCPP_ERROR(node_->get_logger(),
+                         "LineFollow: mux 소스 전환 실패(id=%d) — %s. 지령이 바퀴에 도달하지 않으므로 "
+                         "abort(-13). mux 없이 시험하려면 line_follow_require_motion_source:=false",
+                         motion_source_id_, fail_reason.c_str());
+            publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
+            auto res = std::make_shared<LineFollow::Result>();
+            res->status = -13;
+            this->reportResult(res->status);
+            goal_handle->abort(res);
+            return;
         }
         else
         {
-            RCLCPP_WARN(node_->get_logger(), "LineFollow: SelectMotionSource(id=%d) timeout 500ms", motion_source_id_);
+            RCLCPP_WARN(node_->get_logger(), "LineFollow: mux 소스 전환 실패(id=%d) — %s (require=false 로 진행)",
+                        motion_source_id_, fail_reason.c_str());
         }
     }
-    else
-    {
-        RCLCPP_WARN(node_->get_logger(), "LineFollow: /select_motion_source service not ready — mux 전환 skip");
-    }
-
-    reloadTuning();       // 주행 사이 `ros2 param set` 튜닝을 이번 goal 부터 반영
-    resetLineSnapshot();  // 직전 goal 이 남긴 오차·카메라를 이번 판단에서 배제
 
     const auto goal = goal_handle->get_goal();
     loc_monitor_->setEnableWatchdog(goal->enable_localization_watchdog && enable_localization_watchdog_);
@@ -194,8 +254,10 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     double traveled = 0.0;
     double abs_offset_sum = 0.0;
     uint64_t abs_offset_count = 0;
-    double v_current = 0.0;
-    double steer_cmd = 0.0; // 마지막 조향 지령(rad) — coast 가 유지하는 값
+    double v_current = 0.0;  // 속도 프로파일 상태 (게이트가 막으면 0 으로 되돌린다)
+    double v_body_cmd = 0.0; // 실제로 발행한 몸체 속도 — 감속 정지의 기준
+    double steer_cmd = 0.0;  // 이번 주기 조향 목표(rad, 율제한 전)
+    double steer_hold = 0.0; // 실제로 발행한 조향(rad) — coast·정지가 유지하는 값
 
     auto finish = [&](int8_t status, bool cancelled) {
         publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
@@ -211,12 +273,27 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     };
 
     // 감속 정지 — 조향은 유지한 채 속도만 stop_decel 로 0 까지 내린다.
+    //
+    // 기준 속도는 **실제로 발행한 몸체 속도**(v_body_cmd)다. 프로파일 상태 v_current 를 쓰면
+    // 안전 게이트가 구동을 0 으로 묶고 있는 동안에도 자란 값이 그대로 나가, 서 있던 기체를
+    // 정지 루틴이 오히려 움직인다. 게이트가 막고 있으면 여기서도 0 에서 시작한다.
+    //
+    // 종료는 이중으로 보장한다 — 속도 하한 도달 또는 시간 상한. 감속률은 reloadTuning 이
+    // 하한을 강제하지만, 그것과 무관하게 루프가 유한임을 이 자리에서도 확정한다.
     auto rampToStop = [&]() {
         rclcpp::Rate stop_rate(control_rate_hz_);
-        while (rclcpp::ok() && v_current > 1e-3)
+        const auto stop_start = node_->now();
+        const double stop_budget_sec = 10.0;
+        while (rclcpp::ok() && v_body_cmd > 1e-3)
         {
-            v_current = line_follow::rampSpeed(v_current, 0.0, stop_decel_, dt);
-            DualBicycleCommand cmd{goal->reverse ? -v_current : v_current, steer_cmd, -steer_cmd};
+            if ((node_->now() - stop_start).seconds() > stop_budget_sec)
+            {
+                RCLCPP_ERROR(node_->get_logger(), "LineFollow: 감속 정지가 %.0fs 안에 끝나지 않아 즉시 0 을 낸다",
+                             stop_budget_sec);
+                break;
+            }
+            v_body_cmd = line_follow::rampSpeed(v_body_cmd, 0.0, stop_decel_, dt);
+            DualBicycleCommand cmd{goal->reverse ? -v_body_cmd : v_body_cmd, steer_hold, -steer_hold};
             IKResult ik_result = bicycle_model_->toIKResult(cmd, *ik_);
             publishWheelCmd(ik_result.wheels[0].wheel_speed * ik_result.wheels[0].direction,
                             ik_result.wheels[0].steer_rad,
@@ -225,6 +302,7 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
             stop_rate.sleep();
         }
         v_current = 0.0;
+        v_body_cmd = 0.0;
         publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
     };
 
@@ -298,6 +376,25 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     const int tf_fail_max = 50;
     bool camera_warned = false;
 
+    // ── 라인 대기 시한의 기준 시각 ──
+    // execute 진입 시각(start_time)을 쓰면 mux 전환과 Phase 0 조향 정렬이 먼저 먹어치운다.
+    // 조향 이동은 실측 수 초가 걸리므로, 기본 3 s 대기는 라인이 보이기도 전에 소진된다.
+    // 라인 대기는 **주 루프에 들어온 시점부터** 센다.
+    const auto wait_line_start = node_->now();
+
+    // ── 측정 갱신 추적 ──
+    // 인식은 15~26 Hz 인데 제어는 50 Hz 다. 같은 측정을 매 주기 필터에 다시 넣으면 미분항이
+    // 연속 감쇠가 아니라 프레임 도착 시점의 펄스가 된다. 그래서 **새 측정이 왔을 때만**
+    // 필터·미분을 갱신하고, 분모도 고정 dt 가 아니라 실제 측정 간격을 쓴다.
+    rclcpp::Time last_meas_stamp(0, 0, node_->get_clock()->get_clock_type());
+    bool have_meas = false;
+    double offset_f = 0.0;
+    double offset_rate = 0.0;
+
+    // 주 루프를 **성공 조건으로** 빠져나왔는지. rclcpp 종료(Ctrl-C·노드 shutdown)로 루프가
+    // 끝난 경우까지 성공으로 보고하면, 중단된 주행이 완주로 기록된다.
+    bool reached_goal = false;
+
     // ── 주 루프 ──
     while (rclcpp::ok())
     {
@@ -362,9 +459,18 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         }
 
         // ── 라인 오차 스냅샷 ──
+        //
+        // 수신 플래그를 지우는 것만으로는 **직전 goal 이 남긴 프레임**을 못 막는다. 리셋 직후
+        // 도착한 옛 프레임은 새 recv_time 을 달고 통과하기 때문이다(방향을 바꾼 직후라면 그
+        // 한 장이 카메라 불일치 -11 을 만든다). 그래서 **측정 시각(header.stamp)이 이번 goal
+        // 시작 이후인지**를 함께 본다. stamp 가 비어 있는 발행자에게는 이 검사를 요구하지
+        // 않는다(수신 시각만으로 판정).
         auto snap = getLineSnapshot();
-        const bool input_stale =
-            !snap.received || (node_->now() - snap.recv_time).seconds() > input_stale_timeout_sec_;
+        rclcpp::Time meas_stamp(snap.msg.header.stamp, node_->get_clock()->get_clock_type());
+        const bool stamp_usable = snap.received && meas_stamp.nanoseconds() > 0;
+        const bool from_previous_goal = stamp_usable && meas_stamp < start_time;
+        const bool input_stale = !snap.received || from_previous_goal ||
+                                 (node_->now() - snap.recv_time).seconds() > input_stale_timeout_sec_;
 
         // 스트림 두절은 "눈 감김" — 소실(coast)과 달리 유예를 주지 않는다.
         // 단 WAIT_LINE(시작 대기) 중에는 인식 노드 기동 지연을 허용하고 wait_line_timeout 이 관리한다.
@@ -406,7 +512,7 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         if (phase == line_follow::Phase::WAIT_LINE)
         {
             publishWheelCmd(0.0, 0.0, 0.0, 0.0);
-            if ((node_->now() - start_time).seconds() > wait_line_timeout_sec_)
+            if ((node_->now() - wait_line_start).seconds() > wait_line_timeout_sec_)
             {
                 RCLCPP_ERROR(node_->get_logger(), "LineFollow: %.1fs 안에 라인을 못 찾았다 — abort(-9)",
                              wait_line_timeout_sec_);
@@ -432,23 +538,41 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
                     // 재개: coast 공백이 만든 derivative kick 을 막는다
                     offset_filter.reset();
                     have_prev_offset = false;
+                    have_meas = false;
                 }
-                const double offset_f = offset_filter.update(snap.msg.offset);
-                const double offset_rate = have_prev_offset ? (offset_f - prev_offset_f) / dt : 0.0;
-                prev_offset_f = offset_f;
-                have_prev_offset = true;
+
+                // 새 측정이 왔을 때만 필터·미분을 갱신한다. stamp 가 없는 발행자는 매 주기
+                // 갱신으로 되돌아가되(종전 동작), 그 경우에도 분모는 실제 경과 시간을 쓴다.
+                const bool new_measurement = !have_meas || !stamp_usable || meas_stamp > last_meas_stamp;
+                if (new_measurement)
+                {
+                    const double meas_dt =
+                        (have_meas && stamp_usable) ? (meas_stamp - last_meas_stamp).seconds() : dt;
+                    const double safe_dt = std::max(dt, std::min(1.0, meas_dt)); // 0 나눗셈·과대 미분 방어
+                    const double next_offset_f = offset_filter.update(snap.msg.offset);
+                    offset_rate = have_prev_offset ? (next_offset_f - prev_offset_f) / safe_dt : 0.0;
+                    offset_f = next_offset_f;
+                    prev_offset_f = next_offset_f;
+                    have_prev_offset = true;
+                    last_meas_stamp = meas_stamp;
+                    have_meas = true;
+
+                    abs_offset_sum += std::abs(offset_f);
+                    ++abs_offset_count;
+                }
 
                 const auto cmd = line_follow::computeCommand(offset_f, offset_rate, snap.msg.angle,
                                                             goal->max_linear_speed, goal->reverse, gains_);
                 steer_cmd = cmd.steer_rad;
                 v_target = cmd.v_target;
-
-                abs_offset_sum += std::abs(offset_f);
-                ++abs_offset_count;
                 feedback->phase = 1;
             }
             else // LOST_COAST — 조향 유지, 감속만(가속 금지)
             {
+                // "유지"의 대상은 **실제로 발행한 조향**이다. 율제한 전 목표(steer_cmd)를 그대로
+                // 두면 소실 직후에도 그 목표를 향해 계속 꺾인다 — 라인을 못 보는 구간에서
+                // 곡률이 오히려 커진다. 마지막 발행값으로 고정해 자세를 얼린다.
+                steer_cmd = steer_hold;
                 v_target = 0.0;
                 feedback->phase = 2;
             }
@@ -477,6 +601,8 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
                 prev_cmd_steer_f = steer_f;
                 prev_cmd_steer_r = steer_r;
             }
+            // coast·정지가 유지할 자세 = 방금 실제로 낸 조향
+            steer_hold = steer_f;
 
             // 조향 추종 오차 → TransientGuard
             const double steer_err_f = std::fabs(last_angle_front_.load() - steer_f) * 180.0 / M_PI;
@@ -495,6 +621,14 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
             guard_input.is_phase0 = false;
             const auto guard_out = guard_->apply(guard_input);
             const double speed_scale = guard_out.gate_blocked ? 0.0 : guard_out.drive_scale;
+
+            // 게이트가 막는 동안 속도 프로파일 상태를 자라게 두면, 나중에 감속 정지가 그
+            // 값을 기준으로 삼아 **서 있던 기체를 움직인다.** 막히면 프로파일도 0 으로 되돌린다.
+            if (guard_out.gate_blocked)
+            {
+                v_current = 0.0;
+            }
+            v_body_cmd = v_current * speed_scale; // 실제로 낸 몸체 속도 — 감속 정지의 기준
 
             // ── 조향 미도달 지속 감시 ──
             // gate_blocked 자체는 정상 안전 동작이지만, 조향축이 비응답이면 영원히 풀리지 않는다.
@@ -558,6 +692,7 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         {
             RCLCPP_INFO(node_->get_logger(), "LineFollow: max_duration_sec 도달 — 감속 정지 후 성공");
             rampToStop();
+            reached_goal = true;
             break;
         }
         if (goal->max_distance > 0.0 && traveled >= goal->max_distance)
@@ -565,6 +700,7 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
             RCLCPP_INFO(node_->get_logger(), "LineFollow: max_distance %.2f m 도달 — 감속 정지 후 성공",
                         goal->max_distance);
             rampToStop();
+            reached_goal = true;
             break;
         }
 
@@ -582,6 +718,14 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     }
 
     publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
+
+    // rclcpp 종료로 루프를 빠져나온 경우 — 완주하지 않았으므로 성공이 아니다.
+    if (!reached_goal)
+    {
+        RCLCPP_WARN(node_->get_logger(), "LineFollow: 노드 종료로 주행이 중단됐다 — abort(-12)");
+        finish(-12, false);
+        return;
+    }
 
     // ── Phase 4: 조향 복귀 ──
     if (!goal->hold_steer)
