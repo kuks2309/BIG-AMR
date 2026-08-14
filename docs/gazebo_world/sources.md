@@ -156,6 +156,37 @@ worth remembering for anything else we export:
 Both are set now. If a drawing still looks empty, try **View -> Auto zoom**
 before believing it.
 
+## Opening the WORLD — solved 2026-08-13
+
+`src/Sim/trnav_2ws_gazebo/scripts/view_cad_world.sh` opens `cad_plant.world`. Four
+traps, all of which present as "Gazebo is broken":
+
+* **`gzserver` is headless.** It loads the world, publishes state, and draws
+  nothing. It reports success the whole time. Use `gazebo` (server + client).
+* **The snap environment kills it** — the same `LOCPATH` / `GTK_PATH` trap as
+  LibreCAD above, same `env -i` fix.
+* **~40 s to load** 274 static models over 305 × 209 m. Look earlier and the
+  scene is empty grey, which looks identical to a failure.
+* **The window can open on the other monitor.** X reports the primary here as
+  `XWAYLAND1` at offset **+1920**, so the window lands near +1990 — the
+  right-hand screen. `xrandr --listmonitors` gives the offsets.
+
+### `/gazebo/model_states` truncates — do not use it to verify the world
+
+It reports **127 of 274 models** and stops mid-way through the AGV pads, at the
+same boundary on every launch. That is indistinguishable from a world that failed
+to finish loading, and it was read as one before being checked.
+
+The world is complete. Gazebo's own API proves it, and it is the tool to use:
+
+    gz model -m m_GRV1 -p              # 184.04 182.315 1.5   = GRAVURE1_BODY centre
+    gz model -m asrs_dock_19_post -p   # 151.85 219.43 3.5    = the ASRS dock
+    gz model -m grid_y250 -p           # 31.17 250 1.5        = HALL_X[0] + 1
+
+A reproducible truncation at a fixed index is a message limit, not a load
+failure — a stall would land somewhere different each time. Worth remembering
+for any future world of this size: the count from `model_states` is a floor.
+
 ## What IS documented, and what we contradict
 
 From the system deck, slide 2 "1.1 AGV model" — verified by reading the slide

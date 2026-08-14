@@ -162,6 +162,13 @@ class EquipmentAdapter(ABC):
 class TransportResult(Enum):
     """Outcome of a transport job, as reported by the ACS."""
 
+    # ⚠ 2026-08-14: the real ACS returns a single integer error code on every
+    # mutation, and job outcomes are free text rather than an enum. Nothing in
+    # the GraphQL schema distinguishes "busy, retry" from
+    # "rejected, give up". That distinction is the whole reason these two enum
+    # members exist, and it now depends on an errorCode table we have asked for
+    # and not received. Do not guess the mapping; a wrong guess either retries
+    # forever or fails a job that would have run.
     ACCEPTED = "accepted"
     REJECTED = "rejected"      # invalid job — will never succeed, fail it
     BUSY = "busy"              # no robot free right now — retry later
@@ -169,6 +176,73 @@ class TransportResult(Enum):
     ARRIVED = "arrived"
     FAILED = "failed"
     UNKNOWN = "unknown"
+
+
+# ---------------------------------------------------------------------------
+# THE REAL ACS INTERFACE — MAPPED 2026-08-14 FROM THE GRAPHQL SCHEMA
+#
+# The schema arrived after the 2026-08-14 ACS meeting. **The schema and the full
+# field-by-field mapping are held outside this repository** — vendor material,
+# and this repository is public:
+#
+#     References/local/acs/schema.graphql          the schema itself
+#     References/local/acs/schema-analysis.md      the mapping onto this file
+#
+# NOTHING BELOW IS IMPLEMENTED YET. Conclusions only, so that the next person to
+# touch this file knows what is coming and why.
+#
+# HOW OUR THREE METHODS MAP
+#
+#   submit_job      -> the create mutation
+#   get_job_result  -> a subscription (preferred), or a query
+#   cancel_job      -> TWO operations, cancel and abort, not one
+#
+# WHAT THE SCHEMA GIVES US THAT THIS INTERFACE CANNOT EXPRESS
+#
+# 1. AN ORDER IS AN ORDERED LIST OF TASKS, NOT A MOVE. This is the most important
+#    finding, and it DISSOLVES the exchange gap (gazebo open question B0): a
+#    deliver-and-collect visit is one order with two tasks, not a new primitive.
+#    `TaskType.SWAP` above becomes a two-task order. `Job` carries one origin and
+#    one destination today; it will need to carry a task list.
+#
+# 2. PRIORITY EXISTS AND IS OURS TO SET, with a separate hot-lot flag. We have no
+#    priority concept at all.
+#
+# 3. CANCEL AND ABORT ARE SEPARATE OPERATIONS — and, contradicting what we took
+#    from the meeting, **abort does NOT take a drop-off location**. The ACS
+#    decides where the load goes. Do not build that parameter.
+#
+# 4. THE PUSH PATH EXISTS, AND SO DOES A BASIS FOR RECONCILE: change events carry
+#    a monotonic sequence number and both the old and the new value, so gap
+#    detection is free. That is the answer to the edge-trigger problem this file
+#    raises above and that `debt-033` tracks — stop polling `get_job_result` at
+#    4 Hz. ⚠ The field the reconnect path would depend on is UNDOCUMENTED; its
+#    meaning is inferred from its name and must be confirmed against the live
+#    server before anything depends on it.
+#
+# 5. WAITING IS A REPORTED VEHICLE STATE, with a per-task wait timeout and an
+#    explicit release operation. A robot holding at a port is distinguishable
+#    from one that is lost, so the job timeout can stop treating a legitimate
+#    hold as a fault.
+#
+# 6. CHARGING IS COMMANDABLE BY US, with a target percentage. Does not prove the
+#    ACS will not also charge on its own.
+#
+# 7. REVERSING INTO A STATION is a first-class per-task option (gazebo A4).
+#
+# WHAT THE SCHEMA DOES **NOT** SETTLE — AND IT IS THE ONE THAT MATTERS HERE
+#
+# Every mutation returns a single integer error code, and job outcomes are free
+# text rather than an enum. So the BUSY-versus-REJECTED distinction that
+# `TransportResult` depends on lives in an **error-code table that is not in the
+# schema**. Until we have it, any retry policy is guesswork — see the note on
+# TransportResult above and `job_fsm.py:70`.
+#
+# COST OF DOING THIS PROPERLY: `AcsAdapter` has two implementations (`mock.py`,
+# `sim_acs.py`) and four call sites (`main_cycle.py`, `mes_app.py`,
+# `runtime/tasks/job_tracker.py`, `seer_client.py`). Widening the interface is a
+# deliberate change across eight files and wants an ADR, not a drive-by edit.
+# ---------------------------------------------------------------------------
 
 
 class AcsAdapter(ABC):

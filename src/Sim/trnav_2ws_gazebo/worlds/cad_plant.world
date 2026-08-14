@@ -51,69 +51,13 @@
       <update_rate>30.0</update_rate>
     </plugin>
 
-    <model name="wall_south">
+    <model name="m_ASRS_rack_w">
       <static>true</static>
-      <pose>182.875 84.590 2.000 0 0 0.0000</pose>
+      <pose>132.058 194.720 1.500 0 0 0.0000</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>305.410 0.300 4.000</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>4.215 56.740 3.000</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>305.410 0.300 4.000</size></box></geometry>
-          <material>
-            <ambient>0.8 0.8 0.82 1</ambient>
-            <diffuse>0.8 0.8 0.82 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="wall_north">
-      <static>true</static>
-      <pose>182.875 293.780 2.000 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>305.410 0.300 4.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>305.410 0.300 4.000</size></box></geometry>
-          <material>
-            <ambient>0.8 0.8 0.82 1</ambient>
-            <diffuse>0.8 0.8 0.82 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="wall_west">
-      <static>true</static>
-      <pose>30.020 189.185 2.000 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.300 208.890 4.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>0.300 208.890 4.000</size></box></geometry>
-          <material>
-            <ambient>0.8 0.8 0.82 1</ambient>
-            <diffuse>0.8 0.8 0.82 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="wall_east">
-      <static>true</static>
-      <pose>335.730 189.185 2.000 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.300 208.890 4.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>0.300 208.890 4.000</size></box></geometry>
-          <material>
-            <ambient>0.8 0.8 0.82 1</ambient>
-            <diffuse>0.8 0.8 0.82 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="m_ASRS">
-      <static>true</static>
-      <pose>135.415 194.720 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>10.930 56.740 3.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>10.930 56.740 3.000</size></box></geometry>
+          <geometry><box><size>4.215 56.740 3.000</size></box></geometry>
           <material>
             <ambient>0.95 0.75 0.15 1</ambient>
             <diffuse>0.95 0.75 0.15 1</diffuse>
@@ -121,418 +65,85 @@
         </visual>
       </link>
     </model>
-    <model name="cell_CTR1_s">
+    <model name="m_ASRS_rack_e">
       <static>true</static>
-      <pose>125.665 230.285 0.175 0 0 0.0000</pose>
+      <pose>138.772 194.720 1.500 0 0 0.0000</pose>
       <link name="link">
+        <collision name="c"><geometry><box><size>4.215 56.740 3.000</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>24.830 0.250 0.350</size></box></geometry>
+          <geometry><box><size>4.215 56.740 3.000</size></box></geometry>
           <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="cell_CTR1_n">
+    <model name="ASRS_crane_aisle">
       <static>true</static>
-      <pose>125.665 237.755 0.175 0 0 0.0000</pose>
+      <pose>135.415 194.720 0.020 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>24.830 0.250 0.350</size></box></geometry>
+          <geometry><box><size>2.500 56.740 0.020</size></box></geometry>
           <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
+            <ambient>0.75 0.6 0.2 1</ambient>
+            <diffuse>0.75 0.6 0.2 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="cell_CTR1_w">
+    <model name="m_GRV1">
       <static>true</static>
-      <pose>113.375 234.020 0.175 0 0 0.0000</pose>
+      <pose>176.630 182.900 1.500 0 0 0.0000</pose>
       <link name="link">
+        <collision name="c"><geometry><box><size>6.880 17.100 3.000</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>0.250 7.720 0.350</size></box></geometry>
+          <geometry><box><size>6.880 17.100 3.000</size></box></geometry>
           <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
+            <ambient>0.3 0.55 0.9 1</ambient>
+            <diffuse>0.3 0.55 0.9 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="cell_CTR1_e">
+    <model name="m_GRV2">
       <static>true</static>
-      <pose>137.955 234.020 0.175 0 0 0.0000</pose>
+      <pose>176.630 209.610 1.500 0 0 0.0000</pose>
       <link name="link">
+        <collision name="c"><geometry><box><size>6.880 17.100 3.000</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>0.250 7.720 0.350</size></box></geometry>
+          <geometry><box><size>6.880 17.100 3.000</size></box></geometry>
           <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
+            <ambient>0.3 0.55 0.9 1</ambient>
+            <diffuse>0.3 0.55 0.9 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="cell_CTR1_p113_230">
+    <model name="m_GRV3">
       <static>true</static>
-      <pose>113.250 230.160 1.500 0 0 0.0000</pose>
+      <pose>176.630 240.770 1.500 0 0 0.0000</pose>
       <link name="link">
+        <collision name="c"><geometry><box><size>6.880 17.100 3.000</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
+          <geometry><box><size>6.880 17.100 3.000</size></box></geometry>
           <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
+            <ambient>0.3 0.55 0.9 1</ambient>
+            <diffuse>0.3 0.55 0.9 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="cell_CTR1_p113_238">
+    <model name="m_GRV4">
       <static>true</static>
-      <pose>113.250 237.880 1.500 0 0 0.0000</pose>
+      <pose>176.630 267.480 1.500 0 0 0.0000</pose>
       <link name="link">
+        <collision name="c"><geometry><box><size>6.880 17.100 3.000</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
+          <geometry><box><size>6.880 17.100 3.000</size></box></geometry>
           <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR1_p138_230">
-      <static>true</static>
-      <pose>138.080 230.160 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR1_p138_238">
-      <static>true</static>
-      <pose>138.080 237.880 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR2_s">
-      <static>true</static>
-      <pose>125.665 242.045 0.175 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>24.830 0.250 0.350</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR2_n">
-      <static>true</static>
-      <pose>125.665 249.515 0.175 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>24.830 0.250 0.350</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR2_w">
-      <static>true</static>
-      <pose>113.375 245.780 0.175 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.250 7.720 0.350</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR2_e">
-      <static>true</static>
-      <pose>137.955 245.780 0.175 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.250 7.720 0.350</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR2_p113_242">
-      <static>true</static>
-      <pose>113.250 241.920 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR2_p113_250">
-      <static>true</static>
-      <pose>113.250 249.640 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR2_p138_242">
-      <static>true</static>
-      <pose>138.080 241.920 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR2_p138_250">
-      <static>true</static>
-      <pose>138.080 249.640 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR3_s">
-      <static>true</static>
-      <pose>125.665 254.245 0.175 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>24.830 0.250 0.350</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR3_n">
-      <static>true</static>
-      <pose>125.665 261.715 0.175 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>24.830 0.250 0.350</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR3_w">
-      <static>true</static>
-      <pose>113.375 257.980 0.175 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.250 7.720 0.350</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR3_e">
-      <static>true</static>
-      <pose>137.955 257.980 0.175 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.250 7.720 0.350</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR3_p113_254">
-      <static>true</static>
-      <pose>113.250 254.120 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR3_p113_262">
-      <static>true</static>
-      <pose>113.250 261.840 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR3_p138_254">
-      <static>true</static>
-      <pose>138.080 254.120 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR3_p138_262">
-      <static>true</static>
-      <pose>138.080 261.840 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR4_s">
-      <static>true</static>
-      <pose>125.665 266.295 0.175 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>24.830 0.250 0.350</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR4_n">
-      <static>true</static>
-      <pose>125.665 273.765 0.175 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>24.830 0.250 0.350</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR4_w">
-      <static>true</static>
-      <pose>113.375 270.030 0.175 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.250 7.720 0.350</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR4_e">
-      <static>true</static>
-      <pose>137.955 270.030 0.175 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.250 7.720 0.350</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR4_p113_266">
-      <static>true</static>
-      <pose>113.250 266.170 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR4_p113_274">
-      <static>true</static>
-      <pose>113.250 273.890 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR4_p138_266">
-      <static>true</static>
-      <pose>138.080 266.170 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="cell_CTR4_p138_274">
-      <static>true</static>
-      <pose>138.080 273.890 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 0.300 3.000</size></box></geometry>
-          <material>
-            <ambient>0.85 0.35 0.3 1</ambient>
-            <diffuse>0.85 0.35 0.3 1</diffuse>
+            <ambient>0.3 0.55 0.9 1</ambient>
+            <diffuse>0.3 0.55 0.9 1</diffuse>
           </material>
         </visual>
       </link>
@@ -1048,1562 +659,1315 @@
         </visual>
       </link>
     </model>
-    <model name="junction_01">
+    <model name="road1_div01">
       <static>true</static>
-      <pose>137.310 243.190 0.035 0 0 0.0000</pose>
+      <pose>160.290 231.520 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_02">
+    <model name="road1_div02">
       <static>true</static>
-      <pose>137.310 260.000 0.035 0 0 0.0000</pose>
+      <pose>160.290 237.520 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_03">
+    <model name="road1_div03">
       <static>true</static>
-      <pose>137.310 266.360 0.035 0 0 0.0000</pose>
+      <pose>160.290 243.520 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_04">
+    <model name="road1_div04">
       <static>true</static>
-      <pose>157.940 228.230 0.035 0 0 0.0000</pose>
+      <pose>160.290 249.520 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_05">
+    <model name="road1_div05">
       <static>true</static>
-      <pose>157.940 234.830 0.035 0 0 0.0000</pose>
+      <pose>160.290 255.520 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_06">
+    <model name="road1_div06">
       <static>true</static>
-      <pose>157.940 241.980 0.035 0 0 0.0000</pose>
+      <pose>160.290 261.520 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_07">
+    <model name="road1_div07">
       <static>true</static>
-      <pose>157.940 248.510 0.035 0 0 0.0000</pose>
+      <pose>160.290 267.520 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_08">
+    <model name="road1a_arw01l">
       <static>true</static>
-      <pose>157.940 252.170 0.035 0 0 0.0000</pose>
+      <pose>158.686 233.729 0.070 0 0 8.5172</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_09">
+    <model name="road1a_arw01r">
       <static>true</static>
-      <pose>157.940 258.700 0.035 0 0 0.0000</pose>
+      <pose>159.794 233.729 0.070 0 0 7.1908</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_10">
+    <model name="road1a_arw02l">
       <static>true</static>
-      <pose>157.940 266.360 0.035 0 0 0.0000</pose>
+      <pose>158.686 245.729 0.070 0 0 8.5172</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_11">
+    <model name="road1a_arw02r">
       <static>true</static>
-      <pose>157.940 272.990 0.035 0 0 0.0000</pose>
+      <pose>159.794 245.729 0.070 0 0 7.1908</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_12">
+    <model name="road1a_arw03l">
       <static>true</static>
-      <pose>162.640 228.720 0.035 0 0 0.0000</pose>
+      <pose>158.686 257.729 0.070 0 0 8.5172</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_13">
+    <model name="road1a_arw03r">
       <static>true</static>
-      <pose>170.580 216.660 0.035 0 0 0.0000</pose>
+      <pose>159.794 257.729 0.070 0 0 7.1908</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_14">
+    <model name="road1a_arw04l">
       <static>true</static>
-      <pose>171.750 230.020 0.035 0 0 0.0000</pose>
+      <pose>158.686 269.729 0.070 0 0 8.5172</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_15">
+    <model name="road1a_arw04r">
       <static>true</static>
-      <pose>181.430 220.140 0.035 0 0 0.0000</pose>
+      <pose>159.794 269.729 0.070 0 0 7.1908</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_16">
+    <model name="road1b_arw01l">
       <static>true</static>
-      <pose>181.430 230.020 0.035 0 0 0.0000</pose>
+      <pose>161.894 232.311 0.070 0 0 5.3756</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_17">
+    <model name="road1b_arw01r">
       <static>true</static>
-      <pose>185.780 221.440 0.035 0 0 0.0000</pose>
+      <pose>160.786 232.311 0.070 0 0 4.0492</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_18">
+    <model name="road1b_arw02l">
       <static>true</static>
-      <pose>185.780 228.720 0.035 0 0 0.0000</pose>
+      <pose>161.894 244.311 0.070 0 0 5.3756</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_19">
+    <model name="road1b_arw02r">
       <static>true</static>
-      <pose>189.150 172.700 0.035 0 0 0.0000</pose>
+      <pose>160.786 244.311 0.070 0 0 4.0492</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_20">
+    <model name="road1b_arw03l">
       <static>true</static>
-      <pose>189.150 174.300 0.035 0 0 0.0000</pose>
+      <pose>161.894 256.311 0.070 0 0 5.3756</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_21">
+    <model name="road1b_arw03r">
       <static>true</static>
-      <pose>189.150 187.910 0.035 0 0 0.0000</pose>
+      <pose>160.786 256.311 0.070 0 0 4.0492</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_22">
+    <model name="road1b_arw04l">
       <static>true</static>
-      <pose>189.150 209.370 0.035 0 0 0.0000</pose>
+      <pose>161.894 268.311 0.070 0 0 5.3756</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_23">
+    <model name="road1b_arw04r">
       <static>true</static>
-      <pose>190.480 238.830 0.035 0 0 0.0000</pose>
+      <pose>160.786 268.311 0.070 0 0 4.0492</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_24">
+    <model name="road2_div01">
       <static>true</static>
-      <pose>213.250 187.910 0.035 0 0 0.0000</pose>
+      <pose>215.100 179.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_25">
+    <model name="road2_div02">
       <static>true</static>
-      <pose>214.300 175.350 0.035 0 0 0.0000</pose>
+      <pose>215.100 185.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_26">
+    <model name="road2_div03">
       <static>true</static>
-      <pose>214.300 209.370 0.035 0 0 0.0000</pose>
+      <pose>215.100 191.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_27">
+    <model name="road2_div04">
       <static>true</static>
-      <pose>215.900 175.350 0.035 0 0 0.0000</pose>
+      <pose>215.100 197.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_28">
+    <model name="road2_div05">
       <static>true</static>
-      <pose>215.900 209.370 0.035 0 0 0.0000</pose>
+      <pose>215.100 203.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_29">
+    <model name="road2_div06">
       <static>true</static>
-      <pose>216.950 186.440 0.035 0 0 0.0000</pose>
+      <pose>215.100 209.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="junction_30">
+    <model name="road2_div07">
       <static>true</static>
-      <pose>216.950 272.760 0.035 0 0 0.0000</pose>
+      <pose>215.100 215.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>1.200 1.200 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.95 0.55 0.15 1</ambient>
-            <diffuse>0.95 0.55 0.15 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_01">
+    <model name="road2_div08">
       <static>true</static>
-      <pose>144.970 233.530 0.020 0 0 3.1416</pose>
+      <pose>215.100 221.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_01">
+    <model name="road2_div09">
       <static>true</static>
-      <pose>144.120 233.530 0.035 0 0 3.1416</pose>
+      <pose>215.100 227.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_02">
+    <model name="road2_div10">
       <static>true</static>
-      <pose>144.980 243.290 0.020 0 0 0.0000</pose>
+      <pose>215.100 233.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_02">
+    <model name="road2_div11">
       <static>true</static>
-      <pose>145.830 243.290 0.035 0 0 0.0000</pose>
+      <pose>215.100 239.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_03">
+    <model name="road2_div12">
       <static>true</static>
-      <pose>144.980 247.390 0.020 0 0 -0.0000</pose>
+      <pose>215.100 245.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_03">
+    <model name="road2_div13">
       <static>true</static>
-      <pose>145.830 247.390 0.035 0 0 -0.0000</pose>
+      <pose>215.100 251.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_04">
+    <model name="road2_div14">
       <static>true</static>
-      <pose>144.980 253.300 0.020 0 0 0.0000</pose>
+      <pose>215.100 257.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_04">
+    <model name="road2_div15">
       <static>true</static>
-      <pose>145.830 253.300 0.035 0 0 0.0000</pose>
+      <pose>215.100 263.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_05">
+    <model name="road2_div16">
       <static>true</static>
-      <pose>144.980 257.400 0.020 0 0 3.1416</pose>
+      <pose>215.100 269.850 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>0.160 3.000 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_05">
+    <model name="road2a_arw01l">
       <static>true</static>
-      <pose>144.130 257.400 0.035 0 0 3.1416</pose>
+      <pose>213.746 182.059 0.070 0 0 8.5172</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_06">
+    <model name="road2a_arw01r">
       <static>true</static>
-      <pose>144.980 267.660 0.020 0 0 0.0000</pose>
+      <pose>214.854 182.059 0.070 0 0 7.1908</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_06">
+    <model name="road2a_arw02l">
       <static>true</static>
-      <pose>145.830 267.660 0.035 0 0 0.0000</pose>
+      <pose>213.746 194.059 0.070 0 0 8.5172</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_07">
+    <model name="road2a_arw02r">
       <static>true</static>
-      <pose>145.220 231.560 0.020 0 0 1.5708</pose>
+      <pose>214.854 194.059 0.070 0 0 7.1908</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_07">
+    <model name="road2a_arw03l">
       <static>true</static>
-      <pose>145.220 232.410 0.035 0 0 1.5708</pose>
+      <pose>213.746 206.059 0.070 0 0 8.5172</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_08">
+    <model name="road2a_arw03r">
       <static>true</static>
-      <pose>145.230 245.410 0.020 0 0 -1.5708</pose>
+      <pose>214.854 206.059 0.070 0 0 7.1908</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_08">
+    <model name="road2a_arw04l">
       <static>true</static>
-      <pose>145.230 244.560 0.035 0 0 -1.5708</pose>
+      <pose>213.746 218.059 0.070 0 0 8.5172</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_09">
+    <model name="road2a_arw04r">
       <static>true</static>
-      <pose>145.230 255.430 0.020 0 0 1.5708</pose>
+      <pose>214.854 218.059 0.070 0 0 7.1908</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_09">
+    <model name="road2a_arw05l">
       <static>true</static>
-      <pose>145.230 256.280 0.035 0 0 1.5708</pose>
+      <pose>213.746 230.059 0.070 0 0 8.5172</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_10">
+    <model name="road2a_arw05r">
       <static>true</static>
-      <pose>145.310 269.640 0.020 0 0 1.5708</pose>
+      <pose>214.854 230.059 0.070 0 0 7.1908</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_10">
+    <model name="road2a_arw06l">
       <static>true</static>
-      <pose>145.310 270.490 0.035 0 0 1.5708</pose>
+      <pose>213.746 242.059 0.070 0 0 8.5172</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_11">
+    <model name="road2a_arw06r">
       <static>true</static>
-      <pose>148.510 229.430 0.020 0 0 0.0000</pose>
+      <pose>214.854 242.059 0.070 0 0 7.1908</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_11">
+    <model name="road2a_arw07l">
       <static>true</static>
-      <pose>149.360 229.430 0.035 0 0 0.0000</pose>
+      <pose>213.746 254.059 0.070 0 0 8.5172</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_12">
+    <model name="road2a_arw07r">
       <static>true</static>
-      <pose>148.510 233.530 0.020 0 0 3.1416</pose>
+      <pose>214.854 254.059 0.070 0 0 7.1908</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_12">
+    <model name="road2a_arw08l">
       <static>true</static>
-      <pose>147.660 233.530 0.035 0 0 3.1416</pose>
+      <pose>213.746 266.059 0.070 0 0 8.5172</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_13">
+    <model name="road2a_arw08r">
       <static>true</static>
-      <pose>148.510 243.290 0.020 0 0 0.0000</pose>
+      <pose>214.854 266.059 0.070 0 0 7.1908</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_13">
+    <model name="road2b_arw01l">
       <static>true</static>
-      <pose>149.360 243.290 0.035 0 0 0.0000</pose>
+      <pose>216.454 180.641 0.070 0 0 5.3756</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_14">
+    <model name="road2b_arw01r">
       <static>true</static>
-      <pose>148.510 247.390 0.020 0 0 3.1416</pose>
+      <pose>215.346 180.641 0.070 0 0 4.0492</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_14">
+    <model name="road2b_arw02l">
       <static>true</static>
-      <pose>147.660 247.390 0.035 0 0 3.1416</pose>
+      <pose>216.454 192.641 0.070 0 0 5.3756</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_15">
+    <model name="road2b_arw02r">
       <static>true</static>
-      <pose>148.510 253.300 0.020 0 0 0.0000</pose>
+      <pose>215.346 192.641 0.070 0 0 4.0492</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_15">
+    <model name="road2b_arw03l">
       <static>true</static>
-      <pose>149.360 253.300 0.035 0 0 0.0000</pose>
+      <pose>216.454 204.641 0.070 0 0 5.3756</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_16">
+    <model name="road2b_arw03r">
       <static>true</static>
-      <pose>148.510 257.400 0.020 0 0 3.1416</pose>
+      <pose>215.346 204.641 0.070 0 0 4.0492</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_16">
+    <model name="road2b_arw04l">
       <static>true</static>
-      <pose>147.660 257.400 0.035 0 0 3.1416</pose>
+      <pose>216.454 216.641 0.070 0 0 5.3756</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_17">
+    <model name="road2b_arw04r">
       <static>true</static>
-      <pose>148.510 267.660 0.020 0 0 0.0000</pose>
+      <pose>215.346 216.641 0.070 0 0 4.0492</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_17">
+    <model name="road2b_arw05l">
       <static>true</static>
-      <pose>149.360 267.660 0.035 0 0 0.0000</pose>
+      <pose>216.454 228.641 0.070 0 0 5.3756</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_18">
+    <model name="road2b_arw05r">
       <static>true</static>
-      <pose>148.510 271.760 0.020 0 0 3.1416</pose>
+      <pose>215.346 228.641 0.070 0 0 4.0492</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_18">
+    <model name="road2b_arw06l">
       <static>true</static>
-      <pose>147.660 271.760 0.035 0 0 3.1416</pose>
+      <pose>216.454 240.641 0.070 0 0 5.3756</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_19">
+    <model name="road2b_arw06r">
       <static>true</static>
-      <pose>151.850 219.430 0.020 0 0 1.5708</pose>
+      <pose>215.346 240.641 0.070 0 0 4.0492</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_19">
+    <model name="road2b_arw07l">
       <static>true</static>
-      <pose>151.850 220.280 0.035 0 0 1.5708</pose>
+      <pose>216.454 252.641 0.070 0 0 5.3756</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_20">
+    <model name="road2b_arw07r">
       <static>true</static>
-      <pose>152.050 229.430 0.020 0 0 0.0000</pose>
+      <pose>215.346 252.641 0.070 0 0 4.0492</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_20">
+    <model name="road2b_arw08l">
       <static>true</static>
-      <pose>152.900 229.430 0.035 0 0 0.0000</pose>
+      <pose>216.454 264.641 0.070 0 0 5.3756</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_21">
+    <model name="road2b_arw08r">
       <static>true</static>
-      <pose>152.050 233.530 0.020 0 0 3.1416</pose>
+      <pose>215.346 264.641 0.070 0 0 4.0492</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_21">
+    <model name="road3_div01">
       <static>true</static>
-      <pose>151.200 233.530 0.035 0 0 3.1416</pose>
+      <pose>193.650 173.500 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>3.000 0.160 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_22">
+    <model name="road3_div02">
       <static>true</static>
-      <pose>152.050 243.290 0.020 0 0 0.0000</pose>
+      <pose>199.650 173.500 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>3.000 0.160 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_22">
+    <model name="road3_div03">
       <static>true</static>
-      <pose>152.900 243.290 0.035 0 0 0.0000</pose>
+      <pose>205.650 173.500 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>3.000 0.160 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_23">
+    <model name="road3_div04">
       <static>true</static>
-      <pose>152.050 247.390 0.020 0 0 3.1416</pose>
+      <pose>211.650 173.500 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>3.000 0.160 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_23">
+    <model name="road3_div05">
       <static>true</static>
-      <pose>151.200 247.390 0.035 0 0 3.1416</pose>
+      <pose>217.650 173.500 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>3.000 0.160 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_24">
+    <model name="road3_div06">
       <static>true</static>
-      <pose>152.050 253.300 0.020 0 0 0.0000</pose>
+      <pose>223.650 173.500 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>3.000 0.160 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_24">
+    <model name="road3_div07">
       <static>true</static>
-      <pose>152.900 253.300 0.035 0 0 0.0000</pose>
+      <pose>229.650 173.500 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>3.000 0.160 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_25">
+    <model name="road3_div08">
       <static>true</static>
-      <pose>152.050 257.400 0.020 0 0 3.1416</pose>
+      <pose>235.650 173.500 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>3.000 0.160 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_25">
+    <model name="road3_div09">
       <static>true</static>
-      <pose>151.200 257.400 0.035 0 0 3.1416</pose>
+      <pose>241.650 173.500 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>3.000 0.160 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_26">
+    <model name="road3_div10">
       <static>true</static>
-      <pose>152.050 267.660 0.020 0 0 0.0000</pose>
+      <pose>247.650 173.500 0.080 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>3.000 0.160 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.97 0.97 0.97 1</ambient>
+            <diffuse>0.97 0.97 0.97 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_26">
+    <model name="road3a_arw01l">
       <static>true</static>
-      <pose>152.900 267.660 0.035 0 0 0.0000</pose>
+      <pose>194.441 172.146 0.070 0 0 3.8048</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_27">
+    <model name="road3a_arw01r">
       <static>true</static>
-      <pose>152.050 271.760 0.020 0 0 3.1416</pose>
+      <pose>194.441 173.254 0.070 0 0 2.4784</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_27">
+    <model name="road3a_arw02l">
       <static>true</static>
-      <pose>151.200 271.760 0.035 0 0 3.1416</pose>
+      <pose>206.441 172.146 0.070 0 0 3.8048</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_28">
+    <model name="road3a_arw02r">
       <static>true</static>
-      <pose>183.200 199.170 0.020 0 0 -1.5708</pose>
+      <pose>206.441 173.254 0.070 0 0 2.4784</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_28">
+    <model name="road3a_arw03l">
       <static>true</static>
-      <pose>183.200 198.320 0.035 0 0 -1.5708</pose>
+      <pose>218.441 172.146 0.070 0 0 3.8048</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_29">
+    <model name="road3a_arw03r">
       <static>true</static>
-      <pose>183.510 173.760 0.020 0 0 -1.5708</pose>
+      <pose>218.441 173.254 0.070 0 0 2.4784</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_29">
+    <model name="road3a_arw04l">
       <static>true</static>
-      <pose>183.510 172.910 0.035 0 0 -1.5708</pose>
+      <pose>230.441 172.146 0.070 0 0 3.8048</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_30">
+    <model name="road3a_arw04r">
       <static>true</static>
-      <pose>183.510 182.510 0.020 0 0 -1.5708</pose>
+      <pose>230.441 173.254 0.070 0 0 2.4784</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_30">
+    <model name="road3a_arw05l">
       <static>true</static>
-      <pose>183.510 181.660 0.035 0 0 -1.5708</pose>
+      <pose>242.441 172.146 0.070 0 0 3.8048</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_31">
+    <model name="road3a_arw05r">
       <static>true</static>
-      <pose>183.510 266.820 0.020 0 0 -1.5708</pose>
+      <pose>242.441 173.254 0.070 0 0 2.4784</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_31">
+    <model name="road3b_arw01l">
       <static>true</static>
-      <pose>183.510 265.970 0.035 0 0 -1.5708</pose>
+      <pose>195.859 174.854 0.070 0 0 6.9464</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_32">
+    <model name="road3b_arw01r">
       <static>true</static>
-      <pose>183.510 273.020 0.020 0 0 -1.5708</pose>
+      <pose>195.859 173.746 0.070 0 0 5.6200</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_32">
+    <model name="road3b_arw02l">
       <static>true</static>
-      <pose>183.510 272.170 0.035 0 0 -1.5708</pose>
+      <pose>207.859 174.854 0.070 0 0 6.9464</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_33">
+    <model name="road3b_arw02r">
       <static>true</static>
-      <pose>183.650 239.970 0.020 0 0 -0.0000</pose>
+      <pose>207.859 173.746 0.070 0 0 5.6200</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_33">
+    <model name="road3b_arw03l">
       <static>true</static>
-      <pose>184.500 239.970 0.035 0 0 -0.0000</pose>
+      <pose>219.859 174.854 0.070 0 0 6.9464</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_34">
+    <model name="road3b_arw03r">
       <static>true</static>
-      <pose>183.650 259.850 0.020 0 0 3.1416</pose>
+      <pose>219.859 173.746 0.070 0 0 5.6200</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_34">
+    <model name="road3b_arw04l">
       <static>true</static>
-      <pose>182.800 259.850 0.035 0 0 3.1416</pose>
+      <pose>231.859 174.854 0.070 0 0 6.9464</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_35">
+    <model name="road3b_arw04r">
       <static>true</static>
-      <pose>184.380 207.520 0.020 0 0 0.0000</pose>
+      <pose>231.859 173.746 0.070 0 0 5.6200</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_nose_35">
+    <model name="road3b_arw05l">
       <static>true</static>
-      <pose>185.230 207.520 0.035 0 0 0.0000</pose>
+      <pose>243.859 174.854 0.070 0 0 6.9464</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="agv_pos_36">
+    <model name="road3b_arw05r">
       <static>true</static>
-      <pose>184.650 266.880 0.020 0 0 -0.0000</pose>
+      <pose>243.859 173.746 0.070 0 0 5.6200</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>1.800 0.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_nose_36">
-      <static>true</static>
-      <pose>185.500 266.880 0.035 0 0 -0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
-          <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_pos_37">
-      <static>true</static>
-      <pose>184.680 190.870 0.020 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
-          <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_nose_37">
-      <static>true</static>
-      <pose>185.530 190.870 0.035 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
-          <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_pos_38">
-      <static>true</static>
-      <pose>185.620 233.150 0.020 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
-          <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_nose_38">
-      <static>true</static>
-      <pose>185.620 234.000 0.035 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
-          <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_pos_39">
-      <static>true</static>
-      <pose>185.620 236.690 0.020 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
-          <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_nose_39">
-      <static>true</static>
-      <pose>185.620 237.540 0.035 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
-          <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_pos_40">
-      <static>true</static>
-      <pose>185.620 240.220 0.020 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
-          <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_nose_40">
-      <static>true</static>
-      <pose>185.620 241.070 0.035 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
-          <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_pos_41">
-      <static>true</static>
-      <pose>185.620 245.730 0.020 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
-          <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_nose_41">
-      <static>true</static>
-      <pose>185.620 246.580 0.035 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
-          <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_pos_42">
-      <static>true</static>
-      <pose>185.620 249.270 0.020 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
-          <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_nose_42">
-      <static>true</static>
-      <pose>185.620 250.120 0.035 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
-          <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_pos_43">
-      <static>true</static>
-      <pose>185.620 252.800 0.020 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
-          <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_nose_43">
-      <static>true</static>
-      <pose>185.620 253.650 0.035 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
-          <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_pos_44">
-      <static>true</static>
-      <pose>185.620 256.560 0.020 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
-          <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_nose_44">
-      <static>true</static>
-      <pose>185.620 257.410 0.035 0 0 1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
-          <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_pos_45">
-      <static>true</static>
-      <pose>185.620 260.100 0.020 0 0 -1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
-          <material>
-            <ambient>0.25 0.7 0.35 1</ambient>
-            <diffuse>0.25 0.7 0.35 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="agv_nose_45">
-      <static>true</static>
-      <pose>185.620 259.250 0.035 0 0 -1.5708</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.300 1.280 0.010</size></box></geometry>
-          <material>
-            <ambient>0.05 0.35 0.1 1</ambient>
-            <diffuse>0.05 0.35 0.1 1</diffuse>
+            <ambient>0.95 0.75 0.15 1</ambient>
+            <diffuse>0.95 0.75 0.15 1</diffuse>
           </material>
         </visual>
       </link>
@@ -2615,8 +1979,8 @@
         <visual name="v">
           <geometry><box><size>33.380 2.600 0.020</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 1</ambient>
-            <diffuse>0.85 0.45 0.4 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
@@ -2628,8 +1992,8 @@
         <visual name="v">
           <geometry><box><size>33.380 2.600 0.020</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 1</ambient>
-            <diffuse>0.85 0.45 0.4 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
@@ -2641,8 +2005,8 @@
         <visual name="v">
           <geometry><box><size>33.380 2.600 0.020</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 1</ambient>
-            <diffuse>0.85 0.45 0.4 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
@@ -2654,8 +2018,8 @@
         <visual name="v">
           <geometry><box><size>33.380 2.600 0.020</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 1</ambient>
-            <diffuse>0.85 0.45 0.4 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
@@ -2667,8 +2031,8 @@
         <visual name="v">
           <geometry><box><size>2.600 3.665 0.020</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 0.5</ambient>
-            <diffuse>0.85 0.45 0.4 0.5</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
@@ -2680,8 +2044,8 @@
         <visual name="v">
           <geometry><box><size>2.600 3.665 0.020</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 0.5</ambient>
-            <diffuse>0.85 0.45 0.4 0.5</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
@@ -2693,8 +2057,8 @@
         <visual name="v">
           <geometry><box><size>2.600 3.465 0.020</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 0.5</ambient>
-            <diffuse>0.85 0.45 0.4 0.5</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
@@ -2706,8 +2070,8 @@
         <visual name="v">
           <geometry><box><size>2.600 3.465 0.020</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 0.5</ambient>
-            <diffuse>0.85 0.45 0.4 0.5</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
@@ -2719,8 +2083,8 @@
         <visual name="v">
           <geometry><box><size>2.600 3.555 0.020</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 0.5</ambient>
-            <diffuse>0.85 0.45 0.4 0.5</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
@@ -2732,8 +2096,8 @@
         <visual name="v">
           <geometry><box><size>2.600 3.555 0.020</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 0.5</ambient>
-            <diffuse>0.85 0.45 0.4 0.5</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
@@ -2745,8 +2109,8 @@
         <visual name="v">
           <geometry><box><size>2.600 3.705 0.020</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 0.5</ambient>
-            <diffuse>0.85 0.45 0.4 0.5</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
@@ -2758,8 +2122,8 @@
         <visual name="v">
           <geometry><box><size>2.600 3.705 0.020</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 0.5</ambient>
-            <diffuse>0.85 0.45 0.4 0.5</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
@@ -3089,23 +2453,48 @@
         </visual>
       </link>
     </model>
-    <model name="m_GRV1">
+    <model name="m_GRV1_label">
       <static>true</static>
-      <pose>184.040 182.315 1.500 0 0 0.0000</pose>
+      <pose>176.630 182.900 5.000 0 0 0.0000</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>2.820 17.110 3.000</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>2.820 17.110 3.000</size></box></geometry>
+          <geometry><box><size>0.600 0.600 4.000</size></box></geometry>
           <material>
-            <ambient>0.3 0.55 0.9 1</ambient>
-            <diffuse>0.3 0.55 0.9 1</diffuse>
+            <ambient>0.2 0.4 0.75 1</ambient>
+            <diffuse>0.2 0.4 0.75 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="m_GRV1_label">
+    <model name="m_GRV2_label">
       <static>true</static>
-      <pose>184.040 182.315 5.000 0 0 0.0000</pose>
+      <pose>176.630 209.610 5.000 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.600 0.600 4.000</size></box></geometry>
+          <material>
+            <ambient>0.2 0.4 0.75 1</ambient>
+            <diffuse>0.2 0.4 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="m_GRV3_label">
+      <static>true</static>
+      <pose>176.630 240.770 5.000 0 0 0.0000</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.600 0.600 4.000</size></box></geometry>
+          <material>
+            <ambient>0.2 0.4 0.75 1</ambient>
+            <diffuse>0.2 0.4 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="m_GRV4_label">
+      <static>true</static>
+      <pose>176.630 267.480 5.000 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.600 0.600 4.000</size></box></geometry>
@@ -3118,7 +2507,7 @@
     </model>
     <model name="grv1_ld">
       <static>true</static>
-      <pose>184.040 175.260 3.050 0 0 0.0000</pose>
+      <pose>176.630 175.550 3.050 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>2.400 2.400 0.100</size></box></geometry>
@@ -3131,7 +2520,7 @@
     </model>
     <model name="grv1_ld_post">
       <static>true</static>
-      <pose>184.040 175.260 6.500 0 0 0.0000</pose>
+      <pose>176.630 175.550 6.500 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.500 0.500 7.000</size></box></geometry>
@@ -3144,7 +2533,7 @@
     </model>
     <model name="grv1_uld">
       <static>true</static>
-      <pose>184.040 189.370 3.050 0 0 0.0000</pose>
+      <pose>176.630 190.250 3.050 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>2.400 2.400 0.100</size></box></geometry>
@@ -3157,7 +2546,7 @@
     </model>
     <model name="grv1_uld_post">
       <static>true</static>
-      <pose>184.040 189.370 6.500 0 0 0.0000</pose>
+      <pose>176.630 190.250 6.500 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.500 0.500 7.000</size></box></geometry>
@@ -3168,454 +2557,301 @@
         </visual>
       </link>
     </model>
-    <model name="grv1_connector_1">
+    <model name="grv2_ld">
       <static>true</static>
-      <pose>183.890 172.460 0.040 0 0 0.0000</pose>
+      <pose>176.630 202.260 3.050 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>7.320 2.400 0.020</size></box></geometry>
+          <geometry><box><size>2.400 2.400 0.100</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 1</ambient>
-            <diffuse>0.85 0.45 0.4 1</diffuse>
+            <ambient>0.15 0.75 0.3 1</ambient>
+            <diffuse>0.15 0.75 0.3 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="grv1_connector_2">
+    <model name="grv2_ld_post">
       <static>true</static>
-      <pose>183.890 192.170 0.040 0 0 0.0000</pose>
+      <pose>176.630 202.260 6.500 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>7.320 2.400 0.020</size></box></geometry>
+          <geometry><box><size>0.500 0.500 7.000</size></box></geometry>
           <material>
-            <ambient>0.85 0.45 0.4 1</ambient>
-            <diffuse>0.85 0.45 0.4 1</diffuse>
+            <ambient>0.15 0.75 0.3 1</ambient>
+            <diffuse>0.15 0.75 0.3 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g1_c1_1">
+    <model name="grv2_uld">
       <static>true</static>
-      <pose>148.510 229.430 0.020 0 0 0.0000</pose>
+      <pose>176.630 216.960 3.050 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>2.400 2.400 0.100</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.95 0.55 0.1 1</ambient>
+            <diffuse>0.95 0.55 0.1 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g1_c1_2">
+    <model name="grv2_uld_post">
       <static>true</static>
-      <pose>148.510 233.530 0.020 0 0 0.0000</pose>
+      <pose>176.630 216.960 6.500 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>0.500 0.500 7.000</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.95 0.55 0.1 1</ambient>
+            <diffuse>0.95 0.55 0.1 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g1_c2_1">
+    <model name="grv3_ld">
       <static>true</static>
-      <pose>152.050 229.430 0.020 0 0 0.0000</pose>
+      <pose>176.630 233.420 3.050 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>2.400 2.400 0.100</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.15 0.75 0.3 1</ambient>
+            <diffuse>0.15 0.75 0.3 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g1_c2_2">
+    <model name="grv3_ld_post">
       <static>true</static>
-      <pose>152.050 233.530 0.020 0 0 0.0000</pose>
+      <pose>176.630 233.420 6.500 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>0.500 0.500 7.000</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.15 0.75 0.3 1</ambient>
+            <diffuse>0.15 0.75 0.3 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g1_post">
+    <model name="grv3_uld">
       <static>true</static>
-      <pose>150.280 231.480 2.450 0 0 0.0000</pose>
+      <pose>176.630 248.120 3.050 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.400 0.400 4.900</size></box></geometry>
+          <geometry><box><size>2.400 2.400 0.100</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.95 0.55 0.1 1</ambient>
+            <diffuse>0.95 0.55 0.1 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g2_c1_1">
+    <model name="grv3_uld_post">
       <static>true</static>
-      <pose>148.510 243.290 0.020 0 0 0.0000</pose>
+      <pose>176.630 248.120 6.500 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>0.500 0.500 7.000</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.95 0.55 0.1 1</ambient>
+            <diffuse>0.95 0.55 0.1 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g2_c1_2">
+    <model name="grv4_ld">
       <static>true</static>
-      <pose>148.510 247.390 0.020 0 0 0.0000</pose>
+      <pose>176.630 260.130 3.050 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>2.400 2.400 0.100</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.15 0.75 0.3 1</ambient>
+            <diffuse>0.15 0.75 0.3 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g2_c2_1">
+    <model name="grv4_ld_post">
       <static>true</static>
-      <pose>152.050 243.290 0.020 0 0 0.0000</pose>
+      <pose>176.630 260.130 6.500 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>0.500 0.500 7.000</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.15 0.75 0.3 1</ambient>
+            <diffuse>0.15 0.75 0.3 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g2_c2_2">
+    <model name="grv4_uld">
       <static>true</static>
-      <pose>152.050 247.390 0.020 0 0 0.0000</pose>
+      <pose>176.630 274.830 3.050 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>2.400 2.400 0.100</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.95 0.55 0.1 1</ambient>
+            <diffuse>0.95 0.55 0.1 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g2_post">
+    <model name="grv4_uld_post">
       <static>true</static>
-      <pose>150.280 245.340 2.450 0 0 0.0000</pose>
+      <pose>176.630 274.830 6.500 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.400 0.400 4.900</size></box></geometry>
+          <geometry><box><size>0.500 0.500 7.000</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.95 0.55 0.1 1</ambient>
+            <diffuse>0.95 0.55 0.1 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g3_c1_1">
+    <model name="grv_cross0">
       <static>true</static>
-      <pose>148.510 253.300 0.020 0 0 0.0000</pose>
+      <pose>176.590 170.850 0.040 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>12.080 2.600 0.020</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g3_c1_2">
+    <model name="grv_cross1">
       <static>true</static>
-      <pose>148.510 257.400 0.020 0 0 0.0000</pose>
+      <pose>176.590 196.255 0.040 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>12.080 2.600 0.020</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g3_c2_1">
+    <model name="grv_cross3">
       <static>true</static>
-      <pose>152.050 253.300 0.020 0 0 0.0000</pose>
+      <pose>176.590 254.125 0.040 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>12.080 2.600 0.020</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g3_c2_2">
+    <model name="spur_GRV1_ld">
       <static>true</static>
-      <pose>152.050 257.400 0.020 0 0 0.0000</pose>
+      <pose>176.630 173.250 0.060 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>2.400 2.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g3_post">
+    <model name="spur_GRV1_uld">
       <static>true</static>
-      <pose>150.280 255.350 2.450 0 0 0.0000</pose>
+      <pose>176.630 193.202 0.060 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.400 0.400 4.900</size></box></geometry>
+          <geometry><box><size>2.400 3.505 0.020</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g4_c1_1">
+    <model name="spur_GRV2_ld">
       <static>true</static>
-      <pose>148.510 267.660 0.020 0 0 0.0000</pose>
+      <pose>176.630 199.308 0.060 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>2.400 3.505 0.020</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g4_c1_2">
+    <model name="spur_GRV2_uld">
       <static>true</static>
-      <pose>148.510 271.760 0.020 0 0 0.0000</pose>
+      <pose>176.630 219.150 0.060 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>2.400 1.980 0.020</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g4_c2_1">
+    <model name="spur_GRV3_ld">
       <static>true</static>
-      <pose>152.050 267.660 0.020 0 0 0.0000</pose>
+      <pose>176.630 231.120 0.060 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>2.400 2.200 0.020</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g4_c2_2">
+    <model name="spur_GRV3_uld">
       <static>true</static>
-      <pose>152.050 271.760 0.020 0 0 0.0000</pose>
+      <pose>176.630 251.072 0.060 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>2.000 1.600 0.020</size></box></geometry>
+          <geometry><box><size>2.400 3.505 0.020</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="wip_g4_post">
+    <model name="spur_GRV4_ld">
       <static>true</static>
-      <pose>150.280 269.710 2.450 0 0 0.0000</pose>
+      <pose>176.630 257.178 0.060 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>0.400 0.400 4.900</size></box></geometry>
+          <geometry><box><size>2.400 3.505 0.020</size></box></geometry>
           <material>
-            <ambient>0.55 0.35 0.75 1</ambient>
-            <diffuse>0.55 0.35 0.75 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
-    <model name="charge_1">
+    <model name="spur_GRV4_uld">
       <static>true</static>
-      <pose>193.610 242.310 0.020 0 0 0.0000</pose>
+      <pose>176.630 276.870 0.060 0 0 0.0000</pose>
       <link name="link">
         <visual name="v">
-          <geometry><box><size>5.200 2.200 0.020</size></box></geometry>
+          <geometry><box><size>2.400 1.680 0.020</size></box></geometry>
           <material>
-            <ambient>0.25 0.45 0.85 1</ambient>
-            <diffuse>0.25 0.45 0.85 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="charge_1_post">
-      <static>true</static>
-      <pose>193.610 242.310 2.500 0 0 0.0000</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><box><size>0.400 0.400 5.000</size></box></geometry>
-          <material>
-            <ambient>0.25 0.45 0.85 1</ambient>
-            <diffuse>0.25 0.45 0.85 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="grid_x50">
-      <static>true</static>
-      <pose>50.000 85.740 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.250 0.250 3.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>0.250 0.250 3.000</size></box></geometry>
-          <material>
-            <ambient>0.15 0.15 0.18 1</ambient>
-            <diffuse>0.15 0.15 0.18 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="grid_x100">
-      <static>true</static>
-      <pose>100.000 85.740 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.250 0.250 3.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>0.250 0.250 3.000</size></box></geometry>
-          <material>
-            <ambient>0.15 0.15 0.18 1</ambient>
-            <diffuse>0.15 0.15 0.18 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="grid_x150">
-      <static>true</static>
-      <pose>150.000 85.740 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.250 0.250 3.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>0.250 0.250 3.000</size></box></geometry>
-          <material>
-            <ambient>0.15 0.15 0.18 1</ambient>
-            <diffuse>0.15 0.15 0.18 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="grid_x200">
-      <static>true</static>
-      <pose>200.000 85.740 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.250 0.250 3.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>0.250 0.250 3.000</size></box></geometry>
-          <material>
-            <ambient>0.15 0.15 0.18 1</ambient>
-            <diffuse>0.15 0.15 0.18 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="grid_x250">
-      <static>true</static>
-      <pose>250.000 85.740 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.250 0.250 3.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>0.250 0.250 3.000</size></box></geometry>
-          <material>
-            <ambient>0.15 0.15 0.18 1</ambient>
-            <diffuse>0.15 0.15 0.18 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="grid_x300">
-      <static>true</static>
-      <pose>300.000 85.740 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.250 0.250 3.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>0.250 0.250 3.000</size></box></geometry>
-          <material>
-            <ambient>0.15 0.15 0.18 1</ambient>
-            <diffuse>0.15 0.15 0.18 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="grid_y100">
-      <static>true</static>
-      <pose>31.170 100.000 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.250 0.250 3.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>0.250 0.250 3.000</size></box></geometry>
-          <material>
-            <ambient>0.15 0.15 0.18 1</ambient>
-            <diffuse>0.15 0.15 0.18 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="grid_y150">
-      <static>true</static>
-      <pose>31.170 150.000 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.250 0.250 3.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>0.250 0.250 3.000</size></box></geometry>
-          <material>
-            <ambient>0.15 0.15 0.18 1</ambient>
-            <diffuse>0.15 0.15 0.18 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="grid_y200">
-      <static>true</static>
-      <pose>31.170 200.000 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.250 0.250 3.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>0.250 0.250 3.000</size></box></geometry>
-          <material>
-            <ambient>0.15 0.15 0.18 1</ambient>
-            <diffuse>0.15 0.15 0.18 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="grid_y250">
-      <static>true</static>
-      <pose>31.170 250.000 1.500 0 0 0.0000</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.250 0.250 3.000</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>0.250 0.250 3.000</size></box></geometry>
-          <material>
-            <ambient>0.15 0.15 0.18 1</ambient>
-            <diffuse>0.15 0.15 0.18 1</diffuse>
+            <ambient>0.62 0.66 0.72 1</ambient>
+            <diffuse>0.62 0.66 0.72 1</diffuse>
           </material>
         </visual>
       </link>

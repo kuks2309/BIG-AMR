@@ -28,11 +28,16 @@ anything.
 WHAT IS DRAWN AND WHAT THAT MEANS
 
     walls           hall shell, 306 x 209 m               solid
-    machines        9 + GRV1                                solid
+    machines        4 gravure, 4 slitter                  solid
+    ASRS            2 racking walls + a crane aisle        walls solid
+    coater cells    4, drawn as boundaries                VISUAL ONLY
     lane paint      35 rectangles, flat on the floor      VISUAL ONLY
     junctions       30 crossings, small pale squares      VISUAL ONLY
     AGV positions   45 pads with a nose stripe            VISUAL ONLY
     coater LD/ULD   8 named stations, green / orange      VISUAL ONLY
+    GRV1 LD/ULD     2 named stations                      VISUAL ONLY
+    WIP access      8 pads on two columns, 4 groups       VISUAL ONLY
+    ASRS dock       the ONE position found, flagged       VISUAL ONLY
     charging bay    1 of the 5 the deck says exist        VISUAL ONLY
     grid posts      every 50 m on the hall edge           solid, thin
 
@@ -41,19 +46,30 @@ drivable surface, which is the opposite of what a lane is. The same reasoning th
 first generator learned the hard way with docking markers: a printed label is not
 an obstacle.
 
+A PAD'S COLOUR SAYS HOW MUCH WE KNOW ABOUT IT. Green is a measured AGV position
+with nothing else claimed. Gold is the single ASRS dock, drawn apart because leg A
+depends on it and one position cannot serve a 57 m machine. Magenta is the eight
+positions at x 185.62 that we CANNOT yet name — the deck says Slitter LD is 4EA
+and there are eight of them, so calling them the slitter stations would be a
+reading, not a measurement. Purple is WIP rack access.
+
+Making uncertainty a colour rather than a comment is deliberate: this world is
+looked at far more often than this file is read, and a guess that looks identical
+to a measurement will eventually be treated as one.
+
 NOT DRAWN, BECAUSE WE DO NOT YET KNOW IT — see
 `docs/gazebo_world/open-questions.md`:
 
   * lane DIRECTION. The deck's slide 16 DOES carry direction arrows over the
     cell; they have not yet been read off into a direction per lane.
   * the anode cell (y < 100), which is in the hall but not in our model
-  * WIP racks — the deck counts 2 gravure, 13 coater, 30 slitter, and we have
-    the position of none of them
+  * WIP rack ENVELOPES. The access positions are drawn; the racks themselves,
+    and which of the four groups is coater and which slitter, are not known.
   * structural columns
   * 4 of the 5 cathode Big AGV chargers
-  * the gravure and slitter LD/ULD stations. The coaters' are now placed from
-    the deck; whether the other machines follow the same x-separated pattern is
-    NOT checked, and must not be assumed.
+  * the gravure LD/ULD stations for GRV2-4, and all four slitter LD stations.
+    The coaters' and GRV1's are placed; the two do NOT share a pattern (coater
+    separates LD/ULD in x, gravure in y), so nothing is extrapolated to the rest.
 """
 
 import math
@@ -74,6 +90,20 @@ WALL_T = 0.30
 #: fighting it for the same pixels.
 PAINT_Z = 0.01
 PAINT_T = 0.02
+
+#: ONE COLOUR FOR EVERY ROAD. Lanes, coater spurs, coater station links, gravure
+#: cross-roads and gravure spurs are all road, so they all look like road —
+#: asked for on 2026-08-14. Before this there were three appearances: grey for the
+#: measured lanes, solid salmon for the spurs and half-opacity salmon for the
+#: derived connectors.
+#:
+#: WHAT THAT COSTS. The half opacity was carrying "derived, not measured" — the
+#: coater's eight links and all the gravure roads come from the project lead's
+#: description, not the drawing. That distinction is now ONLY in plant_cad
+#: (coater_connectors, gravure_cross_roads, gravure_spurs) and no longer visible
+#: on screen. If it needs to be visible again, use a marker rather than a colour,
+#: because a second road colour reads as a second KIND of road.
+ROAD_RGBA = (0.62, 0.66, 0.72, 1)
 
 #: HOW TALL A STATION MARKER STANDS.
 #:
@@ -183,13 +213,31 @@ def rect(name, x0, y0, x1, y1, z, h, rgba, solid=True):
 def main():
     parts = []
 
-    # ------------------------------------------------------------- shell
+    # MINIMAL IS THE DEFAULT — the four machine rows and the roads, nothing else.
+    #
+    # Asked for on 2026-08-13: "remove everything else from the gazebo world except
+    # coater asrs gvr slitter roads". At 274 models the world had become hard to
+    # read: 135 of them were AGV pads and their nose stripes, and the machines were
+    # lost among markers.
+    #
+    # NOTHING IS DELETED. `--full` restores the survey layer — walls, AGV pads,
+    # junction markers, WIP access, charging and grid posts — because every one of
+    # those is measured data and dropping it from the code would lose evidence.
+    #
+    # LD/ULD STATIONS COUNT AS PART OF THEIR MACHINE and stay in both modes. A
+    # coater's LD is where the coater is loaded; it is not a survey marker. The
+    # gravure's eight were placed one request earlier, so removing them here would
+    # undo that.
+    full = "--full" in sys.argv
     (wx0, wx1), (wy0, wy1) = P.HALL_X, P.HALL_Y
-    wall = (0.80, 0.80, 0.82, 1)
-    parts.append(rect("wall_south", wx0, wy0 - WALL_T, wx1, wy0, 0, WALL_H, wall))
-    parts.append(rect("wall_north", wx0, wy1, wx1, wy1 + WALL_T, 0, WALL_H, wall))
-    parts.append(rect("wall_west", wx0 - WALL_T, wy0, wx0, wy1, 0, WALL_H, wall))
-    parts.append(rect("wall_east", wx1, wy0, wx1 + WALL_T, wy1, 0, WALL_H, wall))
+
+    # ------------------------------------------------------------- shell
+    if full:
+        wall = (0.80, 0.80, 0.82, 1)
+        parts.append(rect("wall_south", wx0, wy0 - WALL_T, wx1, wy0, 0, WALL_H, wall))
+        parts.append(rect("wall_north", wx0, wy1, wx1, wy1 + WALL_T, 0, WALL_H, wall))
+        parts.append(rect("wall_west", wx0 - WALL_T, wy0, wx0, wy1, 0, WALL_H, wall))
+        parts.append(rect("wall_east", wx1, wy0, wx1 + WALL_T, wy1, 0, WALL_H, wall))
 
     # ------------------------------------------------------------ machines
     #
@@ -212,18 +260,40 @@ def main():
     for name, x0, y0, x1, y1 in P.machines():
         rgba = COLOURS.get(name[:4] if name == "ASRS" else name[:3],
                            (0.55, 0.55, 0.58, 1))
-        if name.startswith("GRV"):
-            # NOT DRAWN. GRAVURE_X is an AREA OUTLINE, not a machine: the box
-            # holds 41 drawing entities while the real structure sits at
-            # x 183.3..185.6 with 167,565. Drawing it as a solid 3 m body put a
-            # blue block on empty floor and — worse — made it an obstacle a
-            # robot could never pass, in a place robots have to reach.
-            #
-            # Nothing replaces it. Where the gravure machine actually is has not
-            # been established well enough to draw, so the floor stays empty and
-            # the two GRV1 stations stand on their own.
+        if name == "ASRS":
+            # A STORE WITH AN AISLE, NOT A SLAB. Two racking walls the full
+            # length, a crane aisle between them, at rack height rather than the
+            # 3 m machine convention — see plant_cad's ASRS_AISLE_W for what is
+            # measured here (the footprint) and what is not (the split, the
+            # height). The aisle is PAINT: it belongs to the stacker crane, so it
+            # must not be an obstacle, but it is not AGV road either and is
+            # coloured apart from the lanes to say so.
+            for rname, rx0, ry0, rx1, ry1 in P.asrs_racks():
+                parts.append(rect(f"m_{rname}", rx0, ry0, rx1, ry1, 0,
+                                  P.ASRS_HEIGHT, rgba))
+            ax0, ay0, ax1, ay1 = P.asrs_aisle()
+            parts.append(rect("ASRS_crane_aisle", ax0, ay0, ax1, ay1,
+                              PAINT_Z, PAINT_T, (0.75, 0.60, 0.20, 1),
+                              solid=False))
             continue
         if name.startswith("CTR"):
+            # THE COATER CELL BOUNDARY IS NOT DRAWN in minimal mode — asked for on
+            # 2026-08-14, "we don't need the red line boundary for each coater".
+            #
+            # CONSEQUENCE, and it is not small: nothing then marks where a coater
+            # IS. Its stations and its spur are drawn, the 24.83 x 7.72 m cell is
+            # not, so the coater row reads as stations floating on open floor.
+            #
+            # We cannot substitute the machine body, because we do not know it.
+            # COATER_X is the coater CELL INCLUDING ITS AGV APRON — that is what
+            # the drawing gives and what settled the lane-through-coater question
+            # (plant_cad COATER_LD_X). Where the machine stands inside the cell has
+            # never been established, so drawing a smaller box would be a guess of
+            # exactly the kind that put the gravure in the aisle.
+            #
+            # `--full` still draws the boundary.
+            if not full:
+                continue
             t = 0.25
             for tag, ex0, ey0, ex1, ey1 in (
                     ("s", x0, y0, x1, y0 + t), ("n", x0, y1 - t, x1, y1),
@@ -244,15 +314,80 @@ def main():
     # Painted, not built. See the module docstring: a collidable lane is a kerb.
     for i, (x0, y0, x1, y1) in enumerate(P.lanes_drawn(), 1):
         parts.append(rect(f"lane_{i:02d}", x0, y0, x1, y1,
-                          PAINT_Z, PAINT_T, (0.62, 0.66, 0.72, 1), solid=False))
+                          PAINT_Z, PAINT_T, ROAD_RGBA, solid=False))
+
+    # ------------------------------------------------- two-lane roads
+    #
+    # A DASHED CENTRE LINE says "two lanes", and CHEVRONS say which way each runs.
+    #
+    # The divider is a marking, not a road, so it is not ROAD_RGBA — a second road
+    # colour would read as a second kind of road, which is the confusion the single
+    # road colour was introduced to remove.
+    #
+    # THE CHEVRONS ARE AN ASSUMPTION AND ARE COLOURED LIKE ONE. Direction is open
+    # question A6; plant_cad.LANE_DIRECTION_RULE applies ordinary keep-right
+    # traffic and can be flipped in one line. Nothing routes on them.
+    DIVIDER_RGBA = (0.97, 0.97, 0.97, 1)
+    ARROW_RGBA = (0.95, 0.75, 0.15, 1)
+    DASH, GAP, DIV_W = 3.0, 3.0, 0.16
+    ARROW_EVERY, ARM_L, ARM_W = 12.0, 1.8, 0.20
+
+    for road in P.two_lane_roads():
+        name, axis, la, lb, div, lo, hi = road
+        # --- dashed divider, down the middle of the pair
+        n = 0
+        s = lo + GAP
+        while s + DASH <= hi:
+            n += 1
+            if axis == "ns":
+                parts.append(rect(f"{name}_div{n:02d}", div - DIV_W / 2, s,
+                                  div + DIV_W / 2, s + DASH,
+                                  PAINT_Z + PAINT_T * 3, PAINT_T,
+                                  DIVIDER_RGBA, solid=False))
+            else:
+                parts.append(rect(f"{name}_div{n:02d}", s, div - DIV_W / 2,
+                                  s + DASH, div + DIV_W / 2,
+                                  PAINT_Z + PAINT_T * 3, PAINT_T,
+                                  DIVIDER_RGBA, solid=False))
+            s += DASH + GAP
+
+        # --- chevrons, one set per lane, pointing the way that lane runs.
+        # Suppressed entirely when LANE_DIRECTION_RULE is "none" — the ACS meeting
+        # says lanes are bidirectional, so the direction may not exist to draw.
+        if P.LANE_DIRECTION_RULE == "none":
+            continue
+        for tag, lane, head in zip("ab", (la, lb), P.two_lane_directions(road)):
+            if axis == "ns":
+                mid = (lane[0] + lane[2]) / 2.0
+                centre = lambda t: (mid, t)          # noqa: E731 - local, clear
+            else:
+                mid = (lane[1] + lane[3]) / 2.0
+                centre = lambda t: (t, mid)          # noqa: E731
+            yaw = math.radians(head)
+            k = 0
+            t = lo + ARROW_EVERY / 2.0
+            while t <= hi:
+                k += 1
+                tx, ty = centre(t)
+                for side, arm in ((+1, "l"), (-1, "r")):
+                    ang = yaw + math.pi + side * math.radians(38)
+                    parts.append(box(
+                        f"{name}{tag}_arw{k:02d}{arm}",
+                        tx + math.cos(ang) * ARM_L / 2,
+                        ty + math.sin(ang) * ARM_L / 2,
+                        PAINT_Z + PAINT_T * 3, ARM_L, ARM_W, PAINT_T,
+                        ARROW_RGBA, ang, solid=False))
+                t += ARROW_EVERY
 
     # A junction is where two painted rectangles overlap, so it is already
     # covered in lane grey. Marked in a second colour because these are the
     # points a reservation scheme has to arbitrate, and there are thirty of them
     # — a number that is much easier to believe once it is on screen.
-    for i, (jx, jy) in enumerate(P.JUNCTIONS, 1):
-        parts.append(box(f"junction_{i:02d}", jx, jy, PAINT_Z + PAINT_T + 0.005,
-                         1.2, 1.2, 0.01, (0.95, 0.55, 0.15, 1), solid=False))
+    if full:
+        for i, (jx, jy) in enumerate(P.JUNCTIONS, 1):
+            parts.append(box(f"junction_{i:02d}", jx, jy,
+                             PAINT_Z + PAINT_T + 0.005, 1.2, 1.2, 0.01,
+                             (0.95, 0.55, 0.15, 1), solid=False))
 
     # ------------------------------------------------------ AGV positions
     #
@@ -261,15 +396,37 @@ def main():
     # the heading: a pad alone cannot show which way a robot parked there faces,
     # and the rot 0 / rot 180 pairing is the whole evidence for LD/ULD.
     l, w = P.ROBOT_3_5T[1], P.ROBOT_3_5T[0]
-    for i, (px, py, rot) in enumerate(P.AGV_POSITIONS, 1):
+    n_asrs = n_unnamed = 0
+    for i, (px, py, rot) in enumerate(P.AGV_POSITIONS if full else (), 1):
         yaw = math.radians(rot)
+        # Role by position, not by index, so the classification survives any
+        # re-ordering of AGV_POSITIONS.
+        is_asrs = any(abs(px - ax) < 0.1 and abs(py - ay) < 0.1
+                      for ax, ay in P.ASRS_DOCK_FOUND)
+        is_unnamed = (abs(px - P.SLITTER_DOCK_X) < 0.1
+                      and any(abs(py - sy) < 0.1 for sy in P.SLITTER_DOCK_Y))
+        if is_asrs:
+            rgba, nose = (0.95, 0.75, 0.15, 1), (0.55, 0.40, 0.05, 1)
+            n_asrs += 1
+        elif is_unnamed:
+            rgba, nose = (0.80, 0.35, 0.75, 1), (0.45, 0.15, 0.42, 1)
+            n_unnamed += 1
+        else:
+            rgba, nose = (0.25, 0.70, 0.35, 1), (0.05, 0.35, 0.10, 1)
         parts.append(box(f"agv_pos_{i:02d}", px, py, PAINT_Z + PAINT_T / 2,
-                         l, w, PAINT_T, (0.25, 0.70, 0.35, 1), yaw, solid=False))
+                         l, w, PAINT_T, rgba, yaw, solid=False))
         parts.append(box(f"agv_nose_{i:02d}",
                          px + math.cos(yaw) * (l / 2 - 0.15),
                          py + math.sin(yaw) * (l / 2 - 0.15),
                          PAINT_Z + PAINT_T + 0.005,
-                         0.30, w * 0.8, 0.01, (0.05, 0.35, 0.10, 1), yaw, solid=False))
+                         0.30, w * 0.8, 0.01, nose, yaw, solid=False))
+        # A post on the ASRS dock only. It is the one position in this world that
+        # a whole leg hangs on (open question A1, BLOCKING), and at ground level
+        # it is one pad among forty-five with nothing to distinguish it.
+        if is_asrs:
+            parts.append(box(f"asrs_dock_{i:02d}_post", px, py,
+                             STATION_POST_H / 2, STATION_POST_W, STATION_POST_W,
+                             STATION_POST_H, (0.95, 0.75, 0.15, 1), solid=False))
 
     # --------------------------------------------------- coater spurs
     #
@@ -280,7 +437,7 @@ def main():
         parts.append(rect(f"spur_CTR{i}", P.COATER_SPUR_X[0], sy0,
                           P.COATER_SPUR_X[1], sy1,
                           PAINT_Z + PAINT_T, PAINT_T,
-                          (0.85, 0.45, 0.40, 1), solid=False))
+                          ROAD_RGBA, solid=False))
 
     # -------------------------------------------- spur-to-station links
     #
@@ -290,7 +447,7 @@ def main():
     for x0, y0, x1, y1, ci, kind in P.coater_connectors():
         parts.append(rect(f"link_CTR{ci}_{kind}", x0, y0, x1, y1,
                           PAINT_Z + PAINT_T, PAINT_T,
-                          (0.85, 0.45, 0.40, 0.5), solid=False))
+                          ROAD_RGBA, solid=False))
 
     # ------------------------------------------------- coater LD / ULD
     #
@@ -325,29 +482,47 @@ def main():
                              P.COATER_STATION_Y[i], 2.8,
                              0.9, 0.9, 0.9, (0.95, 0.55, 0.10, 0.35), solid=False))
 
-    # ------------------------------------------------------------ GRV1
+    # -------------------------------------------------- gravure stations
     #
-    # Built from the project lead's diagram: a machine between the two roads,
-    # LD at one end, ULD at the other, a connector road across each gap.
-    gx0, gy0, gx1, gy1 = P.GRAVURE1_BODY
-    parts.append(rect("m_GRV1", gx0, gy0, gx1, gy1, 0, MACHINE_H,
-                      (0.30, 0.55, 0.90, 1)))
-    parts.append(box("m_GRV1_label", (gx0+gx1)/2, (gy0+gy1)/2, MACHINE_H + 2.0,
-                     0.6, 0.6, 4.0, (0.20, 0.40, 0.75, 1), solid=False))
+    # The four bodies are drawn in the machine loop above, from the same measured
+    # extents as every other machine. ALL FOUR now carry LD and ULD — the deck
+    # [S16] counts four of each, and each pair sits on its own body's centreline at
+    # the two ends, LD south and ULD north. Nothing is copied from GRV1; see
+    # plant_cad.gravure_stations() for why this is not the retracted derivation.
+    #
+    # A label post per machine, because a 6.9 x 17.1 m body 100 m from the camera
+    # is a smudge without one.
+    for name, gx0, gy0, gx1, gy1 in P.gravure_bodies():
+        parts.append(box(f"m_{name}_label", (gx0 + gx1) / 2, (gy0 + gy1) / 2,
+                         MACHINE_H + 2.0, 0.6, 0.6, 4.0,
+                         (0.20, 0.40, 0.75, 1), solid=False))
 
-    for sx, sy, kind in P.GRAVURE_STATIONS:
+    for name, sx, sy, kind in P.gravure_stations():
         rgba = (0.15, 0.75, 0.30, 1) if kind == "LD" else (0.95, 0.55, 0.10, 1)
-        parts.append(box(f"grv1_{kind.lower()}", sx, sy, MACHINE_H + 0.05,
-                         2.4, 2.4, 0.10, rgba, solid=False))
-        parts.append(box(f"grv1_{kind.lower()}_post", sx, sy,
+        tag = f"{name.lower()}_{kind.lower()}"
+        parts.append(box(tag, sx, sy, MACHINE_H + 0.05,
+                         P.STATION_MARKER, P.STATION_MARKER, 0.10, rgba,
+                         solid=False))
+        parts.append(box(f"{tag}_post", sx, sy,
                          MACHINE_H + STATION_POST_H / 2,
                          STATION_POST_W, STATION_POST_W, STATION_POST_H,
                          rgba, solid=False))
 
-    for ci, (cx0, cy0, cx1, cy1) in enumerate(P.GRAVURE1_CONNECTORS, 1):
-        parts.append(rect(f"grv1_connector_{ci}", cx0, cy0, cx1, cy1,
+    # THE GRAVURE ROAD STRUCTURE: a cross-road in each gap joining the two
+    # north-south roads, and a short spur off it to each station facing that gap.
+    # See plant_cad's gravure_cross_roads() for why it cannot be a road beside the
+    # station the way the coater's is — the body fills its corridor.
+    #
+    # Both derived from the project lead's description, so both at reduced opacity,
+    # same as the coater's eight.
+    for name, x0, y0, x1, y1, _serves in P.gravure_cross_roads():
+        parts.append(rect(f"grv_{name}", x0, y0, x1, y1,
                           PAINT_Z + PAINT_T, PAINT_T,
-                          (0.85, 0.45, 0.40, 1), solid=False))
+                          ROAD_RGBA, solid=False))
+    for name, x0, y0, x1, y1, kind in P.gravure_spurs():
+        parts.append(rect(f"spur_{name}_{kind.lower()}", x0, y0, x1, y1,
+                          PAINT_Z + PAINT_T * 2, PAINT_T,
+                          ROAD_RGBA, solid=False))
 
     # ------------------------------------------------------- WIP racks
     #
@@ -355,7 +530,7 @@ def main():
     # the two columns, one per position, in a colour of their own so they are
     # never mistaken for a machine station.
     WIP_RGBA = (0.55, 0.35, 0.75, 1)
-    for gi, (ya, yb) in enumerate(P.WIP_GROUP_Y, 1):
+    for gi, (ya, yb) in enumerate(P.WIP_GROUP_Y if full else (), 1):
         for ci, wx in enumerate(P.WIP_ACCESS_X, 1):
             for pi, wy in enumerate((ya, yb), 1):
                 parts.append(box(f"wip_g{gi}_c{ci}_{pi}", wx, wy,
@@ -377,7 +552,7 @@ def main():
     # The deck says five. We draw the one we can point at, and the gap between
     # one and five stays visible as a question rather than being padded out.
     cw, ch = P.CHARGING_BAY_SIZE
-    for i, (bx, by) in enumerate(P.CHARGING_MEASURED, 1):
+    for i, (bx, by) in enumerate(P.CHARGING_MEASURED if full else (), 1):
         parts.append(box(f"charge_{i}", bx, by, PAINT_Z + PAINT_T / 2,
                          cw, ch, PAINT_T, (0.25, 0.45, 0.85, 1), solid=False))
         parts.append(box(f"charge_{i}_post", bx, by, 2.5, 0.4, 0.4, 5.0,
@@ -390,13 +565,13 @@ def main():
     # walls gives one, and because the world is in absolute CAD coordinates the
     # post at x=150 IS x=150 in the drawing.
     posts = 0
-    gx = int(math.ceil(wx0 / 50.0) * 50)
+    gx = int(math.ceil(wx0 / 50.0) * 50) if full else wx1 + 1
     while gx <= wx1:
         parts.append(box(f"grid_x{gx}", gx, wy0 + 1.0, 1.5,
                          0.25, 0.25, 3.0, (0.15, 0.15, 0.18, 1)))
         posts += 1
         gx += 50
-    gy = int(math.ceil(wy0 / 50.0) * 50)
+    gy = int(math.ceil(wy0 / 50.0) * 50) if full else wy1 + 1
     while gy <= wy1:
         parts.append(box(f"grid_y{gy}", wx0 + 1.0, gy, 1.5,
                          0.25, 0.25, 3.0, (0.15, 0.15, 0.18, 1)))
@@ -417,15 +592,39 @@ def main():
         f.write(hdr + "".join(parts) + FTR)
 
     print(f"wrote {out}")
+    print(f"  mode      {'FULL' if full else 'MINIMAL'} — "
+          f"{'machines, roads and the survey layer' if full else 'machines and roads only; --full adds the survey layer'}")
     print(f"  hall      {wx1 - wx0:.0f} x {wy1 - wy0:.0f} m, absolute CAD coordinates")
-    drawn = sum(1 for m in ms if not m[0].startswith("GRV"))
-    print(f"  machines  {drawn} drawn, {len(ms) - drawn} gravure NOT drawn "
-          f"(GRAVURE_X is an area outline, not a body)")
+    print(f"  machines  {len(ms)} drawn (4 gravure at x "
+          f"{P.GRAVURE_X[0]}..{P.GRAVURE_X[1]}, corrected 2026-08-13; "
+          f"{len(P.gravure_stations())} gravure stations)")
     print(f"  lanes     {len(P.lanes_drawn())} painted "
           f"({len(P.EXCLUDED_LANES)} excluded), {len(P.JUNCTIONS)} junctions")
-    print(f"  AGV pads  {len(P.AGV_POSITIONS)}")
-    print(f"  charging  {len(P.CHARGING_MEASURED)} of "
-          f"{P.CHARGING_EXPECTED_CATHODE} bays, {posts} grid posts")
+    if full:
+        print(f"  AGV pads  {len(P.AGV_POSITIONS)} "
+              f"({n_asrs} ASRS dock, {n_unnamed} unnamed at x {P.SLITTER_DOCK_X})")
+        print(f"  charging  {len(P.CHARGING_MEASURED)} of "
+              f"{P.CHARGING_EXPECTED_CATHODE} bays, {posts} grid posts")
+    else:
+        print("  omitted   walls, 45 AGV pads, 30 junctions, 8 WIP access, "
+              "1 charger, grid posts")
+
+    # The plant this world is FOR, and how much of it we can point at. Printed on
+    # every build because a shortfall that only lives in a document stops being
+    # read, and because the three legs are the reason any of this geometry
+    # matters — see plant_cad's `flow` section.
+    print("  flow      (deck [S16], cathode)")
+    for line in P.flow_summary():
+        print(f"              {line}")
+    placed = P.stations_placed()
+    short = [(k, placed.get(k, 0), v) for k, v in P.STATION_COUNTS_DECK.items()
+             if placed.get(k, 0) < v]
+    if short:
+        print("  stations  " + ", ".join(f"{k} {h}/{w}" for k, h, w in short)
+              + "  NOT located")
+    print(f"  fleet     " + ", ".join(f"{k} x{v}"
+                                      for k, v in P.FLEET_CATHODE.items())
+          + f"  = {sum(P.FLEET_CATHODE.values())} cathode Big AGVs")
     return 0
 
 

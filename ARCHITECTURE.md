@@ -678,15 +678,87 @@ not the state machines. Keep it that way:
    safety and validation burden than read-only monitoring. **Which** commands we are
    permitted to send should be agreed in writing before implementation.
 
+### Answered — 2026-08-14, ACS interface meeting
+
+**✅ Q2 and Q7 below are answered.** Record and caveats:
+`References/local/meetings/2026-08-14-acs/` (gitignored — confidential).
+
+> **⚠ The audio was deleted at the end of the meeting at the user's request.** A rough
+> room-mic transcript is the only surviving record, and its errors cluster on exactly the
+> technical vocabulary that matters — the words for GraphQL, cancel and abort were all
+> mis-transcribed. Nothing below was confirmed in the room. Treat it as the basis for a
+> **written** follow-up, not as an agreed record.
+
+| Question | Answer |
+|---|---|
+| **Q2 — how does CSM hand a job to the ACS?** | **GraphQL**, against the ACS's existing interface. A fourth option nobody had recorded — not JSON files, not a new API, not Seer direct. Verified against the raw transcript. |
+| **Is the ACS modifiable?** | **No** — we adapt to what exists. Verified against the raw transcript. This was the hinge Q2 depended on. |
+| **Q7 — whose job is traffic control?** | **The ACS's.** Corridor routing and deadlock avoidance are not ours to build. Lanes are **bidirectional** and a blocked robot **waits, then reroutes** — around five minutes was mentioned. |
+| Priority? | **CSM's.** The ACS defines a target and does traffic control; ordering competing jobs is ours. **We have no priority concept today.** |
+| Job granularity? | **One command per job** — CSM says "load", the ACS choreographs enter / lift / exit. Confirms what `WORKFLOW.md` §8 already assumed. |
+| Command direction? | **equipment → CSM → ACS.** Not equipment → ACS directly. |
+
+**The single most useful sentence:** the ACS **defines a target and does traffic control;
+everything else is CSM's.** Said three times unprompted, in three contexts.
+
+**What this changes in our code** — all of it behind `AcsAdapter`, none of it in the state
+machines: `abort_job(job_id, drop_location)` as an operation distinct from `cancel_job`
+(cancel only before the first step; once carrying, we must say where to put the load
+down); a third `cancel_job` return meaning "too late, already arrived"; a **push path**
+via GraphQL subscriptions replacing the 4 Hz poll of `get_job_result`; subscription
+lifecycle management (detect drop, re-subscribe, **reconcile**) which does not exist
+today; a priority field; alarm **codes** instead of a bare `FAILED`; and a job timeout
+that exceeds both their wait-and-detour cycle and a port hold that **can be set to
+infinite**.
+
+### The GraphQL schema arrived — 2026-08-14
+
+The ACS sent its schema. **The analysis is held outside this repository** at
+`References/local/acs/schema-analysis.md`, alongside the schema itself — it is vendor
+material and this repository is public, the same rule as the signal tables above.
+
+Conclusions only, which are ours:
+
+| What we asked | Answer |
+|---|---|
+| How do we submit a job? | One mutation, taking **an ordered list of tasks** rather than a single move |
+| Cancel and abort — one or two? | **Two** separate operations, as the meeting said |
+| Does abort need a drop-off location? | **No** — the ACS decides. **This contradicts what we took from the meeting** |
+| Is priority ours to set? | **Yes**, with a separate hot-lot flag, and an effective priority read back |
+| Is there a push path? | **Yes** — per-object subscriptions carrying a monotonic sequence and both old and new values. This is the answer to the edge-trigger problem `adapters/base.py` raises |
+| Is holding-at-port a distinct state? | **Yes**, with a per-task wait timeout and an explicit release operation |
+| Can we command charging? | **Yes**, with a target percentage |
+| **Does BUSY differ from REJECTED?** | **Still unanswered.** Every mutation returns a single integer error code, and job outcomes are free text. The distinction lives in an **error-code table that is not in the schema** — the one thing still blocking a correct retry policy |
+
+**The structural finding: an order is a list of tasks, not a move.** This **dissolves the
+exchange gap** that `docs/gazebo_world/open-questions.md` B0 raises — a deliver-and-collect
+visit is one order with two tasks, not a new primitive. It also gives us leg-binding: a
+specific vehicle can be named on the order, which is how 2 / 2 / 6 robots on fixed legs
+would be expressed.
+
+Two smaller ones: reversing into a station is a first-class per-task option (bears on
+gazebo A4), and there is a whole KPI surface nobody mentioned.
+
+⚠ One field the reconnect path would depend on is **undocumented**; its meaning is
+inferred from its name and must be confirmed against the live server they offered.
+
+**⚠ Two readings could not be verified against the surviving transcript.** The English
+exchange that establishes priority-is-ours and traffic-control-is-theirs does not appear
+in `transcript-raw.txt` — that stretch was re-transcribed separately and the output was
+not kept. The bidirectional claim sits in a degraded, repeated-line stretch. Both are recorded
+here because they are consistent with everything else in the meeting, **not** because
+they are provable.
+
 ### Still open
 
 1. **Who commands the Panda gate?** This document draws `CSM → Panda gate`. The
    original whiteboard sketch did not show this link. It may belong lower down — with
    the ACS, or triggered automatically on arrival.
-2. **How does the CSM hand a job to the ACS?** The ACS today runs path legs from
-   JSON files (`ACS Run All test7.json L4`). Options: generate JSON files, add an API to
-   the ACS, or bypass the ACS and talk to Seer's Navigation API directly. Depends on
-   whether the ACS is modifiable — the Seer is not.
+2. ~~**How does the CSM hand a job to the ACS?**~~ **ANSWERED 2026-08-14 — GraphQL
+   against the ACS's existing interface; the ACS is not modifiable.** See the answered
+   section above. What replaces it: *what does `reconcile` return after a dropped
+   subscription?* Without a catch-up path we resume with jobs stuck open that finished
+   while we were disconnected.
 3. **What are the real CSM states?** Section 5 uses a plausible job lifecycle. The
    actual states (`A`, `B`, `C`, `D` on the whiteboard) were not labelled.
 4. **The unlabelled box** beside "Equip" on the original sketch — a second machine, a
@@ -701,10 +773,16 @@ not the state machines. Keep it that way:
    their own state machine or become data passed between subsystem FSMs — the single
    most structural open item.
 
-7. **Does the ACS handle the fleet, or does the CSM?** The whiteboard shows one ACS
-   serving many robots. The prototype's `SimAcs` drives one robot and answers `BUSY` when
-   asked for a second. Real traffic management and deadlock avoidance are assumed to be
-   the ACS's, not ours — worth confirming.
+7. ~~**Does the ACS handle the fleet, or does the CSM?**~~ **ANSWERED 2026-08-14 —
+   traffic management and deadlock avoidance are the ACS's.** The assumption held. What
+   replaces it, and it is sharper: **does `BUSY` differ from `REJECTED`?** Never asked
+   despite five attempts to raise it. BUSY means retry, REJECTED means fail permanently,
+   and `job_fsm.py:70` already warns that collapsing them "is a mistake worth naming".
+   The requested "all response types" document should settle it in writing.
+
+8. **Do they know the robots are leg-bound?** 2 / 2 / 6 across three classes on fixed
+   legs (deck [S16]). If their ACS assumes a homogeneous pool, that is a mismatch nobody
+   has raised.
 
 ---
 

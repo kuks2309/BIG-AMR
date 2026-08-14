@@ -18,6 +18,7 @@ install(
     scripts/generate_world.py
     scripts/generate_cad_world.py
     scripts/audit_cad_world.py
+    scripts/view_cad_world.sh
     scripts/stop_sim.sh
     scripts/run_gui.sh
     scripts/start_sim.sh
