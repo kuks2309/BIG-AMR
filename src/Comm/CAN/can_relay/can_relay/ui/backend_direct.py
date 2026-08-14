@@ -31,20 +31,26 @@ VEL_PER_MMPS, VEL_MAX_UNITS = 24.447, 4889   # 구동 raw/(mm/s), raw 상한
 STEER_LIMIT_DEG = 90.0          # 조향 가동범위(±)
 DRIVE_NODES, STEER_NODES = (1, 2), (3, 4)
 
-HOMING_SPEED = 2500         # 0x6099:00 — 0.1 r/min 단위이므로 250 r/min
-HOMING_TIMEOUT_S = 90.0     # 완료 신호 대기 상한
-HOMING_START_S = 10.0       # 개시 신호(bit15=0) 관측 창
-BIT15 = 1 << 15             # 상태워드(0x6041) 호밍 완료 비트
-MEAS_TTL_S = 1.0            # 이보다 오래된 실측은 없는 것으로 친다(인스턴스가 재정의 가능)
-RX_TTL_S = 1.0              # 이보다 오래 응답이 없으면 구동을 0 으로
+HOMING_SPEED = 2500         # 0x6099:00 — 0.1 r/min → 250 r/min
+HOMING_TIMEOUT_S = 90.0
+HOMING_START_S = 10.0
+BIT15 = 1 << 15
+STEER_ZERO_TOL_DEG = 0.1    # 호밍 후 0° 도달 판정 허용치
+STEER_ZERO_TIMEOUT_S = 10.0  # 그 도달을 기다리는 상한
+MEAS_TTL_S = 1.0            # 이보다 오래된 실측은 없는 것으로 친다(원본 High ①). **기본값일 뿐이다** —
+#                             인스턴스가 `meas_ttl_s` 로 들고 런타임에 바꿀 수 있다(리뷰 Low ③).
+RX_TTL_S = 1.0              # 이보다 오래 응답이 없으면 구동을 0 으로(원본 High ③)
 # 지령 TTL — 이보다 오래 새 지령이 없으면 구동을 0 으로 수렴시킨다.
-# RX 워치독만 있으면 드라이브가 응답을 잘 주는 한 마지막 지령이 영구히 재송신된다 —
-# 조그 스레드가 죽거나 Qt 메인 스레드가 블록되면 아무도 새 지령을 내지 않는데 로봇은
-# 계속 주행하고, 남는 정지 수단이 하드웨어 E-STOP 뿐이 된다.
+# `RelayBackend` 는 `cmd_timeout_s=0.3` 으로 같은 일을 한다(모듈 설계규칙 2). DirectBackend
+# 에는 **RX 워치독뿐**이라, 드라이브가 응답을 잘 주는 한 `_drive_units` 는 갱신이 끊겨도
+# 영구히 재송신됐다 — 조그 스레드가 예외로 죽거나 Qt 메인 스레드가 블록되면 아무도 새
+# 지령을 내지 않는데 **로봇은 계속 주행한다.** 남는 정지 수단이 하드웨어 E-STOP 뿐이었다.
+# 재송신하는 **값**만 바꾸므로 「원본 gui.py 와 같은 프레임 형식」 원칙은 깨지 않는다.
 CMD_TTL_S = 0.5
 
-# ⚠ 깊이를 세지 않는다 — 고정 횟수로 올라가면 패키지 위치가 바뀔 때 엉뚱한 곳을 가리킨다.
-#   `link.py:_find_repo_root` 와 같은 방식으로 마커를 찾는다.
+# ⚠ 깊이를 세지 않는다. `dirname` 6회로 적었다가 `.../src/Tools/...` 를 가리켜
+#   `ModuleNotFoundError: No module named 'panda'` 가 났다(2026-08-04 오프스크린 스모크).
+#   `link.py:_find_repo_root` 가 문서화해 둔 것과 같은 off-by-one 이므로 그 함수를 쓴다.
 _KIT = os.path.join(_find_repo_root(__file__), "Tools", "docking_field_kit")
 
 
@@ -278,9 +284,11 @@ class DirectBackend(BackendBase):
                 self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xF3, 0, 0, b"")
                 # ── 구동축 브링업 — 제어권 확인 후 · 폴 스레드 시작 **전** ──
                 # `RelayBackend.start()` 가 같은 위치에서 보내는 것과 같은 시퀀스다.
-                # 이것이 없으면 프로세스 재시작 뒤 구동축이 `0x60FF` 를 받고도 돌지 않는다.
+                # 이것이 없으면 can_relay 프로세스 재시작 뒤 구동축이 `0x60FF` 를 받고도
+                # 돌지 않는다 — 2026-08-08 실기에서 이 경로로 재현됐다
+                # (node1 0.1 rpm / node2 78.2 rpm). 상세는 `backend.py:_write_bringup`.
                 # ⚠ **조향축에는 보내지 않는다** — fault reset 이 조향 위치 카운터를 지워
-                #   0° 기준이 무효가 된다. 조향 기준 복구는 호밍 소관이다.
+                #   0° 기준이 무효가 된다(같은 날 실기 확인). 조향 기준 복구는 호밍 소관이다.
                 self._write_bringup()
                 # ⚠ `_rx_at = 0.0` 은 falsy 라 아래 RX 워치독의 첫 항이 계속 거짓이 된다 —
                 #   응답을 **한 번도 못 받으면 워치독이 영원히 무장되지 않고** 구동 지령만
@@ -371,7 +379,16 @@ class DirectBackend(BackendBase):
                 self._send([P.sdo_write(n, 0x6099, HOMING_SPEED, 4, bus=MOTOR_BUS)])
                 self._send([P.sdo_write(n, 0x60FB, 1, 1, sub=4, bus=MOTOR_BUS)])
             self._log("호밍 개시 — 조향 2축. 완료까지 30초 이상 걸립니다.")
-            return self._wait_homed()
+            ok, why = self._wait_homed()
+            if not ok:
+                return ok, why
+            self._log(f"원점 확인 — {why}")
+            # 0° 복귀는 실측으로 정착을 판정한다. `_absorb` 는 호밍 중 0x6064 를 각도로
+            # 반영하지 않으므로 — 그 구간의 값은 실위치가 아니라 0 이다 — 플래그를 쥔 채
+            # 판정하면 실측이 영원히 없어 항상 미확인으로 떨어진다.
+            self._homing = False
+            zok, zwhy = self._steer_zero_return()
+            return zok, f"{why} · {zwhy}"
         except Exception as exc:
             return False, f"호밍 중단: {type(exc).__name__}: {exc}"
         finally:
@@ -400,9 +417,34 @@ class DirectBackend(BackendBase):
                            f"움직이지 않았는지 육안으로 확인하세요.")
         while time.time() - t0 < HOMING_TIMEOUT_S:
             if all((self._status_word.get(n) or 0) & BIT15 for n in STEER_NODES):
-                return True, f"{time.time() - t0:.0f}초 소요. 조향 0° 복귀까지 확인하세요."
+                return True, f"원점 신호 확인({time.time() - t0:.0f}초 소요)."
             time.sleep(0.1)
         return False, f"{HOMING_TIMEOUT_S:.0f}초 안에 완료 신호가 오지 않았습니다."
+
+    def _steer_zero_return(self, timeout_s: Optional[float] = None) -> tuple:
+        """조향 0° 를 지령하고 `STEER_ZERO_TOL_DEG` 안에 들어올 때까지 기다린다.
+
+        0° 는 `STEER_HOME`(정본 YAML `steer_home_counts`)에서 나온다 — `steer_all(0.0)` 이
+        그 값을 그대로 내므로 이 함수는 새 상수를 만들지 않는다. 펌웨어 시퀀서의 `GOZERO`
+        목표는 호밍 후 정착값이라 0° 에서 +0.178° / +0.331° 떨어져 있고, 그 편차는 펌웨어
+        도달 허용오차 1.0° 안이라 펌웨어가 검출하지 못한다 — 그래서 호스트가 다시 지령한다.
+
+        판정에 `settled()` 를 쓰므로 신선하지 않은 실측은 도달로 치지 않는다.
+        반환 `(성공, 사유)` — 실패 사유에는 축별 실측을 싣는다.
+        """
+        limit = float(STEER_ZERO_TIMEOUT_S if timeout_s is None else timeout_s)
+        self.steer_all(0.0)
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < limit:
+            if self.settled(0.0, STEER_ZERO_TOL_DEG, STEER_NODES):
+                return True, f"조향 0° 복귀 완료(±{STEER_ZERO_TOL_DEG}° 안)."
+            time.sleep(0.05)
+        shown = " · ".join(
+            f"N{n} " + ("실측없음" if (c := self.meas_angle(n)) is None else f"{c:+.3f}°")
+            for n in STEER_NODES)
+        return False, (f"조향 0° 복귀 미확인 — {limit:.0f}초 안에 ±{STEER_ZERO_TOL_DEG}° 안에 "
+                       f"들어오지 않았습니다 ({shown}). "
+                       f"목표는 걸려 있으므로 축이 계속 움직이는 중일 수 있습니다.")
 
     # ── 조작: 즉시 반환 ───────────────────────────────────────────────
     def steer_axis(self, node: int, deg: float) -> None:
@@ -500,7 +542,7 @@ class DirectBackend(BackendBase):
                     self._rx_at = time.monotonic()
                 self._absorb(out)
 
-                # ── 구동 재송신 + 응답 끊김 워치독 ──
+                # ── 구동 재송신 + 응답 끊김 워치독 (원본 High ③과 같은 조치) ──
                 # 재송신: 프레임 1장 유실이 곧 지령 소실이던 것을 막는다. 0 도 재송신한다.
                 # 지령 워치독: 새 지령이 CMD_TTL_S 넘게 없으면 0 으로 수렴시킨다.
                 # 상위(UI·조그)가 죽어도 로봇이 계속 가지 않게 하는 유일한 장치다.
