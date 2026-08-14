@@ -1,31 +1,12 @@
 #!/usr/bin/env python3
-"""판다 USB 직결 백엔드 — 원본 `Tools/amr_test_gui/gui.py` 와 **같은 경로·같은 바이트**.
+"""판다 USB 직결 백엔드 — 드라이버를 거치지 않고 SDO 를 만들어 직접 보낸다.
 
-설계 근거: `docs/adr/2026-08-04-amr-test-gui-swappable-backend.md`.
-
-## 이식 원칙 — 고쳐진 원본을 그대로 옮긴다
-
-이 백엔드의 존재 이유는 **비교 기준**이다. 원본과 같은 프레임을 같은 순서로 내야 실기에서
-「UI 는 같은데 백엔드만 다르다」가 성립한다.
-
-⚠ **2026-08-04 갱신** — 원본의 결함 11건이 먼저 수정됐다(사용자 지시: 「먼저 원본을 고치고
-나서 ros2 backend 연결하는 것이 정석」). 이제 이 백엔드는 **고쳐진 원본**을 반영한다:
-
-| 원본 결함 (`docs/code_review/amr-test-gui/2026-08-03.md`) | 원본 | 여기 |
-|---|---|---|
-| High ① 정착 판정에 피드백 신선도 없음 | 수정 — `_set_meas` + `MEAS_TTL_S` | 반영 |
-| High ② `heartbeat` 가 `_can_lock` 밖 | 수정 — 락 안으로 | 반영 |
-| High ③ 구동 단발 송신 · 워치독 없음 | 수정 — 주기 재송신 + 응답 끊김 워치독 | 반영 |
-| Medium ③ 판다 2대 이상 진행 가능 | 수정 — 차단 | 반영 |
-| Medium ④ 반환 시 정지 실패 무고지 | 수정 — 로그 | 반영 |
-| Low ① 정지↔구동 경합 창 | 수정 — RLock 단일 임계구역 | 반영 |
-| Low ② `panda is None` 미검사 | 수정 — 진입부 가드 | 반영 |
-
-`heartbeat` 락·신선도·재송신은 **CAN 프레임 바이트를 바꾸지 않는다**(타이밍·반복만 바뀐다) —
-따라서 `test_backend_swap.py` 의 바이트 동일성 회귀는 그대로 유효하다.
-
-바이트 조립은 `can_relay.protocol` 을 쓴다. 원본의 손조립과 **바이트 동일**함이 회귀로 고정돼 있다
+바이트 조립은 `can_relay.protocol` 을 쓴다. 조향·구동 프레임이 원본
+`Tools/amr_test_gui/gui.py` 의 손조립과 바이트 동일함을 회귀가 고정한다
 (`test/test_port_equivalence.py`, `test/test_master_frame_match.py`).
+
+호밍 경로는 원본과 다르다 — 원본은 SDO 를 직접 쓰고 드라이버 쪽은 펌웨어 시퀀서를 쓴다.
+폴 루프의 조향 재송신도 이 백엔드에만 있다.
 """
 from __future__ import annotations
 
@@ -41,44 +22,37 @@ from .backend_base import (CAP_DRIVE, CAP_ENGAGE, CAP_HOME, CAP_MOTOR_TABLE,
                            CAP_SCAN, CAP_STEER_ALL, CAP_STEER_AXIS, CAP_STOP,
                            CAP_USB, BackendBase)
 
-# ── 원본 gui.py 와 같은 상수 (값 근거는 원본 주석·README) ─────────────────
-SEER_BUS, MOTOR_BUS = 0, 2
-SEER_GATE, CAN_KBPS = 30, 250
-COUNTS_PER_DEG = 57344
+# ── 하드웨어·환산 상수 ────────────────────────────────────────────────────
+SEER_BUS, MOTOR_BUS = 0, 2      # 판다 버스 번호 — 0=Seer 측, 2=모터 측
+SEER_GATE, CAN_KBPS = 30, 250   # 릴레이 safety_mode 번호, 버스 속도(kbps)
+COUNTS_PER_DEG = 57344          # 조향 counts/°
 _STEER_HOME_FALLBACK = {3: 7871815, 4: 7840086}
-VEL_PER_MMPS, VEL_MAX_UNITS = 24.447, 4889
-STEER_LIMIT_DEG = 90.0
+VEL_PER_MMPS, VEL_MAX_UNITS = 24.447, 4889   # 구동 raw/(mm/s), raw 상한
+STEER_LIMIT_DEG = 90.0          # 조향 가동범위(±)
 DRIVE_NODES, STEER_NODES = (1, 2), (3, 4)
 
-HOMING_SPEED = 2500         # 0x6099:00 — 0.1 r/min → 250 r/min
-HOMING_TIMEOUT_S = 90.0
-HOMING_START_S = 10.0
-BIT15 = 1 << 15
-MEAS_TTL_S = 1.0            # 이보다 오래된 실측은 없는 것으로 친다(원본 High ①). **기본값일 뿐이다** —
-#                             인스턴스가 `meas_ttl_s` 로 들고 런타임에 바꿀 수 있다(리뷰 Low ③).
-RX_TTL_S = 1.0              # 이보다 오래 응답이 없으면 구동을 0 으로(원본 High ③)
+HOMING_SPEED = 2500         # 0x6099:00 — 0.1 r/min 단위이므로 250 r/min
+HOMING_TIMEOUT_S = 90.0     # 완료 신호 대기 상한
+HOMING_START_S = 10.0       # 개시 신호(bit15=0) 관측 창
+BIT15 = 1 << 15             # 상태워드(0x6041) 호밍 완료 비트
+MEAS_TTL_S = 1.0            # 이보다 오래된 실측은 없는 것으로 친다(인스턴스가 재정의 가능)
+RX_TTL_S = 1.0              # 이보다 오래 응답이 없으면 구동을 0 으로
 # 지령 TTL — 이보다 오래 새 지령이 없으면 구동을 0 으로 수렴시킨다.
-# `RelayBackend` 는 `cmd_timeout_s=0.3` 으로 같은 일을 한다(모듈 설계규칙 2). DirectBackend
-# 에는 **RX 워치독뿐**이라, 드라이브가 응답을 잘 주는 한 `_drive_units` 는 갱신이 끊겨도
-# 영구히 재송신됐다 — 조그 스레드가 예외로 죽거나 Qt 메인 스레드가 블록되면 아무도 새
-# 지령을 내지 않는데 **로봇은 계속 주행한다.** 남는 정지 수단이 하드웨어 E-STOP 뿐이었다.
-# 재송신하는 **값**만 바꾸므로 「원본 gui.py 와 같은 프레임 형식」 원칙은 깨지 않는다.
+# RX 워치독만 있으면 드라이브가 응답을 잘 주는 한 마지막 지령이 영구히 재송신된다 —
+# 조그 스레드가 죽거나 Qt 메인 스레드가 블록되면 아무도 새 지령을 내지 않는데 로봇은
+# 계속 주행하고, 남는 정지 수단이 하드웨어 E-STOP 뿐이 된다.
 CMD_TTL_S = 0.5
 
-# ⚠ 깊이를 세지 않는다. `dirname` 6회로 적었다가 `.../src/Tools/...` 를 가리켜
-#   `ModuleNotFoundError: No module named 'panda'` 가 났다(2026-08-04 오프스크린 스모크).
-#   `link.py:_find_repo_root` 가 문서화해 둔 것과 같은 off-by-one 이므로 그 함수를 쓴다.
+# ⚠ 깊이를 세지 않는다 — 고정 횟수로 올라가면 패키지 위치가 바뀔 때 엉뚱한 곳을 가리킨다.
+#   `link.py:_find_repo_root` 와 같은 방식으로 마커를 찾는다.
 _KIT = os.path.join(_find_repo_root(__file__), "Tools", "docking_field_kit")
 
 
 def _load_steer_home():
-    """조향 0° counts 를 **정본 YAML 에서 읽는다**. 실패하면 사본으로 내려간다.
+    """조향 0° counts 를 정본 YAML 에서 읽는다. 실패하면 코드 사본으로 내려간다.
 
-    원본 `Tools/amr_test_gui/gui.py` 의 `_load_steer_home` 과 같은 방식이다 — 두 구현이
-    **같은 출처**를 봐야 `--backend` 를 바꿔도 같은 각도로 간다. 예전에는 이 파일만 리터럴이라
-    정본이 바뀌면 direct 만 옛 값으로 남았다(2026-08-04 리뷰 Medium ②).
-
-    반환 `(값, 출처 설명)`.
+    원본 GUI 와 **같은 출처**를 봐야 백엔드를 바꿔도 같은 각도로 간다.
+    반환 `({node: counts}, 출처 설명)` — 사본으로 내려간 사실은 설명 문자열로 드러낸다.
     """
     path = os.path.join(_find_repo_root(__file__), "src", "Comm", "CAN", "can_relay",
                         "config", "machine", "foil_a082.yaml")
@@ -101,19 +75,22 @@ STEER_HOME, STEER_HOME_SOURCE = _load_steer_home()
 
 
 def steer_counts(node: int, deg: float):
-    """가동범위 클램프 후 조향 절대위치 counts. 원본 `gui.py:65-71` 과 같은 식."""
+    """조향 절대위치 counts. ±`STEER_LIMIT_DEG` 로 클램프한 뒤 영점 + `deg` × 57344.
+
+    반환 `(적용된 각(°), counts)` — 클램프됐는지는 첫 값으로 알 수 있다.
+    """
     deg = max(-STEER_LIMIT_DEG, min(STEER_LIMIT_DEG, deg))
     return deg, int(round(STEER_HOME[node] + deg * COUNTS_PER_DEG))
 
 
 def drive_units(mmps: float, raw_sign: int) -> int:
-    """구동 raw 환산 + 상한 클램프. 원본 `gui.py:74-77` 과 같은 식."""
+    """구동 raw. `mmps` × 24.447 에 부호를 붙이고 ±`VEL_MAX_UNITS` 로 클램프한다."""
     return max(-VEL_MAX_UNITS, min(VEL_MAX_UNITS,
                                    int(round(raw_sign * mmps * VEL_PER_MMPS))))
 
 
 def _panda_class():
-    """comma.ai panda 라이브러리 로드(필드킷 동봉본). 원본 `gui.py:100-105` 과 같다."""
+    """필드킷에 동봉된 comma.ai `Panda` 클래스를 로드한다(`sys.path` 를 변형한다)."""
     if _KIT not in sys.path:
         sys.path.insert(0, _KIT)
     from panda import Panda
@@ -130,26 +107,24 @@ class DirectBackend(BackendBase):
 
     def __init__(self, log: Optional[Callable[[str], None]] = None,
                  meas_ttl_s: float = MEAS_TTL_S):
-        # ⚠ TTL 을 **인스턴스 상태**로 든다. 예전에는 모듈 상수를 직접 읽어, ros2 백엔드는
-        #   ROS 파라미터로 런타임 조정이 되는데 direct 백엔드만 안 되는 비대칭이 있었다
-        #   (리뷰 Low ③). 같은 개념은 `--backend` 와 무관하게 같은 방식으로 조정돼야 한다.
+        """`log` 는 화면에 한 줄 남기는 콜백, `meas_ttl_s` 는 실측 신선도 한도(초)다.
+
+        TTL 을 인스턴스 상태로 드는 이유는 ros2 백엔드가 ROS 파라미터로 런타임 조정되는
+        것과 같은 방식을 여기서도 제공하기 위해서다.
+        """
         self.meas_ttl_s = float(meas_ttl_s)
         self._log = log or (lambda _m: None)
         self.panda = None
         self._cls = None
         self._run = False
         self._th = None
-        self._can_lock = threading.RLock()  # 폴링·조그가 버스를 공유한다
-        #   RLock 인 이유: 「정지 확인 → 구동 송신」을 한 임계구역에 넣어야 하는데 그 안에서
-        #   `drive()` → `_send()` 가 같은 락을 다시 잡는다(원본 Low ①과 동일 조치).
+        # 폴링·조그가 같은 버스를 공유한다. RLock 인 이유는 「정지 확인 → 구동 송신」을 한
+        # 임계구역에 넣어야 하는데 그 안에서 `drive()` → `_send()` 가 같은 락을 다시 잡기 때문이다.
+        self._can_lock = threading.RLock()
         self._meas_deg = {}                 # node -> 실측 조향각(°)
         self._meas_at = {}                  # node -> 그 각도를 받은 시각(신선도 판정용)
         self._drive_units = 0               # 마지막 구동 지령(raw) — 폴 루프가 재송신한다
         self._steer_counts: dict = {}       # 마지막 조향 목표(counts) — 폴 루프가 재송신한다
-        #   ⚠ 2026-08-05 신설. 예전에는 조향을 **축당 1회만** 보냈다 — 프레임 1장이 유실되면
-        #     그 축은 지령을 통째로 못 받는다. 실제로 조그 첫 지령에서 N4 가 움직이지 않은
-        #     사례가 있고(22:42:53, SDO 거부 없음), 마스터 Seer 는 **28 ms 주기로 연속
-        #     재송신**한다(캡처 12,928회/180초). 구동은 이미 재송신하는데 조향만 빠져 있었다.
         self._rx_at = 0.0                   # 마지막으로 드라이브 응답을 받은 시각
         self._cmd_at = 0.0                  # 마지막으로 **새 지령**을 받은 시각
         self._status_word = {}              # node -> 0x6041
@@ -160,7 +135,7 @@ class DirectBackend(BackendBase):
 
     # ── 수명주기 ──────────────────────────────────────────────────────
     def shutdown(self, reason: str = "") -> None:
-        """원본 `safe_release` 와 같은 멱등 해제 — 제어권 반환 후 USB 닫기."""
+        """제어권을 반환하고 USB 를 닫는다. 종료 경로가 여럿이므로 멱등이다."""
         if self._released:
             return
         self._released = True
@@ -179,7 +154,11 @@ class DirectBackend(BackendBase):
 
     # ── 조회 ──────────────────────────────────────────────────────────
     def meas_angle(self, node: int) -> Optional[float]:
-        """**TTL 밖이면 None** — 폴링이 멈춘 뒤 남은 값을 실측인 척 쓰지 않는다(원본 High ①)."""
+        """그 축의 실측 조향각(°). `meas_ttl_s` 밖이면 `None`.
+
+        폴링 스레드가 죽으면 마지막 값이 남는다 — 그 값을 정착 판정에 쓰면 멈춘 화면을
+        보고 바퀴가 그 각도라고 믿은 채 구동에 들어간다. 신선도가 그것을 막는다.
+        """
         node = int(node)
         deg = self._meas_deg.get(node)
         if deg is None:
@@ -190,21 +169,23 @@ class DirectBackend(BackendBase):
         return deg
 
     def _set_meas(self, node: int, deg: float) -> None:
-        """실측 1건 반영 — **값과 시각을 함께** 남긴다(따로 쓸 수 있으면 언젠가 따로 쓰인다)."""
+        """실측 1건을 값과 수신 시각을 함께 남긴다(따로 쓸 수 있으면 언젠가 따로 쓰인다)."""
         self._meas_deg[node] = deg
         self._meas_at[node] = time.monotonic()
 
     def motor_rows(self) -> dict:
+        """`{node: (각도°|None, rpm|None, 전류 A|None)}` 사본."""
         return dict(self._rows)
 
     def link_status(self) -> tuple:
-        """판다가 열려 있는가 — direct 백엔드에는 드라이버가 없다."""
+        """판다가 열려 있는가 — 이 백엔드에는 드라이버가 없어 USB 개방 여부가 곧 연결이다."""
         if self.panda is None:
             return (False, "판다 · ⚠ 미연결")
         ser = (self._serials[0] if getattr(self, "_serials", None) else "")
         return (True, f"판다 · 연결됨{(' ' + ser) if ser else ''}")
 
     def status(self) -> tuple:
+        """USB·제어권·폴링 상태를 한 줄로. 반환 `(텍스트, 정상인가, 제어권 보유인가)`."""
         if self.panda is None:
             return "판다 USB 미연결", False, False
         if not self._run:
@@ -213,7 +194,11 @@ class DirectBackend(BackendBase):
 
     # ── 조작: 블로킹 ──────────────────────────────────────────────────
     def scan(self) -> tuple:
-        """판다 열거 — **USB 를 열지 않는다.** 원본 `gui.py:748-771` 과 같은 판정."""
+        """판다를 열거한다. USB 는 열지 않는다. 반환 `(성공, 메시지)`.
+
+        2대 이상이면 **막는다** — 어느 장치에 지령이 갈지 모르는 채 진행할 수 없다.
+        대수·시리얼은 목록을 비우기 전에 잡아 메시지에 싣는다.
+        """
         try:
             self._serials = list(_panda_class().list())
         except Exception as exc:
@@ -222,10 +207,6 @@ class DirectBackend(BackendBase):
             return False, "판다 없음 — USB 연결·udev 규칙 확인"
         if len(self._serials) == 1:
             return True, f"판다 검출: {self._serials[0]}"
-        # **차단한다** — 어느 장치에 지령이 갈지 모르는 채 진행할 수 없다(원본 Medium ③).
-        # ⚠ 대수·시리얼을 **비우기 전에** 잡는다. 예전에는 `self._serials = []` 뒤에
-        #   `len(self._serials) or '여러'` 를 써서 **항상 "여러대"** 가 되어 실제 대수가
-        #   보고에서 사라졌다(2026-08-04 리뷰 Medium ①, 같은 날 조치가 만든 회귀).
         found = list(self._serials)
         self._serials = []
         return False, (f"⚠ 판다 {len(found)}대 검출({', '.join(found)}) — 1 PC 1대 원칙 위반. "
@@ -233,6 +214,7 @@ class DirectBackend(BackendBase):
                        f"한 대만 남기고 다시 검색하세요.")
 
     def set_usb(self, on: bool) -> tuple:
+        """판다 USB 를 연다/닫는다. 닫을 때 제어권이 남아 있으면 먼저 반환한다."""
         if on:
             try:
                 self._cls = _panda_class()
@@ -254,9 +236,11 @@ class DirectBackend(BackendBase):
         return True, "USB 해제"
 
     def set_engaged(self, on: bool) -> tuple:
-        """제어권 획득/반환. 원본 `gui.py:803-837` 의 순서 그대로.
+        """제어권 획득/반환. 획득하면 폴링 스레드가 뜬다.
 
         순서가 곧 사양이다: safety_mode → 버스속도 → 버스 enable → auth(0xe9) → intercept(0xe8).
+        반환할 때는 **먼저 구동을 0 으로** 보낸다 — 정지가 못 나간 채 auth·intercept 를
+        내리면 드라이브가 마지막 속도를 문 채 Seer 로 넘어가므로, 실패해도 삼키지 않고 알린다.
         """
         if self.panda is None:
             return False, "USB 를 먼저 연결하세요"
@@ -294,11 +278,9 @@ class DirectBackend(BackendBase):
                 self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xF3, 0, 0, b"")
                 # ── 구동축 브링업 — 제어권 확인 후 · 폴 스레드 시작 **전** ──
                 # `RelayBackend.start()` 가 같은 위치에서 보내는 것과 같은 시퀀스다.
-                # 이것이 없으면 can_relay 프로세스 재시작 뒤 구동축이 `0x60FF` 를 받고도
-                # 돌지 않는다 — 2026-08-08 실기에서 이 경로로 재현됐다
-                # (node1 0.1 rpm / node2 78.2 rpm). 상세는 `backend.py:_write_bringup`.
+                # 이것이 없으면 프로세스 재시작 뒤 구동축이 `0x60FF` 를 받고도 돌지 않는다.
                 # ⚠ **조향축에는 보내지 않는다** — fault reset 이 조향 위치 카운터를 지워
-                #   0° 기준이 무효가 된다(같은 날 실기 확인). 조향 기준 복구는 호밍 소관이다.
+                #   0° 기준이 무효가 된다. 조향 기준 복구는 호밍 소관이다.
                 self._write_bringup()
                 # ⚠ `_rx_at = 0.0` 은 falsy 라 아래 RX 워치독의 첫 항이 계속 거짓이 된다 —
                 #   응답을 **한 번도 못 받으면 워치독이 영원히 무장되지 않고** 구동 지령만
@@ -312,10 +294,8 @@ class DirectBackend(BackendBase):
                 self._th.start()
                 return True, "제어권 획득 — 릴레이 intercept, Seer 에서 가져옴"
             try:
-                self.drive(0.0)                 # 반환 전 반드시 정지(원본과 같음)
+                self.drive(0.0)
             except Exception as exc:
-                # 삼키지 않는다 — 정지가 못 나간 채 auth·intercept 를 내리면 드라이브가
-                # 마지막 속도를 문 채 Seer 로 넘어간다(원본 Medium ④).
                 self._log(f"⚠ 제어권 반환 전 정지 송신 실패 — {type(exc).__name__}: {exc}. "
                           f"드라이브가 마지막 지령을 유지할 수 있습니다. E-STOP 을 확인하세요.")
             self._run = False
@@ -349,19 +329,10 @@ class DirectBackend(BackendBase):
                           f"릴레이가 열리지 않았을 수 있습니다 — E-STOP 을 확인하세요.")
 
     def stop(self) -> tuple:
-        """원본의 「정지」 — **구동만 0**. 조향은 현 위치를 유지한다(지령 없음).
+        """정지 — **구동만 0** 으로 보내고 조향은 현 위치에 그대로 둔다.
 
-        ⚠ 원본에 조향을 세우는 경로가 없다는 것은 실측으로 확인했다(2026-08-04):
-        `grep -c halt_steer Tools/amr_test_gui/gui.py` → **0**,   # 2026-08-03 실행 기록
-        (그 함수는 2026-08-05 `hold_steer_at_measured` 로 개명됐다 — 위 명령은 당시 그대로 남긴다)
-        `grep -n 0x607A …` → 조향 목표를 쓰는 곳은 `_steer_axis`(:443) 하나뿐이고 정지 경로가 아니며,
-        `gui.py:875-879` 의 「정지」는 `_drive(0)` + 로그 "조향은 현 위치 유지" 다.
-        드라이버 경유(`ros2`)는 `stop_all` 로 조향까지 다루지만 **여기서는 옮기지 않는다** —
-        옮기면 프레임 스트림이 달라져 비교가 성립하지 않는다.
-
-        ⚠ 2026-08-05: 조향 목표 **재송신은 멈춘다.** 프레임을 새로 보내는 것이 아니라
-        우리가 반복해 내던 것을 그치는 것이라 위 「지령 없음」과 어긋나지 않는다.
-        멈추지 않으면 정지 후에도 우리 조향 목표가 계속 나간다.
+        조향을 세우는 프레임은 새로 보내지 않고, 폴 루프가 반복해 내던 **조향 목표
+        재송신을 그친다**. 멈추지 않으면 정지 후에도 우리 조향 목표가 계속 나간다.
         """
         self._steer_counts = {}
         if not self._run:
@@ -373,10 +344,16 @@ class DirectBackend(BackendBase):
             return False, f"정지 송신 실패: {type(exc).__name__}: {exc}"
 
     def home(self) -> tuple:
-        """조향 2축 호밍. 원본 `gui.py:946-995` 과 같은 3프레임 + 2상 판정.
+        """조향 2축(N3·N4) 호밍 + 0° 복귀. 반환 `(성공, 사유)`.
 
-        `0x6098`(homing method)은 **쓰지 않는다** — 드라이브 저장값을 덮어쓰면 리셋 모드가 꺼진다.
+        축당 `0x6040=0x86` → `0x6099`(속도) → `0x60FB:04=1`(개시) 3프레임을 보내고
+        상태워드로 완료를 판정한 뒤 0° 를 지령한다.
+
+        `0x6098`(homing method)은 쓰지 않는다 — 드라이브 저장값을 덮어쓰면 리셋 모드가 꺼진다.
         구동 노드(1·2)는 기계적 원점이 없어 호밍 대상이 아니다.
+        `0x60FB:04` 호밍은 원점(리밋)을 잡을 뿐이라 완료 시점의 위치는 0° 가 아니므로
+        0° 복귀가 따로 필요하고, 그 복귀 실패는 전체를 실패로 보고한다 — 「원점은 잡았는데
+        축이 어디 서 있는지 모른다」를 성공으로 적으면 그 다음 구동이 열린다.
         """
         if not self._run:
             return False, "제어권을 먼저 획득하세요"
@@ -401,9 +378,11 @@ class DirectBackend(BackendBase):
             self._homing = False
 
     def _wait_homed(self) -> tuple:
-        """상태워드 bit15 **2상** 판정 — 먼저 0(진행 중)을 보고, 그 다음 1(완료)을 기다린다.
+        """상태워드 bit15 로 완료를 판정한다. 반환 `(성공, 사유)`.
 
-        bit15 가 1 인 것만 보면 안 된다 — 이전에 호밍을 마친 축은 시작 전부터 1 이다.
+        **2상 판정**이다 — 먼저 두 축이 0(진행 중)이 되는 것을 보고, 그 다음 1(완료)을
+        기다린다. 1 만 보면 이전에 호밍을 마친 축이 시작 전부터 1 이라 즉시 완료로 읽힌다.
+        개시 관측 창은 `HOMING_START_S`, 완료 대기는 `HOMING_TIMEOUT_S` 다.
         """
         t0 = time.time()
         started = set()
@@ -427,20 +406,21 @@ class DirectBackend(BackendBase):
 
     # ── 조작: 즉시 반환 ───────────────────────────────────────────────
     def steer_axis(self, node: int, deg: float) -> None:
-        """한 축에만 0x607A + 0x6040=0x3F. 원본 `_steer_axis` 와 같은 2프레임.
+        """그 축에 조향 목표 2프레임(`0x607A` 위치 + `0x6040=0x3F` 적용)을 보낸다.
 
-        지령을 **상태로 남겨** 폴 루프가 재송신한다(마스터와 같은 방식).
+        목표를 상태로 남겨 폴 루프가 재송신한다 — 프레임 한 장이 유실돼도 지령이 살아남는다.
         """
         _applied, counts = steer_counts(int(node), float(deg))
         self._steer_counts[int(node)] = int(counts)
         self._send(P.steer_target_frames(int(node), counts, MOTOR_BUS))
 
     def steer_all(self, deg: float) -> None:
+        """조향 2축을 같은 각으로 보낸다(crab)."""
         for n in STEER_NODES:
             self.steer_axis(n, deg)
 
     def drive(self, mmps: float) -> None:
-        """구동 2축 0x60FF. 지령을 **상태로 남겨** 폴 루프가 재송신한다(원본 High ③)."""
+        """구동 2축에 `0x60FF` 속도를 보낸다. 지령을 상태로 남겨 폴 루프가 재송신한다."""
         units = drive_units(abs(float(mmps)), 1 if mmps >= 0 else -1)
         self._drive_units = units
         self._cmd_at = time.monotonic()
@@ -463,6 +443,7 @@ class DirectBackend(BackendBase):
                   f"(조향축 제외 — fault reset 이 조향 0° 기준을 지운다)")
 
     def _send(self, frames) -> None:
+        """프레임 묶음을 락 안에서 순서대로 판다에 넘긴다. 미연결이면 예외를 던진다."""
         if self.panda is None:
             raise RuntimeError("판다 미연결 — USB 를 먼저 연결하세요")
         with self._can_lock:
@@ -470,10 +451,15 @@ class DirectBackend(BackendBase):
                 self.panda.can_send(f.can_id, f.data[:8], f.bus)
 
     def _loop(self) -> None:
-        """폴링 스레드 — 원본 `gui.py:1014-1062` 과 같은 순서·같은 주기.
+        """폴링 스레드 — heartbeat · 4객체 폴 · 응답 파싱 · 지령 재송신을 한 주기로 돈다.
 
+        읽는 객체는 `0x6064`(위치)·`0x606C`(속도)·`0x6078`(전류)·`0x6041`(상태워드)다.
         heartbeat(0xf3)는 **락 안에서** 보낸다 — 밖에 있으면 조그·호밍 스레드가 락을 쥐고
-        `can_send` 하는 동안 같은 USB 핸들에 심박이 겹친다(원본 High ②, 2026-08-04 수정).
+        `can_send` 하는 동안 같은 USB 핸들에 심박이 겹친다.
+
+        구동은 매 주기 재송신해 프레임 유실에 견디고, 응답이 `RX_TTL_S` 넘게 없으면 버스
+        상태를 모르는 것이므로 0 으로 간다. 조향 목표도 걸려 있으면 같은 이유로 재송신한다.
+        예외가 나면 `_run` 을 내리고 스레드를 끝낸다.
         """
         P_ = self._cls
         while self._run:
@@ -514,7 +500,7 @@ class DirectBackend(BackendBase):
                     self._rx_at = time.monotonic()
                 self._absorb(out)
 
-                # ── 구동 재송신 + 응답 끊김 워치독 (원본 High ③과 같은 조치) ──
+                # ── 구동 재송신 + 응답 끊김 워치독 ──
                 # 재송신: 프레임 1장 유실이 곧 지령 소실이던 것을 막는다. 0 도 재송신한다.
                 # 지령 워치독: 새 지령이 CMD_TTL_S 넘게 없으면 0 으로 수렴시킨다.
                 # 상위(UI·조그)가 죽어도 로봇이 계속 가지 않게 하는 유일한 장치다.
@@ -546,12 +532,15 @@ class DirectBackend(BackendBase):
             time.sleep(0.12)
 
     def _absorb(self, data: dict) -> None:
-        """폴링 결과를 표·각도로. 원본 `_on_motor_data` 와 같은 환산·같은 게이트."""
+        """폴링 응답을 모터 표와 조향 실측으로 환산한다.
+
+        위치는 `(0x6064 − 영점) / 57344` 로 °, 속도는 0.1 r/min 이라 ÷10, 전류는 0.01 A 라 ÷100.
+        호밍 중에는 `0x6064` 가 실위치가 아니라 0 을 돌려주므로 그 구간의 각도는 갱신하지 않는다.
+        """
         for node, vals in data.items():
             deg = rpm = amp = None
             if 0x6041 in vals:
                 self._status_word[node] = vals[0x6041]
-            # 호밍 중 0x6064 는 0 을 돌려주므로 그 구간은 각도를 갱신하지 않는다(원본과 동일).
             if 0x6064 in vals and node in STEER_HOME and not self._homing:
                 deg = (vals[0x6064] - STEER_HOME[node]) / COUNTS_PER_DEG
                 self._set_meas(node, deg)

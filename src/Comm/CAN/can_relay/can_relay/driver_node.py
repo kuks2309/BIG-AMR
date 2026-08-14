@@ -6,13 +6,11 @@
 - **기동만으로 제어권을 잡지 않는다.** `~/engage` 서비스를 명시 호출해야 Seer 에게서
   버스를 가져온다. launch 만으로 로봇이 움직일 수 있는 상태를 만들지 않는다.
 - **역기구학도 단위환산도 하지 않는다.** 이 노드는 모터 계층이다 — 기구학은 액션 서버가,
-  SI→raw 환산은 `amr_motor_cmd_translator` 가 소유한다(`MotorCmd.msg`: "Units are raw
-  device units — NOT SI"). 계층을 지키면 중복 역기구학 문제 자체가 생기지 않는다.
+  SI→raw 환산은 상류 translator 가 소유한다.
 - **메시지를 자체 정의하지 않는다.** `trnav_msgs` 를 빌리며, 없으면 조용히 대체하지 않고
   저수준 경로를 **열지 않는다**.
-- **자동으로 호밍하지 않는다.** 물리 스윙 100°+ 이므로 `~/home` 명시 호출 전용이다.
-  진행 중 취소는 `~/home_cancel` 로 한다 — 펌웨어 시퀀서가 취소 프레임을 낸다
-  (`safety_seer_gate.h:312-316`).
+- **자동으로 호밍하지 않는다.** 물리 스윙 100°+ 이므로 `~/home` 명시 호출 전용이고,
+  진행 중 취소는 `~/home_cancel` 로 한다.
 
 ## 인터페이스
 
@@ -21,13 +19,13 @@
 | 구독 | `/motor/low_cmd` | `trnav_msgs/MotorCmdArray` | **raw** 지령. 환산·기구학 없음 |
 | 발행 | `/motor/low_state` | `trnav_msgs/MotorStateArray` | raw 피드백 → 상류 translator |
 | 구독 | `estop` | `std_msgs/Bool` | 소프트 래치. 하드웨어 E-STOP 을 대체하지 않는다 |
-| 구독 | `~/steer_deg` | `std_msgs/Float64` | 잭업 시험용 직접 조향각 |
-| 구독 | `~/drive_mmps` | `std_msgs/Float64` | 잭업 시험용 직접 구동속도 |
+| 구독 | `~/steer_deg` · `~/steer_axis_deg` | `Float64` · `Float64MultiArray` | 벤치 직접 조향 |
+| 구독 | `~/drive_mmps` | `std_msgs/Float64` | 벤치 직접 구동속도 |
 | 발행 | `joint_states` | `sensor_msgs/JointState` | 조향 실측각(믿을 수 있는 축만) |
 | 발행 | `diagnostics` | `diagnostic_msgs/DiagnosticArray` | 제어권·심박·워치독·abort |
 | 서비스 | `~/engage` | `std_srvs/SetBool` | 제어권 획득/반환 |
 | 서비스 | `~/stop` | `std_srvs/Trigger` | 즉시 정지 |
-| 서비스 | `~/home` | `std_srvs/Trigger` | 조향 호밍(⚠ 물리 스윙) |
+| 서비스 | `~/home` · `~/home_cancel` | `std_srvs/Trigger` | 조향 호밍(⚠ 물리 스윙) · 취소 |
 """
 from __future__ import annotations
 
@@ -57,8 +55,14 @@ LATCHED_QOS = QoSProfile(depth=1,
 
 
 class CanRelayNode(Node):
+    """파라미터를 읽어 백엔드를 세우고 ROS 인터페이스를 여는 드라이버 노드."""
 
     def __init__(self):
+        """파라미터 검증 → 링크·백엔드 생성 → 토픽·서비스·타이머 생성 순으로 기동한다.
+
+        캘리브레이션(조향 홈·길이·호밍 방식·탐색 범위)이 어긋나면 여기서 `ValueError` 로
+        멈춘다 — 잘못된 원점으로 움직이면 물리 손상으로 이어지기 때문이다.
+        """
         super().__init__("can_relay_node")
 
         p = self.declare_parameters("", [
@@ -69,7 +73,7 @@ class CanRelayNode(Node):
             ("steer_nodes", [3, 4]),
             ("steer_limit_deg", S.STEER_LIMIT_DEG),
             # 벤치 직접 지령(`~/steer_deg`·`~/steer_axis_deg`) 전용 상한. 체인 상한과
-            # 분리한다 — 사람이 손으로 넣는 경로는 넓히지 않는다(2026-08-05).
+            # 분리한다 — 사람이 손으로 넣는 경로는 넓히지 않는다.
             ("steer_limit_bench_deg", S.STEER_LIMIT_DEG),
             ("vel_max_units", S.VEL_MAX_UNITS),
             ("cmd_timeout_s", 0.3),
@@ -84,20 +88,18 @@ class CanRelayNode(Node):
             ("homing_speed", 0),    # firmware 경로 전용. 0=펌웨어 기본(2500)
 
             # ── 장비별 캘리브레이션 (config/machine/<기체>.yaml) ──────────
-            # 여기 기본값은 **안전한 쪽**이다: 호밍 비활성 + 홈 0 + 호밍 전 조향 차단.
+            # 여기 기본값은 **안전한 쪽**이다: 호밍 비활성 + 홈 미설정 + 호밍 전 조향 차단.
             # 캘리브레이션 파일을 안 넣으면 아무것도 움직이지 않는다.
             ("machine_name", "(미지정)"),
             ("steer_counts_per_deg", S.COUNTS_PER_DEG),
             ("drive_units_per_mmps", S.VEL_PER_MMPS),
             ("drive_max_units", S.VEL_MAX_UNITS),
-            ("homing_method", "firmware"),      # "firmware" | "35"(2026-08-01 기각)
+            ("homing_method", "firmware"),      # "firmware" | "35"
             ("homing_enabled", False),
             ("steer_home_offset", [], ParameterDescriptor(dynamic_typing=True)),
             # 홈은 코드 기본값을 두지 않는다 — 빈 배열이 곧 "미설정"이고 기동이 거부된다.
-            # 정본은 config/machine/<기체>.yaml (2026-08-02 사용자 지시).
             # ⚠ `dynamic_typing` 이 필요하다 — 빈 기본값을 rclpy 가 BYTE_ARRAY 로 추론해
-            #   YAML 의 정수 배열 로드를 거부한다(실기 기동 실패로 확인, 2026-08-02).
-            #   descriptor.type 지정만으로는 안 된다(Humble 이 기본값 타입으로 덮어씀).
+            #   YAML 의 정수 배열 로드를 거부한다. descriptor.type 지정만으로는 부족하다.
             ("steer_home_counts", [], ParameterDescriptor(dynamic_typing=True)),
             ("home_reach_tol_counts", 50),
             ("home_profile_vel", 2500),
@@ -175,8 +177,7 @@ class CanRelayNode(Node):
         # 모터 계층 메시지. 없으면 저수준 경로를 열지 않는다(조용히 대체하지 않는다).
         self._MotorCmdArray, self._MotorStateArray, self._MotorState = self._load_msgs()
 
-        # ── 모터 계층 계약 (상류 TR_Nav 와 동일) ──────────────────────────
-        # QoS 는 체인 전 구간이 RELIABLE + KeepLast(10) + VOLATILE 다.
+        # 모터 계층 계약 — QoS 는 체인 전 구간이 RELIABLE + KeepLast(10) + VOLATILE 다.
         self.sub_low_cmd = self.pub_low_state = None
         if self._MotorCmdArray is not None:
             self.sub_low_cmd = self.create_subscription(
@@ -186,13 +187,11 @@ class CanRelayNode(Node):
             self.create_timer(1.0 / float(g["low_state_hz"]), self._on_low_state_timer)
 
         # ── 콜백 그룹 분리 (정지 계열이 호밍에 묶이지 않게) ──────────────────
-        # `~/home` 콜백은 terminal 이나 timeout(기본 180 s)까지 반환하지 않는다.
-        # 기본 그룹은 상호배타라, 같은 그룹에 있으면 그동안 `~/home_cancel`·`~/stop`·
-        # `estop` 이 **하나도 소비되지 않는다** — 문서화된 유일한 취소 수단이 정작
-        # 호밍 중에만 죽는다(2026-08-03 리뷰 H1). 회귀: `test/test_node_concurrency.py`.
-        #
+        # `~/home` 콜백은 terminal 이나 timeout 까지 반환하지 않는다. 기본 그룹은 상호배타라
+        # 같은 그룹에 있으면 그동안 `~/home_cancel`·`~/stop`·`estop` 이 하나도 소비되지
+        # 않는다 — 유일한 취소 수단이 정작 호밍 중에만 죽는다.
         # ⚠ 그룹만 나눠서는 부족하다 — 단일 스레드 실행기에서는 여전히 순차 처리다.
-        #   `main()` 이 MultiThreadedExecutor 를 쓰는 것과 **둘이 한 쌍**이다.
+        #   `main()` 의 MultiThreadedExecutor 와 **둘이 한 쌍**이다.
         self._cbg_home = MutuallyExclusiveCallbackGroup()      # 오래 잡는 쪽
         self._cbg_safety = MutuallyExclusiveCallbackGroup()    # 취소·정지·estop
         self._cbg_engage = MutuallyExclusiveCallbackGroup()    # 제어권(스레드 join 대기)
@@ -202,9 +201,7 @@ class CanRelayNode(Node):
             callback_group=self._cbg_safety)
         self.sub_steer = self.create_subscription(
             Float64, "~/steer_deg", self._on_steer_deg, 10)
-        # 축별 조향 — 시험 GUI 의 앞/뒤 슬라이더용. `[node, deg]` 2원소.
-        # 전축 동일각(`~/steer_deg`)만으로는 앞뒤를 따로 세울 수 없다
-        # (ADR 2026-08-03-amr-test-gui-ros2-port §Decision ⓑ).
+        # 축별 조향 — 전축 동일각(`~/steer_deg`)만으로는 앞뒤를 따로 세울 수 없다.
         self.sub_steer_axis = self.create_subscription(
             Float64MultiArray, "~/steer_axis_deg", self._on_steer_axis_deg, 10)
         self.sub_drive = self.create_subscription(
@@ -232,10 +229,10 @@ class CanRelayNode(Node):
 
     # ── 모터 계층 메시지 대여 ─────────────────────────────────────────
     def _load_msgs(self):
-        """`trnav_msgs` 를 빌린다. 없으면 저수준 경로를 열지 않는다.
+        """`trnav_msgs` 에서 `(MotorCmdArray, MotorStateArray, MotorState)` 를 빌린다.
 
-        이 패키지는 메시지를 자체 정의하지 않는다 — 상류(`TR_Nav_ros2_ws`)와 같은 타입을
-        써야 체인이 이어지고, 중복 정의는 `trnav_2ws_msgs` 폐기 때 이미 한 번 겪은 문제다.
+        이 패키지는 메시지를 자체 정의하지 않는다 — 상류와 같은 타입을 써야 체인이 이어진다.
+        import 에 실패하면 세 값 모두 `None` 이고 저수준 경로를 열지 않는다.
         """
         try:
             from trnav_msgs.msg import MotorCmdArray, MotorState, MotorStateArray
@@ -250,19 +247,17 @@ class CanRelayNode(Node):
 
     # ── 구독 콜백 ─────────────────────────────────────────────────────
     def _on_low_cmd(self, msg):
-        """`/motor/low_cmd`(MotorCmdArray) — 상류 translator 가 낸 **raw** 지령.
+        """`/motor/low_cmd` — 상류 translator 가 낸 **raw** 지령을 백엔드에 넘긴다.
 
-        환산도 기구학도 하지 않는다. 그 둘은 상류(액션 서버 IK · translator SI→raw)가
-        소유한다. 여기서는 안전 클램프만 raw 단위로 걸고 CAN 으로 내보낸다.
+        환산도 기구학도 하지 않는다. 안전 클램프만 raw 단위로 걸고 CAN 으로 내보낸다.
 
-        ⚠ 단 **조향 원점은 여기가 소유한다** — `target_pos` 는 홈(직진 0°) 기준 상대
-        counts 이고, `set_motor_cmds` 가 기체 캘리브레이션(`steer_home_counts`)을 더해
-        절대 counts 로 만든다. 피드백(`/motor/low_state`)도 같은 좌표계로 되돌린다.
-        홈 counts 의 정본은 `config/machine/<기체>.yaml` 하나이므로 상류에 복제하지 않는다.
+        **조향 원점은 이 계층이 소유한다** — `target_pos` 는 홈(직진 0°) 기준 상대 counts 이고
+        백엔드가 기체 캘리브레이션을 더해 절대 counts 로 만든다. 피드백도 같은 좌표계로
+        되돌리므로 홈 counts 를 상류에 복제하지 않는다.
 
-        ⚠ 축별 조향각이 갈리는 지령(선회)은 **정상**이다 — bicycle 모델의 정의가
-        `omega = vx(tan δf − tan δr)/L` 이라 전·후 각이 달라야 회전이 된다.
-        구 `cmd_vel` 경로에 있던 1.0° 편차 거부 게이트는 그래서 제거했다.
+        축별 조향각이 갈리는 지령(선회)은 정상이다 — bicycle 모델은 전·후 각이 달라야
+        회전이 되므로 여기서 편차로 거부하지 않는다.
+        필드 접근 실패와 백엔드가 돌려준 거부 사유는 모두 `_reject` 로 센다.
         """
         try:
             cmds = [(m.motor_id, m.mode, m.target_vel, m.target_pos, m.profile_vel)
@@ -274,6 +269,7 @@ class CanRelayNode(Node):
             self._reject(note)
 
     def _on_low_state_timer(self):
+        """백엔드의 노드별 raw 피드백을 `MotorStateArray` 로 발행한다."""
         if self.pub_low_state is None:
             return
         arr = self._MotorStateArray()
@@ -286,13 +282,17 @@ class CanRelayNode(Node):
         self.pub_low_state.publish(arr)
 
     def _on_steer_deg(self, msg: Float64):
+        """`~/steer_deg` — 전 조향축을 같은 각으로 세운다. 거부되면 사유를 센다."""
         try:
             self.backend.set_steer_deg(float(msg.data))
         except S.UnsafeCommand as exc:
             self._reject(str(exc))
 
     def _on_steer_axis_deg(self, msg: Float64MultiArray):
-        """`[node, deg]` — 축 하나만 세운다. 형식이 어긋나면 거부 사유를 남긴다."""
+        """`~/steer_axis_deg` — `[node, deg]` 로 축 하나만 세운다.
+
+        길이가 2 가 아니거나 node 가 정수가 아니면 거부 사유를 남긴다.
+        """
         if len(msg.data) != 2:
             self._reject(f"~/steer_axis_deg 는 [node, deg] 2원소여야 한다 "
                          f"(받은 길이 {len(msg.data)})")
@@ -307,20 +307,28 @@ class CanRelayNode(Node):
             self._reject(str(exc))
 
     def _on_drive_mmps(self, msg: Float64):
+        """`~/drive_mmps` — 구동 속도를 세운다. 거부되면 사유를 센다."""
         try:
             self.backend.set_drive_mmps(float(msg.data))
         except S.UnsafeCommand as exc:
             self._reject(str(exc))
 
     def _on_estop(self, msg: Bool):
+        """`estop` 래치를 백엔드에 그대로 전달한다."""
         self.backend.estop(bool(msg.data))
 
     def _reject(self, why: str):
+        """거부 1건을 세고 사유를 경고로 남긴다(초당 1회로 조인다)."""
         self._rejected += 1
         self.get_logger().warn(f"지령 거부 — {why}", throttle_duration_sec=1.0)
 
     # ── 서비스 ────────────────────────────────────────────────────────
     def _srv_engage(self, req: SetBool.Request, res: SetBool.Response):
+        """`~/engage` — 참이면 열기·획득·백엔드 기동, 거짓이면 정지·반환·닫기.
+
+        예외는 종류를 가리지 않고 잡아 응답에 싣는다 — 제어권 조작은 어떤 실패도
+        호출자에게 돌려줘야 하기 때문이다.
+        """
         try:
             if req.data:
                 self.link.open()
@@ -334,9 +342,6 @@ class CanRelayNode(Node):
                 res.message = "제어권 반환 — passthrough"
             res.success = True
         except Exception as exc:
-            # LinkError·RuntimeError 모두 Exception 하위다 — 나열하면 "구분해서 다룬다"는
-            # 인상만 주고 동작은 같다. 제어권 조작은 어떤 실패도 응답으로 돌려줘야 하므로
-            # 광범위 포획인 것을 그대로 적는다(2026-08-03 리뷰 L3).
             res.success = False
             res.message = f"{type(exc).__name__}: {exc}"
             self.get_logger().error(res.message)
@@ -344,14 +349,22 @@ class CanRelayNode(Node):
         return res
 
     def _srv_stop(self, _req, res: Trigger.Response):
+        """`~/stop` — 구동 0 + 조향 현 위치 유지. 유지 실패 사유는 메시지에 싣는다.
+
+        「실측 미확보」와 「이동 중 보류」는 대처가 다르므로 사유를 그대로 전달한다.
+        """
         ok = self.backend.stop_all("서비스 요청")
         res.success = True
-        # 사유를 그대로 전달한다 — 「실측 미확보」와 「이동 중 보류」는 대처가 다르다.
         res.message = ("구동 0 송신 · 조향 목표 재송신 중단(축은 직전 목표까지 회전할 수 있음)" if ok else
                        f"구동 0 송신 · ⚠ 조향 미유지 — {self.backend.halt_note()}")
         return res
 
     def _srv_home(self, _req, res: Trigger.Response):
+        """`~/home` — 조향 호밍(⚠ 물리 스윙 100°+)을 수행하고 결과를 반환한다.
+
+        결과는 응답뿐 아니라 **로그에도 남긴다** — 0° 복귀가 게이트에 거부돼도 노드 로그로
+        사유를 추적할 수 있어야 한다.
+        """
         self.get_logger().warn(
             "호밍 요청 — 조향이 100° 이상 스윙합니다. 진행 중 중단은 "
             "`~/home_cancel` 로 가능합니다(펌웨어 시퀀서가 취소 프레임을 냅니다). "
@@ -362,6 +375,7 @@ class CanRelayNode(Node):
         return res
 
     def _srv_home_cancel(self, _req, res: Trigger.Response):
+        """`~/home_cancel` — 진행 중 호밍을 취소하고 결과를 경고로 남긴다."""
         ok, why = self.backend.cancel_home()
         res.success = ok
         res.message = why
@@ -370,18 +384,28 @@ class CanRelayNode(Node):
 
     # ── 타이머 ────────────────────────────────────────────────────────
     def _on_state_timer(self):
+        """조향 실측각을 `joint_states`(rad)로 발행한다.
+
+        믿을 수 없는 축은 **발행하지 않는다** — 0 으로 채우면 상위가 그것을 실측으로 읽는다.
+        """
         angles = self.backend.steer_angles_deg()
         js = JointState()
         js.header.stamp = self.get_clock().now().to_msg()
         for n, deg in sorted(angles.items()):
             if deg is None:
-                continue        # 믿을 수 없는 축은 발행하지 않는다(0 으로 채우지 않는다)
+                continue
             js.name.append(f"steer_{n}")
             js.position.append(math.radians(deg))
         if js.name:
             self.pub_joints.publish(js)
 
     def _on_diag_timer(self):
+        """백엔드 스냅샷을 진단 1건으로 요약해 발행한다.
+
+        level 은 심각한 것부터 고른다: 루프 오류 → CAN 버스 이상 → E-stop → 제어권 미획득
+        → 호밍 중 → 피드백 끊김 → SDO 거부 → 정상. key/value 에는 제어권·지령·워치독·
+        노드별 상태와 버스 에러 카운터(REC/TEC 는 uint8 이라 255 에서 포화)를 싣는다.
+        """
         snap = self.backend.snapshot()
         st = DiagnosticStatus()
         st.name = "can_relay: 릴레이 구동"
@@ -423,7 +447,6 @@ class CanRelayNode(Node):
                        f"homed={v['homed']} fresh={v['fresh']} "
                        f"di={v['digital_input']} aborts={v['aborts']}")))
 
-        # per-bus CAN 에러 상태 — REC/TEC 는 uint8 이라 255 에서 포화한다.
         if snap.get("health_supported") is False:
             st.values.append(KeyValue(key="bus_health",
                                       value=f"미지원 ({snap.get('health_error')})"))
@@ -448,7 +471,7 @@ class CanRelayNode(Node):
         self.pub_diag.publish(arr)
 
     def destroy_node(self):
-        """종료 시 반드시 정지 → 제어권 반환 순서로 내려간다."""
+        """종료 시 반드시 정지 → 제어권 반환 → 닫기 순서로 내려간다."""
         try:
             self.backend.shutdown()
             self.link.release()
@@ -462,9 +485,8 @@ class CanRelayNode(Node):
 def main(args=None):
     """진입점. **다중 스레드 실행기**를 쓴다 — 단일 스레드면 취소가 도달하지 못한다.
 
-    `rclpy.spin()`(단일 스레드)에서는 `~/home` 콜백이 도는 동안 다른 콜백이 하나도
-    처리되지 않는다. 콜백 그룹 분리(`__init__`)와 **한 쌍**으로만 성립한다 —
-    둘 중 하나만 있으면 취소·정지는 여전히 막힌다(2026-08-03 리뷰 H1).
+    단일 스레드에서는 `~/home` 콜백이 도는 동안 다른 콜백이 하나도 처리되지 않는다.
+    콜백 그룹 분리와 **한 쌍**으로만 성립하며, 둘 중 하나만 있으면 취소·정지는 여전히 막힌다.
     """
     rclpy.init(args=args)
     node = None

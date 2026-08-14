@@ -1,27 +1,11 @@
 #!/usr/bin/env python3
 """시험 GUI 백엔드 인터페이스 — UI 는 이 계약만 알고, 어느 경로로 나가는지는 모른다.
 
-설계 근거: `docs/adr/2026-08-04-amr-test-gui-swappable-backend.md`.
+구현체는 둘이다. `Ros2Backend` 는 `can_relay_node` 의 토픽·서비스를 거치고,
+`DirectBackend` 는 판다 USB 를 직접 연다. 위젯 트리는 한 벌이고 백엔드만 갈아 끼운다.
 
-## 왜 이렇게 나눴나
-
-UI 가 2벌이면 실기에서 차이가 나와도 **백엔드 차이인지 UI 차이인지 가릴 수 없다.**
-그래서 위젯 트리는 1벌로 고정하고, 아래 계약을 만족하는 백엔드를 갈아 끼운다:
-
-- `Ros2Backend`   — `can_relay_node` 경유(토픽·서비스)
-- `DirectBackend` — 판다 USB 직결(원본 `Tools/amr_test_gui/gui.py` 와 같은 경로)
-
-## capability
-
-백엔드마다 **할 수 있는 일이 다르다.** UI 는 못 하는 기능의 버튼을 지우지 않고
-**비활성 + 사유 툴팁**으로 남긴다 — 그래야 화면이 항상 같고, 무엇이 다른지가 드러난다.
-
-## 스레드 규약
-
-`CAP_*` 조작 메서드 중 **`(bool, str)` 를 돌려주는 것은 블로킹**이다 — UI 스레드에서 부르지 말고
-작업 스레드에서 부른다. 나머지(`steer_*`·`drive`)는 즉시 반환한다.
-조회 메서드(`meas_angle`·`motor_rows`·`status`)는 **락 안에서 사본을 만들어** 돌려주므로
-어느 스레드에서 불러도 된다.
+백엔드마다 할 수 있는 일이 다르므로 `capabilities` 로 선언한다. UI 는 못 하는 기능의
+버튼을 지우지 않고 비활성 + 사유 툴팁으로 남긴다.
 """
 from __future__ import annotations
 
@@ -38,51 +22,55 @@ CAP_STEER_ALL = "steer_all"     # 전축 동일각(crab)
 CAP_DRIVE = "drive"             # 구동 속도
 CAP_MOTOR_TABLE = "motor_table"  # 모터 표(각도·회전·전류) 채우기
 
-#: 호밍 **취소**는 capability 목록에 두지 않는다 — 드라이버에는 서비스가 있으나
-#: UI 는 노출하지 않기로 했다. 취소해도 축이 어중간한 위치에 남아 어차피 다시 호밍해야 하므로
-#: 얻는 것이 없다(ADR 2026-08-04 §Decision ②, 사용자 결정).
-
 
 class BackendBase:
-    """UI 가 기대하는 계약. 구현체는 `name`·`capabilities` 를 반드시 채운다."""
+    """UI 가 기대하는 계약. 구현체는 `name`·`capabilities` 를 반드시 채운다.
+
+    스레드 규약: `(bool, str)` 를 돌려주는 조작 메서드는 **블로킹**이므로 작업 스레드에서
+    부른다. `steer_*`·`drive` 는 즉시 반환한다. 조회 메서드(`meas_angle`·`motor_rows`·
+    `status`)는 락 안에서 사본을 만들어 돌려주므로 어느 스레드에서 불러도 된다.
+
+    비상정지는 이 계층에 없다 — GUI 가 그 버튼을 두지 않는다. 하드웨어 차단이 권위이며,
+    드라이버 쪽에는 별도 계약이 따로 있다.
+    """
 
     name: str = "(미지정)"
     capabilities: frozenset = frozenset()
 
     # ── 수명주기 ──────────────────────────────────────────────────────
     def start(self) -> None:
-        """백그라운드 자원(스레드·노드) 기동. 하드웨어를 열지 않는다."""
+        """백그라운드 자원(스레드·노드)을 띄운다. 하드웨어는 열지 않는다."""
 
     def shutdown(self, reason: str = "") -> None:
-        """정지 → 제어권 반환 → 자원 해제. **멱등이어야 한다** — 종료 경로가 여럿이다."""
+        """정지 → 제어권 반환 → 자원 해제. 종료 경로가 여럿이므로 멱등이어야 한다."""
 
     # ── 조회 (어느 스레드에서나) ──────────────────────────────────────
     def meas_angle(self, node: int) -> Optional[float]:
-        """그 축의 실측 조향각(°). **신선하지 않으면 None** — 오래된 값을 실측인 척하지 않는다."""
+        """그 축의 실측 조향각(°). 신선하지 않으면 `None` 을 돌려준다.
+
+        오래된 값을 실측인 척 돌려주면 정착 판정이 멈춘 화면을 보고 통과한다.
+        """
         raise NotImplementedError
 
     def motor_rows(self) -> dict:
-        """`{node: (각도°|None, 회전|None, 전류A|None)}`. 모르는 칸은 None 으로 둔다."""
+        """`{node: (각도°|None, 회전|None, 전류 A|None)}`. 모르는 칸은 `None` 으로 둔다."""
         return {}
 
     def status(self) -> tuple:
-        """`(텍스트, 정상인가, 제어권 보유인가)` — 하단 상태 바용."""
+        """`(텍스트, 정상인가, 제어권 보유인가)` — 로봇 상태를 하단 상태 바에 표시한다."""
         raise NotImplementedError
 
     def link_status(self) -> tuple:
-        """`(연결됨, 텍스트)` — **이 백엔드가 상대와 붙어 있는가**를 화면에 보이기 위한 것.
+        """`(연결됨, 텍스트)` — 이 백엔드가 상대와 **말이 통하는가**.
 
-        `status()` 와 다르다. `status()` 는 「로봇이 정상인가」이고 이것은 「**말이 통하는가**」다.
-        둘을 섞으면 드라이버가 죽었는지 로봇이 이상한지 화면에서 구분할 수 없다
-        (2026-08-05 사용자 지적: 「can relay 연결 확인이 없음 — 연결 표시되어야 함 화면에」).
-
-        - ros2  : 드라이버(`can_relay_node`) 진단이 신선한가
-        - direct: 판다가 열려 있는가
+        `status()` 와 다르다. `status()` 는 로봇이 정상인가이고 이것은 통신이 살아 있는가다.
+        둘을 섞으면 드라이버가 죽은 것과 로봇이 이상한 것을 화면에서 구분할 수 없다.
+        ros2 는 드라이버 진단의 신선도로, direct 는 판다 개방 여부로 판정한다.
         """
         raise NotImplementedError
 
     def settled(self, target_deg: float, tol_deg: float, nodes) -> bool:
-        """**모든 조향축**이 허용치 안인가. 실측 없는 축은 정착으로 치지 않는다."""
+        """**모든 조향축**이 목표 ±`tol_deg`(°) 안인가. 실측 없는 축은 정착으로 치지 않는다."""
         for n in nodes:
             cur = self.meas_angle(n)
             if cur is None or abs(target_deg - cur) > tol_deg:
@@ -91,42 +79,48 @@ class BackendBase:
 
     # ── 조작: 블로킹 (작업 스레드에서) ────────────────────────────────
     def scan(self) -> tuple:
-        """판다 열거. 반환 `(성공, 메시지)`."""
+        """판다를 열거한다. USB 는 열지 않는다. 반환 `(성공, 메시지)`."""
         return False, f"{self.name}: 검색 미지원"
 
     def set_usb(self, on: bool) -> tuple:
+        """판다 USB 를 열거나 닫는다. 반환 `(성공, 메시지)`."""
         return False, f"{self.name}: USB 개폐 미지원"
 
     def set_engaged(self, on: bool) -> tuple:
+        """제어권을 획득하거나 반환한다. 반환 `(성공, 메시지)`."""
         raise NotImplementedError
 
     def stop(self) -> tuple:
+        """구동을 멈춘다. 반환 `(성공, 메시지)`."""
         raise NotImplementedError
 
     def home(self) -> tuple:
-        """조향 원점 복귀. ⚠ **물리 스윙 100°+**. 취소 경로는 노출하지 않는다."""
+        """조향 원점 복귀. 반환 `(성공, 메시지)`.
+
+        축이 100° 넘게 물리적으로 돈다 — 이동구역을 확인한 뒤 호출한다.
+        취소 경로는 노출하지 않는다: 중간에 끊으면 축이 어중간한 위치에 남아 다시
+        호밍해야 하므로 얻는 것이 없다.
+        """
         raise NotImplementedError
 
     # ── 조작: 즉시 반환 ───────────────────────────────────────────────
-    # ⚠ E-stop 은 **이 계층에 없다**. 원본 `Tools/amr_test_gui/gui.py` 에 E-stop 이 없고
-    #   이 이식본의 계약이 「UI 100% 동일」이므로 버튼이 없다. 예전에는 `CAP_ESTOP`·`estop`·
-    #   `pub_estop` 이 남아 **아무도 호출하지 않는 경로**가 됐다(2026-08-04 리뷰 Medium ③·④).
-    #   드라이버의 `~/estop` 구독은 **그대로 살아 있다** — 그것은 드라이버의 계약이고
-    #   `test_backend.py`·`test_gui_node.py` 가 고정한다. 여기서 지운 것은 GUI 측 배선뿐이다.
-    #   나중에 E-stop 을 노출한다면 원본과 이식본에 **함께** 넣어야 두 GUI 가 계속 같아진다.
     def steer_axis(self, node: int, deg: float) -> None:
+        """그 축 하나의 조향 목표를 `deg`(°)로 세운다."""
         raise NotImplementedError
 
     def steer_all(self, deg: float) -> None:
+        """모든 조향축을 같은 각 `deg`(°)로 세운다(crab)."""
         raise NotImplementedError
 
     def drive(self, mmps: float) -> None:
+        """구동 속도를 `mmps`(mm/s)로 세운다. 부호가 전·후진 방향이다."""
         raise NotImplementedError
 
     # ── 편의 ─────────────────────────────────────────────────────────
     def can(self, cap: str) -> bool:
+        """그 capability 를 이 백엔드가 지원하는가."""
         return cap in self.capabilities
 
     def why_not(self, cap: str) -> str:
-        """그 기능을 못 쓰는 이유 1줄 — 버튼 툴팁에 그대로 쓴다."""
+        """그 기능을 못 쓰는 이유 한 줄 — 버튼 툴팁에 그대로 쓴다."""
         return f"{self.name} 백엔드에서는 이 기능을 쓰지 않습니다"

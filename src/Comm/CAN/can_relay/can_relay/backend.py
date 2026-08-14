@@ -17,9 +17,8 @@
 6. **호밍은 자동으로 하지 않는다.** 물리 스윙 100°+ 이므로 명시 요청으로만 수행한다.
    **취소는 된다** — `home()` 은 판다 펌웨어 시퀀서(USB `0xea`/`0xeb`)를 쓰고
    `cancel_home()` 이 취소 프레임(`0x60FB:04=0`)을 내게 한다
-   (`Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h:312-316`
-   `seer_home_cancel_frames()`). SDO 직접 송신 경로로도 같은 프레임을 낼 수는 있으나
-   그쪽 취소는 **호스트가 살아 있을 때만** 성립하므로 쓰지 않는다(정정 2026-08-03).
+   (펌웨어 시퀀서가 취소 프레임을 낸다). SDO 직접 송신 경로로도 같은 프레임을 낼 수는 있으나
+   그쪽 취소는 **호스트가 살아 있을 때만** 성립하므로 쓰지 않는다.
 7. **버스 헬스(0xc3)는 읽기 전용**이라 제어 경로에 영향이 없다. 실패해도 지령·정지는
    그대로 돌고, 기능 부재와 일시적 실패를 구분한다(전자만 영구 비활성).
 """
@@ -77,7 +76,7 @@ class RelayConfig:
     health_hz: float = 1.0          # per-bus CAN 에러 상태(0xc3) 폴링 주기
     steer_limit_deg: float = S.STEER_LIMIT_DEG
     #   저수준 체인(`/motor/low_cmd`)용 상한. 크랩이 90° 자세에서 path follow 여유로
-    #   ±115° 까지 요구하므로 그만큼 열어 둔다(2026-08-05, foil_a082.yaml 근거 주석 참조).
+    #   ±115° 까지 요구하므로 그만큼 열어 둔다(값은 캘리브레이션 YAML 이 준다).
     steer_limit_bench_deg: float = S.STEER_LIMIT_DEG
     #   **벤치 직접 지령**(`~/steer_deg`·`~/steer_axis_deg`)용 상한. 사람이 손으로 넣는
     #   값이라 넓힐 이유가 없어 90° 를 유지한다. 체인 상한을 열어도 이쪽은 따라 열리지 않는다
@@ -90,7 +89,7 @@ class RelayConfig:
     drive_units_per_mmps: float = S.VEL_PER_MMPS
     steer_home: dict = field(default_factory=dict)
     #   ⚠ 비어 있으면 조향 지령이 **거부**된다. 코드 기본값을 두지 않는 것이 설계다 —
-    #   정본은 `config/machine/<기체>.yaml`. (2026-08-02 사용자 지시)
+    #   정본은 `config/machine/<기체>.yaml` 하나다.
     settle_tol_deg: float = 3.0
     # 구동축 init 시퀀스 송신 여부. ⚠ 이 **코드 기본값은 False** 이지만 배포 설정
     # `config/can_relay.yaml` 은 true 이며 launch 가 그것을 넣는다 — 실동작은 켜져 있다.
@@ -99,9 +98,9 @@ class RelayConfig:
 
     # ── 호밍 (장비별 캘리브레이션 — config/machine/<기체>.yaml) ──────────
     homing_method: str = "firmware"
-    #   ⚠ 기본값은 **안전한 쪽**이다. "35"(재영점)는 2026-08-01 실기에서 기각됐다 —
-    #   제어권 반환 순간 Seer 가 130.55° 오독하고 조향을 능동 구동했다.
-    #   설정이 안 실렸을 때 기각된 방식으로 떨어지면 안 된다.
+    #   ⚠ 기본값은 **안전한 쪽**이다. "35"(재영점)는 제어권 반환 순간 Seer 가 각도를
+    #   크게 오독하고 조향을 능동 구동하므로 채택하지 않았다. 설정이 안 실렸을 때
+    #   기각된 방식으로 떨어지면 안 된다.
     homing_enabled: bool = False    # ⚠ home_offset 실측 확정 전까지 False
     steer_home_offset: dict = field(default_factory=dict)   # {node: 절대 counts}
     home_reach_tol_counts: int = 50         # 상류 can_open.hpp:489 와 동일
@@ -110,17 +109,14 @@ class RelayConfig:
     require_homed_for_steer: bool = True
     stationary_tol_counts: int = 200
     #   `NodeState.stationary` 의 정지 판정 허용치. 200 counts = 0.0035°.
-    #   ⚠ 2026-08-05 이후 조향 정지 경로는 이 값을 쓰지 않는다(프레임을 안 보낸다).
-    #   근거: 마스터(Seer) 캡처에서 `0x607A ≈ 현재 실측` 송신 12,396건이 전부 |Δ| ≤ 200 c 대역이다
-    #   (`Log/homing_capture_220350.jsonl`, 재현 `Tools/docking_field_kit/master_command_census.py`).
-    #   즉 **실측으로 확인된 사용 상황의 폭**을 그대로 임계로 쓴다 — 임의로 고른 수가 아니다.
-    #   매뉴얼 §Home 35 "only effective when the motor is powered on" —
-    #   전원 사이클마다 재호밍이 필요하므로 완료 전 조향 지령을 막는다(상류 home_comp 와 같은 역할).
+    #   ⚠ 조향 정지 경로는 이 값을 쓰지 않는다(프레임을 안 보낸다).
+    #   method 35 는 모터에 전원이 들어와 있을 때만 유효해 전원 사이클마다 재호밍이
+    #   필요하므로, 완료 전 조향 지령을 막는다.
     tx_fail_halt: int = 10          # 연속 **송신** 실패가 이만큼이면 심박을 끊는다
     #   그래야 펌웨어 fail-safe(구동 0 + 릴레이 개방)가 걸린다. 지령을 못 내보내는
     #   상태에서 심박만 유지하면 정지 수단이 사라진다.
     #   ⚠ 세는 대상은 **송신 실패뿐**이다. 수신·진단 쪽 예외까지 세면 읽기 경로의
-    #   일시 오류가 로봇을 세우면서 원인은 "송신 실패"로 잘못 표시된다(2026-08-03 리뷰 M2).
+    #   일시 오류가 로봇을 세우면서 원인은 "송신 실패"로 잘못 표시된다.
 
 
 class RelayBackend:
@@ -221,12 +217,6 @@ class RelayBackend:
           ② **드라이브가 스스로 「호밍 완료」를 보고한다**(`0x6041` bit15).
              **Seer 가 호밍한 경우가 여기 잡힌다.**
 
-        ⚠ 예전에는 ①만 봤다. 그래서 Seer 가 이미 호밍해 둔 상태(bit15=1)인데도 조향이 통째로
-          거부돼, 실기에서 바퀴가 **한 카운트도 움직이지 않았다**(2026-08-04 실측:
-          호밍 전 판독 N3·N4 = `0x9450` → bit15 이미 1).
-          「0° 기준을 모른다」는 전제 자체도 같은 날 반증됐다 — 판다 직독 조향과 Seer 판독이
-          0° 로 교차 일치했고(−0.0° ↔ +0.0°) 정본 YAML 과 ±6 counts 였다.
-
         ⚠ **신선한 피드백일 때만** 인정한다. 낡은 상태워드로 「호밍됐다」고 하면 통신이 끊긴
           뒤에도 조향이 열린다.
         """
@@ -293,8 +283,7 @@ class RelayBackend:
         """**한 축에만** 조향 절대각 지령. 반환 = 클램프 적용된 각도.
 
         `set_steer_deg` 는 조향 전축에 같은 각을 준다(crab). 시험 GUI 의 축별 슬라이더처럼
-        앞뒤를 따로 세우려면 축 하나만 움직이는 경로가 필요하다
-        (ADR `docs/adr/2026-08-03-amr-test-gui-ros2-port.md` §Decision ⓑ).
+        앞뒤를 따로 세우려면 축 하나만 움직이는 경로가 필요하다.
 
         **안전 게이트는 `set_steer_deg` 와 완전히 같다** — 축이 하나라고 보호를 빼지 않는다:
         호밍 중 거부 · E-stop 거부 · 호밍 미완료 거부 · ±limit 클램프.
@@ -372,11 +361,8 @@ class RelayBackend:
                     notes.append(f"node{mid} 조향축에 mode={P.MODE_NAME.get(mode, mode)} "
                                  f"— POSITION 만 허용, 거부")
                     continue
-                # 호밍 출처를 가리지 않는다 — `set_steer_deg`(:271)·`set_steer_axis_deg`(:308)
-                # 와 같은 판정을 쓴다. 예전에는 `self._homed` 만 봐서, Seer 가 호밍해 둔
-                # 상태(bit15=1)인데도 **이 raw 경로만** 조향을 통째로 거부했다
-                # (2026-08-08 실기: ROS2 모션 체인의 crab Phase 0 이 87.65° 를 5초간
-                #  지령했으나 조향 엔코더 0 counts — `homed_effective` 도입 때 누락된 경로).
+                # 호밍 출처를 가리지 않는다 — `set_steer_deg`·`set_steer_axis_deg` 와
+                # 같은 판정을 쓴다(Seer 가 호밍해 둔 상태도 인정한다).
                 if self.cfg.require_homed_for_steer and not self.homed_effective():
                     notes.append(f"node{mid} 호밍 미완료 — 조향 거부")
                     continue
@@ -387,16 +373,12 @@ class RelayBackend:
                     notes.append(f"node{mid} 조향 홈 미설정 — 캘리브레이션 config 필요, 거부")
                     continue
                 # 상류가 보내는 `target_pos` 는 **홈(직진 0°) 기준 상대 counts** 다.
-                # 여기서 기체 원점을 더해 절대 counts 로 만든다 — `set_steer_deg` 가
-                # `steer_deg_to_counts`(safety.py:85 `home + deg×counts_per_deg`)로 하는 것과
-                # 같은 일이며, 실기 검증된 그 원점을 raw 경로가 재사용하는 것이다.
-                #
-                # ⚠ 상류가 원점을 더하게 두지 않는 이유: 홈 counts 의 정본은
-                #   `config/machine/<기체>.yaml` 하나다. 상류 config 에 복제하면 정본이 둘이 되고,
-                #   기체를 바꿀 때 한쪽만 갱신되면 그 오차가 그대로 바퀴로 나간다.
-                #
-                # 이 변환이 없으면 0°(직진) 지령이 상대 0 counts 로 들어와 절대 0 으로 읽히고,
-                # 아래 클램프 하한(home−limit)까지 잘려 **−90° 로 지령된다**(2026-08-05 리뷰 Critical).
+                # 여기서 기체 원점을 더해 절대 counts 로 만든다.
+                # 상류가 원점을 더하게 두지 않는 이유: 홈 counts 의 정본은 캘리브레이션 YAML
+                # 하나이며, 상류에 복제하면 정본이 둘이 되어 한쪽만 갱신될 때 그 오차가
+                # 그대로 바퀴로 나간다.
+                # 이 변환이 없으면 0°(직진) 지령이 절대 0 counts 로 읽혀 아래 클램프 하한까지
+                # 잘린다.
                 home = int(self.cfg.steer_home[mid])
                 target = home + int(tpos)
                 lo, hi = home - limit_c, home + limit_c
@@ -406,8 +388,8 @@ class RelayBackend:
                                  f"{self.cfg.steer_limit_deg:.0f}°, 홈 기준)")
                 # profile_vel 은 **반영하지 않는다** — 조향은 PP 모드라 실제 속도는
                 # 드라이브에 마지막으로 기록된 0x6081 이 결정한다. 매 지령마다 0x6081 을
-                # 덧붙이는 것은 실기 미검증 변경이라 HIL 게이트 전까지 하지 않는다(debt-038).
-                # 조용히 버리지 않고 상위가 알 수 있게 남긴다(2026-08-03 리뷰 M1).
+                # 덧붙이는 것은 실기 미검증 변경이라 하지 않는다.
+                # 조용히 버리지 않고 상위가 알 수 있게 남긴다.
                 # ⚠ `notes` 에 넣지 않는다 — 반환 목록은 **거부·클램프 사유** 전용이고
                 #   호출부가 그것을 `rejected_commands` 로 센다. 정보 고지를 섞으면
                 #   정상 지령이 거부로 집계된다. 로그로만, 그것도 **값이 바뀔 때 한 번**
@@ -422,8 +404,8 @@ class RelayBackend:
                 notes.append(f"motor_id {mid} 는 배선에 없다 — 무시")
         with self._lock:
             if drive and self._estop:
-                # 조향과 대칭으로 사유를 남긴다 — 예전에는 구동만 조용히 사라져
-                # 상위에서 "수리됨"과 구분할 수 없었다(2026-08-03 리뷰 M5).
+                # 조향과 대칭으로 사유를 남긴다 — 구동만 조용히 사라지면 상위에서
+                # "수리됨"과 구분할 수 없다.
                 notes.append("E-stop 인가 중 — 구동 지령 거부")
                 drive = {}
             if drive:
@@ -461,9 +443,8 @@ class RelayBackend:
                     "error_code": int(st.last_abort or 0) & 0xFFFF,
                     "amps": int(st.current_raw or 0),
                     "voltage": 0,                   # 0x6079 미폴 — 0 으로 둔다
-                    # 필드 뜻 그대로 **드라이브 자신의 보고**(0x6041 bit15)를 싣는다.
-                    # 예전에는 우리 프로세스 변수 `self._homed` 를 실어, Seer 가 호밍해 둔
-                    # 상태(bit15=1)인데도 `home_comp=False` 로 나갔다(2026-08-04 실기 확인).
+                    # 필드 뜻 그대로 **드라이브 자신의 보고**(0x6041 bit15)를 싣는다 —
+                    # 우리 프로세스 변수를 실으면 Seer 가 호밍해 둔 축이 미완료로 나간다.
                     "home_comp": bool(S.is_homed(st.statusword)),
                     "homing": bool(self._homing),
                     "motor_enabled": bool(fresh and not self._estop),
@@ -474,29 +455,16 @@ class RelayBackend:
     def release_steer_target(self, reason: str = "") -> bool:
         """**우리가 걸어 둔 조향 목표를 놓는다.** 조향축에 프레임은 보내지 않는다.
 
-        옛 이름 `hold_steer_at_measured` / `halt_steer`. 그 함수는 현재 실측 위치를 새 조향
-        목표(`0x607A`)로 써 넣어 축을 붙들었다. **2026-08-05 그 송신을 제거했다** — 근거:
+        현재 실측 위치를 새 조향 목표로 써 넣는 방식은 쓰지 않는다 — 벤더 매뉴얼·상류 구현·
+        마스터 캡처 어디에도 없는 방식이고, engage 직후 위치가 0 으로 고정 보고되는 구간에
+        걸리면 목표가 0 이 되어 축을 크게 돌린다.
 
-        1. **어느 문서·구현에도 없는 방식이었다.** 벤더 Handbook V7.0 §위치 모드(PP) 절차는
-           정지를 `0x6040` 으로 낸다(`:8467-8469` — `0x03 Pause` · `0x0F Recovery` · `0x05 Stop`).
-           상류 `TR_Nav_ros2_ws` 도 그대로 쓴다(`can_open.hpp:36-37,468-469`).
-           마스터 Seer 는 정지 명령 없이 **목표를 28 ms 마다 연속 재송신**할 뿐이다
-           (캡처 253,510 프레임: `0x03`·`0x05` 0회).
-           경위는 `docs/claude-mistake/2026-08-05-001`.
-        2. **원래 목적을 수행하지 못했다.** 2026-08-04 에 「마스터가 이동 중엔 안 쓴다」를 근거로
-           정지 확인된 축에만 보내도록 제한했는데, 이 함수가 생긴 이유가 **움직이는 축을
-           세우는 것**이었다. 제한 뒤에는 **이미 멈춘 축에 「거기 있어라」** 를 보내는 것만 남았다.
-        3. **그 무의미한 쓰기가 유일한 위험 통로였다.** engage 직후 위치가 0 으로 고정 보고되는
-           구간(실측 132 ms)에 걸리면 목표가 0 이 되어 축을 **+69.3°** 돌린다(debt-040).
+        ⚠ **`0x6040` 정지 명령 채택은 보류 상태다.** `0x03`(Quick Stop)의 거동은
+        `0x605A`(quick_stop_option_code)가 정하는데 실기 판독값이 4축 모두 0 이고 매뉴얼이
+        그 값의 의미를 정의하지 않는다. `0x05`(Disable Voltage)는 서보 오프라 쓰지 않는다.
 
-        ⚠ **`0x6040` 정지 명령 채택은 아직 보류다.** `0x03`(Quick Stop)의 실제 거동은
-        `0x605A`(quick_stop_option_code)가 정하는데, 실기 판독 결과 **4축 모두 0** 이고
-        매뉴얼은 그 값의 의미를 **정의하지 않는다**(PDF `-layout` 재추출로도 표 없음).
-        문서로 확정되기 전에는 넣지 않는다 — 같은 실수를 반복하지 않는다.
-        `0x05`(Disable Voltage = 서보 오프)는 쓰지 않는다(사용자 확인 2026-08-05).
-
-        ⚠ **드라이브가 이미 받은 목표까지는 못 세운다.** 그 축은 직전 목표까지 계속 회전한다
-        (사용자 확인 2026-08-04). 급정지는 node guarding 폴 중단 또는 하드웨어 E-STOP 이다.
+        ⚠ **드라이브가 이미 받은 목표까지는 못 세운다.** 그 축은 직전 목표까지 계속 회전한다.
+        급정지는 node guarding 폴 중단 또는 하드웨어 E-STOP 이다.
 
         반환: 놓을 목표가 있었으면 True, 없었으면 False.
         """
@@ -515,8 +483,7 @@ class RelayBackend:
 
         ⚠ **조향은 세우지 않는다.** `_drive_frames(0)` 은 `drive_nodes` 전용이라
         조향축에는 프레임이 한 장도 나가지 않고, 제어 루프가 직전 조향 목표를 계속
-        재송신한다. 즉 "현 위치 유지"가 아니라 **"직전 목표까지 계속 회전"** 이다
-        (2026-08-01 실기에서 이 오해로 사고가 났다).
+        재송신한다. 즉 "현 위치 유지"가 아니라 **"직전 목표까지 계속 회전"** 이다.
         우리 조향 목표를 놓으려면 `release_steer_target()` 또는 `stop_all()` 을 쓸 것.
         """
         with self._lock:
@@ -537,10 +504,9 @@ class RelayBackend:
     def stop_all(self, reason: str = "") -> bool:
         """구동을 0 으로 하고, **우리 조향 목표의 재송신을 멈춘다.**
 
-        ⚠ **조향축에 프레임을 보내지 않는다.** `release_steer_target` 은 2026-08-05 결정으로
-        **우리 조향 목표의 재송신을 멈출 뿐**이다 — 「현재 위치를 목표로 덮어쓰기」는 벤더 매뉴얼·
-        상류 구현·마스터 캡처 어디에도 없는 방식이라 제거했다(`docs/claude-mistake/2026-08-05-001`).
-        따라서 **드라이브가 이미 받은 목표까지는 못 세우며, 축은 직전 PP 목표까지 계속 회전한다.**
+        ⚠ **조향축에 프레임을 보내지 않는다.** `release_steer_target` 은 **우리 조향 목표의
+        재송신을 멈출 뿐**이므로, 드라이브가 이미 받은 목표까지는 못 세우며 축은 직전 PP
+        목표까지 계속 회전한다.
 
         반환 `True` 는 **「조향축을 실제로 잡았다」**는 뜻이고, `False` 는 못 잡았다는 뜻이다.
         사유는 `halt_note()` 로 꺼낸다 — 「실측 미확보」와 「이동 중 보류」는 다른 사건이라
@@ -699,18 +665,15 @@ class RelayBackend:
 
         **펌웨어 시퀀서(`0xea`/`0xeb`)를 쓴다** — SDO 로 `0x60FB:04=1` 을 직접 보내지 않는다.
         이유는 하나: 그래야 `cancel_home()` 이 **호스트 생사와 무관하게** 성립한다.
-        펌웨어는 권한·모드 상실을 감지하면 스스로 취소를 낸다(`safety_seer_gate.h:360`).
-        ⚠ 정정 2026-08-03: 종전 주석의 「직접 송신 경로에는 취소 수단이 없어 하드웨어 E-STOP
-        밖에 남지 않는다」는 **과장이었다** — 취소 프레임은 `0x60FB:04` 에 0 을 쓰는 SDO 하나라
-        직접 경로로도 낼 수 있다. 차이는 가능 여부가 아니라 **보증 주체**다
-        (`safety_seer_gate.h:312-316` 이 펌웨어 측 취소 프레임을 내는 자리다).
+        펌웨어는 권한·모드 상실을 감지하면 스스로 취소를 낸다. 취소 프레임 자체는
+        `0x60FB:04` 에 0 을 쓰는 SDO 하나라 직접 경로로도 낼 수 있으나, 차이는 가능 여부가
+        아니라 **보증 주체**다.
 
-        `speed=0` 이면 펌웨어 기본값(2500 = 250 r/min)을 쓴다. 그 외에는 100~3000 만
-        허용된다(`safety_seer_gate.h:207-208`).
+        `speed=0` 이면 펌웨어 기본값(2500 = 250 r/min)을 쓴다. 그 외에는 100~3000 만 허용된다.
 
         ⚠ 폴백을 두지 않는다. 펌웨어가 시퀀서를 지원하지 않으면 **실패로 보고**하고
         SDO 직접 송신으로 내려가지 않는다 — 덜 안전한 경로로 조용히 미끄러지는 것이
-        정확히 tech-debt-shortcut 이기 때문이다.
+        정확히 지름길로 미끄러지는 것이기 때문이다.
         """
         if self._homing:
             return False, "이미 호밍 중"
@@ -880,29 +843,19 @@ class RelayBackend:
         배포 설정 `config/can_relay.yaml` 에서만 true 이며, launch 가 그 파일을 넣으므로
         **launch 경로에서는 켜져 있다.** 「기본 비활성」이라고 읽지 말 것 — 층마다 다르다.
 
-        구동축은 이것이 필요하다. 2026-08-08 실기에서 can_relay **프로세스 재시작** 뒤
-        `node1` 이 `0x60FF` 를 받고도 돌지 않는 상태가 재현됐다(반대편 `node2` 는 정상):
+        구동축에는 이 시퀀스가 필요하다 — 프로세스 재시작 뒤 축이 `0x60FF` 를 받고도 돌지
+        않는 상태가 나타나며, 이 시퀀스를 보내면 복귀한다. 한쪽 축만 그렇게 되는 기전은
+        규명되지 않았다.
 
-            ROS 체인 경로   지령 target_vel −4816 · node1 실속도 13~93 / node2 785~873 (0.1 rpm)
-            UI 직결 경로    node1 실측 0.1 rpm / node2 78.2 rpm
-
-        이 시퀀스를 보내자 두 축이 함께 복귀했다(지면 주행 2회):
-
-            1회  node1 +0.0830 m / node2 +0.0794 m  (차 3.6 mm)
-            2회  node1 −0.0888 m / node2 −0.0893 m  (차 0.5 mm)
-
-        `ui/backend_direct.py` 의 DirectBackend 도 2026-08-10 부터 같은 시퀀스를 보낸다
-        (`_write_bringup`, 회귀 `test_direct_bringup.py`). 두 PC 경로가 같은 출처 함수를 쓴다.
-        ⚠ **`node2` 가 같은 조건에서 왜 멀쩡했는지는 미규명**이다. 「재시작이 축 상태를
-        지운다」는 관측이며 기전은 확정되지 않았다.
+        `ui/backend_direct.py` 의 DirectBackend 도 같은 시퀀스를 보낸다(`_write_bringup`) —
+        두 PC 경로가 같은 출처 함수를 쓴다.
 
         ⚠ **조향축에는 보내지 않는다.** 같은 날 조향축까지 보냈더니 fault reset 이
         위치 카운터를 지워 **조향 0° 기준이 무효**가 됐다(판독이 −(홈) 으로 떨어지고,
         그 상태의 「0° 로 가라」 지령에 전륜이 실제로 움직였다). 조향 기준 복구는
         `~/home`(호밍) 소관이며 브링업이 대신할 수 있는 일이 아니다.
 
-        ⚠ **debt-017 부분 상환.** 그 부채가 요구한 잭업·E-STOP 상비·`0x6041`/`0x603F`/
-        SDO abort 전수 기록은 **미이행**이다. 근거는 지면 주행의 구동 복귀 관측뿐이다.
+        ⚠ 근거는 지면 주행의 구동 복귀 관측뿐이다 — 잭업·E-STOP 상비 상태의 계측은 없다.
         """
         frames = []
         for n in self.cfg.drive_nodes:
@@ -925,7 +878,7 @@ class RelayBackend:
                 # ⚠ 심박은 "지령이 실제로 나가고 있을 때"만 보낸다.
                 #   판다 경유에서 유일한 정지 근간은 **심박 상실 → 펌웨어 fail-safe** 다.
                 #   송신이 죽었는데 심박만 계속 뛰면 fail-safe 가 무장 해제된 채
-                #   드라이브가 마지막 지령을 물고 간다(2026-08-01 can_send_errs 1,712만).
+                #   드라이브가 마지막 지령을 물고 간다.
                 if now >= next_hb:
                     if self._tx_fail_streak >= self.cfg.tx_fail_halt:
                         if not self._hb_suppressed:
@@ -966,7 +919,7 @@ class RelayBackend:
                         tuple(cfg.drive_nodes) + tuple(cfg.steer_nodes), cfg.bus))
                     next_poll = now + poll_iv
                 # 송신 실패만 따로 센다 — 이 카운터가 심박 중단(=정지)을 결정하므로
-                # 수신·진단 쪽 예외를 섞으면 읽기 경로 오류가 로봇을 세운다(리뷰 M2).
+                # 수신·진단 쪽 예외를 섞으면 읽기 경로 오류가 로봇을 세운다.
                 try:
                     self._send(frames)
                 except Exception:
@@ -981,7 +934,7 @@ class RelayBackend:
                 self._loop_fail_streak = 0
             except Exception as exc:
                 # LinkError 도 Exception 하위다 — 따로 적으면 "구분해서 다룬다"는
-                # 인상만 주고 동작은 같다. 광범위 포획인 것을 그대로 적는다(리뷰 L3).
+                # 인상만 주고 동작은 같다. 광범위 포획인 것을 그대로 적는다.
                 # 조용히 죽지 않는다 — 상태에 남겨 진단이 집어낼 수 있게 한다.
                 if self._tx_fail_streak == 0:
                     self._loop_fail_streak += 1
