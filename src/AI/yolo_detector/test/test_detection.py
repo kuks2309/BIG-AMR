@@ -1,29 +1,36 @@
 """detection 모듈 단위 테스트 — ROS·GPU·카메라 무접촉."""
 import pytest
 
-from yolo_detector.detection import (Box, build_boxes, clamp_box, keep_class,
-                                     missing_class_names, next_camera_index,
+from yolo_detector.detection import (DEFAULT_DETECT_HZ, Box, build_boxes,
+                                     clamp_box, keep_class, missing_class_names,
                                      per_camera_hz, resolve_class_filter)
 
 NAMES = {0: "person", 1: "bicycle", 2: "car"}
 IMG_W, IMG_H = 1280, 720
 
 
-# ── 라운드로빈 ──────────────────────────────────────────────────────────────
-def test_round_robin_wraps():
-    assert [next_camera_index(c, 3) for c in (-1, 0, 1, 2)] == [0, 1, 2, 0]
+# ── 구 파라미터 환산 (라운드로빈 폐기 후 남은 유일한 용도) ──────────────────
+def test_legacy_total_hz_converts_to_per_camera():
+    """구 `total_hz` 는 **합산** 률이었으므로 대수로 나눠야 카메라당 률이 된다.
 
-
-def test_round_robin_handles_zero_cameras():
-    assert next_camera_index(0, 0) == 0
-
-
-def test_per_camera_hz_divides_budget():
+    환산 없이 그대로 받으면 카메라당 검출률이 조용히 대수배로 뛴다(6대면 6배).
+    """
     assert per_camera_hz(30.0, 6) == pytest.approx(5.0)
 
 
-def test_per_camera_hz_zero_cameras_is_zero():
+def test_legacy_conversion_zero_cameras_is_zero():
+    """카메라 0대에서 0으로 나누지 않는다."""
     assert per_camera_hz(30.0, 0) == 0.0
+
+
+def test_default_detect_hz_is_per_camera_not_total():
+    """기본값은 **카메라당** 률이다.
+
+    회귀 방어: 이 값을 합산률로 되돌리면(예: 30.0) 6대 기준 카메라당 5 Hz 가 되어
+    배치 추론의 이득이 조용히 사라진다. 배치는 한 틱에 전 카메라를 처리하므로
+    이 값이 곧 카메라당 검출률이어야 한다.
+    """
+    assert DEFAULT_DETECT_HZ == pytest.approx(10.0)
 
 
 # ── 클래스 필터 ─────────────────────────────────────────────────────────────

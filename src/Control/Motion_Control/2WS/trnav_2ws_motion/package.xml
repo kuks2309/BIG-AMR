@@ -3,7 +3,7 @@
 <package format="3">
   <name>trnav_2ws_motion</name>
   <version>0.1.0</version>
-  <description>AMR Motion - QD (Quad-Drive diagonal) platform-specific library: PathController, MpcController, WheelSetPacker, TwoWsActionServerBase. Kinematics (TwoWsInverseKinematics/TwoWsCrabInverseKinematics/TwoWsBicycleModel) moved to trnav_2ws_kinematics (src/Control/Kinematics/) per AD-012 amendment 2026-07-04. Depends on trnav_2ws_core for platform-agnostic primitives.</description>
+  <description>AMR Motion - QD (Quad-Drive diagonal) platform-specific library: TwoWsPathController, TwoWsMpcController, TwoWsWheelSetPacker, TwoWsActionServerBase. Kinematics (TwoWsDualSteerIK/TwoWsCrabIK/TwoWsBicycleModel) moved to trnav_2ws_kinematics (src/Control/Motion_Control/2WS/trnav_2ws_kinematics) per the ADR-012 amendment of 2026-07-04. Depends on trnav_2ws_core for platform-agnostic primitives.</description>
   <maintainer email="amap@t-robotics.com">amap</maintainer>
   <license>Apache-2.0</license>
 
@@ -16,7 +16,7 @@
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
-  <!-- System dep: NLopt (SLSQP solver) used by qd_mpc_controller. rosdep key 'nlopt' → libnlopt-cxx-dev/libnlopt-dev. Big-AMR 이식 시 명시(원본 미선언 보완). -->
+  <!-- System dep: NLopt (SLSQP solver) used by qd_mpc_controller. 선언 rosdep key 'libnlopt-dev' → apt libnlopt-dev. qd_mpc_controller.cpp 가 include 하는 <nlopt.hpp> 는 libnlopt-cxx-dev 제공. Big-AMR 이식 시 명시(원본 미선언 보완). -->
   <depend>libnlopt-dev</depend>
 
   <export>

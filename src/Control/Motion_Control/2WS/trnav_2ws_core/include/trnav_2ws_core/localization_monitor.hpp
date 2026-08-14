@@ -14,7 +14,9 @@ namespace trnav_2ws_core
 {
 
 /// 정공법 (2026-05-18) — /robot_pose 토픽 구독 기반 LocalizationMonitor.
-/// 분산 TF lookup 폐기 (trnav_pose_publisher 가 단일 발행). 자원 효율 + SSOT.
+/// 분산 TF lookup 폐기 — pose_topic(기본 /robot_pose) 하나만 구독한다. 자원 효율 + SSOT.
+/// ⚠ 실기 `/robot_pose` 발행자는 미정이다(debt-068) — 기동 시 `pose_topic:=` 을 명시하라.
+///   SIL 은 src/Sim/sil_pose_adapter 가 채운다. 배선: docs/code_review/pose-topic-wiring/2026-08-10.md.
 ///
 /// Atomic snapshot 주의: last_x_/y_/yaw_/stamp_ns_ 는 각각 독립 std::atomic.
 /// 단일 필드 reader 는 일관된 값을 보지만, 여러 필드 cross-field atomicity 보장 안 됨.
@@ -74,6 +76,13 @@ class LocalizationMonitor
         bool prev = enable_watchdog_.exchange(enable);
         if (enable && !prev)
         {
+            // ⚠ 값-정지 타이머도 함께 재장전한다. 이것이 없으면 직전 goal 이 abort 로
+            //   끝나며 남긴 `max_cmd_speed_`(비-0)와 낡은 `last_move_ns_` 조합 때문에
+            //   **다음 goal 이 첫 주기에 즉시 STUCK 으로 죽고, 그 abort 가 다시 같은 상태를
+            //   남겨 자기증식한다**(노드 재시작 전까지 wedge).
+            last_move_ns_.store(node_->get_clock()->now().nanoseconds());
+            move_ref_x_.store(last_x_.load());
+            move_ref_y_.store(last_y_.load());
             // off→on 전환 — 다음 health check 가 baseline 재구축
             std::lock_guard<std::mutex> lock(jump_mutex_);
             prev_jump_valid_ = false;
@@ -84,7 +93,7 @@ class LocalizationMonitor
     /// 3-arg overload — 토픽 snapshot 반환 (yaw 포함, stamp 무시).
     bool lookupMapToBase(double &x, double &y, double &yaw) const;
 
-    /// 4-arg overload — stamp 포함 snapshot 반환 (checkLocalizationHealth 사용).
+    /// 4-arg overload — stamp 포함 snapshot 반환 (3인자 판이 이 함수로 위임한다).
     bool lookupMapToBase(double &x, double &y, double &yaw, rclcpp::Time &stamp) const;
 
   private:
@@ -105,7 +114,7 @@ class LocalizationMonitor
     std::atomic<double> move_ref_x_{0.0};    // 값-정지 판정 기준점(누적 비교용)
     std::atomic<double> move_ref_y_{0.0};
 
-    // Jump detection (callback thread only, mutex protected from setEnableWatchdog reset)
+    // Jump detection — prev_jump_* 는 jump_mutex_ 보호(poseCallback 이 갱신, checkLocalizationHealth·setEnableWatchdog 가 reset). jump_detected_ 는 atomic 이라 lock 밖에서도 접근한다.
     std::mutex jump_mutex_;
     bool prev_jump_valid_{false};
     double prev_jump_x_{0.0};

@@ -115,7 +115,7 @@ TranslateForwardActionServer::TranslateForwardActionServer(rclcpp::Node::SharedP
     tg_params.runtime_gate_threshold = runtime_gate_deg;
     guard_ = std::make_unique<TransientGuard>(tg_params);
 
-    // ── LocalizationMonitor (TF-only, topic 폐기 2026-05-18) ──
+    // ── LocalizationMonitor (/robot_pose 토픽 구독, 분산 TF lookup 폐기 2026-05-18) ──
     double loc_timeout = safeParam("translate_localization_timeout_sec", 2.0);
     double jump_threshold = safeParam("translate_position_jump_threshold", 0.3);
 
@@ -393,7 +393,7 @@ void TranslateForwardActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
         path_viz_pub_->publish(path_msg);
     }
 
-    // ── IMU receive check (위치는 TF lookupMapToBase 가 처리) ──
+    // ── IMU receive check (위치는 /robot_pose 토픽 snapshot lookupMapToBase 가 처리) ──
     if (!imu_received_.load())
     {
         RCLCPP_ERROR(node_->get_logger(), "IMU data not received, aborting translate_forward");
@@ -401,7 +401,7 @@ void TranslateForwardActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
         return;
     }
 
-    // ── Initial pose from tf2 map->base_link ──
+    // ── Initial pose from /robot_pose topic snapshot (lookupMapToBase) ──
     double robot_x = 0.0, robot_y = 0.0, robot_yaw = 0.0;
     if (!loc_monitor_->lookupMapToBase(robot_x, robot_y, robot_yaw))
     {
@@ -608,8 +608,6 @@ void TranslateForwardActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
         double clamped_projection = std::max(0.0, projection);
         auto prof_out = profile.getSpeed(clamped_projection);
         double vx_profile = prof_out.speed;
-        max_cmd_speed_.store(vx_profile);
-        loc_monitor_->setMaxCmdSpeed(vx_profile);
 
         if (projection < 0.0)
         {
@@ -633,6 +631,12 @@ void TranslateForwardActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
             {
                 vx_profile = min_vx_;
             }
+        // ⚠ **바닥값을 적용한 뒤에 알린다.** 이전에는 프로파일 속도(바닥 적용 전)를 넣어,
+        //   진행이 0 에 고정되면 `getSpeed(0)=0` → 감시기가 「정지 중」으로 조기 통과했다.
+        //   그 사이 바퀴에는 바닥값이 그대로 나가 **개루프 주행**이 된다(실기 사고 형태).
+        //   감시기 계약은 「**실제로 바퀴에 나가는 지령속도**」다.
+        max_cmd_speed_.store(vx_profile);
+        loc_monitor_->setMaxCmdSpeed(vx_profile);
 
             if (prof_out.phase == ProfilePhase::DONE || projection >= target_distance)
             {
@@ -874,7 +878,7 @@ void TranslateForwardActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
     max_cmd_speed_.store(goal->exit_speed > 0.0 ? goal->exit_speed : 0.0);
     loc_monitor_->setMaxCmdSpeed(max_cmd_speed_.load());
 
-    // Read final state from tf2
+    // Read final state from /robot_pose topic snapshot
     loc_monitor_->lookupMapToBase(robot_x, robot_y, robot_yaw);
     auto final_pc = path_ctrl_->update(robot_x, robot_y, robot_yaw, 0.0, dt);
 

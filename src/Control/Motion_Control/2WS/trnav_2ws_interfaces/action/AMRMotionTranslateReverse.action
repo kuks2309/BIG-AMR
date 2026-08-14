@@ -19,8 +19,10 @@ bool    hold_steer           # true: skip Phase 4 steer return
 float64 exit_steer_angle     # deg: Phase 4 target steer (ignored if hold_steer)
 float64 exit_speed           # m/s (0=완전정지, >0=이 magnitude 로 종료, 기본=0)
 float64 entry_speed          # m/s (0=start from stop, >0=resume at this magnitude)
-bool    has_next             # true=다음 Segment 존재 → 감속 안 함
-# Control mode: 0=node param default, 1=Bicycle, 2=Sequential CTE, 3=Pure Stanley
+bool    has_next             # 미사용 필드 — action server 가 읽지 않는다 (속도 연속 종료는 exit_speed>0 로 지정)
+# Control mode: 0=CTRL_DEFAULT, 1=Bicycle — 서버는 0·1 만 수락하고 둘 다 BICYCLE 로 고정한다
+#   (node param translate_control_mode 는 읽고 버린다 — translate_reverse_action_server.cpp:70-72)
+# 2=Sequential CTE, 3=Pure Stanley 는 미구현(ControlMode 열거형에 BICYCLE=1 뿐) — validateGoal 이 reject 한다
 uint8   CTRL_DEFAULT     = 0
 uint8   CTRL_MODE_A      = 1
 uint8   CTRL_MODE_B      = 2
@@ -42,7 +44,8 @@ float64 elapsed_time         # sec
 ---
 # Feedback
 float64 current_distance     # m (projection distance along path)
-float64 current_lateral_error # m (cross-track error, + left, - right)
+float64 current_lateral_error # m (cross-track error, path 진행방향(start→end) 기준 — + 로봇이 경로 우측, - 로봇이 경로 좌측)
+#   후진이라 차체 yaw 는 경로와 반대(effective_yaw=real_yaw+π) → 차체 기준 좌우와는 반대로 읽힌다
 float64 current_heading_error # deg (heading error, effective_yaw 기준)
 float64 current_vx           # m/s (signed — reverse 시 음수)
 float64 current_vy           # m/s (lateral velocity)

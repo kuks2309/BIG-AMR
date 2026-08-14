@@ -1,0 +1,24 @@
+line_seg_node:
+  ros__parameters:
+    # 가중치 경로. 저장소 밖에 둔다(yolo_detector 와 같은 /home/nvidia/models/ 관례).
+    model_path: "/home/nvidia/models/line_seg_v1.pt"
+    conf_threshold: 0.5
+
+    # offset 을 재는 기준행 — 화면 높이의 비율. 0.8 = 하단 80% 지점(로봇 가까운 쪽).
+    control_row_ratio: 0.8
+    publish_debug_image: true
+
+    # 진행 방향 → 카메라 선택. 전환 중에는 오차 발행이 잠시 끊기므로 정지 상태에서만 바꾼다.
+    direction: "forward"
+    forward_camera: "cam_f"
+    reverse_camera: "cam_r"
+
+    # 카메라 전송 형식. 로스터의 publish_mode 가 compressed 이므로 기본은 compressed 이고
+    # 디코드는 이 노드가 한다. raw 로 바꾸려면 퍼블리셔의 publish_mode 도 함께 바꿔야 한다.
+    image_transport: "compressed"
+
+    # 카메라가 뒤집혀 장착된 경우에만 true. 상하만 뒤집으면 좌우 거울상이 남아 offset
+    # 부호가 물리 좌우와 반대가 되므로, 보정은 180° 회전(상하+좌우 동시)으로 한다.
+    # ⚠ 실기에서 좌우 부호를 확인하기 전에는 주행 금지.
+    forward_flip_180: false
+    reverse_flip_180: false

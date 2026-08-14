@@ -12,7 +12,7 @@ SIL(Software In the Loop) closed-loop launch for amr_yaw_control_node.
 **다른 SIL 런치와 다른 점 — `sil_pose_adapter_node` 를 포함한다.**
 `turn`·`spin` 등은 IMU yaw 만 쓰고 `LocalizationMonitor` 를 쓰지 않아 어댑터가 필요 없다.
 `yaw_control` 은 다르다:
-  · 시작 시 `yaw_offset = start_yaw_map − start_yaw_imu` 를 맵 자세로 잡는다(TF 경유)
+  · 시작 시 `yaw_offset = start_yaw_map − start_yaw_imu` 를 맵 자세로 잡는다(`/robot_pose` 경유)
   · 주행 중 헤딩 발산 탐지(`status −7`)가 맵 yaw 와 대조한다
   · `LocalizationMonitor` 가 `/robot_pose`(PoseStamped)를 구독한다
 어댑터는 플랜트의 `/rtabmap/localization_pose`(PoseWithCovarianceStamped, BEST_EFFORT)를
@@ -73,7 +73,7 @@ def generate_launch_description():
     )
 
     # /rtabmap/localization_pose (PoseWithCovarianceStamped) → /robot_pose (PoseStamped).
-    # yaw_control 전용 — 다른 SIL 런치에는 없다.
+    # LocalizationMonitor 를 쓰는 SIL 런치가 공통으로 포함한다 — sil_spin·sil_turn·sil_turn_reverse 만 제외.
     pose_adapter_node = Node(
         package='sil_pose_adapter',
         executable='sil_pose_adapter_node',

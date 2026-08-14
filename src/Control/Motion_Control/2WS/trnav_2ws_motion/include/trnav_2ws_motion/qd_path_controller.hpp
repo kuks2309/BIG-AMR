@@ -28,7 +28,7 @@ struct PathControlOutput
 {
     double vy;         // (BICYCLE 미사용 — dual bicycle 경로 사용)
     double omega;      // (BICYCLE 미사용 — dual bicycle 경로 사용)
-    double e_d;        // 횡방향 오차 (m), + 경로 좌측, - 경로 우측
+    double e_d;        // 횡방향 오차 (m), + 로봇이 경로 우측, - 로봇이 경로 좌측
     double e_theta;    // 헤딩 오차 (rad), [-pi, pi]
     double projection; // 경로 진행 거리 (m)
     int control_stage; // BICYCLE 에서는 항상 0

@@ -101,7 +101,7 @@ TranslateReverseActionServer::TranslateReverseActionServer(rclcpp::Node::SharedP
     tg_params.runtime_gate_threshold = safeParam("transient_runtime_gate_threshold_deg", 15.0);
     guard_ = std::make_unique<TransientGuard>(tg_params);
 
-    // ── LocalizationMonitor (TF-only, topic 폐기 2026-05-18) ──
+    // ── LocalizationMonitor (/robot_pose 토픽 구독, 분산 TF lookup 폐기 2026-05-18) ──
     double loc_timeout = safeParam("translate_localization_timeout_sec", 2.0);
     double jump_threshold = safeParam("translate_position_jump_threshold", 0.3);
 
@@ -387,7 +387,7 @@ void TranslateReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
         path_viz_pub_->publish(path_msg);
     }
 
-    // ── IMU receive check (위치는 TF lookupMapToBase 가 처리) ──
+    // ── IMU receive check (위치는 /robot_pose 스냅샷을 반환하는 lookupMapToBase 가 처리) ──
     if (!imu_received_.load())
     {
         RCLCPP_ERROR(node_->get_logger(), "IMU data not received, aborting translate_reverse");
@@ -567,8 +567,6 @@ void TranslateReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
         double clamped_projection = std::max(0.0, projection);
         auto prof_out = profile.getSpeed(clamped_projection);
         double vx_profile = prof_out.speed;
-        max_cmd_speed_.store(vx_profile);
-        loc_monitor_->setMaxCmdSpeed(vx_profile);
 
         if (projection < 0.0)
         {
@@ -584,6 +582,12 @@ void TranslateReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
         {
             vx_profile = min_vx_;
         }
+        // ⚠ **바닥값을 적용한 뒤에 알린다.** 이전에는 프로파일 속도(바닥 적용 전)를 넣어,
+        //   진행이 0 에 고정되면 `getSpeed(0)=0` → 감시기가 「정지 중」으로 조기 통과했다.
+        //   그 사이 바퀴에는 바닥값이 그대로 나가 **개루프 주행**이 된다(실기 사고 형태).
+        //   감시기 계약은 「**실제로 바퀴에 나가는 지령속도**」다.
+        max_cmd_speed_.store(vx_profile);
+        loc_monitor_->setMaxCmdSpeed(vx_profile);
 
         if (prof_out.phase == ProfilePhase::DONE || projection >= target_distance)
         {
@@ -724,8 +728,8 @@ void TranslateReverseActionServer::execute(std::shared_ptr<GoalHandle> goal_hand
             // 부호 비교(forward 전용) 는 reverse(tgt<0) 에서 a/d step 매핑이 뒤집혀
             // walk_accel ≠ walk_decel 이면 가·감속 비대칭이 발생.
             // 지역 사본을 폐기하고 공용 `trnav_2ws_core::rampToward` 를 쓴다.
-            // 이 서버의 램프 입력은 항상 ≥ 0 이라 **거동이 바뀌지 않는다**(양수 구간 전수
-            // 비교 결과 차이 0.000e+00). 사본이 갈라져 한쪽만 고쳐지는 일을 막는 통일이다.
+            // 이 서버의 램프 입력은 kReverseDir(-1) 이 곱해져 항상 ≤ 0 이지만, rampToward 가
+            // 크기 기반이라 가·감속 매핑이 뒤집히지 않는다. 사본이 갈라져 한쪽만 고쳐지는 일을 막는 통일이다.
             vel_f = trnav_2ws_core::rampToward(prev_cmd_vel_f, vel_f, acc_step, dec_step);
             vel_r = trnav_2ws_core::rampToward(prev_cmd_vel_r, vel_r, acc_step, dec_step);
             prev_cmd_vel_f = vel_f;

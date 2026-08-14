@@ -7,6 +7,7 @@
 
 | 날짜 | 코드 버전 | Verdict | 핵심 |
 | --- | --- | --- | --- |
+| [2026-08-14](2026-08-14.md) | md5 app `a19a3ab0` · base `a0795a8b` · direct `1957a504` · ros2 `23a863ad` · gui_node `ac23a600` · backend `49272e10` · gui.py `7e7ab2ce` (HEAD `f543422`, **미커밋 working tree**) | COMMENT | **delta** — 호밍 후 조향 0° 복귀를 direct 백엔드에 이식 + 판정 시점 결함 수정, 패키지 전체 주석 정비(11파일, 코드 무변경 AST 검증). Medium 3(재진입 가드 창 · 원본 `_fill_row` 거짓 docstring · 대역이 `_wait_homed` 대체) — **F2 는 같은 날 [해결]**(안 A: 코드를 이식본에 맞춤) |
 | [2026-08-04](2026-08-04.md) | md5 app `e1e82409` · base `5a2e0c62` · direct `85d0da1c` · ros2 `eb02fc3d` · gui_node `c87b627e` (브랜치 `session/7021d760` `aae992a`) | COMMENT | **최초 인벤토리** — 함수 115 전수 · 전역 G1~G14 · ros2 A-1~A-7 · concurrency B-1~B-3 · embedded C-2~C-4. Medium 4(scan 대수 소실 · STEER_HOME 사본 · E-stop 죽은 경로 2) |
 
 ⚠ **이 코드는 코딩 SOP §2 를 어기고 만들어졌다** — 「신규 파일은 계획 단계에서 함수표를 생성한다」

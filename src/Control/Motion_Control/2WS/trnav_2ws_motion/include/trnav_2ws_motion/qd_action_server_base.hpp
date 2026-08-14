@@ -165,7 +165,9 @@ template <typename ActionT> class TwoWsActionServerBase
         publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
     }
 
-    // 종료 status 코드(-1 cancel / -2 invalid / -3 timeout / -4 loc_timeout / -5 loc_jump / -6 tf_fail / 0 success)를
+    // 종료 status 코드(-1 cancel / -2 invalid / -3 timeout / -4 loc_timeout / -5 loc_jump / -6 tf_fail /
+    // -7 heading_divergence / -8 steer_unreachable / -9 final_yaw_tolerance — 뒤 셋은 yaw_control 계열 전용,
+    // `AMRMotionYawControl.action` 참조 / 0 success)를
     // "<server>:<code>" 문자열로 /motion/last_result 에 발행. derived 의 finish_abort/succeed 에서 호출.
     void reportResult(int8_t code)
     {

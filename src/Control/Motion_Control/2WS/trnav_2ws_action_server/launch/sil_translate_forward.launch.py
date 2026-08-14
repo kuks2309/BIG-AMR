@@ -36,11 +36,11 @@ def generate_launch_description():
     # LocalizationMonitor 는 **TF 가 아니라 /robot_pose 토픽 캐시**만 쓴다
     # (localization_monitor.cpp:137-150). SIL 에선 이 어댑터가 그 토픽을 낸다.
     # 없으면 액션이 시작 즉시 abort(-3) 한다 — 에러 문구는
-    # "TF2 map->base_link not available" 이지만 실제 원인은 이 토픽 부재다.
-    # ⚠ 실차에서 /robot_pose 를 무엇이 내는지는 **이 저장소에서 확인되지 않는다.**
-    #   QD 문서가 `src/Navigation/trnav_pose_publisher` 를 가리키나 그 경로는 부재이고
-    #   (src/Navigation/ = icp_odometry_bringup · mcl2d_*), 근거는 sil_pose_adapter_node.cpp:8
-    #   주석 한 줄뿐이다. 실기 브링업에서 발행자를 확인할 것.
+    # "/robot_pose 미수신 또는 낡음(신선도 초과) — TF 문제가 아니다 …" 다
+    # (translate_forward_action_server.cpp:408).
+    # ⚠ 실차 `/robot_pose` 발행자는 미정이다(debt-068) — 기동 시 `pose_topic:=` 을 명시하라.
+    #   저장소 유일 후보 seer_pose_publisher 의 기본 발행은 `/seer/robot_pose` 라 그대로는 맞지 않는다.
+    #   배선: docs/code_review/pose-topic-wiring/2026-08-10.md
     pose_adapter_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([

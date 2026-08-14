@@ -3,7 +3,7 @@
 <package format="3">
   <name>trnav_2ws_kinematics</name>
   <version>0.1.0</version>
-  <description>QD (Quad-Drive diagonal) platform kinematics: TwoWsInverseKinematics (DualSteer IK), TwoWsCrabInverseKinematics (CRAB sideways IK), TwoWsBicycleModel. Pure math (stdlib only, no ROS). Moved out of trnav_2ws_motion per AD-012 amendment (2026-07-04) to collect QD/DD kinematics under src/Control/Kinematics/. Identifiers keep the AD-012 triple prefix (files qd_*, classes TwoWs*, namespace trnav::motion::two_ws).</description>
+  <description>2WS (inline dual-steer) platform kinematics: TwoWsDualSteerIK (DualSteer IK), TwoWsCrabIK (CRAB sideways IK), TwoWsBicycleModel. Pure math (stdlib only, no ROS). Moved out of trnav_2ws_motion per the ADR-012 amendment (2026-07-04); the package lives under src/Control/Motion_Control/2WS/. Identifiers keep the ADR-012 triple prefix (files qd_*, classes TwoWs*, namespace trnav::motion::two_ws).</description>
   <maintainer email="amap@t-robotics.com">amap</maintainer>
   <license>Apache-2.0</license>
 

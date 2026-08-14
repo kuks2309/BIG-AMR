@@ -3,7 +3,8 @@
 
 // 후진 원호(R-turn reverse) 액션 서버.
 //
-// 전진판은 `turn/turn_action_server.hpp`. 두 파일은 IK 입력의 vx 부호를 빼면 같다 —
+// 전진판은 `turn/turn_action_server.hpp`. 두 파일의 차이는 IK 입력 vx 의 부호,
+// feedback.current_linear_speed 를 크기(|vx|)로 내보내는 것, motion_source_id 기본값(12)뿐이다 —
 // 한쪽을 고치면 다른 쪽도 고쳐야 한다(중복 비용은 ADR 이 명시적으로 수용).
 // 근거·설계: docs/adr/2026-08-09-turn-reverse.md
 
@@ -64,7 +65,7 @@ class TurnReverseActionServer
 
     // 전역 시한 — Stage 1 은 「오차가 줄어드는 것」 외에 종료 조건이 없다.
     // IMU 두절·차체 구속에서 무한 원호가 되는 것을 막는다(spin·yaw_control 과 같은 규약).
-    double max_timeout_sec_{60.0};    // start_yaw 원형 이동평균 샘플 수 (윈도우 = N / control_rate_hz)
+    double max_timeout_sec_{60.0};    // Stage 1 전역 시한 [s] (yaml 키: turn_max_timeout_sec)
 };
 
 } // namespace trnav_2ws_action_server::turn_reverse

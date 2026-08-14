@@ -1,6 +1,6 @@
 /trnav_yaw_control_reverse_node:
   ros__parameters:
-    # ── Platform (trnav_2ws_core::loadGeometry) ──
+    # ── Platform (trnav::motion::two_ws::TwoWsActionServerBase::loadGeometry — trnav_2ws_motion/include/trnav_2ws_motion/qd_action_server_base.hpp) ──
     platform: "QD_DIAGONAL"
 
     # ── 로봇 기하 — Foil_A082 실측 (2026-08-05 적용) ──────────────────────
@@ -9,7 +9,7 @@
     # 것이었다. 본 기체는 대각(diagonal)이 아니라 **inline dual-steer(2WS)** 다 — y 가
     # ±0.135 가 아니라 ≈0(센터라인)이며, 휠베이스는 0.660 m 가 아니라 **1.200 m** 다.
     # 정본: trnav_2ws_core/config/robot_geometry_2ws.yaml (Seer live_models 추출값,
-    #       References/Tongyi-Motor-Controller/docs/tongyi-canopen-protocol-reference.md:11-15
+    #       References/Tongyi-Motor-Controller/docs/tongyi-canopen-protocol-reference.md:42-46
     #       의 ±0.604/−0.596 · wheelRadius 0.125 · reduction 32 와 일치).
     # 정본 대조는 Tools/motion_chain_check/check_chain_contract.py C6 이 매 실행마다 수행한다.
     # ⚠ body_length/body_width 는 코드가 읽지 않는다(참조 0건) — Carrier AGV 값 그대로 둔다.
@@ -56,7 +56,10 @@
     # 자세 **값**이 이 시간 이상 변하지 않으면 STUCK(−4). stamp 신선도와 다른 검사다 —
     #   발행자가 값 그대로 새 stamp 를 찍으면 신선도는 통과하고 얼어붙은 좌표로 제어가 닫힌다.
     #   지령 속도가 실려 있을 때만 판정한다(정지 중 값이 안 변하는 것은 정상).
-    yaw_control_reverse_pose_stuck_timeout_sec: 2.0
+    # ⚠ **gate_blocked_timeout_sec(5.0) 보다 커야 한다.** 조향축 비응답이면 gate_blocked 로
+    #   구동이 0 이 되는데 지령 속도는 계속 실리므로, 이 값이 더 작으면 STUCK(−4)이 먼저 떠
+    #   조향 고장을 「측위 갱신 없음」으로 오진한다(−8 진단이 죽는다).
+    yaw_control_reverse_pose_stuck_timeout_sec: 7.0
     yaw_control_reverse_position_jump_threshold: 0.3
     yaw_control_reverse_enable_localization_watchdog: true
 

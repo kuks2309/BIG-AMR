@@ -134,21 +134,26 @@ def main() -> int:
 
     box: dict = {"gh": None, "stop": None}
 
-    def cancel(why: str):
+    def cancel(why: str) -> bool:
+        """취소를 보내고 **보냈는지**를 돌려준다(보고와 사실을 어긋나지 않게)."""
         if box["stop"] is None:
             box["stop"] = why
-            gh = box["gh"]
-            if gh is not None:
-                try:
-                    gh.cancel_goal_async()
-                except Exception:
-                    pass
+        gh = box["gh"]
+        if gh is None:
+            return False
+        try:
+            gh.cancel_goal_async()
+            return True
+        except Exception:
+            return False
 
     def on_sig(signum, frame):
         cancel(f"signal {signum}")
         raise KeyboardInterrupt(f"signal {signum}")
 
-    for sg in (signal.SIGTERM, signal.SIGHUP):
+    # ⚠ **SIGINT(Ctrl-C) 포함.** 종전에는 빠져 있어 `except KeyboardInterrupt` 가
+    #   「취소 송신」이라 출력만 하고 실제로는 보내지 않았다 — 거짓 보고였다.
+    for sg in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sg, on_sig)
 
     rc = 0
@@ -202,9 +207,16 @@ def main() -> int:
         else:
             cancel("결과 시한 초과"); pump(4.0); rc = 1
     except KeyboardInterrupt:
-        print("\n중단 — 취소 송신", file=sys.stderr)
+        sent = cancel("사용자 중단")
+        print(f"\n중단 — 취소 {'송신함' if sent else '**미송신**(목표 미접수)'}", file=sys.stderr)
         pump(4.0)
         rc = 4
+    except BaseException as exc:
+        sent = cancel(f"예외 {type(exc).__name__}")
+        print(f"\n⚠ 예외 {type(exc).__name__}: {exc} — 취소 "
+              f"{'송신함' if sent else '**미송신**'}", file=sys.stderr)
+        pump(4.0)
+        rc = 1
     finally:
         try:
             node.destroy_node(); rclpy.shutdown()

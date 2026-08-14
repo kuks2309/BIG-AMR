@@ -1,5 +1,68 @@
 # trnav_2ws_core — code updates
 
+2026-08-13 / 04:21 - (pending) / **주석 라인 단위 재독 — 남은 모순 정정 + 주석에서 이력 제거** (코드 무변경)
+
+- 규약 확정: **코드 주석에는 이력을 넣지 않는다.** 주석은 코드가 지금 무엇을 하는지만 적고,
+  「무엇을 언제 왜 바꿨나」는 본 문서(code updates)가 보유한다. 직전 커밋 `6fb9663` 이 주석에
+  변경 이력·감사 서술(「종전 …이었다」·「…교체됐고」·「…정정해 해소했다」·「(YYYY-MM-DD 확인)」·
+  「… 는 이 저장소에 없다」)을 섞어 넣었던 것을 이번에 전량 걷어냈다.
+- 범위: 2WS 스택 **16,174줄 전량**을 12 슬라이스로 나눠 라인 단위 재독.
+  슬라이스마다 적대적 반박 2인(원문 변호 / 대체문 감사)이 코드로 재검증.
+  86후보 → **69 적용**(모순 정정 47 + 이력 제거 22) / **17 기각**(변호 성립으로 원상 유지).
+- 코드 무변경 증명: 변경 45파일을 언어별 파서로 대조 — C++ 16개 `gcc -fpreprocessed -E -P` 출력 동일,
+  Python 13개 AST(Abstract Syntax Tree) 동일(모듈 docstring 제외), YAML/`.action`/CMake 13개
+  `#` 주석 제거 후 동일, `package.xml` 3개 `<description>` 제외 XML 동일. **차이 0건.**
+  이력 문구 잔존 스캔(`종전|정정해|해소했|교체됐|이 저장소에 없다|확인\)|not present in this repository`) **0건**.
+- 검증: `colcon build --packages-up-to trnav_2ws_action_server …` 6패키지 PASS(0 error) ·
+  `colcon test --packages-select trnav_2ws_core trnav_2ws_kinematics` 67 tests / 0 failures / 0 errors.
+- 기각 사례(재발 방지용 기록) — 지적이 틀렸던 것들:
+  · `amr_dock_align` 은 패키지가 아니라 **노드(실행파일) 이름**이라 「부재 패키지」 지적이 오독이었다.
+  · turn 의 `R > 1.44 m`(v=0.05 기준 ω_max < 하한 2.0 dps)를 `1.43` 으로 「정밀화」하려 했으나
+    R=1.431 m 에서 ω_max=2.0019 dps 라 **거짓이 된다** — 원문이 옳다.
+  · `−dir × delta_heading` 은 죽은 표기가 아니라 QD 형제 코드(`trnav_qd_kinematics`)에 살아 있는
+    grep 앵커이자 미결 쟁점의 참조점이라 토큰을 보존했다.
+  · `분산 TF lookup 폐기`·`src/Control/Kinematics/` 언급은 이력이 아니라 **설계 근거·범위 제약**이라 유지.
+- 수정 `include/…/localization_monitor.hpp` — 「상류 원본의 trnav_pose_publisher 는 이 저장소에 없다」는
+  조사 결과 보고를 빼고, 운영 제약만 남겼다: 실기 `/robot_pose` 발행자 미정(debt-068) → 기동 시 `pose_topic:=` 명시,
+  SIL 은 `src/Sim/sil_pose_adapter`.
+  `Params::pose_qos` 주석의 옵션 서술도 코드(0/1/2 분기)와 맞췄다.
+- 수정 `CMakeLists.txt` — 계층 taxonomy 에서 「(not present in this repository)」 부재 서술 제거.
+  DD 슬롯 이름은 ADR-012 「분리」 근거의 한쪽 항이라 유지.
+- 수정 `package.xml` — `<description>` 에서 부재 서술·이력 문서 안내 제거.
+- 수정 `test/test_motion_profile.cpp` — 프로파일 경계 서술을 구현식으로 재도출한 값에 맞춤.
+
+---
+
+2026-08-11 / 22:37 - (pending) / **주석 감사 — 코드와 모순되는 주석 일괄 정정** (코드 무변경)
+
+- 범위: 2WS 스택 전체(~15,400줄). **주석·docstring·`<description>` 만 수정, 실행 코드는 한 줄도 바꾸지 않았다.**
+- 방법: 10인 독립 리더가 슬라이스별로 후보를 내고 슬라이스마다 적대적 반박 2인(원문 변호 / 대체문 감사)이
+  코드로 재검증. 1차 82후보 → 반박 통과 79 + 저자 판정 3 = 82 적용. 2차(죽은 참조·inline↔대각 잔재·
+  1차 0건 파일 전수 재독) 39후보 → 29 적용, 9 기각(변호인 반박 성립), 1 중복.
+- 코드 무변경 증명: 변경 63파일 전부를 언어별 파서로 대조 — C++ 28개 `gcc -fpreprocessed -E -P` 출력 동일,
+  Python 13개 AST(Abstract Syntax Tree) 동일(모듈 docstring 제외), YAML/`.action`/CMake 19개 `#` 주석 제거 후 동일,
+  `package.xml` 3개 `<description>` 제외 XML 동일. **차이 0건.**
+- 검증: `colcon build --packages-up-to trnav_2ws_action_server …` 6패키지 PASS(0 error) ·
+  `colcon test` 67 tests / 0 failures / 0 errors.
+- 기각 사례(기록): 상류 설계문서 인용(`AMR_Motion_Control_Implementation_Plan.md` §1.6.2,
+  `Implementation Plan §5.4.3`, `trnav_motion_mux_architecture.md`, `dual_steer_engine.py … lines N-M`,
+  `ADR-012`)을 「죽은 참조」로 고치려던 5건은 **반박당해 원상 유지**했다 — 저장소 상대경로가 아니라
+  이식물의 정상적인 출처 표기이고, 「고치면」 오히려 이 저장소에서 확인되지 않는 상류 소재를
+  새로 심게 된다. `Platform::QD_DIAGONAL` enum 정의 주석 계열 4건도 taxonomy 서술이라 기각.
+- 수정 `test/test_velocity_ramp.cpp` — 부호비교 결함값 주석 **-1.10 → -1.60**. -1.10 은 오히려 정상 구현의 값이며
+  바로 아래 `EXPECT_NEAR` 가 기대하는 값이라, 결함값과 정상값이 뒤바뀌어 적혀 있었다.
+- 수정 `src/motion_profile.cpp` — 「Clamp entry_speed to [0, max_speed_]」 → 상한만 자름을 명시하고
+  하한 0 은 호출자 계약(액션 서버가 음수 goal 을 사전 reject)임을 기록.
+- 수정 `include/…/motion_profile.hpp` — 프로파일 선택 기준 `2 * accel_distance` → `accel_distance + decel_distance`
+  (둘이 같은 것은 entry_speed == exit_speed 일 때뿐); `accel_dist_` 를 「0 에서」 → 「entry_speed 에서」.
+- 수정 `include/…/localization_monitor.hpp` — `trnav_pose_publisher 가 단일 발행` → 그 패키지는 이 저장소에 없음을 명시
+  (SIL 은 `src/Sim/sil_pose_adapter`, 배선은 `docs/code_review/pose-topic-wiring/2026-08-10.md`).
+- 수정 `include/…/robot_geometry.hpp` — 부재 함수 `fromParams()` → 실제 `loadGeometry()`.
+- 수정 `CMakeLists.txt`·`package.xml` — 부재 패키지(`trnav_motion_dd`·`trnav_dd_kinematics`)·부재 경로
+  (`src/Control/Kinematics/`) 를 「이 저장소에 없음」·실제 경로로 정정.
+
+---
+
 2026-07-04 / 09:52 - (pending) / **문구 갱신** (코드 무변경) — AD-012 개정 반영
 
 - 수정 `package.xml` description + `CMakeLists.txt` 주석 — "kinematics 는 trnav_2ws_kinematics / trnav_dd_kinematics (src/Control/Kinematics/)" 로 위치 서술 갱신

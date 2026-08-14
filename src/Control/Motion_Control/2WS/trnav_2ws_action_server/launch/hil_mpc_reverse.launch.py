@@ -3,7 +3,7 @@ HIL closed-loop launch for amr_mpc_reverse_node.
 
 체인:
   amr_mpc_reverse_node ─ /motion/wheel_cmd/mpc_reverse ─→ trnav_motion_mux
-  trnav_motion_supervisor ─ service ─→ trnav_motion_mux  (active source = mpc_reverse, id=10)
+  trnav_motion_supervisor ─ service ─→ trnav_motion_mux  (active source = mpc_reverse, id=9)
   trnav_motion_mux ─ /motor/wheel_cmd ─→ 실차 amr_canopen_motor_driver
   실차 RTAB-Map ─→ /rtabmap/localization_pose + TF map→base_link
   실차 IMU ─→ /imu/data

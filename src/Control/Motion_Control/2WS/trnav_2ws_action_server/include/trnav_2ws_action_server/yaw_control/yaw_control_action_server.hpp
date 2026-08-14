@@ -66,7 +66,7 @@ class YawControlActionServer
     // 근거·설계: docs/adr/2026-08-10-yaw-control-heading-divergence-guard.md
     std::atomic<bool> enable_heading_divergence_guard_{true};
     std::atomic<double> heading_divergence_deg_{5.0};
-    std::atomic<int> heading_divergence_count_{10}; // 연속 cycle (50 Hz 기준 0.2 s) — 맵 순간 튐 오탐 방지
+    std::atomic<int> heading_divergence_count_{10}; // **서로 다른 pose 샘플** 수 (실차 10 Hz 기준 약 1.0 s) — 맵 순간 튐 오탐 방지
 
     // ── 조향 미도달 지속 감시 ──
     // TransientGuard 가 조향 오차로 구동을 0 으로 묶는 것(gate_blocked)은 정상 안전 동작이지만,
@@ -74,7 +74,7 @@ class YawControlActionServer
     // 임계는 **정상 조향 이동 시간보다 길어야** 오탐이 없다 — 실측상 0→31° 이동에 약 3 초.
     // 근거·설계: docs/adr/2026-08-10-yaw-control-gate-blocked-guard.md
     std::atomic<double> gate_blocked_timeout_sec_{5.0};
-    // 게이트 임계 사본 — −8 에피소드를 히스테리시스로 닫는 데 쓴다(생성자에서만 설정).
+    // 게이트 임계 사본 — 생성자에서만 설정하며, 현재 이 값을 읽는 코드는 없다(히스테리시스 미구현).
     double runtime_gate_threshold_deg_{15.0};
 
     // hot-reload 콜백 핸들 (거짓 성공 제거 — ADR 2026-08-10-yaw-control-param-callback)

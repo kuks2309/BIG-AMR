@@ -363,89 +363,79 @@ def test_release_path_actually_calls_the_restore(win, monkeypatch):
     assert called, "반환 경로가 인수인계 복원을 부르지 않는다"
 
 
-def _feed(win, node, deg, times, ref=0.0):
-    """`_check_seer_agreement` 를 `times` 회 먹인다.
-
-    ⚠ Seer 폴링 스레드가 `_seer_deg` 를 비울 수 있으므로(연결 실패 시 `_on_seer_status` 가
-    clear) **매 호출 직전에 기준을 다시 세운다** — 시험이 그 스레드 타이밍에 좌우되지 않게.
-    """
-    for _ in range(times):
-        win._seer_deg[node] = ref
-        win._check_seer_agreement(node, deg)
+def _agree(win, node, deg, baseline):
+    """잡기 직전 기준을 세우고 `_check_seer_agreement` 를 한 번 먹인다."""
+    win._seer_at_take = {node: baseline}
+    win._check_seer_agreement(node, deg)
     QtWidgets.QApplication.processEvents()
 
 
-def test_agreement_check_ignores_transient_samples(win):
-    """과도 표본 하나로 경보하지 않는다.
+def test_agreement_uses_the_baseline_captured_before_engage(win):
+    """대조 상대는 **잡기 직전 Seer 각도**다 — 살아 있는 Seer 판독이 아니다.
 
-    ⚠ 2026-08-05 실기: 획득 직후 첫 표본이 +0.00° 로 읽혔다가 곧 +15.807° 가 됐다
-    (그 사이 조향 지령 없음). 한 번 읽고 판정하면 거짓 경보가 난다.
+    제어권을 쥐면 릴레이가 intercept 로 넘어가 Seer 쪽 판독이 굳는다. 굳은 값과 매 표본
+    비교하면 정상 조작마다 거짓 경보가 난다(실기에서 났다).
     """
     win.txt_log.clear()
-    win._seer_mismatch_streak = {}; win._seer_mismatch_warned_at = {}
-    _feed(win, 3, 0.0, gui.SEER_MATCH_STREAK - 1, ref=15.8)      # 연속 조건에 못 미친다
-    assert "불일치" not in win.txt_log.toPlainText(), "과도 표본으로 경보했다"
+    win._seer_checked = set()
+    win._seer_deg[3] = -137.27              # 살아 있는(굳은) 값 — 이걸 쓰면 안 된다
+    _agree(win, 3, 0.0, baseline=0.0)       # 기준과 일치
+    assert "불일치" not in win.txt_log.toPlainText(), "굳은 Seer 값으로 대조했다"
 
 
-def test_agreement_check_warns_on_persistent_mismatch(win):
-    """계속 어긋나면 알린다 — 검사를 무력화한 것이 아니다."""
+def test_agreement_warns_when_baseline_and_first_sample_differ(win):
+    """기준과 획득 후 첫 실측이 어긋나면 알린다 — 검사를 없앤 것이 아니다."""
     win.txt_log.clear()
-    win._seer_mismatch_streak = {}; win._seer_mismatch_warned_at = {}
-    _feed(win, 3, -137.27, gui.SEER_MATCH_STREAK)
+    win._seer_checked = set()
+    _agree(win, 3, -137.27, baseline=0.0)
     assert "기준 불일치" in win.txt_log.toPlainText()
 
 
-def test_agreement_check_reports_recovery(win):
-    """어긋났다가 맞으면 **회복도 알린다** — 경보만 남고 끝나면 상태를 알 수 없다."""
+def test_agreement_is_checked_once_per_session(win):
+    """축별로 **세션당 1회**만 본다 — 그 뒤 표본은 굳은 값과의 비교라 의미가 없다."""
     win.txt_log.clear()
-    win._seer_mismatch_streak = {}; win._seer_mismatch_warned_at = {}
-    _feed(win, 4, -137.27, gui.SEER_MATCH_STREAK)
-    _feed(win, 4, 0.0, 1)
-    assert "기준 회복" in win.txt_log.toPlainText()
-
-
-def test_agreement_check_throttles_repeat_warnings(win):
-    """같은 축이 계속 어긋나도 로그를 도배하지 않는다."""
-    win.txt_log.clear()
-    win._seer_mismatch_streak = {}; win._seer_mismatch_warned_at = {}
-    _feed(win, 3, -137.27, gui.SEER_MATCH_STREAK * 6)
+    win._seer_checked = set()
+    for _ in range(6):
+        _agree(win, 3, -137.27, baseline=0.0)
     assert win.txt_log.toPlainText().count("기준 불일치") == 1
 
 
-def test_set_meas_actually_runs_the_agreement_check(win, monkeypatch):
-    """실측을 기록하는 지점이 **실제로** 대조를 부르는가 — 배선이 없으면 함수만 남는다.
-
-    ⚠ 2026-08-05: 이 회귀를 붙이기 전에는 `_set_meas` 안의 호출을 지워도 126개가 전부
-    통과했다. 오늘만 세 번째로 같은 형태의 공백이 나왔다(M5 방출 · 인수인계 복원 · 여기).
-    """
-    seen = []
-    monkeypatch.setattr(win, "_check_seer_agreement", lambda n, d: seen.append((n, d)))
-    win._set_meas(3, 12.34)
-    win._set_meas(1, 99.0)                     # 구동축은 대조 대상이 아니다
-    assert seen == [(3, 12.34)], f"조향 실측이 대조를 거치지 않는다: {seen}"
-
-
-def test_agreement_check_stops_after_we_command_steering(win):
-    """**우리가 조향을 보낸 뒤에는 대조하지 않는다.**
-
-    ⚠ 2026-08-05 실기: 제어권을 쥐면 Seer 는 버스에서 끊겨 모터 실측을 못 본다.
-    우리가 +20.00° 로 움직이는 동안 Seer 판독은 +15.81° 에 **고정**돼 있었고,
-    그 상태로 대조하면 정상 조작마다 거짓 경보가 난다(실제로 났다).
-    """
+def test_agreement_is_silent_without_a_baseline(win):
+    """잡기 직전 Seer 각도가 없으면 판정하지 않는다 — 없는 기준으로 경보하지 않는다."""
     win.txt_log.clear()
-    win._seer_mismatch_streak = {}; win._seer_mismatch_warned_at = {}
-    win._steer_commanded = True                       # 이미 조향을 보낸 상태
-    _feed(win, 3, 20.0, gui.SEER_MATCH_STREAK * 2, ref=15.81)
-    assert "불일치" not in win.txt_log.toPlainText(), "조향 지령 후에도 대조해 거짓 경보를 냈다"
+    win._seer_checked = set()
+    win._seer_at_take = {}
+    win._check_seer_agreement(3, -137.27)
+    QtWidgets.QApplication.processEvents()
+    assert "불일치" not in win.txt_log.toPlainText()
+    assert 3 not in win._seer_checked, "기준이 없었는데 판정한 것으로 표시됐다"
 
 
-def test_agreement_check_runs_before_any_steer_command(win):
-    """조향을 보내기 전에는 대조가 살아 있다 — 검사를 없앤 것이 아니다."""
-    win.txt_log.clear()
-    win._seer_mismatch_streak = {}; win._seer_mismatch_warned_at = {}
-    win._steer_commanded = False
-    _feed(win, 3, -137.27, gui.SEER_MATCH_STREAK, ref=0.0)
-    assert "기준 불일치" in win.txt_log.toPlainText()
+def test_engage_reopens_the_agreement_check(win, monkeypatch):
+    """제어권을 다시 잡으면 축별 1회 판정이 새로 열린다."""
+    win._seer_checked = {3, 4}
+    monkeypatch.setattr(win, "_sdo_write", lambda *a, **k: None)
+    win._seer_deg = {3: 0.0, 4: 0.0}
+
+    class _Handle:
+        def controlWrite(self, *_a, **_kw):
+            return None
+
+    class _Panda:
+        REQUEST_OUT = 0
+        _handle = _Handle()
+        def set_safety_mode(self, *_a, **_kw):
+            return None
+        def set_can_speed_kbps(self, *_a, **_kw):
+            return None
+        def set_can_enable(self, *_a, **_kw):
+            return None
+
+    win.panda = _Panda()
+    win._run = False
+    win._on_take(True)
+    win._run = False                                  # 폴 스레드는 시험에서 쓰지 않는다
+    assert win._seer_checked == set(), "재획득했는데 판정이 다시 열리지 않았다"
 
 
 def test_steer_command_sets_the_flag(win, monkeypatch):

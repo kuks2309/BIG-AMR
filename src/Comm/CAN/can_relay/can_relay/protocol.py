@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """CANopen SDO 코덱 — 버스·판다 무의존 순수 함수.
 
-이 모듈은 **바이트만 다룬다.** 어떤 전송로로 나가는지, 어떤 노드가 살아 있는지
-모른다. 그래서 하드웨어 없이 전량 회귀 시험할 수 있다.
-
-객체 인덱스와 값의 근거는 실측 캡처다 — `Log/homing_capture_220350.jsonl`
-(Seer 마스터 180 s, 253,510 프레임). 아래 주석의 `t=` 는 그 캡처의 초 단위 시각이다.
+이 모듈은 **바이트만 다룬다.** 어떤 전송로로 나가는지, 어떤 노드가 살아 있는지 모른다.
+그래서 하드웨어 없이 전량 회귀 시험할 수 있다.
 """
 from __future__ import annotations
 
@@ -23,7 +20,7 @@ OBJ_CONTROLWORD = 0x6040
 OBJ_STATUSWORD = 0x6041
 OBJ_ERROR_CODE = 0x603F
 OBJ_MODES = 0x6060              # 3=PV(구동) · 1=PP(조향)
-OBJ_POSITION_ACTUAL = 0x6064
+OBJ_POSITION_ACTUAL = 0x6064    # counts
 OBJ_VELOCITY_ACTUAL = 0x606C    # 0.1 r/min
 OBJ_CURRENT_ACTUAL = 0x6078     # 0.01 A
 OBJ_TARGET_VELOCITY = 0x60FF    # 0.1 r/min
@@ -31,35 +28,30 @@ OBJ_TARGET_POSITION = 0x607A    # counts
 OBJ_PROFILE_VELOCITY = 0x6081
 OBJ_PROFILE_ACC = 0x6083
 OBJ_PROFILE_DEC = 0x6084
-OBJ_HOMING_SPEED = 0x6099       # sub 0 단일값. 캡처 t=17.918 에서 2500(=250 r/min)
+OBJ_HOMING_SPEED = 0x6099       # sub 0 단일값. 0.1 r/min
 OBJ_GUARD_TIME = 0x100C         # ms
 OBJ_LIFE_FACTOR = 0x100D
-OBJ_DIGITAL_INPUT = 0x6000      # ★ sub **1** 이 비트맵(sub 0 은 엔트리 수).
+OBJ_DIGITAL_INPUT = 0x6000      # sub **1** 이 비트맵(sub 0 은 엔트리 수)
 #   bit0 Servo Enable · bit1 +Limit · bit2 Alarm · bit3 −Limit
-#   구 판다 펌웨어가 sub 0 을 폴해 리밋 판정이 죽어 있던 이력이 있다
-#   (`Log/homing_run_1785160148.jsonl` 에서 응답 0x02 = 엔트리 수). sub 1 을 쓸 것.
-OBJ_VENDOR_60FB = 0x60FB        # sub 4 = RstStart. 1 을 쓰면 호밍이 **물리적으로 시작**된다.
+OBJ_VENDOR_60FB = 0x60FB        # sub 4 = RstStart. 1 을 쓰면 호밍이 물리적으로 시작된다
 OBJ_HOMING_METHOD = 0x6098      # INT8. 1 = −리밋 트리거 · 35 = 현재 위치를 홈으로
 
-# CiA402 homing method 35 — "The home point is the current position".
-# 매뉴얼 근거(Handbook V7.0 §Home 35): "the driver records the current motor position as the
-# home position, **sets the current angle to zero**, and reset uwRstMode to 0.
-# … **it is only effective when the motor is powered on**."
-#   ⇒ ① 호밍 후 0x6064 ≈ 0 이 직진이다(홈 상수가 필요 없다)
-#     ② 전원 사이클마다 재호밍이 필요하다
+# CiA402 homing method 35 — 드라이브가 현재 모터 위치를 홈으로 기록하고 현재 각도를 0 으로
+# 만든 뒤 리셋 모드를 되돌린다. 전원이 들어와 있을 때만 유효하므로 전원 사이클마다 재호밍이
+# 필요하고, 호밍 후에는 0x6064 ≈ 0 이 직진이라 홈 상수가 필요 없다.
 HOMING_METHOD_CURRENT_POS = 35
-STATUSWORD_TARGET_REACHED = 1 << 10     # bit10. 상류가 도착 판정에 쓰는 비트
+STATUSWORD_TARGET_REACHED = 1 << 10     # bit10 — 도착 판정 비트
 
 # ── Controlword 값 ────────────────────────────────────────────────────────
-CW_FAULT_RESET_ENABLE = 0x86    # 축 준비(Fault Reset 상승에지). 캡처 t=17.883·17.910
+CW_FAULT_RESET_ENABLE = 0x86    # 축 준비(Fault Reset 상승에지)
 CW_STEER_SETPOINT = 0x3F        # 신규 setpoint 즉시 적용. 조향 0x607A 직후에 보낸다
 CW_DISABLE = 0x05               # servo-off(freewheel). ⚠ 홀딩토크 상실
 
 # ── SDO 커맨드 바이트 ──────────────────────────────────────────────────────
 _WRITE_CMD = {1: 0x2F, 2: 0x2B, 4: 0x23}
 _READ_REQ = 0x40
-# 응답 커맨드 → 유효 데이터 바이트 수. **이 표를 실제로 써야 한다** —
-# 크기를 무시하고 항상 4바이트를 읽으면 0x4B(2B) 응답에서 상위 2바이트가 오염된다.
+# 응답 커맨드 → 유효 데이터 바이트 수. 크기를 무시하고 항상 4바이트를 읽으면
+# 0x4B(2B) 응답에서 상위 2바이트가 오염된다.
 _READ_RESP_SIZE = {0x43: 4, 0x47: 3, 0x4B: 2, 0x4F: 1}
 _WRITE_ACK = 0x60
 _ABORT = 0x80
@@ -100,10 +92,10 @@ class SdoResponse:
 
 def sdo_write(node: int, index: int, value: int, size: int = 4, sub: int = 0,
               bus: int = 0) -> Frame:
-    """SDO expedited download 요청.
+    """SDO expedited download 요청 프레임을 만든다.
 
-    `size` 는 1·2·4 만 유효하며 그 외는 KeyError 다. 값이 size 에 안 들어가면
-    조용히 자르지 않고 ValueError 를 낸다 — 조용한 절단은 지령을 바꿔 버린다.
+    `size` 는 1·2·4 만 유효하며 그 외는 `KeyError` 다. 값이 `size` 에 안 들어가면
+    조용히 자르지 않고 `ValueError` 를 낸다 — 조용한 절단은 지령을 바꿔 버린다.
     """
     cmd = _WRITE_CMD[size]
     masked = value & 0xFFFFFFFF
@@ -118,15 +110,16 @@ def sdo_write(node: int, index: int, value: int, size: int = 4, sub: int = 0,
 
 
 def sdo_read(node: int, index: int, sub: int = 0, bus: int = 0) -> Frame:
-    """SDO upload 요청."""
+    """SDO upload(읽기) 요청 프레임을 만든다."""
     data = bytes([_READ_REQ, index & 0xFF, index >> 8, sub, 0, 0, 0, 0])
     return Frame(SDO_RX_BASE + node, data, bus)
 
 
 def parse_sdo_response(can_id: int, data: bytes) -> Optional[SdoResponse]:
-    """SDO 응답 디코드. 해당 없으면 None.
+    """SDO 응답을 디코드한다. 해당 없으면 `None`.
 
-    read 응답은 **커맨드 바이트가 알려주는 크기만큼만** 언팩한다.
+    read 응답은 **커맨드 바이트가 알려주는 크기만큼만** 부호 있는 정수로 언팩한다.
+    abort 응답의 `value` 는 abort 코드다.
     """
     if not (SDO_TX_BASE < can_id <= SDO_TX_BASE + 0x7F):
         return None
@@ -149,23 +142,17 @@ def parse_sdo_response(can_id: int, data: bytes) -> Optional[SdoResponse]:
 
 
 def abort_text(code: int) -> str:
+    """abort 코드를 사람이 읽는 사유로 옮긴다. 모르는 코드는 "사유 미상"."""
     return ABORT_REASON.get(code, "사유 미상")
 
 
-# ── 검증된 시퀀스 (실측 캡처 순서 그대로) ──────────────────────────────────
+# ── 시퀀스 ────────────────────────────────────────────────────────────────
 
 def drive_init_frames(node: int, bus: int = 0) -> list[Frame]:
-    """구동축 브링업. 캡처 t=17.883~17.904 의 Seer 순서와 객체·값이 일치한다.
+    """구동축 브링업 5프레임 — Fault Reset · 속도 0 · 노드가딩 · PV 모드.
 
-    ⚠ `Tools/amr_test_gui/gui.py` 에는 이 시퀀스가 **없다** — 그 코드는 Seer 가
-    이미 브링업해 둔 축에 올라타 0x60FF 만 덮어쓴다. 즉 여기는 실기 검증 이력이
-    없는 구간이므로 잭업 상태에서 먼저 확인할 것(debt-017).
-
-    부정형 단정의 근거 명령(2026-07-29 실행, 0건):
-        grep -nE '0x6060|0x100C|0x100D|0x6081|0x6083|0x6084' Tools/amr_test_gui/gui.py
-    범위 주의 — gui.py 가 controlword 자체를 안 쓰는 것은 아니다. `gui.py:942` 가
-    `0x6040=0x86` 을 쓰지만 그것은 `for n in (3, 4)` 안, 즉 **조향축 호밍 전용**이다.
-    구동축 루프(`gui.py:839` `for n in (1, 2)`)는 `0x60FF` 만 쓴다.
+    `0x100D`(life factor) 1 · `0x100C`(guard time) 500 ms 로 노드가딩을 세우고
+    `0x6060` 을 3(Profile Velocity)으로 둔다.
     """
     return [
         sdo_write(node, OBJ_CONTROLWORD, CW_FAULT_RESET_ENABLE, 2, bus=bus),
@@ -177,10 +164,10 @@ def drive_init_frames(node: int, bus: int = 0) -> list[Frame]:
 
 
 def steer_init_frames(node: int, bus: int = 0) -> list[Frame]:
-    """조향축 브링업. 캡처 t=49.012~49.133 의 Seer 순서(호밍 **완료 후** 국면 B).
+    """조향축 브링업 7프레임 — Fault Reset · 노드가딩 · PP 모드 · 프로파일 속도/가감속.
 
-    ⚠ 호밍 트리거(0x60FB:04)는 포함하지 않는다. 호밍은 물리 스윙 100°+ 를
-    일으키므로 별도 명시 요청으로만 수행한다(`homing_frames`).
+    호밍 트리거(`0x60FB:04`)는 포함하지 않는다. 호밍은 물리 스윙 100°+ 를 일으키므로
+    별도 명시 요청으로만 수행한다(`homing_frames`).
     """
     return [
         sdo_write(node, OBJ_CONTROLWORD, CW_FAULT_RESET_ENABLE, 2, bus=bus),
@@ -194,22 +181,15 @@ def steer_init_frames(node: int, bus: int = 0) -> list[Frame]:
 
 
 def homing_frames(node: int, speed: int = 2500, bus: int = 0) -> list[Frame]:
-    """조향 호밍 개시(SDO 직접 경로). ⚠ **이 패키지의 실행 경로에서는 쓰지 않는다.**
+    """조향 호밍 개시 3프레임(SDO 직접 경로). ⚠ **이 패키지의 실행 경로에서는 쓰지 않는다.**
 
-    호출부는 회귀(`test/test_protocol.py`)뿐이다 — 실행 경로의 호밍은 펌웨어
-    시퀀서(`link.homing_start`, 0xea) 또는 method 35(`home35_*`)다. 남겨 두는 이유는
-    **바이트 대조 기준**이기 때문이다: `gui.py:942-944` 의 실기 검증 시퀀스와 같은
-    바이트임을 회귀가 고정하고 있어, 펌웨어 시퀀서가 내는 프레임을 이것과 대조할 수 있다.
+    실행 경로의 호밍은 펌웨어 시퀀서(`link.homing_start`, 0xea) 또는 method 35 다.
+    이 함수는 **바이트 대조 기준**으로 남아 있어, 펌웨어 시퀀서가 내는 프레임을 이것과
+    대조할 수 있다. 새 코드에서 호출하지 말 것 — 이 경로로 시작한 호밍의 취소는 호스트
+    프로세스가 살아 있을 때만 성립한다.
 
-    ⚠ 새 코드에서 이 함수를 호출하지 말 것 — 이 경로로 시작한 호밍의 취소는
-    **호스트 프로세스가 살아 있을 때만** 성립한다(`link.py` 상단 참조).
-    (2026-08-03 코드 리뷰 L1 — 존치 근거 명시)
-
-    `gui.py:942-944` 의 실기 검증 시퀀스와 바이트 동일.
-
-    `0x6098`(homing method)은 **쓰지 않는다** — 드라이브 저장값(전 노드 Home 1,
-    −리밋 트리거)을 덮어쓰면 리셋 모드가 꺼져 호밍이 동작하지 않는다.
-    구동축(1·2)은 기계적 원점이 없어 호밍 대상이 아니다.
+    `0x6098`(homing method)은 쓰지 않는다 — 드라이브 저장값(−리밋 트리거)을 덮어쓰면
+    리셋 모드가 꺼져 호밍이 동작하지 않는다. 구동축은 기계적 원점이 없어 대상이 아니다.
     """
     return [
         sdo_write(node, OBJ_CONTROLWORD, CW_FAULT_RESET_ENABLE, 2, bus=bus),
@@ -222,11 +202,10 @@ def home35_move_frames(node: int, home_offset: int, profile_vel: int = 2500,
                        bus: int = 0) -> list[Frame]:
     """method 35 호밍 1단계 — 지정한 **절대 카운트로 이동**한다.
 
-    상류 `amr_canopen_motor_driver` 의 `can_open.hpp:483-486` 과 같은 순서·같은 객체다:
-        0x607A = home_offset · 0x6081 = profile_vel · 0x6040 = 0x3F(MoveAbsPos)
+    `0x607A` = `home_offset` · `0x6081` = `profile_vel` · `0x6040` = 0x3F 순서다.
 
     ⚠ 이 프레임은 **바퀴를 움직인다.** `home_offset` 이 그 기체 값이 아니면 엉뚱한 곳으로
-    간다 — 호출 전에 현재 위치가 `home_search_range` 안인지 확인할 것.
+    간다 — 호출 전에 현재 위치가 예상 범위 안인지 확인할 것(`safety.home_search_allowed`).
     """
     return [
         sdo_write(node, OBJ_TARGET_POSITION, home_offset, 4, bus=bus),
@@ -236,16 +215,15 @@ def home35_move_frames(node: int, home_offset: int, profile_vel: int = 2500,
 
 
 def home35_set_frames(node: int, bus: int = 0) -> list[Frame]:
-    """method 35 호밍 2단계 — **현재 위치를 홈으로 선언**한다(각도가 0 이 된다).
+    """method 35 호밍 2단계 — `0x6098=35` 로 **현재 위치를 홈으로 선언**한다(각도가 0 이 된다).
 
-    상류 `can_open.hpp:461` 의 `AsyncWrite(0x6098, 0, (int8_t)35)` 와 동일.
     1단계 도착을 확인한 **뒤에만** 보내야 한다 — 안 그러면 엉뚱한 자세가 0° 가 된다.
     """
     return [sdo_write(node, OBJ_HOMING_METHOD, HOMING_METHOD_CURRENT_POS, 1, bus=bus)]
 
 
 def home35_reached(statusword, position, home_offset: int, tol: int) -> bool:
-    """method 35 1단계 도착 판정. 상류와 같은 **2조건**이다(`can_open.hpp:489`).
+    """method 35 1단계 도착 판정 — bit10 이 서고 잔차가 `tol` 미만인 **2조건**이다.
 
     상태워드나 위치를 모르면 도착으로 치지 않는다 — 모르는 것은 참이 아니다.
     """
@@ -257,9 +235,9 @@ def home35_reached(statusword, position, home_offset: int, tol: int) -> bool:
 
 
 def steer_target_frames(node: int, counts: int, bus: int = 0) -> list[Frame]:
-    """조향 절대위치 지령 2프레임. 단계로 쪼개지 않고 최종 목표를 그대로 보낸다.
+    """조향 절대위치 지령 2프레임(`0x607A` 목표 + `0x6040=0x3F` 적용).
 
-    (실측: Seer 도 node3 에 0x607A 를 6,464 회 보내지만 서로 다른 값은 4 개뿐이다.)
+    단계로 쪼개지 않고 최종 목표를 그대로 보낸다.
     """
     return [
         sdo_write(node, OBJ_TARGET_POSITION, counts, 4, bus=bus),
@@ -268,14 +246,13 @@ def steer_target_frames(node: int, counts: int, bus: int = 0) -> list[Frame]:
 
 
 def drive_velocity_frame(node: int, units: int, bus: int = 0) -> Frame:
-    """구동 속도 지령(0.1 r/min raw). units=0 이 정지 지령이다."""
+    """구동 속도 지령 프레임(0.1 r/min raw). `units=0` 이 정지 지령이다."""
     return sdo_write(node, OBJ_TARGET_VELOCITY, units, 4, bus=bus)
 
 
-# ── MotorCmd.mode (상류 `trnav_msgs/MotorCmd.msg` 와 **같은 값**) ──────────
-#   0=DISABLED · 1=VELOCITY · 2=POSITION · 3=TORQUE
-#   ⚠ 이 값을 안 보고 지나가면 축 종류와 모드가 어긋난 지령이 그대로 나간다 —
-#   조향축에 VELOCITY 가 오면 미설정 target_pos(=0)를 위치로 읽어 한계까지 스윙한다.
+# ── MotorCmd.mode — 상류 `trnav_msgs/MotorCmd.msg` 와 같은 값 ──────────────
+#   조향축에 VELOCITY 가 오면 미설정 target_pos(=0)를 위치로 읽어 한계까지 스윙하므로
+#   축 종류와 모드가 맞는지 지령 수리 시점에 검사한다.
 MODE_DISABLED, MODE_VELOCITY, MODE_POSITION, MODE_TORQUE = 0, 1, 2, 3
 MODE_NAME = {0: "DISABLED", 1: "VELOCITY", 2: "POSITION", 3: "TORQUE"}
 

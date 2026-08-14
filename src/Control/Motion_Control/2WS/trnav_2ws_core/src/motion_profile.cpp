@@ -10,7 +10,9 @@ TrapezoidalProfile::TrapezoidalProfile(double target_distance, double max_speed,
     : target_distance_(target_distance), max_speed_(max_speed), acceleration_(acceleration), exit_speed_(exit_speed),
       entry_speed_(entry_speed)
 {
-    // Clamp entry_speed to [0, max_speed_]
+    // Clamp entry_speed to max_speed_ (upper bound only).
+    // entry_speed >= 0 is a caller contract, not enforced here: every 2WS action server
+    // rejects goal->entry_speed < 0 before constructing a profile.
     entry_speed_ = std::min(entry_speed_, max_speed_);
 
     // Feasibility guard: if target_distance is too short to decelerate from entry_speed to exit_speed,

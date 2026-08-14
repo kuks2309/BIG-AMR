@@ -1,0 +1,98 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="canrelay-home-zero-2026-08-14" name="호밍+0°복귀 (ros2 · direct)">
+    <mxGraphModel dx="1400" dy="900" grid="0" page="1" pageWidth="1100" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="t1" value="경로 A — ros2 탭 (드라이버 경유)" style="text;html=1;fontSize=14;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="300" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="a1" value="#1 MainWindow._homing_clicked&#10;확인 대화상자" style="rounded=1;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="56" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="#3 Ros2Backend.home&#10;~/home 서비스 호출(200 s)" style="rounded=1;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="130" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" value="CanRelayNode._srv_home&#10;cbg_home 그룹(직렬화)" style="rounded=1;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="204" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" value="RelayBackend.home" style="rounded=1;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="278" width="220" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="a5" value="_home_sequence&#10;(_homing True→False)" style="rounded=1;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="342" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="a6" value="성공?" style="rhombus;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="95" y="416" width="110" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="a7" value="#5 RelayBackend.steer_to_zero&#10;set_steer_deg(0) + 도달 확인" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4" vertex="1" parent="1">
+          <mxGeometry x="40" y="500" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="a8" value="실패 반환" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc" vertex="1" parent="1">
+          <mxGeometry x="300" y="426" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="a9" value="(ok, why · zwhy) 반환&#10;노드 로그 기록" style="rounded=1;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="574" width="220" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t2" value="경로 B — direct 탭 (판다 직결)" style="text;html=1;fontSize=14;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="560" y="20" width="300" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="b1" value="#1 MainWindow._homing_clicked&#10;확인 대화상자" style="rounded=1;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="560" y="56" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="b2" value="#2 DirectBackend.home&#10;가드: _run · _homing" style="rounded=1;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="560" y="130" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="b3" value="_homing = True&#10;drive(0) + 상태워드 clear" style="rounded=1;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="560" y="204" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="b4" value="호밍 3프레임 x 2축&#10;0x6040=0x86 / 0x6099 / 0x60FB:04=1" style="rounded=1;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="560" y="278" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="b5" value="#4 _wait_homed&#10;bit15 0 관측 → 1 대기" style="rounded=1;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="560" y="352" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="b6" value="원점 확인?" style="rhombus;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="615" y="426" width="110" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="b7" value="_homing = False&#10;(흡수 게이트 해제 — F1 가드 창)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc" vertex="1" parent="1">
+          <mxGeometry x="560" y="510" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="b8" value="실패 반환" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc" vertex="1" parent="1">
+          <mxGeometry x="820" y="436" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="b9" value="#6 _steer_zero_return&#10;steer_all(0) + settled 대기(10 s)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4" vertex="1" parent="1">
+          <mxGeometry x="560" y="584" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="b10" value="#7 _absorb (poll 스레드)&#10;0x6064 → 각도 갱신" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc" vertex="1" parent="1">
+          <mxGeometry x="820" y="584" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="b11" value="(zok, why · zwhy) 반환" style="rounded=1;whiteSpace=wrap;html=1" vertex="1" parent="1">
+          <mxGeometry x="560" y="658" width="220" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="a1" target="a2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="a2" target="a3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="a3" target="a4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="a4" target="a5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="a5" target="a6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e6" value="예" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="a6" target="a7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e7" value="아니오" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="a6" target="a8"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="a7" target="a9"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="b1" target="b2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="b2" target="b3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="b3" target="b4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="b4" target="b5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e13" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="b5" target="b6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e14" value="예" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="b6" target="b7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e15" value="아니오" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="b6" target="b8"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e16" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="b7" target="b9"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e17" value="실측 공급" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="b10" target="b9"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e18" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1" edge="1" parent="1" source="b9" target="b11"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

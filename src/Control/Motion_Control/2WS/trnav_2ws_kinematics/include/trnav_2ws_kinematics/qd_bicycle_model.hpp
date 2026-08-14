@@ -40,7 +40,7 @@ struct BicycleState
     double vy_residual;    // m/s, lateral velocity not captured by bicycle model
 };
 
-/// TwoWsBicycleModel: Abstraction layer over TwoWsDualSteerIK for QD diagonal platform.
+/// TwoWsBicycleModel: Abstraction layer over TwoWsDualSteerIK for the inline dual-steer platform.
 ///
 /// Provides bidirectional conversion between bicycle model (v, delta)
 /// and the dual steer inverse kinematics system.

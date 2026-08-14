@@ -46,7 +46,7 @@ class YawControlReverseActionServer
 
     // mux active source 전환 — execute() 진입 시 호출. action server 가 자기 source_id 책임 (정공법).
     rclcpp::Client<trnav_msgs::srv::SelectMotionSource>::SharedPtr select_source_client_;
-    int motion_source_id_{7};  // yaw_control_reverse = 7 (2026-05-16 9→7, docs/abstraction/motion_source_id_contract.md)
+    int motion_source_id_{7};  // yaw_control_reverse = 7 (2026-05-16 9→7)
 
     // Control parameters (from YAML — yaw_control_reverse_*)
     // ⚠ 아래 파라미터 멤버는 **두 스레드가 동시에 만진다** — `execute()` 는
@@ -79,7 +79,7 @@ class YawControlReverseActionServer
     // 임계는 정상 조향 이동 시간보다 길어야 오탐이 없다 — 실측상 0→31° 이동에 약 3 초.
     // 근거·설계: docs/adr/2026-08-10-yaw-control-gate-blocked-guard.md
     std::atomic<double> gate_blocked_timeout_sec_{5.0};
-    // 게이트 임계 사본 — −8 에피소드를 히스테리시스로 닫는 데 쓴다(생성자에서만 설정).
+    // 게이트 임계 사본 — 생성자에서만 설정하며, 현재 이 값을 읽는 코드는 없다(히스테리시스 미구현).
     double runtime_gate_threshold_deg_{15.0};
 
     // hot-reload 콜백 핸들 (거짓 성공 제거 — ADR 2026-08-10-yaw-control-param-callback)

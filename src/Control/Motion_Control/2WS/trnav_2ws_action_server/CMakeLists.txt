@@ -24,6 +24,9 @@ find_package(tf2_ros REQUIRED)
 find_package(trnav_2ws_core REQUIRED)
 find_package(trnav_2ws_motion REQUIRED)
 find_package(trnav_2ws_kinematics REQUIRED)
+# 라인 추종이 소비하는 인식 오차 메시지(ai_msgs/LineError). 인터페이스 패키지만 의존하며
+# 런타임 AI 노드(torch·ultralytics)에는 의존하지 않는다.
+find_package(ai_msgs REQUIRED)
 
 # ── Spin pilot node ──
 add_executable(amr_spin_node
@@ -193,7 +196,7 @@ target_link_libraries(amr_turn_node
 )
 
 # ── TurnReverse pilot node (후진 원호, 2026-08-09 신설) ──
-#    전진판 amr_turn_node 와 IK 입력 vx 부호만 다르다. ADR: docs/adr/2026-08-09-turn-reverse.md
+#    전진판 amr_turn_node 와 IK 입력 vx 부호 · feedback 선속도의 크기(|vx|) 보고 · source_id 기본값(12) 만 다르다. ADR: docs/adr/2026-08-09-turn-reverse.md
 add_executable(amr_turn_reverse_node
   src/turn_reverse/turn_reverse_main.cpp
   src/turn_reverse/turn_reverse_action_server.cpp
@@ -367,6 +370,55 @@ target_link_libraries(amr_mpc_reverse_node
   trnav_2ws_core::localization_monitor
 )
 
+# ── LineFollow pilot node (영상 라인 추종, mux source 13) ──
+#    /line/error (ai_msgs/LineError) 를 소비해 조향 PD 로 라인을 추종한다.
+#    ADR: docs/adr/2026-08-14-line-follow-2ws-action.md
+add_executable(amr_line_follow_node
+  src/line_follow/line_follow_main.cpp
+  src/line_follow/line_follow_action_server.cpp
+)
+
+target_include_directories(amr_line_follow_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(amr_line_follow_node
+  rclcpp
+  rclcpp_action
+  trnav_2ws_interfaces
+  trnav_msgs
+  ai_msgs
+  sensor_msgs
+  std_msgs
+  geometry_msgs
+  nav_msgs
+  tf2
+  tf2_ros
+  trnav_2ws_core
+  trnav_2ws_motion
+)
+
+target_link_libraries(amr_line_follow_node
+  trnav_2ws_kinematics::qd_inverse_kinematics
+  trnav_2ws_core::motion_profile
+  trnav_2ws_motion::qd_wheel_set_packer
+  trnav_2ws_kinematics::qd_bicycle_model
+  trnav_2ws_core::transient_guard
+  trnav_2ws_core::localization_monitor
+)
+
+# ── Tests ──
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  # 제어 코어는 ROS 비의존 헤더 온리라 링크 없이 헤더 경로만 준다.
+  ament_add_gtest(line_follow_core_test test/line_follow_core_test.cpp)
+  if(TARGET line_follow_core_test)
+    target_include_directories(line_follow_core_test PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  endif()
+endif()
+
 # ── Install ──
 install(TARGETS
   amr_spin_node
@@ -379,6 +431,7 @@ install(TARGETS
   amr_yaw_control_reverse_node
   amr_mpc_node
   amr_mpc_reverse_node
+  amr_line_follow_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

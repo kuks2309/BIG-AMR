@@ -55,7 +55,7 @@ class TurnActionServer : public trnav::motion::two_ws::TwoWsActionServerBase<trn
 
     // 전역 시한 — Stage 1 은 「오차가 줄어드는 것」 외에 종료 조건이 없다.
     // IMU 두절·차체 구속에서 무한 원호가 되는 것을 막는다(spin·yaw_control 과 같은 규약).
-    double max_timeout_sec_{60.0};    // start_yaw 원형 이동평균 샘플 수 (윈도우 = N / control_rate_hz)
+    double max_timeout_sec_{60.0};    // Stage 1 전역 시한 [s] (yaml 키: turn_max_timeout_sec)
 };
 
 } // namespace trnav_2ws_action_server::turn

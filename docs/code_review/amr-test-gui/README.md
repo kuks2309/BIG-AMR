@@ -6,6 +6,7 @@
 
 | 날짜 | 코드 버전 | Verdict | 핵심 |
 | --- | --- | --- | --- |
+| [2026-08-14](../can_relay_ui/2026-08-14.md) | gui.py md5 `7e7ab2ce` (HEAD `f543422`, 미커밋) | COMMENT | **cross-ref** — `can_relay_ui` delta 리뷰가 `gui.py` 를 함께 다룬다(0° 복귀 판정 시점 · 주석 정비). Medium 1 신규: `_fill_row` 가 `None` 을 `—` 로 덮지 않는데 docstring 은 덮는다고 적었다 |
 | [2026-08-03](2026-08-03.md) | `gui.py` md5 `7a043e4c` (1,157줄, repo HEAD `cc5e049` 워킹트리) | REQUEST CHANGES | **최초 인벤토리** — 함수 56 전수(#1~#53 + inner 3) · 전역 G1~G15 · 전체 흐름도. High 4(정착 판정 신선도 부재 · heartbeat 락 밖 · 단발 송신 워치독 부재 · 호밍 취소 불가) |
 
 ⚠ **2026-08-03 이전에는 날짜 문서가 없었다** — 이 폴더에 `2026-07-27-flow.drawio` 만 있었다.
