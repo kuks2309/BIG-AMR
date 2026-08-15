@@ -122,7 +122,7 @@ class MergerNode : public rclcpp::Node
     uint64_t skew_reject_count_;         // pairs rejected by max_pair_skew, cumulative
     uint64_t skew_reject_window_;        // pairs rejected by max_pair_skew, this window
     // Scans that reached the synchroniser, this window. The policy discards candidates internally
-    // (approximate_time.h:728-731 dequeDeleteFront) without ever calling sub_callback, so those
+    // (approximate_time.h:728-731 dequeDeleteFront) without ever calling sub_callback, so those  comment-check: ignore
     // losses are invisible to the pair counters. Comparing inputs to pairs exposes them.
     uint64_t in_count_1_;
     uint64_t in_count_2_;

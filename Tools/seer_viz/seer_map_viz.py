@@ -16,7 +16,7 @@
    두 발행자가 같은 변환을 내면 TF 가 튄다.
 
 사용:
-    python3 Tools/seer_viz/seer_map_viz.py --smap map/260709_test_2026-08-06_79e59a5a.smap
+    python3 Tools/seer_viz/seer_map_viz.py --smap map/260709_test.smap
 """
 
 from __future__ import annotations

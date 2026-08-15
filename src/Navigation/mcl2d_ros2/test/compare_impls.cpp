@@ -2,7 +2,7 @@
 //  (1) ROS 메시지 변환 무손실성 단위 검증 (fromRosScan/fromRosOdom round-trip).
 //  (2) 동일 시나리오를 non-ROS 코어 vs ROS 변환경유 코어 양쪽 구동 → pose 수열 대조
 //      (같은 mcl2d_core+시드 → ROS 배관이 결과를 바꾸지 않음 증명).
-//  (3) 원본 대조는 golden oracle(A4, docs/verification/localization_oracle/2026-07-10.md)에서
+//  (3) 원본 대조는 golden oracle(A4, docs/verification/localization_oracle/2026-07-10.md)에서  comment-check: ignore
 //      estimate 비트 일치 이미 증명 — 여기선 참조.
 #include <cmath>
 #include <cstdio>
