@@ -103,7 +103,7 @@ class RelayConfig:
     #   기각된 방식으로 떨어지면 안 된다.
     homing_enabled: bool = False    # ⚠ home_offset 실측 확정 전까지 False
     steer_home_offset: dict = field(default_factory=dict)   # {node: 절대 counts}
-    home_reach_tol_counts: int = 50         # 상류 can_open.hpp:489 와 동일
+    home_reach_tol_counts: int = 50         # 호밍 도착 판정 허용 counts
     home_profile_vel: int = 2500            # 상류 HomeVelocity 와 동일
     home_search_range: tuple = (-10_000_000, 10_000_000)
     require_homed_for_steer: bool = True
@@ -707,7 +707,7 @@ class RelayBackend:
         """진행 중인 호밍을 취소한다.
 
         펌웨어가 `0x60FB:04 = 0` 취소 프레임을 낸다
-        (`safety_seer_gate.h:312-316` `seer_home_cancel_frames`). 취소는 펌웨어에서
+        (`safety_seer_gate.h` 의 `seer_home_cancel_frames`). 취소는 펌웨어에서
         **항상 수리**되므로(전제조건 없음) 어떤 상태에서도 요청할 수 있다.
         """
         if str(self.cfg.homing_method) == "35":

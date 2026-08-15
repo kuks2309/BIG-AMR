@@ -36,9 +36,12 @@ OBJ_DIGITAL_INPUT = 0x6000      # sub **1** 이 비트맵(sub 0 은 엔트리 �
 OBJ_VENDOR_60FB = 0x60FB        # sub 4 = RstStart. 1 을 쓰면 호밍이 물리적으로 시작된다
 OBJ_HOMING_METHOD = 0x6098      # INT8. 1 = −리밋 트리거 · 35 = 현재 위치를 홈으로
 
-# CiA402 homing method 35 — 드라이브가 현재 모터 위치를 홈으로 기록하고 현재 각도를 0 으로
-# 만든 뒤 리셋 모드를 되돌린다. 전원이 들어와 있을 때만 유효하므로 전원 사이클마다 재호밍이
-# 필요하고, 호밍 후에는 0x6064 ≈ 0 이 직진이라 홈 상수가 필요 없다.
+# CiA402 homing method 35 — 현재 모터 위치를 홈으로 기록한다(벤더 사양).
+# ⚠ **이 패키지는 이 경로를 쓰지 않는다.** `homing_method` 기본값은 `"firmware"`(method 1,
+#   −리밋)이며 35 는 제어권 반환 시 Seer 가 각도를 오독하는 문제로 기각됐다(`RelayConfig`).
+#   따라서 「35 이후 `0x6064 ≈ 0`」은 **벤더 사양이지 이 기체 실측이 아니다.**
+#   현행 경로에서는 조향 0° 가 `steer_home_counts`(기체 고유 상수)이고, 그 값이 없으면
+#   `safety.steer_deg_to_counts` 가 지령을 거부한다.
 HOMING_METHOD_CURRENT_POS = 35
 STATUSWORD_TARGET_REACHED = 1 << 10     # bit10 — 도착 판정 비트
 
