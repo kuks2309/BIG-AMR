@@ -226,9 +226,12 @@ def test_state_record_roundtrips_as_json():
 import time as _time
 
 import pytest
-import rclpy
 
-from can_relay.supervisor import RelaySupervisor
+# `conftest.py` 는 「설치·소싱 없이도 돈다」를 계약으로 선언한다. 모듈 스코프에서 rclpy 를
+# 그냥 import 하면 미소싱 환경에서 **이 파일 전체가 수집 단계에서 터지고**, 수집 에러는
+# 실행 전체를 중단시킨다 — 같은 파일의 순수 시험까지 못 돌게 된다.
+rclpy = pytest.importorskip("rclpy", reason="rclpy 미소싱 — 배선 시험만 건너뛴다")
+from can_relay.supervisor import RelaySupervisor  # noqa: E402
 
 
 @pytest.fixture
@@ -261,3 +264,38 @@ def test_releasing_also_reaches_the_decision_input(sup):
     _observe(sup, engaged=False)
     assert (sup._prev or {}).get("engaged") is False, (
         "제어권 반환이 판정 입력에 도달하지 않는다 — 굳은 값으로 재획득이 일어난다")
+
+
+# ── 두절 → 복귀 경로 (기존 배선 시험은 RUNNING→IDLE 만 밟는다) ────────────
+def _down(node):
+    """진단이 끊긴 것으로 만들고 틱을 돌린다."""
+    node._cur = None
+    node._last_diag = _time.monotonic() - (node.cfg.diag_timeout_s + 5.0)
+    node._on_tick()
+
+
+def test_transition_logging_survives_severity_change(sup):
+    """상태 전이 로그가 severity 를 바꿔도 틱이 예외로 죽지 않아야 한다.
+
+    rclpy 는 로그 컨텍스트를 호출 지점으로 캐시하고 severity 변경을 거부한다.
+    한 줄에서 warn/info 를 번갈아 부르면 두 번째 호출이 `ValueError` 를 낸다.
+    """
+    _observe(sup, engaged=True)      # → RUNNING (info)
+    _down(sup)                       # → DEAD    (warn) — 같은 자리에서 severity 변경
+    assert sup._verdict != "RUNNING", "전이가 기록되지 않았다"
+    assert sup._was_down is True, "두절 사실이 기록되지 않았다"
+
+
+def test_restore_eligibility_survives_a_failed_attempt(sup, monkeypatch):
+    """복귀 시도가 실패해도 다음 틱에 다시 시도할 수 있어야 한다.
+
+    판정 입력을 복귀 틱에 덮으면 기회가 1회로 끝난다 — 재기동 직후 서비스
+    디스커버리가 늦으면 그 한 번을 날리고 영구히 시도하지 않는다.
+    """
+    tried = []
+    monkeypatch.setattr(sup, "_restore", lambda: tried.append(1))   # 전송 실패 모사
+    _observe(sup, engaged=True)
+    _down(sup)
+    _observe(sup, engaged=False)     # 재기동 — 미획득
+    _observe(sup, engaged=False)     # 다음 틱
+    assert len(tried) >= 2, f"복귀 시도가 {len(tried)}회뿐 — 실패하면 영구 포기한다"

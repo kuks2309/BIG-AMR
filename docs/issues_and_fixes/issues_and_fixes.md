@@ -47,6 +47,45 @@
 
 ## 2026-08-15
 
+### [Fix] 감시 노드가 첫 상태 전이에서 죽는다 · 복귀 시도가 1회로 끝난다 · 검출력 검사기 거짓 초록 (적대적 리뷰 3건)
+
+- **문제**: ① 감시 노드가 상태 전이 로그에서 `ValueError` 로 죽고, `Restart=always` 아래에서
+  2초 crash-loop 가 된다. ② 복귀 시도가 실패해도 재시도하지 않고 영구 포기한다.
+  ③ 검출력 검사기가 무관한 기존 실패 1건만 있으면 모든 돌연변이를 「검출」로 집계한다.
+  ④ 배선 시험이 미소싱 환경에서 파일 전체 수집을 중단시킨다.
+- **원인**:
+  ① `supervisor.py` 전이 로그가 **한 줄에서** `warn`/`info` 를 번갈아 불렀다. rclpy 는 로그
+  컨텍스트를 **호출 지점(파일·함수·줄)** 으로 캐시하고 severity 변경을 거부한다
+  (`rcutils_logger.py` `Logger severity cannot be changed between calls.`). 직접 재현 확인.
+  예외가 `self._verdict = verdict`·`self._was_down = True` **앞에서** 터지므로 두절 사실이
+  기록되지 않고, `main()` 은 `KeyboardInterrupt` 만 잡아 프로세스가 죽는다.
+  ⇒ 같은 날 넣은 `_prev` 갱신(복귀 활성화)이 **실행에 도달한 적이 없다**.
+  ② `decide()` → `_prev = _cur` → `_restore()` 순서라 **복귀를 내는 그 틱에 판정 입력이
+  지워진다.** `_restore()` 가 서비스 미준비로 실패하면 다음 틱은 `IDLE` 이고 재시도가 없다.
+  ③ `mutation_check.py` 가 검출을 `" failed" in 요약줄` 로 판정했다 — 실패의 **원인**을 묻지 않는다.
+  ④ 배선 시험이 모듈 스코프에서 `import rclpy` 했다. `conftest.py` 는 「설치·소싱 없이도 돈다」를
+  계약으로 선언하며, 수집 에러는 실행 전체를 중단시킨다.
+- **해결**:
+  ① severity 별 **호출 지점 분리** + 타이머 진입점을 `_tick_guarded` 로 감싸 틱 예외로 감시자가
+  죽지 않게 한다(시험은 `_on_tick` 을 직접 부르므로 가드에 가려지지 않는다).
+  ② 복귀·보류 틱에는 `_prev` 를 덮지 않는다. 아울러 별칭이 아니라 `dict()` 사본으로 넘긴다.
+  ③ 대상 시험별 **기준선 실패 집합을 먼저 재고, 거기 없던 시험이 새로 깨질 때만** 검출로 인정.
+  출력에 신규 실패 시험 이름을 싣는다.
+  ④ `pytest.importorskip("rclpy")` 로 감싸 배선 시험만 건너뛴다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/supervisor.py` ·
+  `src/Comm/CAN/can_relay/mutation_check.py` · `src/Comm/CAN/can_relay/test/test_supervisor.py`
+- **상태**: 완료 — can_relay **467 passed / 1 skipped / 0 failed** ·
+  돌연변이 **C1·H5·F1 3/3 검출**(각각 어느 시험이 새로 깨졌는지 함께 출력) ·
+  미소싱 경로 **16 passed / 1 skipped**, 소싱 경로 **47 passed**.
+  ⚠ **실기 미검증** — 드라이버를 실제로 죽여 복귀가 나가는지 확인한 적이 없다.
+  ⚠ 이 3건은 **작성자가 아닌 별도 lane(적대적 리뷰)** 이 찾았다. 작성자의 배선 시험 2건은
+  `RUNNING→IDLE` 만 밟아 `RUNNING→DEAD→RESTORE` 경로를 지나가지 않았다.
+  ⚠ 잔여 지적은 `debt-082`(검사기가 실 소스를 덮어씀) · `debt-083`(`joint_states` 다중 발행자) ·
+  `debt-084`(CLI 잔여 5건 — 시계축 혼용·하드코딩 등) · `debt-085`(주입 경계 바깥 시험 0건).
+
+---
+
+
 ### [Fix] 감시 복귀가 한 번도 발동하지 않음 · 0° 도달 판정에 신선도 없음 · 종료코드 미도달 (3건)
 
 - **문제**: ① 드라이버가 죽어도 감시자가 제어권을 복귀시키지 않는다. 반대로 운용자가 의도적으로

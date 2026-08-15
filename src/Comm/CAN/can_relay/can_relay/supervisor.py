@@ -100,7 +100,7 @@ class RelaySupervisor(Node):
         self.pub_status = self.create_publisher(DiagnosticArray, "~/status", 10)
         self.cli_engage = self.create_client(SetBool, f"/{self._target}/engage")
 
-        self.create_timer(1.0 / float(g["tick_hz"]), self._on_tick)
+        self.create_timer(1.0 / float(g["tick_hz"]), self._tick_guarded)
         self.get_logger().info(
             f"감시 시작 — 대상 '{self._target}' · 기록 {self._state_path} · "
             f"두절 임계 {self.cfg.diag_timeout_s}s · "
@@ -119,6 +119,19 @@ class RelaySupervisor(Node):
             return
 
     # ── 주기 판정 ─────────────────────────────────────────────────────
+    def _tick_guarded(self):
+        """타이머 진입점. 틱 예외로 감시자가 죽지 않게 막는다.
+
+        감시자가 죽으면 대상이 죽었을 때 복귀시킬 주체가 사라지고, `Restart=always`
+        아래에서는 재기동 루프가 된다. 시험은 `_on_tick` 을 직접 부르므로 이 가드에
+        가려지지 않는다.
+        """
+        try:
+            self._on_tick()
+        except Exception as exc:
+            self.get_logger().error(
+                f"틱 예외 — 감시는 계속한다: {type(exc).__name__}: {exc}")
+
     def _on_tick(self):
         """관측 조립 → `decide` → 기록·복귀·발행. 판정 로직은 여기 두지 않는다."""
         now = time.monotonic()
@@ -138,9 +151,15 @@ class RelaySupervisor(Node):
         verdict, why = decide(self._prev, obs, self.cfg)
 
         if verdict != self._verdict:
-            log = (self.get_logger().warn
-                   if verdict in (DEAD, ZOMBIE, HOLD) else self.get_logger().info)
-            log(f"{self._verdict} → {verdict} — {why}")
+            # rclpy 는 로그 컨텍스트를 **호출 지점(파일·함수·줄)** 으로 캐시하고 severity
+            # 변경을 거부한다(`rcutils_logger.py` `Logger severity cannot be changed
+            # between calls.`). 한 줄에서 warn/info 를 번갈아 부르면 두 번째 호출이
+            # `ValueError` 를 낸다 — 그래서 줄을 나눈다.
+            msg = f"{self._verdict} → {verdict} — {why}"
+            if verdict in (DEAD, ZOMBIE, HOLD):
+                self.get_logger().warn(msg)
+            else:
+                self.get_logger().info(msg)
             self._verdict = verdict
 
         if verdict in (DEAD, ZOMBIE):
@@ -154,7 +173,11 @@ class RelaySupervisor(Node):
             # 비워 두면 판정은 **부팅 시점 스냅샷**을 계속 쓴다 — 운용 중 제어권을 잡아도
             # 그 사실이 판정에 도달하지 않아 복귀가 걸리지 않고, 반대로 부팅 때 잡혀 있던
             # 상태가 굳으면 반환한 뒤에도 재획득이 일어난다.
-            self._prev = self._cur
+            # ⚠ 복귀를 내는 틱에는 덮지 않는다. 여기서 덮으면 `_restore()` 가 실패해도
+            # (서비스 미준비·거부) 다음 틱의 판정 입력이 `engaged=False` 가 되어 재시도가
+            # 사라진다 — 복귀 기회가 1회로 끝난다.
+            if not (self._was_down and verdict in (RESTORE, HOLD)):
+                self._prev = dict(self._cur)      # 별칭이면 「직전」이 현재를 따라간다
 
         if verdict == RESTORE:
             self._restore()

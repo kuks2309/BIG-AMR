@@ -46,7 +46,22 @@ MUTATIONS = [
          "        self.c.send_steer_zero()\n        ok, why = self.c.call_home()")],
      HZ, T_HZ),
     ("F1", "판정 입력을 부팅 시점 스냅샷에 고정 — 복귀가 영영 걸리지 않는다", [
-        ("            self._prev = self._cur\n", "")], SUP, T_SUP),
+        ("            if not (self._was_down and verdict in (RESTORE, HOLD)):\n"
+         "                self._prev = dict(self._cur)      # 별칭이면 「직전」이 현재를 따라간다\n",
+         "")], SUP, T_SUP),
+    ("C1", "전이 로그를 한 줄에서 severity 바꿔 부름 — 감시자가 첫 전이에서 죽는다", [
+        ("            msg = f\"{self._verdict} → {verdict} — {why}\"\n"
+         "            if verdict in (DEAD, ZOMBIE, HOLD):\n"
+         "                self.get_logger().warn(msg)\n"
+         "            else:\n"
+         "                self.get_logger().info(msg)\n",
+         "            log = (self.get_logger().warn\n"
+         "                   if verdict in (DEAD, ZOMBIE, HOLD) else self.get_logger().info)\n"
+         "            log(f\"{self._verdict} → {verdict} — {why}\")\n")], SUP, T_SUP),
+    ("H5", "복귀 틱에 판정 입력을 덮음 — 복귀 시도가 1회로 끝난다", [
+        ("            if not (self._was_down and verdict in (RESTORE, HOLD)):\n"
+         "                self._prev = dict(self._cur)      # 별칭이면 「직전」이 현재를 따라간다",
+         "            self._prev = dict(self._cur)")], SUP, T_SUP),
     ("F2a", "실리지 않은 축을 직전 값으로 채움 — 발행자의 보호를 되돌린다", [
         ("    out = {int(n): None for n in steer_nodes}", "    out = {}")], HZ, T_HZ),
     ("F2b", "낡은 실측을 그대로 씀 — 통신이 끊겨도 도달이 성립한다", [
@@ -61,18 +76,36 @@ MUTATIONS = [
 ]
 
 
-def run_tests(target):
-    """`(검출됨|None, 요약줄)` — None 은 검사 불가(시험이 실행되지 않음)."""
+def failing_tests(target):
+    """`(실패 시험 이름 집합|None, 요약줄)` — None 은 실행 자체가 안 된 경우."""
     env = dict(os.environ)
     env["PYTHONPATH"] = "." + os.pathsep + env.get("PYTHONPATH", "")
     r = subprocess.run([sys.executable, "-m", "pytest", target,
                         "-q", "--no-header", "--tb=no"],
                        cwd=PKG, capture_output=True, text=True, env=env)
     out = r.stdout.strip()
-    last = out.splitlines()[-1] if out else ""
+    lines = out.splitlines()
+    last = lines[-1] if lines else ""
     if not re.search(r"\d+ (?:failed|passed)", last):
         return None, f"검사 불가 — 시험이 실행되지 않았다 ({last!r})"
-    return (" failed" in last), last
+    names = {ln.split("::")[-1].split()[0] for ln in lines if ln.startswith("FAILED")}
+    return names, last
+
+
+def run_tests(target, baseline):
+    """`(검출됨|None, 요약줄)`.
+
+    검출 = **원본 상태에서 통과하던 시험이 새로 깨졌다**. 「아무 시험이나 실패했는가」로
+    판정하면 무관한 기존 실패 1건이 전 항목을 검출로 만든다 — 그러면 도구가 아무것도
+    보지 않으면서 「회귀로 고정돼 있다」를 출력한다.
+    """
+    names, last = failing_tests(target)
+    if names is None:
+        return None, last
+    new_failures = sorted(names - baseline)
+    if not new_failures:
+        return False, last
+    return True, f"{last} · 신규 실패 {', '.join(new_failures[:3])}"
 
 
 def main(argv):
@@ -85,6 +118,18 @@ def main(argv):
               f"등록된 id: {', '.join(m[0] for m in MUTATIONS)}")
         return 1
     selected = [m for m in MUTATIONS if not want or m[0].upper() in want]
+    # 원본 상태의 실패 집합을 대상 시험별로 먼저 잰다 — 이것이 없으면 검출 판정이
+    # 「아무 시험이나 실패했는가」로 퇴화한다.
+    baselines = {}
+    for tgt in {m[4] for m in selected}:
+        names, last = failing_tests(tgt)
+        if names is None:
+            print(f"❗ 검사 불가 — 기준선 실행 실패 ({tgt}): {last}")
+            return 1
+        baselines[tgt] = names
+        if names:
+            print(f"⚠ 기준선 실패 {len(names)}건 ({tgt}) — 검출 판정에서 제외: "
+                  f"{', '.join(sorted(names)[:5])}")
     originals = {f: f.read_text(encoding="utf-8") for _, _, _, f, _ in MUTATIONS}
     failures = []
     try:
@@ -96,7 +141,7 @@ def main(argv):
                     return 1
                 text = text.replace(old, new, 1)
             f.write_text(text, encoding="utf-8")
-            detected, last = run_tests(tgt)
+            detected, last = run_tests(tgt, baselines[tgt])
             f.write_text(original, encoding="utf-8")
             if detected is None:
                 print(f"❗ 검사불가 {mid:<4} {what}   ({last})")
