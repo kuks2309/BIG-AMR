@@ -133,7 +133,7 @@ rclpy 드라이버. Seer 마스터가 붙어 있는 상태에서 릴레이 inter
 
 ---
 
-## 3. `health.py` — 감시 판정 (순수, 310줄)
+## 3. `health.py` — 감시 판정 (순수, 320줄)
 
 ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같은 배치이며, 분리한 이유는
 `conftest.py` 가 규정한 **미소싱 회귀**다 — rclpy 뒤에 판정이 갇히면 설치 없이 전 분기를
@@ -172,7 +172,7 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | 위 + 창 내 복귀 ≥ `restart_limit` | `HOLD` | crash-loop |
 | 위 전부 통과 | `RESTORE` | `~/engage true` 1회 |
 
-## 4. `supervisor.py` — 감시 노드 (ROS 껍데기, 347줄)
+## 4. `supervisor.py` — 감시 노드 (ROS 껍데기, 352줄)
 
 **제어 경로 밖이다** — CAN 에 쓰지 않고 판다를 열지 않는다. 구독·서비스 호출만 한다.
 따라서 이 노드가 죽어도 정지 보증에는 영향이 없다(정지는 펌웨어 소관). 판정은 여기 없다.
@@ -182,10 +182,9 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | 55 | `RelaySupervisor.__init__` | — | — | 파라미터 → 기록 경로 확보 → 구독(`/diagnostics`)·클라이언트(`<target>/engage`)·타이머 | `supervisor.py:54` |
 | 56 | `_on_diag` | `DiagnosticArray` | — | 접두가 맞는 status 1건만 뽑아 현재 상태로. 다른 발행자는 무시 | `supervisor.py:114` |
 | 57 | `_on_tick` | — | — | 관측 조립 → `decide` → 기록·복귀·발행. **프로세스 순회는 두절일 때만** | `supervisor.py:124` |
-| 58 | `_restarts_in_window` | — | `int` | 복귀 창 안의 시도 횟수(창 밖은 버린다) | `supervisor.py:170` |
 | 59 | `_restore` | — | — | `~/engage true` 1회. 진행 중 호출이 있으면 재호출하지 않는다(제어권 조작 중복 방지) | `supervisor.py:176` |
 | 60 | `_on_restore_done` | `future` | — | 응답 처리. **신원 검사 선행**(`future is self._pending` 아니면 무시) · 성공 시 구 진단 폐기 · 기록된 사망 직전 조향 목표를 로그로만 남긴다(복원 안 함) | `supervisor.py:198` |
-| 61 | `_save` | `state` | — | 임시파일 + `os.replace` **원자 교체**. 반쪽 JSON 은 다음 기동에서 「기록 없음」이 되어 복귀가 조용히 사라진다 | `supervisor.py:221` |
+| 61 | `_save` | `state` | — | 임시파일 + `os.replace` **원자 교체**(반쪽 JSON 방지). 호출부(`_on_tick`)가 내용 지문(`_last_saved`) 비교로 **변화 시에만** 부른다 | `supervisor.py:221` |
 | 62 | `_load` | — | `Optional[dict]` | **`boot_id` 불일치면 폐기** — 전원 사이클을 넘긴 기록으로 복귀하면 조향 홈 기준이 없다 | `supervisor.py:248` |
 | 63 | `_publish` | `verdict`, `why`, `obs` | — | 감시자 자신의 판정을 `~/status` 로 — 감시자가 도는지 밖에서 보이게 | `supervisor.py:270` |
 | 64 | `main` | `args` | — | 진입점. 제어 경로 밖이라 단일 스레드 실행기로 충분 | `supervisor.py:301` |
@@ -233,6 +232,7 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | `_pending` | 진행 중 engage future | 중복 호출 방지 |
 | `_pending_since` | 그 호출을 보낸 시각(monotonic) | 시한 판정 기준. `None` = 진행 중 호출 없음. 갱신·해제는 **현재 `_pending` 과 동일한 future 의 콜백만** 할 수 있다(신원 검사 — 버린 호출의 늦은 콜백이 지우면 시한 판정이 다시는 서지 않는다) |
 | `_cur_seen_since` | 두절 후 진단이 다시 흐르기 시작한 시각(monotonic) | 안정화 창의 기준. 진단이 끊기거나 복귀 직후 폐기되면 리셋 |
+| `_last_saved` | 마지막 기록 내용의 지문(`cur` 항목 + 복귀 시각 목록) | 무변화 재기록 생략. `saved_at` 은 지문에서 제외 |
 
 ### `RelayConfig` 필드 (배선·한계·주기 — 값 정본은 `config/machine/<기체>.yaml`)
 

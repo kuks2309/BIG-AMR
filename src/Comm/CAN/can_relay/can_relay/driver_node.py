@@ -45,7 +45,7 @@ from std_srvs.srv import SetBool, Trigger
 
 from . import safety as S
 from .backend import RelayBackend, RelayConfig
-from .link import MOTOR_BUS, MockLink, PandaLink
+from .link import MOTOR_BUS, MockLink, PandaLink, panda_library_error
 
 # E-stop 은 래치 상태다 — 늦게 붙은 구독자도 현재 값을 받아야 한다.
 LATCHED_QOS = QoSProfile(depth=1,
@@ -191,6 +191,13 @@ class CanRelayNode(Node):
         else:
             serial = g["panda_serial"] or None
             self.link = PandaLink(serial=serial, log=logger)
+            lib_err = panda_library_error()
+            if lib_err is not None:
+                # 기동은 막지 않는다(진단·대기 상태는 유효하고, 크래시는 systemd 재기동
+                # 루프가 된다). 다만 첫 `~/engage` 에서야 알게 되는 것을 막기 위해
+                # 기동 시점에 크게 남긴다.
+                self.get_logger().error(
+                    f"판다 라이브러리 없음 — `~/engage` 가 거부될 것이다: {lib_err}")
         self.backend = RelayBackend(self.link, cfg, log=logger)
 
         # 모터 계층 메시지. 없으면 저수준 경로를 열지 않는다(조용히 대체하지 않는다).

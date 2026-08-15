@@ -50,7 +50,10 @@ DIAG_TIMEOUT_S = 1.5
 ZOMBIE_AFTER_S = 4.0
 RESTORE_CALL_TIMEOUT_S = 5.0
 RESTORE_SETTLE_S = 1.0
-RESTART_WINDOW_S = 30.0
+RESTART_WINDOW_S = 60.0
+#   실험 4 는 「창 안에 시도 3회」를 만들어야 한다. 부하로 드라이버 기동이 늘어지면
+#   4번째 평가가 첫 스탬프의 창 만료를 넘겨 판정이 성립하지 않는다 — 창을 실험 전체
+#   길이보다 넉넉하게 둔다(창 만료 자체는 설계된 의미론이라 제품 쪽 문제가 아니다).
 RESTART_LIMIT = 3
 
 
@@ -187,15 +190,21 @@ def wait_engaged(ctx: Ctx, want: bool, timeout: float = 15.0) -> bool:
     return wait_for(lambda: ctx.state().get("engaged") is want, timeout)
 
 
-def wait_outage_seen(ctx: Ctx, timeout: float = 20.0) -> bool:
-    """감시자가 **두절을 알아챘는가** — 라벨이 아니라 사실을 기다린다.
+def outage_count(ctx: Ctx) -> int:
+    """감시자 로그에 기록된 두절 감지 횟수(DEAD·ZOMBIE 전이의 합)."""
+    log = ctx.log_text("supervisor")
+    return log.count("→ DEAD") + log.count("→ ZOMBIE")
 
-    두절은 `DEAD`(프로세스 없음)로도 `ZOMBIE`(프로세스는 있고 진단만 없음)로도 분류된다.
-    어느 쪽이 나올지는 죽인 뒤 프로세스가 사라지는 시점과 좀비 유예의 경쟁으로 정해지므로,
-    한쪽만 기다리면 **실험이 간헐 실패한다.**
+
+def wait_outage_seen(ctx: Ctx, timeout: float = 20.0, baseline: int = 0) -> bool:
+    """감시자가 **두절을 알아챘는가** — 라벨이 아니라 사실(전이 횟수)을 기다린다.
+
+    두절은 `DEAD`(프로세스 없음)로도 `ZOMBIE`(프로세스는 있고 진단만 없음)로도 분류되므로
+    양쪽 전이를 합쳐 센다. ⚠ 로그는 누적이다 — **반복 kill 루프에서는 `baseline` 에
+    kill 직전의 `outage_count()` 를 넘겨야 한다.** 안 넘기면 1주기째의 기록에 걸려
+    즉시 참이 되고, kill 이 감시자보다 앞서 나가 실험이 조용히 어긋난다.
     """
-    return wait_for(lambda: any(v in ctx.log_text("supervisor")
-                                for v in ("DEAD", "ZOMBIE")), timeout)
+    return wait_for(lambda: outage_count(ctx) > baseline, timeout)
 
 
 def hard_kill(p: subprocess.Popen):
@@ -303,7 +312,13 @@ def exp3_home_failed_blocks_restore(ctx: Ctx):
 
 
 def exp4_crash_loop_stops_restore(ctx: Ctx):
-    """④ 반복 재기동 → 창 안에서 `restart_limit` 초과 시 복귀 중단."""
+    """반복 재기동 → 창 안에서 `restart_limit` 초과 시 복귀 중단.
+
+    ⚠ 주기마다 **감시자와 동기화**한다 — kill 은 「두절 감지 +1」을, 재기동 후에는
+    「복귀 지시 +1」을 확인한 뒤에만 다음으로 간다. 누적 로그에 대한 단순 존재 검사로
+    기다리면 1주기째 기록에 걸려 kill 이 감시자보다 앞서 나가고, 복귀 시도가 한도에
+    도달하지 못해 판정이 영원히 안 뜬다.
+    """
     ctx.supervisor()
     d = ctx.driver()
     if not wait_for(lambda: ctx.state().get("engaged") is not None, 25.0):
@@ -312,13 +327,24 @@ def exp4_crash_loop_stops_restore(ctx: Ctx):
     if not wait_engaged(ctx, True):
         return False, "engage 실패"
 
-    for i in range(RESTART_LIMIT + 1):
+    log = lambda: ctx.log_text("supervisor")
+    for i in range(RESTART_LIMIT):
+        outages = outage_count(ctx)
+        orders = log().count("복귀 지시")
         hard_kill(d)
-        if not wait_outage_seen(ctx, 12.0):
+        if not wait_outage_seen(ctx, 15.0, baseline=outages):
             return False, f"{i+1}회차 두절 미감지"
         d = ctx.driver()
-        time.sleep(4.0)
-    if not wait_for(lambda: "crash-loop" in ctx.log_text("supervisor"), 20.0):
+        if not wait_for(lambda: log().count("복귀 지시") > orders, 60.0):
+            return False, f"{i+1}회차 복귀 지시가 안 나갔다"
+
+    # 창 안에 시도가 한도만큼 쌓였다 — 한 번 더 죽이면 crash-loop 차단이 떠야 한다.
+    outages = outage_count(ctx)
+    hard_kill(d)
+    if not wait_outage_seen(ctx, 15.0, baseline=outages):
+        return False, "마지막 회차 두절 미감지"
+    ctx.driver()
+    if not wait_for(lambda: "crash-loop" in log(), 40.0):
         return False, "crash-loop 판정이 나오지 않았다"
     return True, f"{RESTART_LIMIT}회 초과 후 복귀를 멈췄다"
 

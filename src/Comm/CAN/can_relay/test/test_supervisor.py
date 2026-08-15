@@ -14,7 +14,7 @@ import os
 from can_relay.health import (DEAD, HOLD, IDLE, RESTORE, RUNNING, WAIT, ZOMBIE,
                               Observation, SupervisorConfig, as_level, boot_id,
                               decide, default_state_dir, is_outage, next_prev,
-                              next_was_down, parse_diag, proc_alive,
+                              next_was_down, parse_diag, proc_alive, prune_stamps,
                               restore_call_expired)
 
 CFG = SupervisorConfig(diag_timeout_s=3.0, restart_limit=3, restart_window_s=120.0)
@@ -363,6 +363,15 @@ def test_unknown_process_state_is_not_called_zombie():
                                          proc_alive=None), CFG)
     assert v == DEAD
     assert "확인 불가" in why
+
+
+def test_prune_stamps_is_pure_and_windowed():
+    """잘라내기는 새 목록을 돌려주고 원본을 바꾸지 않는다(조회·갱신 분리)."""
+    stamps = [100.0, 150.0, 190.0]
+    out = prune_stamps(stamps, now=200.0, window_s=60.0)
+    assert out == [150.0, 190.0]
+    assert stamps == [100.0, 150.0, 190.0]      # 원본 불변
+    assert prune_stamps([], 200.0, 60.0) == []
 
 
 # ── 보조 함수 ─────────────────────────────────────────────────────────────

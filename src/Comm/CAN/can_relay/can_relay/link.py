@@ -176,6 +176,19 @@ def _panda_module():
     raise LinkError("panda 라이브러리를 찾지 못했다 — " + " / ".join(errors))
 
 
+def panda_library_error() -> Optional[str]:
+    """판다 파이썬 라이브러리를 지금 import 할 수 있는가. 문제 없으면 `None`, 있으면 사유.
+
+    USB 는 열지 않는다 — 기동 시점 점검용이다. 이 라이브러리는 git 미추적이라 새
+    worktree·클론에 딸려오지 않는데, 그 부재는 첫 `~/engage` 에서야 드러난다.
+    """
+    try:
+        _panda_module()
+        return None
+    except LinkError as exc:
+        return str(exc)
+
+
 class LinkError(RuntimeError):
     """전송 계층 실패. 호출부는 이것을 받으면 정지 경로로 가야 한다."""
 

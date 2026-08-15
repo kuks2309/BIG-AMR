@@ -46,7 +46,8 @@ from std_srvs.srv import SetBool
 from .health import (DEAD, HOLD, IDLE, RESTORE, RUNNING, WAIT, ZOMBIE,
                      Observation, SupervisorConfig, boot_id, decide,
                      default_state_dir, is_outage, next_prev, next_was_down,
-                     parse_diag, proc_alive, restore_call_expired)
+                     parse_diag, proc_alive, prune_stamps,
+                     restore_call_expired)
 
 
 class RelaySupervisor(Node):
@@ -103,6 +104,7 @@ class RelaySupervisor(Node):
         self._pending = None            # 진행 중인 engage 호출 future
         self._pending_since = None      # 그 호출을 보낸 시각(monotonic)
         self._cur_seen_since = None     # 두절 후 진단이 다시 흐르기 시작한 시각(monotonic)
+        self._last_saved = None         # 마지막으로 기록한 내용의 지문(내용 불변 시 재기록 생략)
 
         self.sub_diag = self.create_subscription(
             DiagnosticArray, "/diagnostics", self._on_diag, 10)
@@ -141,13 +143,16 @@ class RelaySupervisor(Node):
         elif self._cur_seen_since is None:
             self._cur_seen_since = now
 
+        # 상태 갱신(잘라내기)은 여기서 명시적으로 — 조회가 상태를 바꾸지 않게 한다.
+        self._restore_stamps = prune_stamps(self._restore_stamps, time.time(),
+                                            self.cfg.restart_window_s)
         obs = Observation(
             cur=self._cur,
             diag_age=age,
             # 프로세스 순회는 두절일 때만 한다 — 정상 구간에서 /proc 을 매 틱 훑을 이유가 없다.
             proc_alive=proc_alive(self._target) if stale else None,
             was_down=self._was_down,
-            restarts_in_window=self._restarts_in_window(),
+            restarts_in_window=len(self._restore_stamps),
             cur_settle_s=(None if self._cur_seen_since is None
                           else now - self._cur_seen_since),
         )
@@ -169,7 +174,13 @@ class RelaySupervisor(Node):
                                        is_outage(obs, self.cfg))
 
         if self._cur is not None:
-            self._save(self._cur)
+            # 내용이 바뀔 때만 쓴다 — 무변화 기록을 2 Hz 로 반복할 이유가 없다
+            # (`saved_at` 은 지문에서 제외 — 그것만 바뀌는 재기록은 무의미하다).
+            fingerprint = (tuple(sorted(self._cur.items())),
+                           tuple(self._restore_stamps))
+            if fingerprint != self._last_saved:
+                self._save(self._cur)
+                self._last_saved = fingerprint
         # 직전 상태 승격 — 판정 **뒤에** 한다. 앞에서 하면 재기동 직후의 engaged=False 가
         # 곧바로 prev 가 되어 복귀 조건이 스스로 사라진다.
         self._prev = next_prev(self._prev, self._cur, verdict)
@@ -178,12 +189,6 @@ class RelaySupervisor(Node):
             self._restore()
 
         self._publish(verdict, why, obs)
-
-    def _restarts_in_window(self) -> int:
-        """복귀 창(`restart_window_s`) 안의 복귀 시도 횟수. 창 밖은 버린다."""
-        cutoff = time.time() - self.cfg.restart_window_s
-        self._restore_stamps = [t for t in self._restore_stamps if t >= cutoff]
-        return len(self._restore_stamps)
 
     def _restore(self):
         """`~/engage true` 를 한 번 부른다.

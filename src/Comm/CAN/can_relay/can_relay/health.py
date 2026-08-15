@@ -223,6 +223,16 @@ def is_outage(obs: Observation, cfg: SupervisorConfig) -> bool:
             and obs.diag_age > cfg.diag_timeout_s)
 
 
+def prune_stamps(stamps, now: float, window_s: float) -> list:
+    """복귀 시도 시각 목록에서 창 밖을 버린 **새 목록**을 돌려준다.
+
+    잘라내기(상태 갱신)와 세기(조회)를 분리한다 — 조회 함수가 목록을 바꾸면
+    호출 순서에 따라 판정 입력이 달라진다.
+    """
+    cutoff = now - window_s
+    return [t for t in stamps if t >= cutoff]
+
+
 def restore_call_expired(sent_at: Optional[float], now: float,
                          cfg: SupervisorConfig) -> bool:
     """진행 중인 복귀 호출을 포기할 때가 됐는가.
