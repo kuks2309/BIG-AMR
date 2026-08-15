@@ -14,7 +14,8 @@ import os
 from can_relay.health import (DEAD, HOLD, IDLE, RESTORE, RUNNING, WAIT, ZOMBIE,
                               Observation, SupervisorConfig, as_level, boot_id,
                               decide, default_state_dir, is_outage, next_prev,
-                              next_was_down, parse_diag, proc_alive)
+                              next_was_down, parse_diag, proc_alive,
+                              restore_call_expired)
 
 CFG = SupervisorConfig(diag_timeout_s=3.0, restart_limit=3, restart_window_s=120.0)
 ENGAGED = {"engaged": True}
@@ -85,9 +86,9 @@ def test_manual_disengage_is_not_restored():
 
 
 def test_restore_after_downtime():
-    """두절을 겪은 뒤 제어권이 없고 직전 기록이 보유였다면 복귀한다."""
+    """두절을 겪은 뒤 제어권이 없고 직전 기록이 보유였다면 복귀한다(안정화 충족 시)."""
     v, _ = decide(ENGAGED, Observation(cur=IDLE_STATE, diag_age=0.1,
-                                       was_down=True), CFG)
+                                       was_down=True, cur_settle_s=10.0), CFG)
     assert v == RESTORE
 
 
@@ -140,7 +141,7 @@ def test_home_failed_false_does_not_block():
     """
     v, _ = decide({"engaged": True, "home_failed": False},
                   Observation(cur={"engaged": False, "home_failed": False},
-                              diag_age=0.1, was_down=True), CFG)
+                              diag_age=0.1, was_down=True, cur_settle_s=10.0), CFG)
     assert v == RESTORE
 
 
@@ -190,7 +191,8 @@ def test_prev_promotion_survives_restore_cycle():
     v, _ = decide(prev, Observation(cur=None, diag_age=9.0, proc_alive=False), CFG)
     assert v == DEAD
     prev = next_prev(prev, None, v)                        # 두절 — 덮지 않는다
-    v, _ = decide(prev, Observation(cur=IDLE_STATE, diag_age=0.1, was_down=True), CFG)
+    v, _ = decide(prev, Observation(cur=IDLE_STATE, diag_age=0.1, was_down=True,
+                                    cur_settle_s=10.0), CFG)
     assert v == RESTORE, "재기동 후 복귀가 성립하지 않는다"
 
 
@@ -238,7 +240,7 @@ def test_fast_restart_still_restores():
     was_down = next_was_down(was_down, v, is_outage(obs, CFG))
     assert was_down is True
     v, _ = decide(prev, Observation(cur=IDLE_STATE, diag_age=0.1,
-                                    was_down=was_down), CFG)
+                                    was_down=was_down, cur_settle_s=10.0), CFG)
     assert v == RESTORE, "빠른 재기동에서 복귀가 건너뛰어진다"
 
 
@@ -253,8 +255,52 @@ def test_restore_survives_repeated_cycles():
         assert v == DEAD
         was_down = next_was_down(was_down, v, is_outage(down, CFG))
         v, _ = decide(prev, Observation(cur=IDLE_STATE, diag_age=0.1,
-                                        was_down=was_down), CFG)
+                                        was_down=was_down, cur_settle_s=10.0), CFG)
         assert v == RESTORE, "두 번째 주기에서 복귀가 성립하지 않는다"
+
+
+def test_restore_call_expires_so_restore_is_never_permanently_blocked():
+    """무응답 복귀 호출은 시한 뒤 포기한다.
+
+    `rclpy` 의 `call_async` future 는 응답이 와야만 완료되고 자체 시한이 없다. 호출 직후
+    대상이 죽으면 future 가 영원히 미완료로 남고, 중복 방지 가드가 그것을 보고 있으면
+    **이후 모든 복귀가 영구 차단된다** — 감시자의 존재 이유가 사라진다.
+    """
+    assert restore_call_expired(None, 100.0, CFG) is False        # 진행 중 호출 없음
+    t0 = 100.0
+    assert restore_call_expired(t0, t0 + CFG.restore_call_timeout_s - 0.1, CFG) is False
+    assert restore_call_expired(t0, t0 + CFG.restore_call_timeout_s + 0.1, CFG) is True
+
+
+def test_restore_waits_for_settle_window():
+    """재기동 직후의 첫 진단만으로는 복귀하지 않는다.
+
+    latched 토픽(estop 등)은 DDS 재전달이 첫 진단보다 늦을 수 있다 — 그 진단 하나로
+    복귀하면 **E-stop 인가 중에 제어권을 되찾는다**(SIL 실험 5 가 이 형태로 실패했다).
+    """
+    v, why = decide(ENGAGED, Observation(cur=IDLE_STATE, diag_age=0.1,
+                                         was_down=True, cur_settle_s=0.5), CFG)
+    assert v == WAIT
+    assert "안정화" in why
+    # 모름(None)은 「안정됐다」로 치지 않는다
+    v, _ = decide(ENGAGED, Observation(cur=IDLE_STATE, diag_age=0.1,
+                                       was_down=True, cur_settle_s=None), CFG)
+    assert v == WAIT
+    # 경계: 충족 직후에는 복귀
+    v, _ = decide(ENGAGED, Observation(cur=IDLE_STATE, diag_age=0.1, was_down=True,
+                                       cur_settle_s=CFG.restore_settle_s + 0.1), CFG)
+    assert v == RESTORE
+
+
+def test_hold_gates_do_not_wait_for_settle():
+    """차단 게이트는 안정화 전에도 동작한다 — 막는 쪽은 항상 안전하다."""
+    v, _ = decide(ENGAGED, Observation(cur={"engaged": False, "estop": True},
+                                       diag_age=0.1, was_down=True, cur_settle_s=0.1), CFG)
+    assert v == HOLD
+    v, _ = decide({"engaged": True, "home_failed": True},
+                  Observation(cur={"engaged": False}, diag_age=0.1,
+                              was_down=True, cur_settle_s=0.1), CFG)
+    assert v == HOLD
 
 
 # ── decide: 진단이 없는 경우 ───────────────────────────────────────────────

@@ -57,6 +57,16 @@ class SupervisorConfig:
     #   `docs/verified_facts/2026-08-15-can-relay-node-health-field.md` §O4.
     #   진짜 좀비는 무기한 조용하므로 늦게 판정해도 놓치지 않는다 —
     #   **정지는 백엔드 심박 억제가 하고 이 판정은 관측용**이다.
+    restore_call_timeout_s: float = 10.0
+    #   복귀 서비스 호출을 이 시간 안에 응답이 없으면 **실패로 간주하고 버린다.**
+    #   `rclpy` 의 `call_async` future 는 응답이 와야만 완료되고 자체 시한이 없다 —
+    #   호출 직후 대상이 죽으면 future 가 영원히 미완료로 남는다. 중복 방지 가드가
+    #   그 future 를 보고 있으면 **이후 복귀가 영구 차단된다.**
+    restore_settle_s: float = 3.0
+    #   두절 후 진단이 다시 흐르기 시작한 뒤, 복귀를 허가하기까지 기다리는 안정화 창.
+    #   재기동한 드라이버의 첫 진단은 latched 토픽(estop 등)이 DDS 재전달로 도착하기
+    #   **전**일 수 있다 — 그 진단 하나로 복귀하면 E-stop 인가 중에 제어권을 되찾는다.
+    #   차단(HOLD) 게이트는 이 창과 무관하게 동작한다 — 막는 쪽은 항상 안전하다.
     restore_enabled: bool = True
     restart_limit: int = 3
     restart_window_s: float = 120.0
@@ -78,6 +88,9 @@ class Observation:
     #   마지막 관측 이후 **진단 두절을 겪었는가**. 이것이 「재기동으로 제어권을 잃었다」와
     #   「사람이 내렸다」를 가른다 — 수동 해제는 진단이 끊기지 않으므로 복귀시키지 않는다
     restarts_in_window: int = 0
+    cur_settle_s: Optional[float] = None
+    #   두절 후 진단이 다시 흐르기 시작한 지 몇 초 됐나. `None` = 모름(안정화 미충족으로
+    #   취급 — 모름을 「안정됐다」로 치지 않는다)
 
 
 def boot_id(path: str = BOOT_ID_PATH) -> str:
@@ -210,6 +223,17 @@ def is_outage(obs: Observation, cfg: SupervisorConfig) -> bool:
             and obs.diag_age > cfg.diag_timeout_s)
 
 
+def restore_call_expired(sent_at: Optional[float], now: float,
+                         cfg: SupervisorConfig) -> bool:
+    """진행 중인 복귀 호출을 포기할 때가 됐는가.
+
+    `sent_at` 이 `None`(진행 중인 호출 없음)이면 `False`.
+    """
+    if sent_at is None:
+        return False
+    return (now - sent_at) > cfg.restore_call_timeout_s
+
+
 def next_was_down(was_down: bool, verdict: str, outage: bool) -> bool:
     """다음 판정에 쓸 「두절을 겪었는가」 표시.
 
@@ -276,4 +300,11 @@ def decide(prev: Optional[dict], obs: Observation,
     if obs.restarts_in_window >= cfg.restart_limit:
         return HOLD, (f"복귀 시도 {obs.restarts_in_window}회 / "
                       f"{cfg.restart_window_s:.0f}s — crash-loop 로 보고 멈춘다")
+    settle = obs.cur_settle_s if obs.cur_settle_s is not None else 0.0
+    if settle < cfg.restore_settle_s:
+        # 검사를 `RESTORE` 직전에만 둔다 — 위 차단 게이트들은 안정화 전에도 동작해야 한다
+        # (막는 쪽은 항상 안전하다). 허가만 latched 토픽이 도착할 시간을 기다린다.
+        return WAIT, (f"복귀 보류 — 재기동 직후 상태 안정화 대기 "
+                      f"({settle:.1f}/{cfg.restore_settle_s:.0f}s). latched 토픽"
+                      f"(estop 등)이 아직 도착하지 않았을 수 있다")
     return RESTORE, "직전 상태가 제어권 보유였다 — 복귀한다"

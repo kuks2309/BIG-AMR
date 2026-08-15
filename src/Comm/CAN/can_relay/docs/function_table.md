@@ -133,7 +133,7 @@ rclpy 드라이버. Seer 마스터가 붙어 있는 상태에서 릴레이 inter
 
 ---
 
-## 3. `health.py` — 감시 판정 (순수, 281줄)
+## 3. `health.py` — 감시 판정 (순수, 310줄)
 
 ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같은 배치이며, 분리한 이유는
 `conftest.py` 가 규정한 **미소싱 회귀**다 — rclpy 뒤에 판정이 갇히면 설치 없이 전 분기를
@@ -149,9 +149,10 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | 52a | `as_level` | `level` | `int` | `DiagnosticStatus.level` → int. **rclpy 에서 이 필드는 `bytes` 한 바이트**라 `int()` 가 터진다 | `health.py:136` |
 | 53 | `parse_diag` | `values`, `level`, `message` | `dict` | KeyValue → 상태 dict(`engaged`·`estop`·**`home_failed`**·`homed_effective`·`hb_suppressed`·`steer_target_deg`·`drive_units`). **빠진 키는 넣지 않는다** — 기본값으로 채우면 「관측 못 함」과 「거짓 관측」이 구분되지 않는다 | `health.py:158` |
 | 53a | `next_prev` | `prev`, `cur`, `verdict` | `Optional[dict]` | 다음 판정에 쓸 「직전 상태」. **진단이 흐르는 동안(`RUNNING`·`IDLE`)의 관측만 승격** — 두절 구간은 상태를 모르므로 덮지 않는다. 없으면 복귀가 성립하지 않는다 | `health.py:186` |
+| 53a2 | `restore_call_expired` | `sent_at`, `now`, `cfg` | `bool` | 진행 중인 복귀 호출을 포기할 때가 됐는가. **`rclpy` future 는 응답이 와야 완료되고 자체 시한이 없다** — 없으면 무응답 호출 하나가 이후 복귀를 영구 차단한다 | `health.py:218` |
 | 53b | `is_outage` | `obs`, `cfg` | `bool` | 지금이 **진단 두절 구간인가** — 판정 이름이 아니라 경과 시간으로 정한다. 「첫 진단 전」·「임계 안 공백」은 두절이 아니다 | `health.py:212` |
 | 53c | `next_was_down` | `was_down`, `verdict`, `outage` | `bool` | 「두절 경험」 표시. **세우는 근거는 두절 사실**(판정 이름이 아니다 — 빠른 재기동은 유예 `WAIT` 로만 덮여 `DEAD` 를 안 거친다). **내리는 것은 `RUNNING` 관측뿐** | `health.py:229` |
-| 54 | `decide` | `prev`, `obs`, `cfg` | `(판정, 사유)` | **이 노드의 모든 판단.** 순서가 곧 우선순위. `home_failed` 는 `cur`·`prev` **양쪽**을 본다 | `health.py:229` |
+| 54 | `decide` | `prev`, `obs`, `cfg` | `(판정, 사유)` | **이 노드의 모든 판단.** 순서가 곧 우선순위. `home_failed` 는 `cur`·`prev` **양쪽**을 보고, `RESTORE` 허가 직전에 **안정화 창**(`cur_settle_s ≥ restore_settle_s`, 모름=미충족)을 요구한다 | `health.py:229` |
 
 ### 3-1. `decide` 판정표 (시험이 이 표를 고정한다 — `test_supervisor.py`)
 
@@ -171,7 +172,7 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | 위 + 창 내 복귀 ≥ `restart_limit` | `HOLD` | crash-loop |
 | 위 전부 통과 | `RESTORE` | `~/engage true` 1회 |
 
-## 4. `supervisor.py` — 감시 노드 (ROS 껍데기, 318줄)
+## 4. `supervisor.py` — 감시 노드 (ROS 껍데기, 347줄)
 
 **제어 경로 밖이다** — CAN 에 쓰지 않고 판다를 열지 않는다. 구독·서비스 호출만 한다.
 따라서 이 노드가 죽어도 정지 보증에는 영향이 없다(정지는 펌웨어 소관). 판정은 여기 없다.
@@ -183,7 +184,7 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | 57 | `_on_tick` | — | — | 관측 조립 → `decide` → 기록·복귀·발행. **프로세스 순회는 두절일 때만** | `supervisor.py:124` |
 | 58 | `_restarts_in_window` | — | `int` | 복귀 창 안의 시도 횟수(창 밖은 버린다) | `supervisor.py:170` |
 | 59 | `_restore` | — | — | `~/engage true` 1회. 진행 중 호출이 있으면 재호출하지 않는다(제어권 조작 중복 방지) | `supervisor.py:176` |
-| 60 | `_on_restore_done` | `future` | — | 응답 처리 + **조향 대조 로그**(기록 목표 ↔ 복귀 시점 실측. 복원하지 않는다) | `supervisor.py:198` |
+| 60 | `_on_restore_done` | `future` | — | 응답 처리. **신원 검사 선행**(`future is self._pending` 아니면 무시) · 성공 시 구 진단 폐기 · 기록된 사망 직전 조향 목표를 로그로만 남긴다(복원 안 함) | `supervisor.py:198` |
 | 61 | `_save` | `state` | — | 임시파일 + `os.replace` **원자 교체**. 반쪽 JSON 은 다음 기동에서 「기록 없음」이 되어 복귀가 조용히 사라진다 | `supervisor.py:221` |
 | 62 | `_load` | — | `Optional[dict]` | **`boot_id` 불일치면 폐기** — 전원 사이클을 넘긴 기록으로 복귀하면 조향 홈 기준이 없다 | `supervisor.py:248` |
 | 63 | `_publish` | `verdict`, `why`, `obs` | — | 감시자 자신의 판정을 `~/status` 로 — 감시자가 도는지 밖에서 보이게 | `supervisor.py:270` |
@@ -212,6 +213,8 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | 필드 | 기본값 | 의미 | 비고 |
 | --- | --- | --- | --- |
 | `diag_timeout_s` | 3.0 | 진단 두절 판정 임계 | ⚠ `ros_alive_timeout_s`(2.0)보다 **길어야 한다** — 짧으면 감시자가 먼저 두절을 선언하고 정지는 아직 안 걸린 구간이 생긴다 |
+| `restore_call_timeout_s` | 10.0 | 복귀 서비스 호출 포기 시한 | 무응답 future 가 복귀를 영구 차단하는 것을 막는다 |
+| `restore_settle_s` | 3.0 | 복귀 허가 전 안정화 창 | 재기동 직후 첫 진단은 latched 토픽(estop 등) 도착 **전**일 수 있다 — 그 진단 하나로 복귀하면 E-stop 인가 중 제어권을 되찾는다. 차단(HOLD) 게이트는 이 창과 무관 |
 | `zombie_after_s` | 45.0 | 좀비 판정 유예 | 재기동 직후는 프로세스가 있고 진단이 아직 없다 — 유예 없이는 **정상 재기동마다 ERROR** 가 뜬다. 값 근거: 실기 재기동에서 프로세스 등장→첫 진단까지 **30 s**(2026-08-15 실측) |
 | `restore_enabled` | `True` | 복귀 수행 여부 | `false` 면 기록·경보만 |
 | `restart_limit` / `restart_window_s` | 3 / 120.0 | crash-loop 차단 | 반복 engage/release 는 그때마다 Seer 에게서 버스를 뺏었다 놓는다 |
@@ -228,6 +231,8 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | `_restore_stamps` | 복귀 시도 시각(wall) | 기록에 실려 감시자 재기동을 넘어 유지된다 |
 | `_verdict` | 직전 판정 | 변화 시에만 로그 |
 | `_pending` | 진행 중 engage future | 중복 호출 방지 |
+| `_pending_since` | 그 호출을 보낸 시각(monotonic) | 시한 판정 기준. `None` = 진행 중 호출 없음. 갱신·해제는 **현재 `_pending` 과 동일한 future 의 콜백만** 할 수 있다(신원 검사 — 버린 호출의 늦은 콜백이 지우면 시한 판정이 다시는 서지 않는다) |
+| `_cur_seen_since` | 두절 후 진단이 다시 흐르기 시작한 시각(monotonic) | 안정화 창의 기준. 진단이 끊기거나 복귀 직후 폐기되면 리셋 |
 
 ### `RelayConfig` 필드 (배선·한계·주기 — 값 정본은 `config/machine/<기체>.yaml`)
 

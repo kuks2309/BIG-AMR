@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import traceback
 import shutil
 import signal
 import subprocess
@@ -47,7 +48,9 @@ MACHINE = os.path.join(REPO, "src/Comm/CAN/can_relay/config/machine/foil_a082.ya
 #   기본값으로 돌아 실험이 조용히 어긋난다.
 DIAG_TIMEOUT_S = 1.5
 ZOMBIE_AFTER_S = 4.0
-RESTART_WINDOW_S = 20.0
+RESTORE_CALL_TIMEOUT_S = 5.0
+RESTORE_SETTLE_S = 1.0
+RESTART_WINDOW_S = 30.0
 RESTART_LIMIT = 3
 
 
@@ -96,6 +99,8 @@ class Ctx:
                 "-p", f"state_dir:={self.state_dir}",
                 "-p", f"diag_timeout_s:={DIAG_TIMEOUT_S}",
                 "-p", f"zombie_after_s:={ZOMBIE_AFTER_S}",
+                "-p", f"restore_call_timeout_s:={RESTORE_CALL_TIMEOUT_S}",
+                "-p", f"restore_settle_s:={RESTORE_SETTLE_S}",
                 "-p", f"restart_window_s:={RESTART_WINDOW_S}",
                 "-p", f"restart_limit:={RESTART_LIMIT}",
                 "-p", "tick_hz:=5.0"]
@@ -116,6 +121,10 @@ class Ctx:
         except (OSError, KeyError):
             return ""
 
+    def keep_logs(self):
+        """이 실험의 로그를 지우지 않는다 — 실패 진단은 원자료 없이는 못 한다."""
+        self.keep = True
+
     def cleanup(self):
         for p in self.procs:
             if p.poll() is None:
@@ -125,7 +134,10 @@ class Ctx:
                     pass
         t0 = time.monotonic()
         for p in self.procs:
-            p.wait(timeout=max(0.5, 6.0 - (time.monotonic() - t0)))
+            try:
+                p.wait(timeout=max(0.5, 6.0 - (time.monotonic() - t0)))
+            except subprocess.TimeoutExpired:
+                pass        # 아래에서 SIGKILL 로 마무리한다
         for p in self.procs:
             if p.poll() is None:
                 try:
@@ -156,12 +168,34 @@ def call(ctx: Ctx, service: str, srv_type: str, payload: str,
 
 
 def engage(ctx: Ctx, on: bool = True) -> str:
-    return call(ctx, "/can_relay_node/engage", "std_srvs/srv/SetBool",
-                "{data: %s}" % ("true" if on else "false"))
+    """`~/engage` CLI 호출. 부하 시 discovery 가 느려 1회 재시도한다.
+
+    `ros2 service call` 은 매 호출이 새 노드라 discovery 를 처음부터 한다 — 시스템이
+    바쁘면 20 s 를 넘길 수 있다(하니스 결함이지 제품 결함이 아니다).
+    """
+    payload = "{data: %s}" % ("true" if on else "false")
+    for attempt in (1, 2):
+        try:
+            return call(ctx, "/can_relay_node/engage", "std_srvs/srv/SetBool",
+                        payload, timeout=40.0)
+        except subprocess.TimeoutExpired:
+            if attempt == 2:
+                raise
 
 
 def wait_engaged(ctx: Ctx, want: bool, timeout: float = 15.0) -> bool:
     return wait_for(lambda: ctx.state().get("engaged") is want, timeout)
+
+
+def wait_outage_seen(ctx: Ctx, timeout: float = 20.0) -> bool:
+    """감시자가 **두절을 알아챘는가** — 라벨이 아니라 사실을 기다린다.
+
+    두절은 `DEAD`(프로세스 없음)로도 `ZOMBIE`(프로세스는 있고 진단만 없음)로도 분류된다.
+    어느 쪽이 나올지는 죽인 뒤 프로세스가 사라지는 시점과 좀비 유예의 경쟁으로 정해지므로,
+    한쪽만 기다리면 **실험이 간헐 실패한다.**
+    """
+    return wait_for(lambda: any(v in ctx.log_text("supervisor")
+                                for v in ("DEAD", "ZOMBIE")), timeout)
 
 
 def hard_kill(p: subprocess.Popen):
@@ -187,8 +221,8 @@ def exp1_kill_and_restore(ctx: Ctx):
         return False, f"engage 후 기록이 engaged=True 가 되지 않았다: {ctx.state()}"
 
     hard_kill(d)
-    if not wait_for(lambda: "DEAD" in ctx.log_text("supervisor"), 12.0):
-        return False, "DEAD 판정이 나오지 않았다"
+    if not wait_outage_seen(ctx, 12.0):
+        return False, "두절을 알아채지 못했다"
 
     ctx.driver()                       # systemd 재기동 대역
     if not wait_for(lambda: "복귀 지시" in ctx.log_text("supervisor"), 30.0):
@@ -256,8 +290,8 @@ def exp3_home_failed_blocks_restore(ctx: Ctx):
         return False, f"home_failed 가 서지 않았다(기록: {ctx.state()})"
 
     hard_kill(d)
-    if not wait_for(lambda: "DEAD" in ctx.log_text("supervisor"), 12.0):
-        return False, "DEAD 판정이 나오지 않았다"
+    if not wait_outage_seen(ctx, 12.0):
+        return False, "두절을 알아채지 못했다"
     ctx.driver()
     if not wait_for(lambda: "호밍" in ctx.log_text("supervisor")
                     and "HOLD" in ctx.log_text("supervisor"), 30.0):
@@ -280,8 +314,8 @@ def exp4_crash_loop_stops_restore(ctx: Ctx):
 
     for i in range(RESTART_LIMIT + 1):
         hard_kill(d)
-        if not wait_for(lambda: "DEAD" in ctx.log_text("supervisor"), 12.0):
-            return False, f"{i+1}회차 DEAD 판정 실패"
+        if not wait_outage_seen(ctx, 12.0):
+            return False, f"{i+1}회차 두절 미감지"
         d = ctx.driver()
         time.sleep(4.0)
     if not wait_for(lambda: "crash-loop" in ctx.log_text("supervisor"), 20.0):
@@ -307,8 +341,8 @@ def exp5_estop_holds_restore(ctx: Ctx):
         return False, f"E-stop 이 기록에 반영되지 않았다: {ctx.state()}"
 
     hard_kill(d)
-    if not wait_for(lambda: "DEAD" in ctx.log_text("supervisor"), 12.0):
-        return False, "DEAD 판정 실패"
+    if not wait_outage_seen(ctx, 12.0):
+        return False, "두절을 알아채지 못했다"
     ctx.driver()
     if not wait_for(lambda: "E-stop" in ctx.log_text("supervisor")
                     and "HOLD" in ctx.log_text("supervisor"), 30.0):
@@ -346,8 +380,8 @@ def exp7_boot_id_mismatch_discards(ctx: Ctx):
         return False, "engage 실패"
 
     hard_kill(d)
-    if not wait_for(lambda: "DEAD" in ctx.log_text("supervisor"), 12.0):
-        return False, "DEAD 판정 실패"
+    if not wait_outage_seen(ctx, 12.0):
+        return False, "두절을 알아채지 못했다"
     hard_kill(sup)
 
     path = os.path.join(ctx.state_dir, "state.json")
@@ -426,8 +460,8 @@ def exp9_death_before_latch_is_observed(ctx: Ctx):
         return False, ("래치가 이미 기록에 반영돼 창을 재현하지 못했다 — "
                        "죽이는 시점을 더 당겨야 한다(시험 조건 실패)")
 
-    if not wait_for(lambda: "DEAD" in ctx.log_text("supervisor"), 12.0):
-        return False, "DEAD 판정이 나오지 않았다(관측 실패)"
+    if not wait_outage_seen(ctx, 12.0):
+        return False, "두절을 알아채지 못했다(관측 실패)"
     ctx.driver()
     got_hold = wait_for(lambda: "HOLD" in ctx.log_text("supervisor"), 20.0)
     got_restore = wait_for(lambda: "복귀 지시" in ctx.log_text("supervisor"), 5.0)
@@ -438,6 +472,51 @@ def exp9_death_before_latch_is_observed(ctx: Ctx):
                       "개시 후 1초 안의 사망은 덮지 않는다(설계상). "
                       "호밍 중단은 펌웨어·드라이버 래치가 이미 담당한다")
     return False, "HOLD 도 복귀도 관측되지 않았다 — 관측 실패"
+
+
+def exp10_restore_survives_unanswered_call(ctx: Ctx):
+    """복귀 호출이 **무응답**으로 남아도 다음 복귀가 성립한다.
+
+    `call_async` future 는 응답이 와야 완료되고 자체 시한이 없다. 응답이 영영 오지 않으면
+    중복 방지 가드가 그 future 를 보고 이후 복귀를 영구 차단할 수 있다.
+
+    재현은 **응답하지 않는 스텁만** 그 서비스명을 광고하게 해서 만든다. 감시자의
+    `target_node` 를 실제 드라이버가 아닌 이름으로 돌려, 그 이름의 `engage` 를 스텁이
+    독점하게 한다 — 실제 드라이버가 함께 광고하면 그쪽이 8 ms 만에 응답해 무응답 조건이
+    성립하지 않는다.
+
+    진단은 실드라이버(`can_relay_node`)가 계속 내보내므로 판정 흐름은 그대로 돈다.
+    감시자는 그 진단으로 `RESTORE` 까지 가고, `engage` 만 스텁에 걸려 무응답이 된다.
+    """
+    ctx.driver()
+    # 감시자가 부를 engage 는 스텁 이름으로, 진단은 실드라이버 것을 본다.
+    ctx.spawn("deaf", ["python3", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                               "deaf_engage.py"), "deaf_target"])
+    ctx.supervisor(["-p", "target_node:=deaf_target"])
+    if not wait_for(lambda: ctx.state().get("engaged") is not None, 25.0):
+        return False, "감시자가 진단을 받지 못했다"
+    engage(ctx, True)                  # 실드라이버에 직접 걸어 engaged 상태를 만든다
+    if not wait_engaged(ctx, True):
+        return False, "engage 실패"
+
+    # 실드라이버를 죽였다 살려 복귀 조건을 만든다. 감시자의 복귀 호출은 스텁으로 간다.
+    for p in list(ctx.procs):
+        if getattr(p, "_sil_name", "").startswith("driver"):
+            hard_kill(p)
+    if not wait_outage_seen(ctx, 20.0):
+        return False, "두절을 알아채지 못했다"
+    ctx.driver()
+
+    if not wait_for(lambda: "복귀 지시" in ctx.log_text("supervisor"), 60.0):
+        return False, "1차 복귀 지시가 안 나갔다"
+    if not wait_for(lambda: "무응답" in ctx.log_text("supervisor"),
+                    RESTORE_CALL_TIMEOUT_S * 2 + 15.0):
+        return False, ("❌ 무응답 포기가 일어나지 않았다 — future 가 미완료로 남아 "
+                       "이후 복귀를 영구 차단하고 있다")
+    if not wait_for(lambda: ctx.log_text("supervisor").count("복귀 지시") >= 2,
+                    RESTORE_CALL_TIMEOUT_S * 2 + 15.0):
+        return False, "무응답은 포기했으나 재시도가 나가지 않았다"
+    return True, "무응답 호출을 시한으로 버리고 복귀를 재시도했다"
 
 
 EXPERIMENTS = [
@@ -451,6 +530,7 @@ EXPERIMENTS = [
     (8, "기록 원자성(반쪽 JSON 없음)", exp8_state_file_is_never_half_written),
     (9, "감시자 게이트 적용 하한 (경계 관측 — 결함 실험 아님)",
         exp9_death_before_latch_is_observed),
+    (10, "무응답 복귀 호출 → 영구 차단되지 않는가", exp10_restore_survives_unanswered_call),
 ]
 
 
@@ -472,17 +552,35 @@ def main(argv=None):
         try:
             ok, note = fn(ctx)
         except Exception as exc:                       # 하니스 자신의 실패도 실패로 센다
-            ok, note = False, f"{type(exc).__name__}: {exc}"
+            ok = False
+            note = f"하니스 예외 {type(exc).__name__}: {exc}"
+            traceback.print_exc()
+        if not ok:
+            # 실패는 --keep 여부와 무관하게 보존한다. 지워 버리면 다음 사람이(또는 내가)
+            # 낡은 디렉토리를 읽고 엉뚱한 진단을 한다.
+            ctx.keep_logs()
         dt = time.monotonic() - t0
         results.append((num, title, ok, note, dt, ctx.dir if a.keep else ""))
         print(f"  [{'PASS' if ok else 'FAIL'}] {num}. {title}  ({dt:.1f}s)")
         print(f"         {note}")
-        if not ok and a.keep:
+        if not ok:
             print(f"         로그: {ctx.dir}")
-        ctx.cleanup()
+        try:
+            ctx.cleanup()
+        except Exception as exc:
+            # 정리 실패로 **결과 보고를 잃지 않는다.** 여기서 던지면 남은 실험이 통째로
+            # 사라지고, 출력을 거른 호출자는 그 사실조차 못 본다.
+            print(f"         ⚠ 정리 실패(결과에는 영향 없음): {type(exc).__name__}: {exc}")
 
     npass = sum(1 for r in results if r[2])
-    print(f"\n결과: {npass}/{len(results)} PASS")
+    nfail = len(results) - npass
+    # 접두를 고정한다 — 호출자가 출력을 걸러도 이 줄과 실패 줄은 같은 패턴으로 잡힌다.
+    print(f"\n결과: {npass}/{len(results)} PASS · {nfail} FAIL")
+    if nfail:
+        print("실패 목록:")
+        for num, title, ok, note, dt, d in results:
+            if not ok:
+                print(f"  FAIL {num}. {title} — {note}")
     print("\n⚠ 여기서 통과해도 실기 검증이 아니다 — 심박 상실 뒤 펌웨어가 실제로 릴레이를"
           "\n  여는가(debt-075)와 그때 조향이 어디로 가는가(debt-076)는 잭업 실기 몫이다.")
     return 0 if npass == len(results) else 1

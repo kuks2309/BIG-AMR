@@ -46,6 +46,76 @@
 ---
 
 
+
+## 2026-08-16
+
+### [Fix] `relay_supervisor` — 재기동 직후 latched E-stop 도착 전에 자동 복귀가 나간다
+
+- **문제**: E-stop 이 인가된 채(발행자 상주) 드라이버를 재기동하면 감시자가 **E-stop 인가
+  중에 제어권을 자동으로 되찾는다.** SIL 실험 5 실기 로그: `ZOMBIE → RESTORE → 복귀 완료`
+  가 estop 발행 중에 발생. 이전 통과들은 estop 재전달이 첫 진단보다 우연히 빨랐던 것.
+- **원인**: E-stop 토픽은 latched(TRANSIENT_LOCAL)라 재기동한 노드에 재전달되지만 **DDS
+  재전달이 첫 진단 발행보다 늦을 수 있다.** 감시자는 첫 진단 하나(estop=False)만 보고
+  `RESTORE` 를 허가했다 — `decide()` 에 「이 진단이 완전한가」를 묻는 장치가 없었다.
+- **해결**: `restore_settle_s`(기본 3 s) 안정화 창 — 두절 후 진단이 다시 흐르기 시작한 지
+  이 시간이 지나야 `RESTORE` 허가. 검사는 `RESTORE` 직전에만 둔다(차단 게이트는 안정화
+  전에도 동작 — 막는 쪽은 항상 안전하다). `cur_settle_s=None`(모름)은 미충족으로 취급.
+- **파일**: `can_relay/health.py` · `can_relay/supervisor.py` · `test/test_supervisor.py` ·
+  `Tools/can_relay_sil/sil_health.py`
+- **상태**: 완료 — 단위 49 passed(안정화 경계 3점 + 차단 게이트 무대기 확인), SIL 재실행
+
+### [Fix] `relay_supervisor` — 버린 복귀 호출의 늦은 콜백이 새 호출의 시한 기준을 지운다
+
+- **문제**: 시한 초과로 버린 future 의 done 콜백이 **새 호출의 송신 시각을 지울 수 있다**
+  — 그러면 새 호출도 무응답일 때 시한 판정이 다시는 서지 않아, 어제 닫은 영구 차단이
+  다른 문으로 되살아난다. 늦은 응답이 도착하면 「복귀 완료」 이중 처리도 가능.
+- **원인**: `_on_restore_done` 첫 줄이 무조건 `self._pending_since = None`. rclpy 는
+  executor 가 붙은 future 의 콜백을 태스크로 미룰 수 있어, 구 future 의 콜백이 새 호출
+  생성 **후에** 돌 수 있다(현재 humble 에서 인라인으로 도는 것은 구현 우연).
+- **해결**: 콜백 첫 줄에 신원 검사 — `future is not self._pending: return`. 어느 실행
+  순서에서도 버린 호출이 현재 호출의 상태를 건드리지 못한다. 곁들여, 복귀 완료 시
+  「조향 대조」 로그가 `self._cur = None` **직후에 그 값을 읽어 항상 None** 을 찍던 죽은
+  로직을 제거하고 기록된 목표만 남기게 했다.
+- **파일**: `can_relay/supervisor.py`
+- **상태**: 완료 — 경합 자체는 타이밍 의존이라 SIL 로 강제 재현 불가, 코드 검사로 확정
+
+### [Fix] `relay_supervisor` — 무응답 복귀 호출이 이후 복귀를 영구 차단
+
+- **문제**: 감시자가 `~/engage` 를 부른 뒤 응답이 오지 않으면 **그 이후 모든 복귀가
+  조용히 차단**된다. 감시자의 존재 이유가 복귀인데 기능이 0이 된다. 발생 조건이
+  현실적이다 — crash-loop 이 정확히 「복귀 직후 다시 죽는」 상황이다.
+- **원인**: `supervisor.py` `_restore()` 의 중복 방지 가드가
+  `self._pending.done()` 만 본다. `rclpy` 의 `call_async` future 는 **응답이 와야만**
+  완료되고 **자체 시한이 없다**(`rclpy/client.py` `call_async` 소스 확인 — future 를
+  만들어 `_pending_requests` 에 넣고 반환할 뿐, `Future` 에 시한 멤버 없음).
+  대상이 죽으면 `done()` 이 영원히 False 라 가드가 영구히 막는다.
+- **해결**: 판정을 순수 모듈로 분리해 `health.py` 에 `restore_call_expired()` 신설
+  (`restore_call_timeout_s`, 기본 10 s). `supervisor.py` 는 호출 시각을 기록하고
+  시한 초과 시 future 를 **버리고 재시도**한다. 취소된 future 의 done 콜백은 무시한다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/health.py` · `can_relay/supervisor.py` ·
+  `test/test_supervisor.py` · `Tools/can_relay_sil/sil_health.py` ·
+  `Tools/can_relay_sil/deaf_engage.py`(신규)
+- **상태**: 완료 — 3층 검증. 원인 확증(rclpy 소스) · 순수 함수 돌연변이 검출(1 failed) ·
+  **실물 경로 돌연변이 검출**(수정 제거 시 SIL 실험 10 FAIL, 수정본 PASS)
+
+> ⚠ **시험을 세 번 다시 만들었다.** 1차는 「복귀 지시 로그 직후 kill」이었는데 그 시점엔
+> 응답이 이미 도착해 있어(실기 engage 응답 ~7 ms) **수정을 빼도 통과하는 거짓 확신**이었다.
+> 2차는 스텁과 실드라이버가 같은 서비스명을 광고해 실드라이버가 8 ms 에 응답, **재현
+> 조건이 형성되지 않았다.** 3차에서 감시자의 `target_node` 를 스텁 전용 이름으로 돌려
+> 서비스명을 독점하게 하고서야 성립했다. **「시험이 통과했다」는 「기능이 동작한다」가
+> 아니다** — 돌연변이로 시험 자체를 검증하기 전에는 판단을 미룰 것.
+
+### [Fix] SIL 하니스 — 실패한 실험의 로그가 지워져 낡은 디렉토리를 오독
+
+- **문제**: `--keep` 없이 돌린 실험이 실패하면 임시 디렉토리가 삭제된다. 진단하려고
+  `ls -dt /tmp/sil-eN-* | head -1` 하면 **이전 실행분**이 잡히고, 그 로그가 그럴듯해
+  잘못된 결론으로 이어진다. 같은 세션에서 3회 발생했다.
+- **원인**: `main()` 이 `ctx.cleanup()` 을 무조건 부르고, 보존은 `--keep` 플래그에만 의존.
+- **해결**: 실험이 실패하면 `--keep` 여부와 무관하게 `ctx.keep_logs()` 로 보존하고
+  경로를 항상 출력한다(3줄).
+- **파일**: `Tools/can_relay_sil/sil_health.py`
+- **상태**: 완료
+
 ## 2026-08-15
 
 ### [Fix] `relay_supervisor` 결함 5건 — SIL 하니스가 잡은 「단위는 통과, 기능은 0」
