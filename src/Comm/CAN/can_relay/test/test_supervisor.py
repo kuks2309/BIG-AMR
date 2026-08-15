@@ -217,3 +217,47 @@ def test_state_record_roundtrips_as_json():
     rec = dict(parse_diag([("engaged", "True"), ("steer_target_deg", "12.5")]))
     rec.update(boot_id="b", saved_at=1.0, restore_stamps=[1.0, 2.0])
     assert json.loads(json.dumps(rec, ensure_ascii=False))["engaged"] is True
+
+
+# ── 배선 — 판정이 보는 「직전 기록」이 관측을 따라가는가 ────────────────
+#
+# 아래 시험들은 `decide()` 를 직접 부르지 않는다. `decide` 에 무엇이 **전달되는지**가
+# 대상이기 때문이다. 순수 함수 시험은 인자를 시험자가 넣으므로 이 구간을 지나가지 않는다.
+import time as _time
+
+import pytest
+import rclpy
+
+from can_relay.supervisor import RelaySupervisor
+
+
+@pytest.fixture
+def sup(tmp_path):
+    rclpy.init(args=["--ros-args", "-p", f"state_dir:={tmp_path}"])
+    node = RelaySupervisor()
+    yield node
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+def _observe(node, engaged: bool):
+    """진단 1장을 받은 것으로 만들고 틱을 한 번 돌린다."""
+    node._cur = {"level": 0, "message": "정상", "engaged": engaged, "estop": False}
+    node._last_diag = _time.monotonic()
+    node._on_tick()
+
+
+def test_engaging_reaches_the_decision_input(sup):
+    """제어권을 잡은 사실이 다음 틱의 판정 입력에 도달해야 한다."""
+    assert (sup._prev or {}).get("engaged") in (None, False)
+    _observe(sup, engaged=True)
+    assert (sup._prev or {}).get("engaged") is True, (
+        "제어권 획득이 판정 입력에 도달하지 않는다 — 복귀가 영영 걸리지 않는다")
+
+
+def test_releasing_also_reaches_the_decision_input(sup):
+    """반환도 같은 경로로 도달해야 한다 — 안 그러면 요청하지 않은 재획득이 난다."""
+    _observe(sup, engaged=True)
+    _observe(sup, engaged=False)
+    assert (sup._prev or {}).get("engaged") is False, (
+        "제어권 반환이 판정 입력에 도달하지 않는다 — 굳은 값으로 재획득이 일어난다")

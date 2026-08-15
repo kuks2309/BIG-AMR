@@ -20,7 +20,9 @@ import sys
 
 PKG = pathlib.Path(__file__).resolve().parent
 HZ = PKG / "can_relay" / "home_and_zero.py"
+SUP = PKG / "can_relay" / "supervisor.py"
 T_HZ = "test/test_home_and_zero.py"
+T_SUP = "test/test_supervisor.py"
 
 # (id, 되돌리는 내용, [(찾을 문자열, 바꿀 문자열), …], 대상 파일, 시험)
 MUTATIONS = [
@@ -43,6 +45,16 @@ MUTATIONS = [
         ("        ok, why = self.c.call_home()",
          "        self.c.send_steer_zero()\n        ok, why = self.c.call_home()")],
      HZ, T_HZ),
+    ("F1", "판정 입력을 부팅 시점 스냅샷에 고정 — 복귀가 영영 걸리지 않는다", [
+        ("            self._prev = self._cur\n", "")], SUP, T_SUP),
+    ("F2a", "실리지 않은 축을 직전 값으로 채움 — 발행자의 보호를 되돌린다", [
+        ("    out = {int(n): None for n in steer_nodes}", "    out = {}")], HZ, T_HZ),
+    ("F2b", "낡은 실측을 그대로 씀 — 통신이 끊겨도 도달이 성립한다", [
+        ("    if age_s is None or float(age_s) > float(ttl_s):", "    if False:")], HZ, T_HZ),
+    ("F3", "서비스 부재를 호밍 실패와 같은 코드로 — 원인이 구분되지 않는다", [
+        ("        if not self.c.service_available():\n"
+         '            self.c.log("호밍 서비스를 찾지 못했습니다 — can_relay_node 가 떠 있는지 확인하세요")\n'
+         "            return EXIT_NO_SERVICE\n", "")], HZ, T_HZ),
     ("Z5", "실패 사유를 로그에서 지운다 — 조용한 실패", [
         ('            self.c.log(f"호밍 실패 — 조향 0° 지령을 보내지 않습니다: {why}")',
          '            self.c.log("호밍 실패 — 조향 0° 지령을 보내지 않습니다")')], HZ, T_HZ),
@@ -65,12 +77,18 @@ def run_tests(target):
 
 def main(argv):
     want = {a.upper() for a in argv[1:]}
+    known = {m[0].upper() for m in MUTATIONS}
+    unknown = sorted(want - known)
+    if unknown:
+        # 요청한 id 를 말없이 건너뛰면 「돌지 않은 것」이 「검출」로 집계된다.
+        print(f"❗ 검사 불가 — 등록되지 않은 id: {', '.join(unknown)}. "
+              f"등록된 id: {', '.join(m[0] for m in MUTATIONS)}")
+        return 1
+    selected = [m for m in MUTATIONS if not want or m[0].upper() in want]
     originals = {f: f.read_text(encoding="utf-8") for _, _, _, f, _ in MUTATIONS}
     failures = []
     try:
-        for mid, what, subs, f, tgt in MUTATIONS:
-            if want and mid not in want:
-                continue
+        for mid, what, subs, f, tgt in selected:
             text = original = originals[f]
             for old, new in subs:
                 if old not in text:
@@ -94,7 +112,7 @@ def main(argv):
     if failures:
         print(f"\n❌ 미검출 {len(failures)}건: {', '.join(failures)}")
         return 1
-    print("\n✅ 전 항목 검출 — 각 수정이 실제로 회귀로 고정돼 있다.")
+    print(f"\n✅ {len(selected)}개 항목 전부 검출 — 각 수정이 실제로 회귀로 고정돼 있다.")
     return 0
 
 

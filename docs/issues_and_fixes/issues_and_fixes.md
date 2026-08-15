@@ -45,6 +45,42 @@
 
 ---
 
+## 2026-08-15
+
+### [Fix] 감시 복귀가 한 번도 발동하지 않음 · 0° 도달 판정에 신선도 없음 · 종료코드 미도달 (3건)
+
+- **문제**: ① 드라이버가 죽어도 감시자가 제어권을 복귀시키지 않는다. 반대로 운용자가 의도적으로
+  반환한 뒤에는 요청하지 않은 재획득이 날 수 있다. ② 0° 복귀 대기 도중 한 축의 피드백이 끊겨도
+  굳은 값으로 「조향 0° 복귀 완료」가 날 수 있다. ③ 「서비스 없음」이 호밍 실패와 같은 종료코드로
+  나와 원인이 구분되지 않는다.
+- **원인**:
+  ① `supervisor.py:89` — `self._prev` 대입이 파일 전체에서 그 한 곳뿐이다(`__init__`).
+  `_save()`(`:152`)는 매 틱 파일에 쓰지만 아무도 되읽지 않아 `decide(self._prev, …)`(`:138`)가
+  **부팅 시점 스냅샷**을 계속 쓴다. 두 유닛이 함께 부팅되면 `_prev=None` 이라
+  `health.py` 의 「직전 기록도 미획득」 분기로 떨어져 복귀가 걸리지 않는다.
+  ② `home_and_zero.py` `_RosClient._on_joint_states` — 받은 축만 덮어쓰고 **없는 축을 지우지 않는다.**
+  발행자는 믿을 수 없는 축을 빼고 보내는데(`driver_node.py:409-415` `if deg is None: continue`)
+  그 보호가 수신 측에서 되돌려진다. 수신 시각도 쓰지 않아 통신 두절을 알 수 없다.
+  ③ `home_and_zero.py` — `EXIT_NO_SERVICE` 는 정의만 있고 `return` 0회.
+  `call_home()` 이 `(False, …)` 를 돌려주므로 `run()` 은 `EXIT_HOME_FAILED`(2)를 낸다.
+- **해결**:
+  ① `_save()` 직후 `self._prev = self._cur`(1줄 + 근거 주석). 부팅 시 `_load()` 는 유지.
+  ② 순수 함수 2개 신설 — `steer_angles_from_joint_states()`(매 장마다 재구성, 없는 축은 `None`) ·
+  `fresh_or_none()`(`FEEDBACK_TTL_S` 초과 또는 수신 이력 없음 → 전 축 `None`). 배선 갱신.
+  ③ client 계약에 `service_available()` 추가, `run()` 이 그것으로 갈라 `EXIT_NO_SERVICE`(4) 반환.
+  미도달 메시지의 「목표는 걸려 있으므로」 삭제 — `~/steer_deg` 는 응답 없는 발행이라 수리 여부를 알 수 없다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/{supervisor.py,home_and_zero.py}` ·
+  `src/Comm/CAN/can_relay/test/{test_supervisor.py,test_home_and_zero.py}` ·
+  `src/Comm/CAN/can_relay/mutation_check.py`
+- **상태**: 완료 — can_relay **465 passed / 1 skipped / 0 failed** ·
+  돌연변이 **F1·F2a·F2b·F3 4/4 검출** · 주석검사 5종 5파일 0건.
+  ⚠ **실기 미검증** — ①은 드라이버를 실제로 죽여 복귀를 확인한 적이 없다.
+  ⚠ ①의 회귀는 **배선 시험**이라야 잡힌다 — 기존 `test_supervisor.py` 는 `decide()` 에 `prev` 를
+  직접 넣는 순수 시험 16건뿐이라 이 결함을 지나갔다. 같은 형태로 검사기에서도 결함이 하나 나왔다:
+  요청한 돌연변이 id 를 대소문자 불일치로 조용히 건너뛰고 「전 항목 검출」을 찍었다(같은 커밋에서 정정).
+
+---
+
 ## 2026-08-10
 
 ### [Fix] pytest 수집 중단 해소 — 모듈 레벨 skip → fixture (debt-057 상환)

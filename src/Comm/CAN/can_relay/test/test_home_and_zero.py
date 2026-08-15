@@ -12,8 +12,9 @@
 """
 import pytest
 
-from can_relay.home_and_zero import (EXIT_HOME_FAILED, EXIT_OK,
-                                     EXIT_ZERO_UNREACHED, ZeroReturnGuard)
+from can_relay.home_and_zero import (EXIT_HOME_FAILED, EXIT_NO_SERVICE, EXIT_OK,
+                                     EXIT_ZERO_UNREACHED, ZeroReturnGuard,
+                                     fresh_or_none, steer_angles_from_joint_states)
 
 # 호밍 완료 위치가 조향 0° 에서 벗어나는 양(도) — 이 절차가 바로잡으려는 대상의 크기다.
 # 기본 허용치가 이 값보다 작아야 판정이 성립하며, 그 관계를 아래 시험이 고정한다.
@@ -31,6 +32,9 @@ class FakeClient:
         self.home_calls = 0
         self.logs: list = []
         self._t = 0.0
+
+    def service_available(self):
+        return True
 
     def call_home(self):
         self.home_calls += 1
@@ -120,3 +124,49 @@ def test_reaches_zero_after_a_few_polls():
     c = FakeClient(home_ok=True, angle_script=[
         {3: 0.178, 4: 0.331}, {3: 0.05, 4: 0.09}, {3: 0.0, 4: 0.0}])
     assert ZeroReturnGuard(c, timeout_s=5.0).run() == EXIT_OK
+
+
+# ── 실측 신선도 ─────────────────────────────────────────────────────────
+# 발행자는 믿을 수 없는 축을 빼고 보낸다. 그 축을 직전 값으로 채우면 그 보호가 사라진다.
+def test_absent_axis_is_none_not_the_previous_value():
+    a = steer_angles_from_joint_states(["steer_3", "steer_4"], [0.0, 0.0], (3, 4))
+    assert a == {3: 0.0, 4: 0.0}
+    b = steer_angles_from_joint_states(["steer_3"], [0.0], (3, 4))
+    assert b[4] is None, "실리지 않은 축이 None 이 아니다 — 직전 값이 남았다"
+
+
+def test_radians_are_converted_to_degrees():
+    import math
+    a = steer_angles_from_joint_states(["steer_3"], [math.radians(90.0)], (3, 4))
+    assert a[3] == pytest.approx(90.0)
+
+
+def test_unknown_names_are_ignored():
+    a = steer_angles_from_joint_states(["wheel_1", "steer_x", "steer_3"], [1.0, 2.0, 0.0], (3, 4))
+    assert a == {3: 0.0, 4: None}
+
+
+def test_stale_feedback_becomes_none():
+    angles = {3: 0.0, 4: 0.0}
+    assert fresh_or_none(angles, 0.5, 1.0) == angles
+    assert fresh_or_none(angles, 1.5, 1.0) == {3: None, 4: None}, "낡은 값이 도달 판정에 쓰인다"
+    assert fresh_or_none(angles, None, 1.0) == {3: None, 4: None}, "수신 이력이 없는데 값이 산다"
+
+
+def test_guard_does_not_complete_on_stale_feedback():
+    """대기 도중 피드백이 끊기면 완료가 아니라 미도달이어야 한다."""
+    c = FakeClient(home_ok=True, angle_script=[
+        {3: 0.0, 4: 0.0}, {3: None, 4: None}, {3: None, 4: None}])
+    assert ZeroReturnGuard(c, timeout_s=0.2).run() in (EXIT_OK, EXIT_ZERO_UNREACHED)
+    c2 = FakeClient(home_ok=True, angle_script=[{3: None, 4: None}])
+    assert ZeroReturnGuard(c2, timeout_s=0.2).run() == EXIT_ZERO_UNREACHED
+
+
+# ── 상대가 없을 때 ──────────────────────────────────────────────────────
+def test_missing_service_has_its_own_exit_code():
+    c = FakeClient(home_ok=True)
+    c.service_available = lambda: False
+    rc = ZeroReturnGuard(c).run()
+    assert rc == EXIT_NO_SERVICE, "서비스 부재가 호밍 실패(2)와 구분되지 않는다"
+    assert c.home_calls == 0, "상대가 없는데 호밍을 요청했다"
+    assert c.zero_sent == 0

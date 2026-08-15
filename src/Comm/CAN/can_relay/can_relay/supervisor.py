@@ -150,6 +150,11 @@ class RelaySupervisor(Node):
 
         if self._cur is not None:
             self._save(self._cur)
+            # 판정이 보는 「직전 기록」을 이 관측으로 넘긴다. 파일 저장만 하고 여기를
+            # 비워 두면 판정은 **부팅 시점 스냅샷**을 계속 쓴다 — 운용 중 제어권을 잡아도
+            # 그 사실이 판정에 도달하지 않아 복귀가 걸리지 않고, 반대로 부팅 때 잡혀 있던
+            # 상태가 굳으면 반환한 뒤에도 재획득이 일어난다.
+            self._prev = self._cur
 
         if verdict == RESTORE:
             self._restore()
