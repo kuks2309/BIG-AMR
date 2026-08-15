@@ -45,7 +45,8 @@ from std_srvs.srv import SetBool
 
 from .health import (DEAD, HOLD, IDLE, RESTORE, RUNNING, WAIT, ZOMBIE,
                      Observation, SupervisorConfig, boot_id, decide,
-                     default_state_dir, parse_diag, proc_alive)
+                     default_state_dir, is_outage, next_prev, next_was_down,
+                     parse_diag, proc_alive)
 
 
 class RelaySupervisor(Node):
@@ -64,6 +65,7 @@ class RelaySupervisor(Node):
             ("restore_enabled", True),
             ("restart_limit", 3),
             ("restart_window_s", 120.0),
+            ("zombie_after_s", 6.0),
         ])
         g = {d.name: d.value for d in p}
 
@@ -72,6 +74,7 @@ class RelaySupervisor(Node):
             restore_enabled=bool(g["restore_enabled"]),
             restart_limit=int(g["restart_limit"]),
             restart_window_s=float(g["restart_window_s"]),
+            zombie_after_s=float(g["zombie_after_s"]),
         )
         self._target = str(g["target_node"])
         self._prefix = str(g["diag_name_prefix"])
@@ -138,18 +141,25 @@ class RelaySupervisor(Node):
         verdict, why = decide(self._prev, obs, self.cfg)
 
         if verdict != self._verdict:
-            log = (self.get_logger().warn
-                   if verdict in (DEAD, ZOMBIE, HOLD) else self.get_logger().info)
-            log(f"{self._verdict} → {verdict} — {why}")
+            # ⚠ rclpy 로거는 **호출 지점(파일:줄)마다 severity 를 고정**한다 — 한 줄에서
+            #   warn/info 를 골라 부르면 두 번째 호출이
+            #   `ValueError: Logger severity cannot be changed between calls` 로 죽는다.
+            #   그래서 분기마다 별도 호출 지점을 둔다.
+            line = f"{self._verdict} → {verdict} — {why}"
+            if verdict in (DEAD, ZOMBIE, HOLD):
+                self.get_logger().warn(line)
+            else:
+                self.get_logger().info(line)
             self._verdict = verdict
 
-        if verdict in (DEAD, ZOMBIE):
-            self._was_down = True
-        elif verdict == RUNNING:
-            self._was_down = False
+        self._was_down = next_was_down(self._was_down, verdict,
+                                       is_outage(obs, self.cfg))
 
         if self._cur is not None:
             self._save(self._cur)
+        # 직전 상태 승격 — 판정 **뒤에** 한다. 앞에서 하면 재기동 직후의 engaged=False 가
+        # 곧바로 prev 가 되어 복귀 조건이 스스로 사라진다.
+        self._prev = next_prev(self._prev, self._cur, verdict)
 
         if verdict == RESTORE:
             self._restore()
@@ -194,7 +204,10 @@ class RelaySupervisor(Node):
         if not res.success:
             self.get_logger().error(f"복귀 거부 — {res.message}")
             return
-        self._was_down = False
+        # `_was_down` 을 여기서 내리지 않는다 — 복귀가 실제로 붙었는지는 **진단 관측**이
+        # 정한다(`next_was_down`). 대신 **복귀 이전에 받은 진단을 버린다**: 그 값은
+        # engaged=False 인 옛 상태라, 그대로 판정에 쓰면 방금 한 복귀를 되돌린 것으로 읽힌다.
+        self._cur = None
         self.get_logger().info(f"복귀 완료 — {res.message}")
         # 조향 대조: 기록해 둔 목표와 복귀 후 실측이 다르면 죽어 있는 동안 축이 움직였다.
         # 릴레이가 열린 구간에서 Seer 가 조향을 어떻게 다루는지는 미확정이라, 이 한 줄이

@@ -133,7 +133,7 @@ rclpy 드라이버. Seer 마스터가 붙어 있는 상태에서 릴레이 inter
 
 ---
 
-## 3. `health.py` — 감시 판정 (순수, 208줄)
+## 3. `health.py` — 감시 판정 (순수, 278줄)
 
 ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같은 배치이며, 분리한 이유는
 `conftest.py` 가 규정한 **미소싱 회귀**다 — rclpy 뒤에 판정이 갇히면 설치 없이 전 분기를
@@ -141,13 +141,17 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 
 | # | 함수 | 입력 | 출력 | 기능 | 위치 |
 | --- | --- | --- | --- | --- | --- |
-| 48 | `boot_id` | `path` | `str` | 부팅 식별자. 실패 시 `""`(대조를 포기하되 기록은 계속) | `health.py:75` |
-| 49 | `default_state_dir` | — | `str` | tmpfs 우선 기록 위치. `XDG_RUNTIME_DIR` → `/run` → `tempdir` | `health.py:84` |
-| 50 | `proc_alive` | `name`, `proc_root` | `Optional[bool]` | `/proc/*/comm` 검색. **15자로 잘라 비교**(안 그러면 긴 이름이 항상 미스 → 좀비를 사망으로 오판). 순회 실패는 `None`(모름) | `health.py:103` |
-| 51 | `_as_bool` | `text` | `bool` | `"true"/"1"/"yes"` 판정 | `health.py:126` |
-| 52 | `_as_float` | `text` | `Optional[float]` | 실수 변환, 실패 시 `None` | `health.py:130` |
-| 53 | `parse_diag` | `values`, `level`, `message` | `dict` | KeyValue → 상태 dict(`engaged`·`estop`·**`home_failed`**·`homed_effective`·`hb_suppressed`·`steer_target_deg`·`drive_units`). **빠진 키는 넣지 않는다** — 기본값으로 채우면 「관측 못 함」과 「거짓 관측」이 구분되지 않는다 | `health.py:137` |
-| 54 | `decide` | `prev`, `obs`, `cfg` | `(판정, 사유)` | **이 노드의 모든 판단.** 순서가 곧 우선순위 | `health.py:165` |
+| 48 | `boot_id` | `path` | `str` | 부팅 식별자. 실패 시 `""`(대조를 포기하되 기록은 계속) | `health.py:81` |
+| 49 | `default_state_dir` | — | `str` | tmpfs 우선 기록 위치. `XDG_RUNTIME_DIR` → `/run` → `tempdir` | `health.py:90` |
+| 50 | `proc_alive` | `name`, `proc_root` | `Optional[bool]` | `/proc/*/comm` 검색. **15자로 잘라 비교**(안 그러면 긴 이름이 항상 미스 → 좀비를 사망으로 오판). 순회 실패는 `None`(모름) | `health.py:109` |
+| 51 | `_as_bool` | `text` | `bool` | `"true"/"1"/"yes"` 판정 | `health.py:132` |
+| 52 | `_as_float` | `text` | `Optional[float]` | 실수 변환, 실패 시 `None` | `health.py:151` |
+| 52a | `as_level` | `level` | `int` | `DiagnosticStatus.level` → int. **rclpy 에서 이 필드는 `bytes` 한 바이트**라 `int()` 가 터진다 | `health.py:136` |
+| 53 | `parse_diag` | `values`, `level`, `message` | `dict` | KeyValue → 상태 dict(`engaged`·`estop`·**`home_failed`**·`homed_effective`·`hb_suppressed`·`steer_target_deg`·`drive_units`). **빠진 키는 넣지 않는다** — 기본값으로 채우면 「관측 못 함」과 「거짓 관측」이 구분되지 않는다 | `health.py:158` |
+| 53a | `next_prev` | `prev`, `cur`, `verdict` | `Optional[dict]` | 다음 판정에 쓸 「직전 상태」. **진단이 흐르는 동안(`RUNNING`·`IDLE`)의 관측만 승격** — 두절 구간은 상태를 모르므로 덮지 않는다. 없으면 복귀가 성립하지 않는다 | `health.py:186` |
+| 53b | `is_outage` | `obs`, `cfg` | `bool` | 지금이 **진단 두절 구간인가** — 판정 이름이 아니라 경과 시간으로 정한다. 「첫 진단 전」·「임계 안 공백」은 두절이 아니다 | `health.py:212` |
+| 53c | `next_was_down` | `was_down`, `verdict`, `outage` | `bool` | 「두절 경험」 표시. **세우는 근거는 두절 사실**(판정 이름이 아니다 — 빠른 재기동은 유예 `WAIT` 로만 덮여 `DEAD` 를 안 거친다). **내리는 것은 `RUNNING` 관측뿐** | `health.py:229` |
+| 54 | `decide` | `prev`, `obs`, `cfg` | `(판정, 사유)` | **이 노드의 모든 판단.** 순서가 곧 우선순위. `home_failed` 는 `cur`·`prev` **양쪽**을 본다 | `health.py:229` |
 
 ### 3-1. `decide` 판정표 (시험이 이 표를 고정한다 — `test_supervisor.py`)
 
@@ -155,18 +159,19 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | --- | --- | --- |
 | 진단 없음 · 한 번도 못 받음 | `WAIT` | 대기 |
 | 진단 없음 · 경과 ≤ `diag_timeout_s` | `WAIT` | 한 주기 놓친 것을 사망으로 치지 않는다 |
-| 진단 두절 · 프로세스 **있음** | `ZOMBIE` | 경보. 정지는 백엔드 심박 억제가 처리 |
+| 진단 두절 · 프로세스 **있음** · 경과 < `zombie_after_s` | `WAIT` | 재기동 중일 수 있다 — 사망·좀비로 단정하지 않는다 |
+| 진단 두절 · 프로세스 **있음** · 경과 ≥ `zombie_after_s` | `ZOMBIE` | 경보. 정지는 백엔드 심박 억제가 처리 |
 | 진단 두절 · 프로세스 없음 / **확인 불가** | `DEAD` | 기록 보존. 재기동은 systemd 소관 |
 | `engaged=true` | `RUNNING` | 상태 기록만 |
 | `engaged=false` · **두절 없음** | `IDLE` | **수동 해제로 본다 — 되돌리지 않는다** |
 | `engaged=false` · 두절 있음 · 직전 기록도 미획득 | `IDLE` | 되돌릴 것이 없다 |
 | 위 + `restore_enabled=false` | `HOLD` | 복귀 비활성 |
 | 위 + `estop=true` | `HOLD` | 해제 후 복귀 |
-| 위 + **`home_failed=true`** | `HOLD` | **재기동이 `_home_failed` 래치를 지운다** — 자동 복귀 금지 |
+| 위 + **`home_failed`**(`cur` **또는 `prev`**) | `HOLD` | 재기동이 `_home_failed` 래치를 지우므로 **`prev` 를 함께 본다** — 자동 복귀 금지 |
 | 위 + 창 내 복귀 ≥ `restart_limit` | `HOLD` | crash-loop |
 | 위 전부 통과 | `RESTORE` | `~/engage true` 1회 |
 
-## 4. `supervisor.py` — 감시 노드 (ROS 껍데기, 307줄)
+## 4. `supervisor.py` — 감시 노드 (ROS 껍데기, 318줄)
 
 **제어 경로 밖이다** — CAN 에 쓰지 않고 판다를 열지 않는다. 구독·서비스 호출만 한다.
 따라서 이 노드가 죽어도 정지 보증에는 영향이 없다(정지는 펌웨어 소관). 판정은 여기 없다.
@@ -174,15 +179,15 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | # | 함수 | 입력 | 출력 | 기능 | 위치 |
 | --- | --- | --- | --- | --- | --- |
 | 55 | `RelaySupervisor.__init__` | — | — | 파라미터 → 기록 경로 확보 → 구독(`/diagnostics`)·클라이언트(`<target>/engage`)·타이머 | `supervisor.py:54` |
-| 56 | `_on_diag` | `DiagnosticArray` | — | 접두가 맞는 status 1건만 뽑아 현재 상태로. 다른 발행자는 무시 | `supervisor.py:112` |
-| 57 | `_on_tick` | — | — | 관측 조립 → `decide` → 기록·복귀·발행. **프로세스 순회는 두절일 때만** | `supervisor.py:122` |
-| 58 | `_restarts_in_window` | — | `int` | 복귀 창 안의 시도 횟수(창 밖은 버린다) | `supervisor.py:159` |
-| 59 | `_restore` | — | — | `~/engage true` 1회. 진행 중 호출이 있으면 재호출하지 않는다(제어권 조작 중복 방지) | `supervisor.py:165` |
-| 60 | `_on_restore_done` | `future` | — | 응답 처리 + **조향 대조 로그**(기록 목표 ↔ 복귀 시점 실측. 복원하지 않는다) | `supervisor.py:187` |
-| 61 | `_save` | `state` | — | 임시파일 + `os.replace` **원자 교체**. 반쪽 JSON 은 다음 기동에서 「기록 없음」이 되어 복귀가 조용히 사라진다 | `supervisor.py:210` |
-| 62 | `_load` | — | `Optional[dict]` | **`boot_id` 불일치면 폐기** — 전원 사이클을 넘긴 기록으로 복귀하면 조향 홈 기준이 없다 | `supervisor.py:237` |
-| 63 | `_publish` | `verdict`, `why`, `obs` | — | 감시자 자신의 판정을 `~/status` 로 — 감시자가 도는지 밖에서 보이게 | `supervisor.py:259` |
-| 64 | `main` | `args` | — | 진입점. 제어 경로 밖이라 단일 스레드 실행기로 충분 | `supervisor.py:290` |
+| 56 | `_on_diag` | `DiagnosticArray` | — | 접두가 맞는 status 1건만 뽑아 현재 상태로. 다른 발행자는 무시 | `supervisor.py:114` |
+| 57 | `_on_tick` | — | — | 관측 조립 → `decide` → 기록·복귀·발행. **프로세스 순회는 두절일 때만** | `supervisor.py:124` |
+| 58 | `_restarts_in_window` | — | `int` | 복귀 창 안의 시도 횟수(창 밖은 버린다) | `supervisor.py:170` |
+| 59 | `_restore` | — | — | `~/engage true` 1회. 진행 중 호출이 있으면 재호출하지 않는다(제어권 조작 중복 방지) | `supervisor.py:176` |
+| 60 | `_on_restore_done` | `future` | — | 응답 처리 + **조향 대조 로그**(기록 목표 ↔ 복귀 시점 실측. 복원하지 않는다) | `supervisor.py:198` |
+| 61 | `_save` | `state` | — | 임시파일 + `os.replace` **원자 교체**. 반쪽 JSON 은 다음 기동에서 「기록 없음」이 되어 복귀가 조용히 사라진다 | `supervisor.py:221` |
+| 62 | `_load` | — | `Optional[dict]` | **`boot_id` 불일치면 폐기** — 전원 사이클을 넘긴 기록으로 복귀하면 조향 홈 기준이 없다 | `supervisor.py:248` |
+| 63 | `_publish` | `verdict`, `why`, `obs` | — | 감시자 자신의 판정을 `~/status` 로 — 감시자가 도는지 밖에서 보이게 | `supervisor.py:270` |
+| 64 | `main` | `args` | — | 진입점. 제어 경로 밖이라 단일 스레드 실행기로 충분 | `supervisor.py:301` |
 
 **중복/유사 함수**: 없음. `health.py` 와 이름이 겹치는 함수도 없다(판정은 전부 위임).
 
@@ -207,6 +212,7 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | 필드 | 기본값 | 의미 | 비고 |
 | --- | --- | --- | --- |
 | `diag_timeout_s` | 3.0 | 진단 두절 판정 임계 | ⚠ `ros_alive_timeout_s`(2.0)보다 **길어야 한다** — 짧으면 감시자가 먼저 두절을 선언하고 정지는 아직 안 걸린 구간이 생긴다 |
+| `zombie_after_s` | 6.0 | 좀비 판정 유예 | 재기동 직후는 프로세스가 있고 진단이 아직 없다 — 유예 없이는 **정상 재기동마다 ERROR** 가 뜬다 |
 | `restore_enabled` | `True` | 복귀 수행 여부 | `false` 면 기록·경보만 |
 | `restart_limit` / `restart_window_s` | 3 / 120.0 | crash-loop 차단 | 반복 engage/release 는 그때마다 Seer 에게서 버스를 뺏었다 놓는다 |
 
@@ -215,10 +221,10 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | 이름 | 의미 | 비고 |
 | --- | --- | --- |
 | `_boot` | 이 부팅의 `boot_id` | 기록 대조 기준 |
-| `_prev` | 직전 기록(폐기되면 `None`) | 복귀 판단의 근거 |
+| `_prev` | 직전 상태 | 기동 시 기록 파일에서 seed, 이후 **매 틱 `next_prev()` 로 승격**. 승격이 없으면 복귀가 성립하지 않는다 |
 | `_cur` | 현재 진단에서 뽑은 상태 | 두절이면 `None` |
 | `_last_diag` | 마지막 진단 수신 시각(monotonic) | |
-| `_was_down` | 두절을 겪었는가 | **수동 해제 ↔ 재기동을 가르는 유일한 신호** |
+| `_was_down` | 두절을 겪었는가 | **수동 해제 ↔ 재기동을 가르는 유일한 신호.** 갱신은 `next_was_down()` 이 하며 `RUNNING` 관측으로만 내려간다 |
 | `_restore_stamps` | 복귀 시도 시각(wall) | 기록에 실려 감시자 재기동을 넘어 유지된다 |
 | `_verdict` | 직전 판정 | 변화 시에만 로그 |
 | `_pending` | 진행 중 engage future | 중복 호출 방지 |

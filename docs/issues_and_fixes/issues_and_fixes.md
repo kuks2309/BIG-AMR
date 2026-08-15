@@ -45,6 +45,34 @@
 
 ---
 
+
+## 2026-08-15
+
+### [Fix] `relay_supervisor` 결함 5건 — SIL 하니스가 잡은 「단위는 통과, 기능은 0」
+
+- **문제**: 노드 health 감시·복귀가 `main` 병합 시점에 **전 기능 무동작**이었다. 단위 회귀
+  40여 건이 전건 통과하는 동안 감시자는 기동 몇 초 만에 죽거나, 죽지 않아도 복귀를 한 번도
+  수행하지 못했다. 실기였다면 「감시 중」으로 보이면서 실제로는 아무것도 안 하는 상태로
+  운용됐을 것이다.
+- **원인**: 5건 모두 **순수 판정(`health.py` 로직)이 아니라 ROS 껍데기·실물 타입 경계**에 있었다.
+  단위 시험이 `decide()` 만 함수로 부르고 프로세스·메시지·타이머를 한 번도 통과시키지 않았다.
+  | # | 근본 원인 | 위치 |
+  | --- | --- | --- |
+  | 1 | `DiagnosticStatus.level` 은 rclpy 에서 `bytes` 한 바이트인데 `int()` 로 변환 → 첫 진단에 크래시 | `health.py` `parse_diag` |
+  | 2 | rclpy 로거는 **호출 지점마다 severity 고정** — 한 줄에서 `warn`/`info` 를 골라 부르면 두 번째가 `ValueError` | `supervisor.py` `_on_tick` |
+  | 3 | `_prev` 를 기동 시 파일에서 한 번만 읽고 승격하지 않음 → 「감시자는 살고 드라이버만 재기동」이라는 **설계 의도 경로에서 복귀가 성립하지 않음** | `supervisor.py` `_on_tick` |
+  | 4 | `_home_failed` 게이트가 `cur` 만 검사 → **재기동이 지우는 값을 게이트가 따라감**(막으려던 그 소실) | `health.py` `decide` |
+  | 5 | `_was_down` 을 복귀 서비스 응답으로 내림 + 판정 이름으로만 세움 → 복귀가 1회만 되고, 빠른 재기동은 유예 `WAIT` 로 덮여 표시가 안 섬 | `supervisor.py` `_on_restore_done` · `health.py` `next_was_down` |
+  ⚠ **5번의 절반은 자초분**이다 — 4번을 고치며 넣은 좀비 유예(`zombie_after_s`)가 새 구멍을 열었다.
+- **해결**: 판정에 해당하는 부분을 **순수 모듈로 이관**해 단위로 고정했다 —
+  `as_level()` · `next_prev()` · `next_was_down()` · `is_outage()` 신설, `decide()` 가 `home_failed` 를
+  `cur`·`prev` 양쪽에서 검사. 껍데기에는 타이머·구독·서비스 호출·파일 입출력만 남겼다.
+  회귀 13건 추가(33 → 46), 돌연변이 2종 검출 확인.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/health.py` · `can_relay/supervisor.py` ·
+  `test/test_supervisor.py` · `Tools/can_relay_sil/sil_health.py`(신설) ·
+  `docs/function_table.md` · `docs/sw_structure/function_table.md`
+- **상태**: 완료 — SIL **8/8 PASS**, 단위 회귀 전건 통과. ⚠ **실기 미검증**(debt-075·076)
+
 ## 2026-08-10
 
 ### [Fix] pytest 수집 중단 해소 — 모듈 레벨 skip → fixture (debt-057 상환)
