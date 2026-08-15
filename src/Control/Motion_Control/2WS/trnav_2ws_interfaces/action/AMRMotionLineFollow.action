@@ -11,6 +11,14 @@ float64 max_distance         # 최대 주행 경로장 (m), 0 = 무제한. 측�
 float64 line_lost_coast_sec  # 라인 소실 시 coast(조향유지·감속) 유예 (s)
 bool    hold_steer           # true: Phase 4(조향 복귀) 생략
 float64 exit_steer_angle     # Phase 4 목표 조향각 (deg, hold_steer 면 무시)
+
+# 차체 heading 을 무엇에 맞출지. 앞뒤 조향의 **차이분**이 heading 을 돌리고 **공통분**이
+# 진행 방향을 돌리므로, 라인 추종 자체는 세 값 모두에서 동일하게 동작한다.
+#   0 = FOLLOW_LINE : 라인 접선을 따라 차체가 돈다 (기본 — 종전 거동)
+#   1 = HOLD        : goal 수락 시점의 yaw 를 유지한 채 옆으로 따라간다 (crab)
+#   2 = ABSOLUTE    : target_yaw_deg 를 유지한다
+uint8   heading_mode
+float64 target_yaw_deg       # heading_mode=2 에서만 사용 (deg, 맵 기준 절대각)
 bool    enable_localization_watchdog true
 ---
 # Result
@@ -22,6 +30,9 @@ int8    status               # 0=success (max_duration_sec 또는 max_distance �
                              # -10=line_input_stale (/line/error 스트림 두절 — 인식 노드 점검)
                              # -11=camera_mismatch (진행 방향과 다른 카메라의 오차 수신 —
                              #     line_seg_node 의 direction 파라미터를 맞출 것)
+                             # -12=node_shutdown (노드 종료로 주행이 중단됨 — 완주가 아니다)
+                             # -13=motion_source_unavailable (mux 소스 전환 실패 — 지령이 바퀴에
+                             #     도달하지 않는다. trnav_motion_mux 기동 여부를 확인할 것)
 float64 traveled_distance    # m (측위 경로장 적산)
 float64 avg_abs_offset       # 추종 중 |offset| 평균 (주행 품질)
 float64 elapsed_time         # s
@@ -32,6 +43,8 @@ float64 angle                # 현재 라인 기울기 (rad)
 float64 confidence           # seg 신뢰도
 float64 current_speed        # 현재 종속도 지령 크기 (m/s)
 float64 current_steer_deg    # 현재 전륜 조향 지령 (deg)
+float64 heading_error_deg    # 차체 heading 오차 (deg) — heading_mode 가 정한 목표 기준
+float64 offset_used          # 곡선 편향을 뺀, 제어에 실제로 쓴 횡오차
 float64 traveled_distance    # m
 uint8   phase                # 0=wait_line, 1=following, 2=lost_coast, 3=stopping, 4=steer_return
 string  camera               # 오차를 만든 카메라 논리명 (cam_f / cam_r)

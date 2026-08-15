@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>line_sim_sensor</name>
+  <version>0.1.0</version>
+  <description>SIL 가상 라인 센서 — 맵에 놓인 라인과 플랜트 자세로부터 카메라 오차(ai_msgs/LineError)를 역산해 발행한다. 인식 성능은 모사하지 않고 기하만 맞춘다.</description>
+  <maintainer email="kukwonko@gmail.com">kuks</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>ai_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
