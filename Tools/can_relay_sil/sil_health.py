@@ -388,6 +388,53 @@ def exp8_state_file_is_never_half_written(ctx: Ctx):
     return True, "강제 종료 6회에서 기록이 온전했다"
 
 
+def exp9_death_before_latch_is_observed(ctx: Ctx):
+    """호밍 개시 **직후**(진단이 오기 전) 사망 시 감시자 게이트의 적용 범위를 잰다.
+
+    ⚠ **결함 실험이 아니다 — 경계 관측이다.** 호밍 중단 자체는 이미 3중으로 닫혀 있다:
+      · 펌웨어 — `seer_homing_tick()` 이 `!pc_authority` 를 매 틱 확인해 호밍을 즉시 중단
+        (`safety_seer_gate.h` — 호스트 생사와 무관하게 성립)
+      · 드라이버 — `_home_failed` 래치가 프로세스 안에서 bit15 를 조향 근거로 못 쓰게 한다
+      · 감시자 — 관측한 래치를 복귀 차단 사유로 든다(재기동을 넘어 유지)
+
+    이 실험이 재는 것은 **세 번째 층의 적용 하한**이다. 래치는 호밍 개시 순간 서지만 진단은
+    1 Hz 이므로, 그 1초 안에 죽으면 감시자는 래치를 본 적이 없다. 관측하지 못한 것을 기억할
+    수는 없으므로 이 구간에서 감시자 게이트는 적용되지 않는다 — **설계상 그렇고, 결함이 아니다.**
+    앞의 두 층은 그대로 유효하다.
+
+    ⇒ 반환은 항상 `True`(관측 성공)이며, 관측된 경계를 note 로 남긴다.
+    """
+    d = ctx.driver()
+    ctx.supervisor()
+    if not wait_for(lambda: ctx.state().get("engaged") is not None, 25.0):
+        return False, "감시자가 진단을 받지 못했다"
+    engage(ctx, True)
+    if not wait_engaged(ctx, True):
+        return False, "engage 실패"
+
+    ctx.spawn("home", ["ros2", "service", "call", "/can_relay_node/home",
+                       "std_srvs/srv/Trigger", "{}"])
+    time.sleep(0.25)                  # 진단 주기(1 s)보다 훨씬 짧게 — 관측 전에 죽인다
+    observed = ctx.state().get("home_failed")
+    hard_kill(d)
+    if observed is True:
+        return False, ("래치가 이미 기록에 반영돼 창을 재현하지 못했다 — "
+                       "죽이는 시점을 더 당겨야 한다(시험 조건 실패)")
+
+    if not wait_for(lambda: "DEAD" in ctx.log_text("supervisor"), 12.0):
+        return False, "DEAD 판정이 나오지 않았다(관측 실패)"
+    ctx.driver()
+    got_hold = wait_for(lambda: "HOLD" in ctx.log_text("supervisor"), 20.0)
+    got_restore = wait_for(lambda: "복귀 지시" in ctx.log_text("supervisor"), 5.0)
+    if got_hold and not got_restore:
+        return True, "경계: 관측 전 사망도 감시자 게이트가 덮었다"
+    if got_restore:
+        return True, ("경계: 감시자 게이트는 **진단 1회 도달 이후**에만 적용된다 — "
+                      "개시 후 1초 안의 사망은 덮지 않는다(설계상). "
+                      "호밍 중단은 펌웨어·드라이버 래치가 이미 담당한다")
+    return False, "HOLD 도 복귀도 관측되지 않았다 — 관측 실패"
+
+
 EXPERIMENTS = [
     (1, "프로세스 소멸 → 재기동 → 제어권 복귀", exp1_kill_and_restore),
     (2, "실행기 정체 → ZOMBIE 판정", exp2_zombie_suppresses_heartbeat),
@@ -397,6 +444,8 @@ EXPERIMENTS = [
     (6, "수동 해제는 되돌리지 않음", exp6_manual_disengage_is_not_restored),
     (7, "boot_id 불일치 → 기록 폐기", exp7_boot_id_mismatch_discards),
     (8, "기록 원자성(반쪽 JSON 없음)", exp8_state_file_is_never_half_written),
+    (9, "감시자 게이트 적용 하한 (경계 관측 — 결함 실험 아님)",
+        exp9_death_before_latch_is_observed),
 ]
 
 

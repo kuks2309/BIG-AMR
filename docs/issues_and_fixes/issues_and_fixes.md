@@ -72,6 +72,7 @@
   `test/test_supervisor.py` · `Tools/can_relay_sil/sil_health.py`(신설) ·
   `docs/function_table.md` · `docs/sw_structure/function_table.md`
 - **상태**: 완료 — SIL **8/8 PASS**, 단위 회귀 전건 통과. ⚠ **실기 미검증**(debt-075·076)
+- **적용 범위**: 4번(`home_failed` 차단)은 **감시자가 래치를 1회 관측한 뒤**에만 적용된다 — 호밍 개시 1초 안의 사망은 덮지 않는다(실험 9 경계 관측). 호밍 중단 자체는 펌웨어(`seer_homing_tick()` 이 `!pc_authority` 확인 → 취소)와 드라이버 래치가 담당하므로 **그 구간에도 보호는 유효**하다. 결함이 아니라 설계상의 하한이다
 
 ## 2026-08-10
 
