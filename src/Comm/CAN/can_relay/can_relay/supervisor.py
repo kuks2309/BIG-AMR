@@ -204,9 +204,9 @@ class RelaySupervisor(Node):
         if not res.success:
             self.get_logger().error(f"복귀 거부 — {res.message}")
             return
-        # `_was_down` 을 여기서 내리지 않는다 — 복귀가 실제로 붙었는지는 **진단 관측**이
-        # 정한다(`next_was_down`). 대신 **복귀 이전에 받은 진단을 버린다**: 그 값은
-        # engaged=False 인 옛 상태라, 그대로 판정에 쓰면 방금 한 복귀를 되돌린 것으로 읽힌다.
+        # 복귀 이전에 받은 진단을 버린다 — engaged=False 인 옛 상태라 그대로 판정에 쓰면
+        # 방금 한 복귀를 되돌린 것으로 읽힌다. `_was_down` 은 여기서 내리지 않는다
+        # (`next_was_down` 이 `RUNNING` 관측으로만 내린다).
         self._cur = None
         self.get_logger().info(f"복귀 완료 — {res.message}")
         # 조향 대조: 기록해 둔 목표와 복귀 후 실측이 다르면 죽어 있는 동안 축이 움직였다.

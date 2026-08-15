@@ -44,8 +44,7 @@ MACHINE = os.path.join(REPO, "src/Comm/CAN/can_relay/config/machine/foil_a082.ya
 # 감시자 임계를 실험용으로 좁힌다 — 기본값(두절 3 s·좀비 45 s·창 120 s)이면 한 항목에
 # 분 단위가 걸린다. 판정 로직은 그대로이고 시간 축만 줄인다.
 # ⚠ **감시자가 받는 시간 파라미터는 전부 여기 있어야 한다.** 하나를 빠뜨리면 그 항목만
-#   기본값으로 돌아 실험이 조용히 어긋난다 — `zombie_after_s` 를 나중에 추가하면서 실제로
-#   그랬다(기본 45 s 인데 실험은 15 s 안에 ZOMBIE 를 기대했다).
+#   기본값으로 돌아 실험이 조용히 어긋난다.
 DIAG_TIMEOUT_S = 1.5
 ZOMBIE_AFTER_S = 4.0
 RESTART_WINDOW_S = 20.0
