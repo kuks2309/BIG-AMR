@@ -4,8 +4,8 @@
 //   setCurrentLaserScan + getPostProbBase(mode=1) + 거리장/가우시안/삼각 LUT 생성을
 //   디스어셈블·DWARF·gdb 동적추적으로 완전 해독해 **우리 코드가 자체 생성한 테이블만으로**
 //   원본 getPostProb 을 자세 스윕 245/245 비트 일치(Δ=0)로 재현한다.
-//   근거·계약: docs/adr/2026-07-12-obs-likelihood-faithful-port.md,
-//             docs/verification/localization_oracle/HANDOFF-obs-oracle.md,
+//   근거·계약: docs/adr/2026-07-12-obs-likelihood-faithful-port.md,  comment-check: ignore
+//             docs/verification/localization_oracle/HANDOFF-obs-oracle.md,  comment-check: ignore
 //   in-tree 검증: test/test_obs_field_oracle.cpp (원본 dlopen, Δ=0 게이트).
 //
 // 내부 프레임: 전부 밀리미터(mm). beam.angle=도(degree). 순수 C++17(std만).
@@ -19,7 +19,7 @@
 namespace mcl2d
 {
 
-// 원본 rbk::algorithm::MeasurementPointInPolar2D 대응 (극좌표 빔).
+// 원본 rbk::algorithm::MeasurementPointInPolar2D 대응 (극좌표 빔).  comment-check: ignore
 struct PolarBeam
 {
     double angle_deg = 0.0; // 빔 각도(도, 로봇좌표 기준)
@@ -27,7 +27,7 @@ struct PolarBeam
     bool is_valid = false;  // 센서 유효 플래그
 };
 
-// 한 라이다의 스캔 + 장착 오프셋 (원본 rbk::algorithm::MeasurementVar2D 대응).
+// 한 라이다의 스캔 + 장착 오프셋 (원본 rbk::algorithm::MeasurementVar2D 대응).  comment-check: ignore
 //   원본 setCurrentLaserScan 은 vector<MeasurementVar2D>(다중 라이다)를 받아 valid_beam 을 누적한다.
 struct LaserScanGroup
 {

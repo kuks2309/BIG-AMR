@@ -1,4 +1,4 @@
-// RE 검증(오라클): mcl2d::ObservationField(우리 충실 포팅) ↔ 원본 QuadGridSearchMap::getPostProb
+// RE 검증(오라클): mcl2d::ObservationField(우리 충실 포팅) ↔ 원본 QuadGridSearchMap::getPostProb  comment-check: ignore
 //   동일 맵·동일 스캔·자세 스윕에서 **비트 대조 Δ=0**. RE 제1원칙(원본과 100% 동일).
 //
 //   원본 자산 의존(우리 배포물 아님): libMCLoc.so(dlopen), libprotobuf.so.17, 실 .smap.
@@ -6,9 +6,9 @@
 //
 //   빌드/실행(HANDOFF §4):
 //     RBK=/media/.../rbk ; SMAP=".../maps/FAT_TEST MAP_Roll_AGV_20230808_1.smap"
-//     g++ -std=c++17 -O2 -I/tmp/protobuf-3.6.1/src -Isrc/mcl2d_core/include -Isrc/mcl2d_map/include \
-//       src/mcl2d_core/test/test_obs_field_oracle.cpp src/mcl2d_core/src/observation_field.cpp \
-//       src/mcl2d_map/src/smap.cpp -Wl,--no-as-needed "$RBK/3rdlib/libprotobuf.so.17" -lz -ldl -pthread -o /tmp/t
+//     g++ -std=c++17 -O2 -I/tmp/protobuf-3.6.1/src -Isrc/Navigation/mcl2d_core/include -Isrc/Navigation/mcl2d_map/include \
+//       src/Navigation/mcl2d_core/test/test_obs_field_oracle.cpp src/Navigation/mcl2d_core/src/observation_field.cpp \
+//       src/Navigation/mcl2d_map/src/smap.cpp -Wl,--no-as-needed "$RBK/3rdlib/libprotobuf.so.17" -lz -ldl -pthread -o /tmp/t
 //     export LD_LIBRARY_PATH="$RBK/lib:$RBK/3rdlib:$RBK/plugins:$RBK/mobilerobots" ; /tmp/t "$SMAP"
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/message.h>

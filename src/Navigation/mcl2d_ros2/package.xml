@@ -6,7 +6,7 @@
   <description>
     Seer 2D MCL 위치추정 ROS2 어댑터. 프레임워크-독립 코어(mcl2d_core)를 rclcpp 노드로 감싼다.
     /scan_front+/scan_rear+/odom → /mcl_pose+TF. non-ROS 어댑터와 동일 코어 → 결과 동일.
-    근거: docs/reverse_engineering/libMCLoc/2026-06-24-localization-deep-dive.md
+    근거: References/seer/libMCLoc/2026-06-24-localization-deep-dive.md
   </description>
   <maintainer email="kukwonko@gmail.com">Seer RE</maintainer>
   <license>Proprietary (유지보수·상호운용 목적)</license>

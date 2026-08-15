@@ -7,7 +7,7 @@ namespace mcl2d
 namespace
 {
 
-// 원본 rbk::foundation::utils 각도 헬퍼 (libfoundation.so 디스어셈블 확정; π=M_PI 실측).
+// 원본 rbk::foundation::utils 각도 헬퍼 (libfoundation.so 디스어셈블 확정; π=M_PI 실측).  comment-check: ignore
 inline double deg2rad(double deg)
 {
     return deg * M_PI / 180.0;

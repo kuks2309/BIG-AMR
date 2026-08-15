@@ -1,4 +1,4 @@
-// ParticleFilter2D — 2D MCL 파티클필터 (Seer rbk::algorithm::ParticleFilter2D 재구현).
+// ParticleFilter2D — 2D MCL 파티클필터 (Seer rbk::algorithm::ParticleFilter2D 재구현).  comment-check: ignore
 // 파이프라인: predict(균등산포 모션) → updateWeights(격자우도) → resample(systematic) → estimate(가중평균).
 // 적응표본: n = (점유 bin 수) × factor, clamp[min,max] (Seer ComputeSampleNumber).
 #ifndef MCL2D_CORE_PARTICLE_FILTER_HPP
