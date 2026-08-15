@@ -207,6 +207,49 @@ ros2 service call /can_relay_node/engage std_srvs/srv/SetBool "{data: false}"
 `~/drive_mmps` 는 워치독(`cmd_timeout_s`, 기본 0.3 s)이 걸려 있다 — 한 번 쏘고 두면
 0.3 초 뒤 자동으로 0 이 된다. 계속 주행하려면 주기 발행이 필요하다. 이것은 결함이 아니라 설계다.
 
+## 노드 health 관리 — 감시 · 재기동 · 복귀
+
+설계 정본은 `docs/adr/2026-08-15-can-relay-node-health-supervision.md`.
+
+**노드가 죽어도 폭주하지 않는다.** 심박 상실 1~2 s 뒤 펌웨어가 구동 노드에 `0x60FF=0` 을
+3회 쓰고 릴레이를 연다. 따라서 감시의 목적은 안전 확보가 아니라 **미션 복귀**다.
+
+```bash
+# 감시자 — 상태 기록 + 재기동 후 제어권 복귀. 드라이버와 별도 프로세스다.
+ros2 launch can_relay relay_supervisor.launch.py
+
+# 상주화(systemd). 명시 실행할 때만 설치된다.
+./install_service.sh              # dry-run
+./install_service.sh --apply      # 드라이버 + 감시자
+
+ros2 topic echo /relay_supervisor/status   # 판정 확인
+cat /run/can_relay/state.json              # 기록 확인
+```
+
+| 층 | 담당 | 유닛 |
+| --- | --- | --- |
+| 펌웨어 | 정지(구동 0 → 릴레이 개방) | — |
+| systemd | 프로세스 재기동 (**3회/120 s 초과 시 중단**) | `amr-can-relay.service` |
+| `relay_supervisor` | 상태 기록·복귀 지시·좀비 검출 | `amr-can-relay-supervisor.service` |
+
+**복귀는 3중으로 차단된다** — E-stop 인가 · **직전 호밍 미완료(`home_failed`)** · crash-loop(3회/120 s). 특히 `home_failed` 는 `_home_failed` 래치가 **인스턴스 변수라 재기동으로 지워지기** 때문에 감시자가 대신 들고 있는 것이다 — 그 상태로 복귀하면 드라이브 bit15 만 보고 조향이 열려 ≈136.7° 스윙이 난다. 해제는 `~/home` 재수행뿐이다.
+
+**복원 대상은 제어권 하나다.** 조향 목표는 기록하되 **복원하지 않는다**(죽어 있는 동안
+Seer 가 축을 움직였을 수 있다 — 복귀 시 기록↔실측 차이를 로그로 남긴다). 구동은 항상 0
+에서 시작하고 상위가 지령을 다시 준다. 재호밍은 **불필요**하다 — `homed_effective()` 가
+드라이브의 `0x6041` bit15 를 인정하므로 전원이 유지되면 즉시 조향이 열린다.
+
+기록은 `/run/can_relay/state.json`(tmpfs) + `boot_id` 대조다. 조향 홈은 전원이 켜져 있는
+동안만 유효하므로 **전원 사이클을 넘긴 기록으로는 복귀하지 않는다.**
+
+**`ros_alive_timeout_s`(기본 2.0 s)** — ROS 실행기가 이보다 오래 멈추면 백엔드가 **심박을
+끊어** 펌웨어에 정지를 넘긴다. 실행기만 죽고 제어 스레드는 사는 「좀비」가 유일한 사각지대였다
+(심박이 계속 나가 펌웨어도 systemd 도 개입하지 않는다). `diag_hz` 와 결합하므로
+`ros_alive_timeout_s ≥ 2 / diag_hz` 가 아니면 기동이 거부된다. `0` 이면 판정하지 않는다.
+
+⚠ **실기 미검증.** 전량 mock/순수 함수 회귀로만 확인했다. 잭업 `kill -9` 실측 전에는
+릴레이 개방 시 조향 거동(Seer 인수)이 미확정이다 — 위 code_updates 문서 §0 ③ 참조.
+
 ## 안전 규칙 (코드가 강제한다 — 회귀 ~~177건~~ **188건**이 고정)
 
 > ❌ **정정 2026-08-03 15:40 — 「177건」은 낡았다.** 2026-08-03 재실행 결과 **188 passed**

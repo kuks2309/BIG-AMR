@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+"""노드 health 판정 — 순수 함수만. ROS·하드웨어·파일쓰기 무의존.
+
+`safety.py` 와 같은 규율이다. 감시 노드의 **모든 판단**을 여기 모아 두고, `supervisor.py`
+는 관측을 모아 넘기고 결과를 실행하는 껍데기만 담당한다.
+
+분리 이유는 두 가지다:
+  1. `conftest.py` 가 규정한 대로 **설치·소싱 없이** 회귀가 돌아야 한다. rclpy 뒤에 판정이
+     갇히면 미소싱 환경에서 전 분기가 검증되지 않는다.
+  2. 판정이 흩어지면 「무엇이 로봇의 제어권을 다시 잡게 했는가」가 로그에서 갈린다.
+
+읽기(`/proc`·`boot_id`)는 여기 두되 쓰기는 두지 않는다 — 관측은 판정의 입력이고,
+부작용은 호출부 책임이다.
+
+## 재기동이 지우는 상태를 여기서 다시 세운다
+
+`RelayBackend._home_failed`(실패한 호밍 뒤 조향을 잠그는 래치)는 **인스턴스 변수**라
+프로세스가 죽으면 사라진다. 그 래치가 없던 시절에는 자동 재기동도 없었으므로 문제가
+아니었으나, 자동 재기동을 붙이는 순간 「죽었다 살아나면 잠금이 풀린다」가 된다.
+드라이브의 `0x6041` bit15 는 실패한 호밍 뒤에도 1 로 남으므로 새 프로세스는 조향을
+열어 준다. 그래서 `decide()` 가 **관측된 `home_failed` 를 복귀 차단 사유로 든다.**
+"""
+from __future__ import annotations
+
+import os
+import tempfile
+from dataclasses import dataclass
+from typing import Optional
+
+BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id"
+PROC_ROOT = "/proc"
+COMM_MAX = 15   # `/proc/<pid>/comm` 의 길이 한계. `system_health` 와 같은 제약이다.
+
+# 판정 — `decide()` 의 반환 첫 값
+WAIT = "WAIT"           # 진단을 아직 한 번도 못 받았다 / 임계 안의 공백
+RUNNING = "RUNNING"     # 제어권 보유 중
+IDLE = "IDLE"           # 살아 있으나 제어권 미획득
+DEAD = "DEAD"           # 진단 두절 + 프로세스 없음(또는 확인 불가)
+ZOMBIE = "ZOMBIE"       # 진단 두절 + 프로세스 생존
+RESTORE = "RESTORE"     # 복귀 조건 충족 — `~/engage true` 를 부른다
+HOLD = "HOLD"           # 복귀 조건 미충족 — 사유를 남기고 대기
+
+
+@dataclass
+class SupervisorConfig:
+    """판정 임계. 하드웨어에 의존하지 않는다."""
+
+    diag_timeout_s: float = 3.0
+    #   진단이 이보다 끊기면 두절로 본다. 진단은 1 Hz 이므로 3 주기다.
+    #   ⚠ 백엔드 심박 억제 임계(`ros_alive_timeout_s`, 2.0 s)보다 **길어야 한다** —
+    #     짧으면 감시자가 먼저 두절을 선언하고, 정작 정지는 아직 걸리지 않은 구간이 생긴다.
+    restore_enabled: bool = True
+    restart_limit: int = 3
+    restart_window_s: float = 120.0
+    #   이 창 안에 복귀를 `restart_limit` 회 넘게 시도했으면 멈춘다. 반복 engage/release 는
+    #   죽은 채 있는 것보다 나쁘다 — 그때마다 Seer 에게서 버스를 뺏었다 놓는다.
+
+
+@dataclass
+class Observation:
+    """한 판정 시점의 관측. `decide()` 를 순수 함수로 두기 위한 입력 묶음."""
+
+    cur: Optional[dict] = None
+    #   현재 진단에서 뽑은 상태. `None` = 지금 진단이 없다
+    diag_age: Optional[float] = None
+    #   마지막 진단 수신 후 경과(초). `None` = 한 번도 못 받았다
+    proc_alive: Optional[bool] = None
+    #   대상 프로세스 존재. `None` = 확인하지 못했다(모름을 사망으로 단정하지 않는다)
+    was_down: bool = False
+    #   마지막 관측 이후 **진단 두절을 겪었는가**. 이것이 「재기동으로 제어권을 잃었다」와
+    #   「사람이 내렸다」를 가른다 — 수동 해제는 진단이 끊기지 않으므로 복귀시키지 않는다
+    restarts_in_window: int = 0
+
+
+def boot_id(path: str = BOOT_ID_PATH) -> str:
+    """부팅 식별자. 읽지 못하면 빈 문자열(대조를 포기하되 기록은 계속한다)."""
+    try:
+        with open(path, "r") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def default_state_dir() -> str:
+    """상태 기록 디렉터리. 재부팅 시 사라지는 곳을 우선한다.
+
+    systemd 운용에서는 유닛의 `RuntimeDirectory=can_relay` 가 `/run/can_relay` 를
+    만들어 두므로 그것이 잡힌다. 어디로 떨어지든 `boot_id` 대조가 전원 사이클을
+    걸러내므로 위치 자체가 안전을 결정하지는 않는다.
+    """
+    for cand in (os.environ.get("XDG_RUNTIME_DIR"), "/run"):
+        if not cand:
+            continue
+        d = os.path.join(cand, "can_relay")
+        if os.path.isdir(d) and os.access(d, os.W_OK):
+            return d
+        parent = os.path.dirname(d)
+        if os.path.isdir(parent) and os.access(parent, os.W_OK):
+            return d
+    return os.path.join(tempfile.gettempdir(), "can_relay")
+
+
+def proc_alive(name: str, proc_root: str = PROC_ROOT) -> Optional[bool]:
+    """`/proc/*/comm` 에 그 이름이 있는가. 순회 자체가 실패하면 `None`(모름).
+
+    `comm` 은 15자로 잘리므로 비교도 잘라서 한다 — 안 그러면 긴 실행파일명이 항상 미스가
+    되어 좀비를 사망으로 오판한다.
+    """
+    key = name[:COMM_MAX]
+    try:
+        entries = os.listdir(proc_root)
+    except OSError:
+        return None
+    for e in entries:
+        if not e.isdigit():
+            continue
+        try:
+            with open(os.path.join(proc_root, e, "comm"), "r") as f:
+                if f.read().strip() == key:
+                    return True
+        except OSError:
+            continue        # 순회 중 종료된 프로세스 — 정상
+    return False
+
+
+def _as_bool(text: str) -> bool:
+    return str(text).strip().lower() in ("true", "1", "yes")
+
+
+def _as_float(text: str) -> Optional[float]:
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_diag(values, level: int = 0, message: str = "") -> dict:
+    """진단 KeyValue 목록 → 상태 dict.
+
+    `values` 는 `.key`/`.value` 를 가진 객체들이거나 `(key, value)` 쌍이면 된다 —
+    `diagnostic_msgs` 타입에 의존하지 않으려는 것이다.
+
+    빠진 키는 넣지 않는다. 기본값으로 채우면 「관측하지 못한 것」과 「거짓으로 관측한
+    것」이 구분되지 않고, 그 혼동이 곧 잘못된 복귀가 된다.
+    """
+    kv = {}
+    for v in values or ():
+        if hasattr(v, "key"):
+            kv[str(v.key)] = str(v.value)
+        else:
+            k, val = v
+            kv[str(k)] = str(val)
+    out: dict = {"level": int(level), "message": str(message)}
+    for key in ("engaged", "estop", "home_failed", "homed_effective",
+                "hb_suppressed"):
+        if key in kv:
+            out[key] = _as_bool(kv[key])
+    if "steer_target_deg" in kv:
+        out["steer_target_deg"] = _as_float(kv["steer_target_deg"])
+    if "drive_units" in kv:
+        out["drive_units"] = kv["drive_units"]
+    return out
+
+
+def decide(prev: Optional[dict], obs: Observation,
+           cfg: SupervisorConfig) -> tuple[str, str]:
+    """판정. 반환 `(판정, 사유)`. 사유는 로그·진단에 그대로 실린다.
+
+    순서가 곧 우선순위다 — 진단 유무 → 제어권 보유 → 복귀 자격 → 차단 사유.
+    """
+    if obs.cur is None:
+        if obs.diag_age is None:
+            return WAIT, "진단을 아직 받지 못했다"
+        if obs.diag_age <= cfg.diag_timeout_s:
+            return WAIT, f"진단 {obs.diag_age:.1f}s 경과 (임계 {cfg.diag_timeout_s:.1f}s)"
+        if obs.proc_alive is True:
+            return ZOMBIE, (
+                f"진단 두절 {obs.diag_age:.1f}s 인데 프로세스는 살아 있다 — "
+                f"ROS 계층 정체. 정지는 백엔드 심박 억제가 처리한다")
+        if obs.proc_alive is False:
+            return DEAD, f"진단 두절 {obs.diag_age:.1f}s · 프로세스 없음"
+        return DEAD, f"진단 두절 {obs.diag_age:.1f}s · 프로세스 확인 불가"
+
+    if obs.cur.get("engaged"):
+        return RUNNING, "제어권 보유"
+
+    # 여기부터 engaged=false. 복귀 대상인지 가른다.
+    if not obs.was_down:
+        return IDLE, "제어권 미획득 (두절 없음 — 수동 해제로 본다)"
+    if prev is None or not prev.get("engaged"):
+        return IDLE, "제어권 미획득 (직전 기록도 미획득)"
+    if not cfg.restore_enabled:
+        return HOLD, "복귀 비활성(restore_enabled=false)"
+    if obs.cur.get("estop"):
+        return HOLD, "E-stop 인가 중 — 해제 후 복귀한다"
+    if obs.cur.get("home_failed"):
+        # 재기동이 이 래치를 지운다 — `_home_failed` 는 인스턴스 변수라 새 프로세스는
+        # False 로 시작하고, 드라이브의 bit15 는 실패한 호밍 뒤에도 1 로 남아 있어
+        # `homed_effective()` 가 조향을 열어 준다. 그 위에 제어권까지 자동으로 얹으면
+        # 축이 어디 서 있는지 모르는 채 지령이 나간다(0° 지령 시 ≈136.7° 스윙).
+        # 관측된 래치는 기록에 남으므로, 여기서 복귀를 멈춰 사람이 `~/home` 를 다시
+        # 걸게 한다 — 자동 해제 경로는 두지 않는다.
+        return HOLD, ("직전 호밍이 끝을 못 봤다(조향 잠금) — 재기동이 그 래치를 지우므로 "
+                      "자동 복귀하지 않는다. `~/home` 재수행 후 복귀할 것")
+    if obs.restarts_in_window >= cfg.restart_limit:
+        return HOLD, (f"복귀 시도 {obs.restarts_in_window}회 / "
+                      f"{cfg.restart_window_s:.0f}s — crash-loop 로 보고 멈춘다")
+    return RESTORE, "직전 상태가 제어권 보유였다 — 복귀한다"

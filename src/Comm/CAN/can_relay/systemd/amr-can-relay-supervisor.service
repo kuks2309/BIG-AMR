@@ -1,0 +1,42 @@
+# can_relay 노드 감시자 — 상태 기록과 복귀 지시. **제어 경로 밖이다.**
+#
+# CAN 에 쓰지 않고 판다를 열지 않는다. 따라서 이 유닛이 죽어도 정지 보증에는 영향이
+# 없다(정지는 펌웨어 fail-safe 소관). 그래서 드라이버와 달리 Restart=always 다 —
+# 살아나는 쪽이 순이득이고 잃을 것이 없다.
+#
+# 드라이버 유닛과 **서로 의존하지 않는다.** 감시자가 죽어도 드라이버는 계속 돌고,
+# 드라이버가 죽어도 감시자는 그 사건을 기록해야 하기 때문이다.
+#
+# **본 파일은 템플릿이다.** @REPO@·@USER@·@GROUP@·@DOMAIN@ 은 설치 시점에 치환된다.
+
+[Unit]
+Description=AMR can_relay node supervisor (records state, restores authority)
+Documentation=file://@REPO@/docs/adr/2026-08-15-can-relay-node-health-supervision.md
+After=network.target local-fs.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+Environment=PYTHONUNBUFFERED=1
+Environment=ROS_DOMAIN_ID=@DOMAIN@
+ExecStart=/bin/bash -lc 'source @REPO@/install/setup.bash && exec ros2 launch can_relay relay_supervisor.launch.py'
+
+Restart=always
+RestartSec=2
+
+# /run/can_relay 를 이 계정 소유로 만든다. tmpfs 이므로 재부팅 시 상태 기록이 사라지고,
+# 그것이 의도다 — 조향 홈은 전원 사이클마다 무효라 이전 부팅의 「engaged 였다」로
+# 복귀하면 안 된다.
+RuntimeDirectory=can_relay
+RuntimeDirectoryMode=0755
+# ⚠ 이 줄이 없으면 감시자가 재기동될 때마다 systemd 가 디렉터리를 지운다 —
+#   기록이 사라져 복귀 기능 자체가 무력화된다.
+RuntimeDirectoryPreserve=restart
+
+# 관측자가 대상과 자원을 다투지 않게 한다.
+Nice=5
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -117,6 +117,14 @@ class RelayConfig:
     #   상태에서 심박만 유지하면 정지 수단이 사라진다.
     #   ⚠ 세는 대상은 **송신 실패뿐**이다. 수신·진단 쪽 예외까지 세면 읽기 경로의
     #   일시 오류가 로봇을 세우면서 원인은 "송신 실패"로 잘못 표시된다.
+    ros_alive_timeout_s: float = 2.0
+    #   ROS 계층 생존 표시(`mark_ros_alive`)가 이보다 낡으면 심박을 끊는다.
+    #   제어 스레드와 ROS 실행기는 별도 스레드라, 실행기만 정체하면 이 스레드는 계속
+    #   돌며 심박을 낸다 — 지령을 못 받고 정지·취소도 도달하지 못하는데 펌웨어는
+    #   정상으로 본다. 그 구간을 `tx_fail_halt` 와 같은 수단으로 닫는다.
+    #   0 이면 판정하지 않는다(도입 전 동작).
+    #   ⚠ `diag_hz` 와 결합한다 — 표시를 찍는 쪽이 진단 타이머이므로 그 주기보다
+    #     넉넉해야 한다. 검증은 `CanRelayNode.__init__`.
 
 
 class RelayBackend:
@@ -163,6 +171,11 @@ class RelayBackend:
         self._tx_fail_streak = 0        # 연속 **송신** 실패 횟수 (심박 중단 판단용)
         self._loop_fail_streak = 0      # 송신 외 루프 예외(수신·파싱 등) 연속 횟수
         self._hb_suppressed = False     # 심박을 의도적으로 끊은 상태인가
+        self._hb_block_note = ""        # 심박을 끊은 사유(진단 노출용)
+        self._ros_alive_ts = 0.0        # ROS 계층이 마지막으로 생존을 찍은 시각
+        #   락을 걸지 않는다 — float 단일 대입/읽기라 GIL 아래에서 찢어지지 않고,
+        #   같은 이유로 위 카운터들도 락 밖이다. 락을 걸면 제어 스레드가 ROS
+        #   콜백을 기다리게 되어 정지 경로가 ROS 정체에 묶인다(막으려는 그 상황).
 
     # ── 수명주기 ──────────────────────────────────────────────────────
     def start(self):
@@ -172,6 +185,10 @@ class RelayBackend:
             raise RuntimeError("제어권을 먼저 획득해야 한다")
         if self.cfg.allow_bringup:
             self._write_bringup()
+        # ROS 생존 표시를 여기서 한 번 찍는다 — `start()` 는 ROS 콜백(`~/engage`)에서만
+        # 불리므로 이 시점의 ROS 계층은 살아 있다. 찍지 않으면 첫 진단 타이머가 돌기
+        # 전에 표시가 낡은 것으로 읽혀 기동 직후 심박이 끊긴다.
+        self._ros_alive_ts = time.monotonic()
         self._running = True
         self._thread = threading.Thread(target=self._loop, name="can_relay",
                                         daemon=True)
@@ -197,6 +214,37 @@ class RelayBackend:
             self._thread.join(timeout=1.5)
             self._thread = None
         self._log("백엔드 종료")
+
+    # ── 생존 표시 ─────────────────────────────────────────────────────
+    def mark_ros_alive(self):
+        """ROS 계층이 살아 있음을 찍는다 — **제어 스레드가 아니라 ROS 실행기가 부른다.**
+
+        심박은 제어 스레드가 내므로, 그것만으로는 「ROS 실행기가 도는가」를 알 수 없다.
+        실행기가 정체하면 지령도 정지 요청도 도달하지 못하는데 심박은 계속 나가
+        펌웨어가 정상으로 본다. 이 표시가 그 구간을 드러내는 유일한 신호다.
+        """
+        self._ros_alive_ts = time.monotonic()
+
+    def ros_alive_age(self, now: Optional[float] = None) -> Optional[float]:
+        """생존 표시가 몇 초 낡았는가. 한 번도 찍히지 않았으면 `None`."""
+        if self._ros_alive_ts <= 0.0:
+            return None
+        return (time.monotonic() if now is None else now) - self._ros_alive_ts
+
+    def _hb_block_reason(self, now: float) -> Optional[str]:
+        """심박을 끊어야 하는 사유. 끊을 이유가 없으면 `None`.
+
+        판정을 한 곳에 모은다 — 사유마다 흩어 놓으면 「어느 조건이 로봇을 세웠는지」가
+        로그에서 갈리지 않는다. 두 사유 모두 결론은 같다: **펌웨어에 정지를 넘긴다.**
+        """
+        if self._tx_fail_streak >= self.cfg.tx_fail_halt:
+            return (f"송신 연속 실패 {self._tx_fail_streak}회")
+        ttl = float(self.cfg.ros_alive_timeout_s)
+        if ttl > 0.0:
+            age = self.ros_alive_age(now)
+            if age is not None and age > ttl:
+                return f"ROS 계층 정체 {age:.1f}s (임계 {ttl:.1f}s)"
+        return None
 
     # ── 지령 ──────────────────────────────────────────────────────────
     def set_drive_mmps(self, mmps: float, sign: int = 1):
@@ -778,6 +826,8 @@ class RelayBackend:
                 "tx_fail_streak": self._tx_fail_streak,
                 "loop_fail_streak": self._loop_fail_streak,
                 "hb_suppressed": self._hb_suppressed,
+                "hb_block_note": self._hb_block_note,
+                "ros_alive_age": self.ros_alive_age(now),
                 "nodes": nodes,
                 "bus_health": dict(self._bus_health),
                 "health_supported": self._health_supported,
@@ -902,14 +952,17 @@ class RelayBackend:
                 #   송신이 죽었는데 심박만 계속 뛰면 fail-safe 가 무장 해제된 채
                 #   드라이브가 마지막 지령을 물고 간다.
                 if now >= next_hb:
-                    if self._tx_fail_streak >= self.cfg.tx_fail_halt:
+                    block = self._hb_block_reason(now)
+                    if block is not None:
                         if not self._hb_suppressed:
                             self._hb_suppressed = True
-                            self._log(f"⚠ 송신 연속 실패 {self._tx_fail_streak}회 — "
-                                      f"심박 중단. 펌웨어 fail-safe 에 정지를 넘긴다")
+                            self._hb_block_note = block
+                            self._log(f"⚠ {block} — 심박 중단. "
+                                      f"펌웨어 fail-safe 에 정지를 넘긴다")
                     else:
                         self.link.heartbeat()
                         self._hb_suppressed = False
+                        self._hb_block_note = ""
                     next_hb = now + HEARTBEAT_PERIOD_S
 
                 # 워치독 — 유효 지령이 끊기면 속도 0 으로 수렴한다.
