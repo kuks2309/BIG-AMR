@@ -28,6 +28,7 @@ setup(
     entry_points={
         "console_scripts": [
             "can_relay_node = can_relay.driver_node:main",
+            "home_and_zero = can_relay.home_and_zero:main",
             "can_relay_gui = can_relay.ui.gui_node:main",
         ],
     },
