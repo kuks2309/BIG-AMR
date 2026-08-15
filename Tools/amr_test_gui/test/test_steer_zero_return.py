@@ -1,16 +1,17 @@
-"""호밍 완료 후 **조향 0° 복귀** 회귀 (`gui.py`).
+"""`gui.py` 의 호밍 후 조향 0° 복귀 회귀.
 
-고정하는 계약(ADR `docs/adr/2026-08-08-steer-zero-return-after-homing.md`):
+고정하는 계약:
 
-  ① 호밍 원점 신호(bit15 0→1) 뒤에 **0° 지령이 실제로 나간다** — `0x607A = STEER_HOME` + `0x6040=0x3F`.
-     종전에는 이 경로가 0° 지령을 **한 번도 내지 않고** "조향 0° 복귀까지 확인하세요"라고
-     육안에 위임했다. 그 문장이 사실이 아니었던 것이 이 작업의 출발점이다.
-  ② **펌웨어 GOZERO 정착값(`7882020` / `7859062`)에 서 있는 것은 0° 도달이 아니다**
-     — 0° 대비 +0.178° / +0.331°.
-  ③ 0° 미도달이면 완료로 적지 않는다.
-  ④ 판정 허용오차는 `STEER_ZERO_TOL_DEG` 이고, 사용자 정착 허용치(0.5~10°)가 **아니다.**
+  ① 호밍 완료(상태워드 bit15 0→1) 뒤에 0° 지령이 나간다 — `0x607A = STEER_HOME` + `0x6040=0x3F`.
+  ② 0° 지령은 호밍 트리거(`0x60FB:04`)보다 뒤에 나간다.
+  ③ `SETTLE_COUNTS` 자리에 서 있는 것은 0° 도달이 아니며, 미도달을 완료로 적지 않는다.
+  ④ 도달 판정 허용치는 `STEER_ZERO_TOL_DEG` 다.
+  ⑤ 실측이 없으면 도달로 치지 않는다. 호밍 게이트가 올라간 동안에는 실측이 갱신되지
+     않으므로, 0° 복귀에 들어가는 시점에는 그 게이트가 내려가 있어야 한다.
+  ⑥ 조그 정지 래치(`_jog_stop`)는 0° 복귀 판정을 삼키지 않는다. 조그 경로는 그대로 본다.
+  ⑦ 조향 목표는 상태로 남아 폴 루프가 재송신하고, 정지는 그 재송신을 그친다.
 
-⚠ 실기 미검증 — `_sdo_write` 를 가로챈 하드웨어 없는 시험이다.
+`_sdo_write` 를 가로채므로 하드웨어 없이 돈다.
 """
 from __future__ import annotations
 
@@ -29,8 +30,9 @@ import gui  # noqa: E402
 
 BIT15 = 1 << 15
 STEER = (3, 4)
-# 펌웨어 GOZERO 목표(`safety_seer_gate.h:212-213`) = 호밍 후 정착값. **0° 가 아니다.**
-GOZERO = {3: 7882020, 4: 7859062}
+# 호밍 완료 위치가 조향 0° 가 아님을 나타내는 축별 counts. 이 자리에 서 있는 것을
+# 도달로 인정하지 않는다는 것이 아래 시험이 고정하는 계약이다.
+SETTLE_COUNTS = {3: 7882020, 4: 7859062}
 
 
 @pytest.fixture(scope="module")
@@ -121,30 +123,29 @@ def test_zero_command_comes_after_the_homing_trigger(win, sent):
     assert last_trigger < first_zero
 
 
-# ── ② GOZERO 정착값은 0° 가 아니다 ───────────────────────────────────────
+# ── ② 정착 위치는 0° 가 아니다 ─────────────────────────────────────────
 @pytest.mark.parametrize("node,expected", [(3, 0.178), (4, 0.331)])
-def test_gozero_settle_value_is_not_zero(node, expected):
+def test_settle_position_is_not_zero(node, expected):
     """편차가 0 이면 이 작업 자체가 불필요하다 — 전제를 숫자로 고정한다."""
-    off = (GOZERO[node] - gui.STEER_HOME[node]) / gui.COUNTS_PER_DEG
+    off = (SETTLE_COUNTS[node] - gui.STEER_HOME[node]) / gui.COUNTS_PER_DEG
     assert off == pytest.approx(expected, abs=0.001)
 
 
-def test_axis_left_at_gozero_is_not_reported_complete(win, sent):
+def test_axis_left_at_settle_position_is_not_reported_complete(win, sent):
     """정착값에 남아 있으면 0° 도달이 아니다 — 완료로 적지 않는다."""
     logs = []
     win.log_line.connect(logs.append)
-    run_homing(win, at=GOZERO)
+    run_homing(win, at=SETTLE_COUNTS)
     assert any("호밍 미확인" in m and "0° 복귀 미확인" in m for m in logs), logs
     assert not any("호밍 완료" in m for m in logs), logs
 
 
 def test_user_settle_tolerance_would_have_accepted_the_offset(win):
-    """왜 사용자 정착 허용치를 쓰지 않는가 — 그 폭이면 위 편차가 통과한다.
+    """정착 편차는 사용자 정착 허용치(슬라이더 최소 0.5°) 안이고 전용 허용치 밖이다.
 
-    허용오차를 슬라이더 값(최소 0.5°)으로 되돌리면
-    `test_axis_left_at_gozero_is_not_reported_complete` 가 깨진다. 그 이유가 이것이다.
+    판정이 전용 허용치에만 달려 있음을 숫자로 고정한다.
     """
-    worst = max(abs(GOZERO[n] - gui.STEER_HOME[n]) / gui.COUNTS_PER_DEG for n in STEER)
+    worst = max(abs(SETTLE_COUNTS[n] - gui.STEER_HOME[n]) / gui.COUNTS_PER_DEG for n in STEER)
     assert worst < 0.5                        # 슬라이더 최소값 안 → 검출 불가
     assert worst > win.STEER_ZERO_TOL_DEG     # 전용 허용오차 밖 → 검출 가능
 

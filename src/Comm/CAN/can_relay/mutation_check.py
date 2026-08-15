@@ -3,7 +3,7 @@
 
 `pytest` 가 통과한다는 사실은 「고정했다」의 증거가 아니다. 회귀가 대상 코드를 지나가지
 않으면 고쳐도 통과하고 되돌려도 통과한다. 그래서 각 항목을 수정 전 상태로 되돌린 사본을
-만들어 시험을 돌리고, **되돌렸는데도 통과하면 미검출**로 `exit 1` 한다.
+만들어 시험을 돌리고, **그 사본에서도 통과하면 미검출**로 `exit 1` 한다.
 
 ⚠ 「안 돈 것」을 「검출」로 세지 않는다 — 실패가 1건 이상 보고된 경우에만 검출로 인정하고,
 0건 실행·전량 skip 은 `검사 불가`(실패로 집계)다. 환경은 부모에게서 그대로 물려받는다.
@@ -26,13 +26,12 @@ T_HZ = "test/test_home_and_zero.py"
 MUTATIONS = [
     ("Z1", "호밍 실패에도 0° 를 보낸다 — 가드 제거(이 도구가 지키는 핵심)", [
         ('        if not ok:\n'
-         '            # ⚠ 여기서 멈추는 것이 이 스크립트의 전부다. 드라이버는 막아주지 않는다.\n'
          '            self.c.log(f"호밍 실패 — 조향 0° 지령을 보내지 않습니다: {why}")\n'
          '            return EXIT_HOME_FAILED\n',
          '        if False:\n'
          '            self.c.log("")\n'
          '            return EXIT_HOME_FAILED\n')], HZ, T_HZ),
-    ("Z2", "도달 허용오차를 느슨하게 — GOZERO 정착 편차가 0° 로 통과", [
+    ("Z2", "도달 허용오차를 느슨하게 — 정착 편차가 0° 도달로 통과", [
         ("    def __init__(self, client, tol_deg: float = 0.1, timeout_s: float = 10.0,",
          "    def __init__(self, client, tol_deg: float = 3.0, timeout_s: float = 10.0,")],
      HZ, T_HZ),

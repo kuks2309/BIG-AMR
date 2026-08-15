@@ -1,21 +1,12 @@
 #!/usr/bin/env python3
-"""호밍 → 조향 0° 복귀를 순서대로 수행하는 운용 스크립트.
+"""호밍과 조향 0° 복귀를 순서대로 수행하는 운용 클라이언트.
 
-드라이버는 두 기능을 **따로** 노출한다 — `~/home`(호밍)과 `~/steer_deg`(조향 절대각).
-호밍만으로는 축이 0° 에 서지 않는다: 펌웨어 시퀀서의 `GOZERO` 목표
-(`safety_seer_gate.h` `SEER_HOME_ZERO_N3/N4` = 7882020 / 7859062)는 **호밍 후 정착값**이고
-실측 0°(`steer_home_counts` = [7871815, 7840086])에서 **+0.178° / +0.331°** 떨어져 있다.
-펌웨어 도달 허용오차가 1.0° 라 펌웨어는 그 편차를 검출하지 못한다.
+`~/home`(`std_srvs/Trigger`) 을 호출하고, **성공한 응답을 받은 경우에만** `~/steer_deg`
+(`std_msgs/Float64`) 에 0.0 을 발행한 뒤 `joint_states` 로 두 조향축이 `tol_deg` 안에
+들어오는지 확인한다. 호밍이 실패하면 0° 를 발행하지 않고 끝낸다.
 
-그래서 둘을 이어서 쓴다. **이 스크립트가 존재하는 이유는 순서가 아니라 가드다.**
-
-⚠ 드라이버는 호밍 실패를 조향 게이트로 막지 않는다.
-  `RelayBackend.homed_effective()` 는 드라이브가 보고한 `0x6041` bit15 만으로도 True 를
-  돌려준다. 따라서 호밍이 실패해도(`ERR_GOZERO` 등) `~/steer_deg` 는 **수리된다** —
-  호밍이 `ERR_GOZERO` 로 끝나도 두 조향축 statusword 는 `0x9450`(bit15=1) 이고,
-  복귀하지 못한 축은 `0x6064` 가 0 을 읽어 각도를 알 수 없다. 그 상태에서 절대위치
-  지령이 나가면 축이 어디로 갈지 아무도 모른다.
-  ⇒ **`~/home` 응답 success 가 False 면 0° 를 보내지 않는다.** 그것이 이 파일의 요지다.
+0° 지령이 따로 필요한 이유: 호밍 완료는 **원점(리밋) 검출**을 뜻할 뿐 그 위치가 조향 0° 는
+아니다. 0° 는 기체 캘리브레이션(`steer_home_counts`)이 정의하는 자리다.
 
 사용:
     ros2 run can_relay home_and_zero
@@ -30,17 +21,18 @@ EXIT_OK, EXIT_HOME_FAILED, EXIT_ZERO_UNREACHED, EXIT_NO_SERVICE = 0, 2, 3, 4
 
 
 class ZeroReturnGuard:
-    """호밍 → 0° 복귀 절차의 판정 로직. **ROS 에 의존하지 않는다.**
+    """호밍 → 0° 복귀 절차의 판정 로직. ROS 를 import 하지 않는다.
 
-    전송은 `client` 에 위임한다 — 그래야 「호밍 실패 시 0° 를 보내지 않는다」를
-    하드웨어·ROS 없이 회귀로 고정할 수 있다. `client` 가 갖춰야 할 것:
+    입출력은 `client` 에 위임한다. `client` 가 갖춰야 할 것:
 
-      · `call_home() -> (bool, str)`        — `~/home` 호출 결과
-      · `send_steer_zero() -> None`         — `~/steer_deg` 에 0.0 발행
-      · `steer_angles_deg() -> dict`        — {node: deg 또는 None}, joint_states 유래
+      · `call_home() -> (bool, str)`        — 호밍 수행 결과와 사유
+      · `send_steer_zero() -> None`         — 조향 0° 지령 1회 발행
+      · `steer_angles_deg() -> dict`        — {node: 각도(도) 또는 None}. None 은 실측 없음
       · `sleep(seconds) -> None`
-      · `elapsed() -> float`                — 절차 시작 이후 경과 초
+      · `elapsed() -> float`                — 0° 지령 이후 경과(초)
       · `log(msg) -> None`
+
+    `tol_deg`(도)·`timeout_s`(초) 기본값은 **선택값이며 실측 근거가 없다.**
     """
 
     def __init__(self, client, tol_deg: float = 0.1, timeout_s: float = 10.0,
@@ -51,10 +43,13 @@ class ZeroReturnGuard:
         self.nodes = tuple(nodes)
 
     def run(self) -> int:
-        """절차 전체. 반환은 종료코드."""
+        """호밍 → 0° 지령 → 도달 확인. 반환은 모듈 상단의 종료코드.
+
+        호밍이 실패하면 0° 를 발행하지 않는다 — 실패한 호밍 뒤의 축 위치는 알 수 없고,
+        `~/steer_deg` 는 **절대각** 지령이라 현재 위치를 모른 채 보내면 이동량도 모른다.
+        """
         ok, why = self.c.call_home()
         if not ok:
-            # ⚠ 여기서 멈추는 것이 이 스크립트의 전부다. 드라이버는 막아주지 않는다.
             self.c.log(f"호밍 실패 — 조향 0° 지령을 보내지 않습니다: {why}")
             return EXIT_HOME_FAILED
         self.c.log(f"호밍 성공 — {why}. 조향 0° 복귀 지령을 보냅니다")
@@ -62,10 +57,10 @@ class ZeroReturnGuard:
         return self._await_zero()
 
     def _await_zero(self) -> int:
-        """두 조향축이 `tol_deg` 안에 들어올 때까지 기다린다.
+        """두 조향축이 0° ±`tol_deg` 안에 들어올 때까지 기다린다.
 
-        **실측이 없는 축은 도달로 치지 않는다** — 모르는 것을 도달로 적으면
-        그 다음 구동이 열린다.
+        도달로 인정하는 조건은 **모든 조향축의 실측이 있고 전부 허용치 안**이다.
+        실측이 없는 축(`None`)은 도달로 치지 않는다.
         """
         while True:
             angles = self.c.steer_angles_deg()

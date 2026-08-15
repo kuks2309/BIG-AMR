@@ -15,7 +15,7 @@
 ## 무엇을 하는가
 
 `gui.py` 를 한 번에 하나씩 **수정 전 상태로 되돌린 사본**을 만들고 전체 시험을 돌린다.
-되돌렸는데도 통과하면(미검출) 그 항목의 회귀는 검출력이 없다 — `exit 1`.
+그 사본에서도 통과하면(미검출) 그 항목의 회귀는 검출력이 없다 — `exit 1`.
 
 ⚠ 상수(`MEAS_TTL_S`·`RX_TTL_S`)를 지렛대로 쓰면 안 된다. 시험이 그 상수를 monkeypatch 하므로
    기본값을 바꿔도 무력하다. **로직 자체**를 되돌려야 한다(H1·H3b 항목 참조).
@@ -70,20 +70,52 @@ MUTATIONS = [
         ("self._can_lock = threading.RLock()", "self._can_lock = threading.Lock()")]),
     ("L2", "`_sdo_write` 의 판다 미연결 가드 제거", [
         ('            raise RuntimeError("판다 미연결 — USB 를 먼저 연결하세요")', "            pass")]),
+    ("Z1", "호밍 뒤 0° 복귀 호출 제거", [
+        ("            zok, zwhy = self._steer_zero_return()",
+         "            zok, zwhy = (True, '원점 신호 확인.')")]),
+    ("Z2", "0° 지령을 빼고 대기만 함", [
+        ("        self._steer_to(0.0)\n        if self._wait_settle(",
+         "        if self._wait_settle(")]),
+    ("Z3", "0° 도달 판정 허용치를 사용자 정착 허용치 수준으로 넓힘", [
+        ("    STEER_ZERO_TOL_DEG = 0.1", "    STEER_ZERO_TOL_DEG = 3.0")]),
+    ("Z4", "0° 미도달을 완료로 적음", [
+        ('            self.log_line.emit(f"호밍 완료 — {zwhy}" if zok else f"호밍 미확인 — {zwhy}")',
+         '            self.log_line.emit(f"호밍 완료 — {zwhy}")')]),
+    ("Z5", "0° 복귀 전에 호밍 게이트를 내리지 않음 — 실측이 갱신되지 않는다", [
+        ("            self._homing = False\n            zok, zwhy = self._steer_zero_return()",
+         "            zok, zwhy = self._steer_zero_return()")]),
     ("L3", "로그 위젯 쓰기 경로를 하나 더 만듦 — 단일 기록자 붕괴", [
         ("    def log(self, msg: str):",
          "    def log(self, msg: str):\n        self.txt_log.appendPlainText(msg)")]),
 ]
 
 
+def _failing_tests() -> set:
+    """현재 트리에서 실패하는 시험 이름 집합. 종료코드가 아니라 이름으로 판정한다."""
+    run = subprocess.run(
+        [sys.executable, "-m", "pytest", "test", "-q", "-p", "no:cacheprovider",
+         "--no-header", "--tb=no"],
+        cwd=HERE, capture_output=True, text=True, timeout=900)
+    return {ln.split("::")[-1].split()[0]
+            for ln in run.stdout.splitlines() if ln.startswith("FAILED")}
+
+
 def main(argv: list[str]) -> int:
     want = {a.upper() for a in argv[1:]}
     pristine = GUI.read_text(encoding="utf-8")
+    selected = [m for m in MUTATIONS if not want or m[0].upper() in want]
+    if not selected:
+        print(f"❗ 검사 불가 — 선택된 항목이 없다(지정: {', '.join(sorted(want)) or '전체'}). "
+              f"등록된 id: {', '.join(m[0] for m in MUTATIONS)}")
+        return 1
+    # 원본 상태에서 이미 실패하는 시험은 검출 근거가 못 된다 — 그 집합을 먼저 잰다.
+    baseline = _failing_tests()
+    if baseline:
+        print(f"⚠ 기준선 실패 {len(baseline)}건 — 이 시험들은 검출 판정에서 제외한다: "
+              f"{', '.join(sorted(baseline)[:5])}{' …' if len(baseline) > 5 else ''}")
     rows, misses, skipped = [], [], []
     try:
-        for mid, what, subs in MUTATIONS:
-            if want and mid.upper() not in want:
-                continue
+        for mid, what, subs in selected:
             src = pristine
             anchor_ok = True
             for old, new in subs:
@@ -96,18 +128,14 @@ def main(argv: list[str]) -> int:
                 rows.append((mid, what, "‼ 앵커 불일치", "코드가 바뀌었다 — 돌연변이를 갱신하라"))
                 continue
             GUI.write_text(src, encoding="utf-8")
-            run = subprocess.run(
-                [sys.executable, "-m", "pytest", "test", "-q", "-p", "no:cacheprovider",
-                 "--no-header", "--tb=no"],
-                cwd=HERE, capture_output=True, text=True, timeout=900)
-            caught = [ln.split("::")[-1].split()[0]
-                      for ln in run.stdout.splitlines() if ln.startswith("FAILED")]
-            if run.returncode:
-                rows.append((mid, what, "✅ 검출", ", ".join(caught[:3])))
+            caught = _failing_tests()
+            GUI.write_text(pristine, encoding="utf-8")
+            new = sorted(caught - baseline)
+            if new:
+                rows.append((mid, what, "✅ 검출", ", ".join(new[:3])))
             else:
                 misses.append(mid)
                 rows.append((mid, what, "❌ 미검출", "이 수정을 고정하는 회귀가 없다"))
-            GUI.write_text(pristine, encoding="utf-8")
     finally:
         GUI.write_text(pristine, encoding="utf-8")     # 어떤 경로로 끝나도 원본 복원
 
