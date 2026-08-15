@@ -389,6 +389,13 @@ class CanRelayNode(Node):
             "`~/home_cancel` 로 가능합니다(펌웨어 시퀀서가 취소 프레임을 냅니다). "
             "그래도 이동구역이 비어 있는지 먼저 확인하세요.")
         ok, why = self.backend.home(speed=int(self._g["homing_speed"]))
+        # rclpy 는 로그 컨텍스트를 호출 지점(파일·함수·줄)으로 캐시하고 severity 변경을
+        # 거부한다 — 한 줄에서 info/error 를 번갈아 부르면 두 번째가 ValueError 다.
+        msg = f"호밍 결과 — {'성공' if ok else '실패'}: {why}"
+        if ok:
+            self.get_logger().info(msg)
+        else:
+            self.get_logger().error(msg)
         res.success = ok
         res.message = why
         return res
