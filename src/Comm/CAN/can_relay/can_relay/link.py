@@ -20,8 +20,13 @@
 보낸다. 그 상태에서는 펌웨어 fail-safe 블록 전체가 막혀 **동작하지 않는다** — PC 가 죽어도
 릴레이가 intercept 로 남고 모터가 방치된다.
 
-`0xf3` 을 보내면 검사가 되살아난다. 그 뒤로는 1.0~2.0 s 안에 다음 심박이 반드시 도착해야
-하며, 늦으면 펌웨어가 구동 0 → 릴레이 개방 → 재engage 래치를 건다(해제는 `0xe9` 재전송뿐).
+`0xf3` 을 보내면 검사가 되살아난다. 그 뒤로 심박이 끊기면 펌웨어가 구동 0 → 릴레이 개방 →
+재engage 래치를 건다(해제는 `0xe9` 재전송뿐).
+
+⚠ **임계는 점화 상태로 갈린다** — 펌웨어는 1 Hz 틱에서 `heartbeat_counter` 를 점화 on 이면
+5, off 면 2 와 비교한다(`main.c` `HEARTBEAT_IGNITION_CNT_ON/OFF`). 즉 **off 1~2 s ·
+on 4~5 s** 다. 아래 `HEARTBEAT_PERIOD_S`(0.2 s)는 둘 중 짧은 쪽에 대해서도 여유를 둔 값이다.
+
 따라서 이 모듈은 heartbeat 를 켜고 유지하는 쪽을 택하며, 유지 실패는 숨기지 않고 올린다.
 
 heartbeat 는 **송수신과 같은 스레드에서 인터리브**한다 — 별도 스레드에서 보내면 폴링과
@@ -48,7 +53,7 @@ REQ_AUTHORITY = 0xE9    # wValue: 0=Seer 주도 · 1=PC 주도(재engage 래치�
 REQ_INTERCEPT = 0xE8    # wValue: 0=passthrough · 1=intercept(+300 ms 전환 커버)
 REQ_HEARTBEAT = 0xF3    # 보내면 fail-safe 검사가 되살아난다
 
-HEARTBEAT_PERIOD_S = 0.2    # 펌웨어 임계 1.0~2.0 s 대비 5~10배 여유
+HEARTBEAT_PERIOD_S = 0.2    # 펌웨어 임계(점화 off 1~2 s)의 5~10배 여유
 HEARTBEAT_DEADLINE_S = 0.8  # 이 이상 못 보내면 fail-safe 가 임박한 것으로 본다
 
 # ── per-bus CAN 에러 상태 (0xc3) ───────────────────────────────────────────
@@ -169,6 +174,19 @@ def _panda_module():
         except Exception as exc:                       # pragma: no cover - 환경 의존
             errors.append(f"{root}/{modname}: {type(exc).__name__}: {exc}")
     raise LinkError("panda 라이브러리를 찾지 못했다 — " + " / ".join(errors))
+
+
+def panda_library_error() -> Optional[str]:
+    """판다 파이썬 라이브러리를 지금 import 할 수 있는가. 문제 없으면 `None`, 있으면 사유.
+
+    USB 는 열지 않는다 — 기동 시점 점검용이다. 이 라이브러리는 git 미추적이라 새
+    worktree·클론에 딸려오지 않는데, 그 부재는 첫 `~/engage` 에서야 드러난다.
+    """
+    try:
+        _panda_module()
+        return None
+    except LinkError as exc:
+        return str(exc)
 
 
 class LinkError(RuntimeError):

@@ -66,6 +66,23 @@ warn_if_no_overlay() {
   fi
 }
 
+# 판다 파이썬 라이브러리는 **git 미추적**이라 새 클론·worktree 에는 없다.
+# 없으면 노드는 뜨지만 `~/engage` 가 LinkError 로 거부되어 제어권을 잡지 못한다 —
+# 상주 서비스로 설치해 놓고 첫 호출에서야 알게 되는 것을 막는다.
+warn_if_no_panda_lib() {
+  local found=""
+  for p in "${REPO}/Tools/docking_field_kit/panda" \
+           "${REPO}/Tools/Can_Relay/panda-firmware/python"; do
+    [ -d "$p" ] && found="$p" && break
+  done
+  if [ -z "${found}" ]; then
+    echo "⚠ 판다 파이썬 라이브러리가 없다 — 설치해도 제어권을 잡지 못한다."
+    echo "  찾은 경로: ${REPO}/Tools/docking_field_kit/panda (또는 panda-firmware/python)"
+    echo "  이 라이브러리는 git 미추적이라 새 클론·worktree 에는 딸려오지 않는다."
+    echo "  다른 트리에서 복사하거나 심볼릭 링크할 것."
+  fi
+}
+
 # 같은 드라이브에 배타적인 안전 모델 둘이 붙는 것을 막는다(debt-018).
 # can_relay=Seer 공존·판다 경유 / motor_control=Seer 분리·socketcan 직결.
 warn_if_conflicting_driver() {
@@ -78,6 +95,7 @@ warn_if_conflicting_driver() {
 case "${MODE}" in
   --apply)
     warn_if_no_overlay
+    warn_if_no_panda_lib
     warn_if_conflicting_driver
     for u in $(units_for_target "${TARGET}"); do
       echo "설치: ${u}"
@@ -120,6 +138,7 @@ case "${MODE}" in
     echo "  ROS 도메인 : ${ROS_DOMAIN}"
     echo "  유닛      : ${DRIVER_UNIT} · ${SUPERVISOR_UNIT}"
     warn_if_no_overlay
+    warn_if_no_panda_lib
     echo
     echo "설치하려면: $0 --apply [driver|supervisor|both]"
     ;;

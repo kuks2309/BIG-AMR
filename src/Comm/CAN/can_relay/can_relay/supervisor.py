@@ -45,7 +45,9 @@ from std_srvs.srv import SetBool
 
 from .health import (DEAD, HOLD, IDLE, RESTORE, RUNNING, WAIT, ZOMBIE,
                      Observation, SupervisorConfig, boot_id, decide,
-                     default_state_dir, parse_diag, proc_alive)
+                     default_state_dir, is_outage, next_prev, next_was_down,
+                     parse_diag, proc_alive, prune_stamps,
+                     restore_call_expired)
 
 
 class RelaySupervisor(Node):
@@ -64,6 +66,9 @@ class RelaySupervisor(Node):
             ("restore_enabled", True),
             ("restart_limit", 3),
             ("restart_window_s", 120.0),
+            ("zombie_after_s", 45.0),
+            ("restore_call_timeout_s", 10.0),
+            ("restore_settle_s", 3.0),
         ])
         g = {d.name: d.value for d in p}
 
@@ -72,6 +77,9 @@ class RelaySupervisor(Node):
             restore_enabled=bool(g["restore_enabled"]),
             restart_limit=int(g["restart_limit"]),
             restart_window_s=float(g["restart_window_s"]),
+            zombie_after_s=float(g["zombie_after_s"]),
+            restore_call_timeout_s=float(g["restore_call_timeout_s"]),
+            restore_settle_s=float(g["restore_settle_s"]),
         )
         self._target = str(g["target_node"])
         self._prefix = str(g["diag_name_prefix"])
@@ -94,6 +102,9 @@ class RelaySupervisor(Node):
             (self._prev or {}).get("restore_stamps") or [])
         self._verdict = WAIT
         self._pending = None            # 진행 중인 engage 호출 future
+        self._pending_since = None      # 그 호출을 보낸 시각(monotonic)
+        self._cur_seen_since = None     # 두절 후 진단이 다시 흐르기 시작한 시각(monotonic)
+        self._last_saved = None         # 마지막으로 기록한 내용의 지문(내용 불변 시 재기록 생략)
 
         self.sub_diag = self.create_subscription(
             DiagnosticArray, "/diagnostics", self._on_diag, 10)
@@ -139,56 +150,58 @@ class RelaySupervisor(Node):
         stale = age is not None and age > self.cfg.diag_timeout_s
         if age is None or stale:
             self._cur = None
+        # 안정화 시계 — 진단이 흐르는 동안만 간다. 끊기면(또는 복귀 직후 폐기되면) 리셋.
+        if self._cur is None:
+            self._cur_seen_since = None
+        elif self._cur_seen_since is None:
+            self._cur_seen_since = now
 
+        # 상태 갱신(잘라내기)은 여기서 명시적으로 — 조회가 상태를 바꾸지 않게 한다.
+        self._restore_stamps = prune_stamps(self._restore_stamps, time.time(),
+                                            self.cfg.restart_window_s)
         obs = Observation(
             cur=self._cur,
             diag_age=age,
             # 프로세스 순회는 두절일 때만 한다 — 정상 구간에서 /proc 을 매 틱 훑을 이유가 없다.
             proc_alive=proc_alive(self._target) if stale else None,
             was_down=self._was_down,
-            restarts_in_window=self._restarts_in_window(),
+            restarts_in_window=len(self._restore_stamps),
+            cur_settle_s=(None if self._cur_seen_since is None
+                          else now - self._cur_seen_since),
         )
         verdict, why = decide(self._prev, obs, self.cfg)
 
         if verdict != self._verdict:
-            # rclpy 는 로그 컨텍스트를 **호출 지점(파일·함수·줄)** 으로 캐시하고 severity
-            # 변경을 거부한다(`rcutils_logger.py` `Logger severity cannot be changed
-            # between calls.`). 한 줄에서 warn/info 를 번갈아 부르면 두 번째 호출이
-            # `ValueError` 를 낸다 — 그래서 줄을 나눈다.
-            msg = f"{self._verdict} → {verdict} — {why}"
+            # ⚠ rclpy 로거는 **호출 지점(파일:줄)마다 severity 를 고정**한다 — 한 줄에서
+            #   warn/info 를 골라 부르면 두 번째 호출이
+            #   `ValueError: Logger severity cannot be changed between calls` 로 죽는다.
+            #   그래서 분기마다 별도 호출 지점을 둔다.
+            line = f"{self._verdict} → {verdict} — {why}"
             if verdict in (DEAD, ZOMBIE, HOLD):
-                self.get_logger().warn(msg)
+                self.get_logger().warn(line)
             else:
-                self.get_logger().info(msg)
+                self.get_logger().info(line)
             self._verdict = verdict
 
-        if verdict in (DEAD, ZOMBIE):
-            self._was_down = True
-        elif verdict == RUNNING:
-            self._was_down = False
+        self._was_down = next_was_down(self._was_down, verdict,
+                                       is_outage(obs, self.cfg))
 
         if self._cur is not None:
-            self._save(self._cur)
-            # 판정이 보는 「직전 기록」을 이 관측으로 넘긴다. 파일 저장만 하고 여기를
-            # 비워 두면 판정은 **부팅 시점 스냅샷**을 계속 쓴다 — 운용 중 제어권을 잡아도
-            # 그 사실이 판정에 도달하지 않아 복귀가 걸리지 않고, 반대로 부팅 때 잡혀 있던
-            # 상태가 굳으면 반환한 뒤에도 재획득이 일어난다.
-            # ⚠ 복귀를 내는 틱에는 덮지 않는다. 여기서 덮으면 `_restore()` 가 실패해도
-            # (서비스 미준비·거부) 다음 틱의 판정 입력이 `engaged=False` 가 되어 재시도가
-            # 사라진다 — 복귀 기회가 1회로 끝난다.
-            if not (self._was_down and verdict in (RESTORE, HOLD)):
-                self._prev = dict(self._cur)      # 별칭이면 「직전」이 현재를 따라간다
+            # 내용이 바뀔 때만 쓴다 — 무변화 기록을 2 Hz 로 반복할 이유가 없다
+            # (`saved_at` 은 지문에서 제외 — 그것만 바뀌는 재기록은 무의미하다).
+            fingerprint = (tuple(sorted(self._cur.items())),
+                           tuple(self._restore_stamps))
+            if fingerprint != self._last_saved:
+                self._save(self._cur)
+                self._last_saved = fingerprint
+        # 직전 상태 승격 — 판정 **뒤에** 한다. 앞에서 하면 재기동 직후의 engaged=False 가
+        # 곧바로 prev 가 되어 복귀 조건이 스스로 사라진다.
+        self._prev = next_prev(self._prev, self._cur, verdict)
 
         if verdict == RESTORE:
             self._restore()
 
         self._publish(verdict, why, obs)
-
-    def _restarts_in_window(self) -> int:
-        """복귀 창(`restart_window_s`) 안의 복귀 시도 횟수. 창 밖은 버린다."""
-        cutoff = time.time() - self.cfg.restart_window_s
-        self._restore_stamps = [t for t in self._restore_stamps if t >= cutoff]
-        return len(self._restore_stamps)
 
     def _restore(self):
         """`~/engage true` 를 한 번 부른다.
@@ -196,8 +209,17 @@ class RelaySupervisor(Node):
         진행 중 호출이 있으면 새로 부르지 않는다 — 서비스가 늦으면 매 틱 재호출이 쌓여
         제어권 조작이 중복된다.
         """
+        now = time.monotonic()
         if self._pending is not None and not self._pending.done():
-            return
+            if not restore_call_expired(self._pending_since, now, self.cfg):
+                return
+            # 시한 초과 — future 를 버리고 재시도한다. 버리지 않으면 응답이 영영 오지 않는
+            # 호출 하나가 이후 모든 복귀를 막는다.
+            self.get_logger().warn(
+                f"복귀 호출 무응답 {self.cfg.restore_call_timeout_s:.0f}s — 포기하고 재시도한다")
+            self._pending.cancel()
+            self._pending = None
+            self._pending_since = None
         if not self.cli_engage.service_is_ready():
             self.get_logger().warn(
                 f"복귀 보류 — /{self._target}/engage 가 아직 준비되지 않았다",
@@ -207,13 +229,22 @@ class RelaySupervisor(Node):
         req = SetBool.Request()
         req.data = True
         self._pending = self.cli_engage.call_async(req)
+        self._pending_since = now
         self._pending.add_done_callback(self._on_restore_done)
         self.get_logger().warn(
             f"복귀 지시 — /{self._target}/engage true "
             f"(창 내 {len(self._restore_stamps)}/{self.cfg.restart_limit}회)")
 
     def _on_restore_done(self, future):
-        """복귀 응답 처리. 성공하면 두절 표시를 내리고 조향 대조를 남긴다."""
+        """복귀 응답 처리. 성공하면 구 진단을 버린다."""
+        if future is not self._pending:
+            # 버린(시한 초과·취소) 호출의 늦은 콜백 — 현재 호출의 상태를 건드리면 안 된다.
+            # rclpy 는 executor 가 붙은 future 의 콜백을 태스크로 미룰 수 있어, 이 검사가
+            # 없으면 취소 콜백이 **새 호출의 송신 시각을 지워** 시한 판정이 다시는 서지 않는다.
+            return
+        self._pending_since = None
+        if future.cancelled():
+            return
         try:
             res = future.result()
         except Exception as exc:
@@ -222,17 +253,16 @@ class RelaySupervisor(Node):
         if not res.success:
             self.get_logger().error(f"복귀 거부 — {res.message}")
             return
-        self._was_down = False
+        # 복귀 이전에 받은 진단을 버린다 — engaged=False 인 옛 상태라 그대로 판정에 쓰면
+        # 방금 한 복귀를 되돌린 것으로 읽힌다. `_was_down` 은 여기서 내리지 않는다
+        # (`next_was_down` 이 `RUNNING` 관측으로만 내린다).
+        self._cur = None
         self.get_logger().info(f"복귀 완료 — {res.message}")
-        # 조향 대조: 기록해 둔 목표와 복귀 후 실측이 다르면 죽어 있는 동안 축이 움직였다.
-        # 릴레이가 열린 구간에서 Seer 가 조향을 어떻게 다루는지는 미확정이라, 이 한 줄이
-        # 그 판정 자료를 운용 중에 쌓는다. 값은 **복원하지 않는다**.
         was = (self._prev or {}).get("steer_target_deg")
-        now_deg = (self._cur or {}).get("steer_target_deg")
         if was is not None:
-            self.get_logger().warn(
-                f"조향 대조 — 사망 직전 목표 {was}° · 복귀 시점 {now_deg}° "
-                f"(복원하지 않는다. 상위가 지령을 다시 줄 것)")
+            # 목표는 복원하지 않는다 — 재기동한 드라이버의 조향 목표는 상위가 다시 지령하기
+            # 전까지 없는 것이 정상이다. 여기는 기록만 남긴다.
+            self.get_logger().info(f"기록된 사망 직전 조향 목표 {was}° — 복원하지 않는다")
 
     # ── 기록 ──────────────────────────────────────────────────────────
     def _save(self, state: dict):

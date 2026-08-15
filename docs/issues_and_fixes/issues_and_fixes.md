@@ -45,7 +45,119 @@
 
 ---
 
+## 2026-08-16
+
+### [Fix] SIL 하니스 — 실험 4 의 두절 대기가 누적 로그에 걸려 kill 이 감시자를 앞지른다
+
+- **문제**: 실험 4(crash-loop 차단)가 간헐 실패. 4번의 kill 이 ~7초 만에 끝나는데 감시자는
+  복귀를 2회밖에 시도하지 못해(한도 3 미달) 판정이 영원히 안 뜬다.
+- **원인**: `wait_outage_seen` 이 누적 로그에서 `DEAD|ZOMBIE` **존재**를 검사 — 1주기째의
+  기록이 남아 있어 2~4주기째는 기다리지 않고 즉시 참. kill 루프가 감시자의
+  감지→재기동→복귀 주기와 동기화되지 않았다. 이 결함은 `"DEAD" in log` 시절부터 있었고,
+  이전 통과들은 복귀가 빨라 우연히 시도 3회를 채운 것이다.
+- **해결**: 존재 검사 → **횟수 증가** 검사(`outage_count()` + `baseline` 인자). 실험 4는
+  주기마다 「두절 +1 → 재기동 → 복귀 지시 +1」을 확인한 뒤 다음 kill 로 — 시도가
+  결정론적으로 쌓인다. 단일 kill 사용처(실험 1·3·5·7·9·10)는 기준선 0이 옳음을 확인.
+- **파일**: `Tools/can_relay_sil/sil_health.py`
+- **상태**: 완료 — SIL 10/10 PASS. 덧붙여 이 실패 로그는 무응답 시한 수정이 실전 조건에서
+  작동함을 보여 줬다(kill 이 호출 도중 떨어져 「무응답 5s — 포기하고 재시도」 자연 발생)
+
+### [Fix] `relay_supervisor` — 재기동 직후 latched E-stop 도착 전에 자동 복귀가 나간다
+
+- **문제**: E-stop 이 인가된 채(발행자 상주) 드라이버를 재기동하면 감시자가 **E-stop 인가
+  중에 제어권을 자동으로 되찾는다.** SIL 실험 5 실기 로그: `ZOMBIE → RESTORE → 복귀 완료`
+  가 estop 발행 중에 발생. 이전 통과들은 estop 재전달이 첫 진단보다 우연히 빨랐던 것.
+- **원인**: E-stop 토픽은 latched(TRANSIENT_LOCAL)라 재기동한 노드에 재전달되지만 **DDS
+  재전달이 첫 진단 발행보다 늦을 수 있다.** 감시자는 첫 진단 하나(estop=False)만 보고
+  `RESTORE` 를 허가했다 — `decide()` 에 「이 진단이 완전한가」를 묻는 장치가 없었다.
+- **해결**: `restore_settle_s`(기본 3 s) 안정화 창 — 두절 후 진단이 다시 흐르기 시작한 지
+  이 시간이 지나야 `RESTORE` 허가. 검사는 `RESTORE` 직전에만 둔다(차단 게이트는 안정화
+  전에도 동작 — 막는 쪽은 항상 안전하다). `cur_settle_s=None`(모름)은 미충족으로 취급.
+- **파일**: `can_relay/health.py` · `can_relay/supervisor.py` · `test/test_supervisor.py` ·
+  `Tools/can_relay_sil/sil_health.py`
+- **상태**: 완료 — 단위 49 passed(안정화 경계 3점 + 차단 게이트 무대기 확인), SIL 재실행
+
+### [Fix] `relay_supervisor` — 버린 복귀 호출의 늦은 콜백이 새 호출의 시한 기준을 지운다
+
+- **문제**: 시한 초과로 버린 future 의 done 콜백이 **새 호출의 송신 시각을 지울 수 있다**
+  — 그러면 새 호출도 무응답일 때 시한 판정이 다시는 서지 않아, 어제 닫은 영구 차단이
+  다른 문으로 되살아난다. 늦은 응답이 도착하면 「복귀 완료」 이중 처리도 가능.
+- **원인**: `_on_restore_done` 첫 줄이 무조건 `self._pending_since = None`. rclpy 는
+  executor 가 붙은 future 의 콜백을 태스크로 미룰 수 있어, 구 future 의 콜백이 새 호출
+  생성 **후에** 돌 수 있다(현재 humble 에서 인라인으로 도는 것은 구현 우연).
+- **해결**: 콜백 첫 줄에 신원 검사 — `future is not self._pending: return`. 어느 실행
+  순서에서도 버린 호출이 현재 호출의 상태를 건드리지 못한다. 곁들여, 복귀 완료 시
+  「조향 대조」 로그가 `self._cur = None` **직후에 그 값을 읽어 항상 None** 을 찍던 죽은
+  로직을 제거하고 기록된 목표만 남기게 했다.
+- **파일**: `can_relay/supervisor.py`
+- **상태**: 완료 — 경합 자체는 타이밍 의존이라 SIL 로 강제 재현 불가, 코드 검사로 확정
+
+### [Fix] `relay_supervisor` — 무응답 복귀 호출이 이후 복귀를 영구 차단
+
+- **문제**: 감시자가 `~/engage` 를 부른 뒤 응답이 오지 않으면 **그 이후 모든 복귀가
+  조용히 차단**된다. 감시자의 존재 이유가 복귀인데 기능이 0이 된다. 발생 조건이
+  현실적이다 — crash-loop 이 정확히 「복귀 직후 다시 죽는」 상황이다.
+- **원인**: `supervisor.py` `_restore()` 의 중복 방지 가드가
+  `self._pending.done()` 만 본다. `rclpy` 의 `call_async` future 는 **응답이 와야만**
+  완료되고 **자체 시한이 없다**(`rclpy/client.py` `call_async` 소스 확인 — future 를
+  만들어 `_pending_requests` 에 넣고 반환할 뿐, `Future` 에 시한 멤버 없음).
+  대상이 죽으면 `done()` 이 영원히 False 라 가드가 영구히 막는다.
+- **해결**: 판정을 순수 모듈로 분리해 `health.py` 에 `restore_call_expired()` 신설
+  (`restore_call_timeout_s`, 기본 10 s). `supervisor.py` 는 호출 시각을 기록하고
+  시한 초과 시 future 를 **버리고 재시도**한다. 취소된 future 의 done 콜백은 무시한다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/health.py` · `can_relay/supervisor.py` ·
+  `test/test_supervisor.py` · `Tools/can_relay_sil/sil_health.py` ·
+  `Tools/can_relay_sil/deaf_engage.py`(신규)
+- **상태**: 완료 — 3층 검증. 원인 확증(rclpy 소스) · 순수 함수 돌연변이 검출(1 failed) ·
+  **실물 경로 돌연변이 검출**(수정 제거 시 SIL 실험 10 FAIL, 수정본 PASS)
+
+> ⚠ **시험을 세 번 다시 만들었다.** 1차는 「복귀 지시 로그 직후 kill」이었는데 그 시점엔
+> 응답이 이미 도착해 있어(실기 engage 응답 ~7 ms) **수정을 빼도 통과하는 거짓 확신**이었다.
+> 2차는 스텁과 실드라이버가 같은 서비스명을 광고해 실드라이버가 8 ms 에 응답, **재현
+> 조건이 형성되지 않았다.** 3차에서 감시자의 `target_node` 를 스텁 전용 이름으로 돌려
+> 서비스명을 독점하게 하고서야 성립했다. **「시험이 통과했다」는 「기능이 동작한다」가
+> 아니다** — 돌연변이로 시험 자체를 검증하기 전에는 판단을 미룰 것.
+
+### [Fix] SIL 하니스 — 실패한 실험의 로그가 지워져 낡은 디렉토리를 오독
+
+- **문제**: `--keep` 없이 돌린 실험이 실패하면 임시 디렉토리가 삭제된다. 진단하려고
+  `ls -dt /tmp/sil-eN-* | head -1` 하면 **이전 실행분**이 잡히고, 그 로그가 그럴듯해
+  잘못된 결론으로 이어진다. 같은 세션에서 3회 발생했다.
+- **원인**: `main()` 이 `ctx.cleanup()` 을 무조건 부르고, 보존은 `--keep` 플래그에만 의존.
+- **해결**: 실험이 실패하면 `--keep` 여부와 무관하게 `ctx.keep_logs()` 로 보존하고
+  경로를 항상 출력한다(3줄).
+- **파일**: `Tools/can_relay_sil/sil_health.py`
+- **상태**: 완료
+
 ## 2026-08-15
+
+### [Fix] `relay_supervisor` 결함 5건 — SIL 하니스가 잡은 「단위는 통과, 기능은 0」
+
+- **문제**: 노드 health 감시·복귀가 `main` 병합 시점에 **전 기능 무동작**이었다. 단위 회귀
+  40여 건이 전건 통과하는 동안 감시자는 기동 몇 초 만에 죽거나, 죽지 않아도 복귀를 한 번도
+  수행하지 못했다. 실기였다면 「감시 중」으로 보이면서 실제로는 아무것도 안 하는 상태로
+  운용됐을 것이다.
+- **원인**: 5건 모두 **순수 판정(`health.py` 로직)이 아니라 ROS 껍데기·실물 타입 경계**에 있었다.
+  단위 시험이 `decide()` 만 함수로 부르고 프로세스·메시지·타이머를 한 번도 통과시키지 않았다.
+  | # | 근본 원인 | 위치 |
+  | --- | --- | --- |
+  | 1 | `DiagnosticStatus.level` 은 rclpy 에서 `bytes` 한 바이트인데 `int()` 로 변환 → 첫 진단에 크래시 | `health.py` `parse_diag` |
+  | 2 | rclpy 로거는 **호출 지점마다 severity 고정** — 한 줄에서 `warn`/`info` 를 골라 부르면 두 번째가 `ValueError` | `supervisor.py` `_on_tick` |
+  | 3 | `_prev` 를 기동 시 파일에서 한 번만 읽고 승격하지 않음 → 「감시자는 살고 드라이버만 재기동」이라는 **설계 의도 경로에서 복귀가 성립하지 않음** | `supervisor.py` `_on_tick` |
+  | 4 | `_home_failed` 게이트가 `cur` 만 검사 → **재기동이 지우는 값을 게이트가 따라감**(막으려던 그 소실) | `health.py` `decide` |
+  | 5 | `_was_down` 을 복귀 서비스 응답으로 내림 + 판정 이름으로만 세움 → 복귀가 1회만 되고, 빠른 재기동은 유예 `WAIT` 로 덮여 표시가 안 섬 | `supervisor.py` `_on_restore_done` · `health.py` `next_was_down` |
+  ⚠ **5번의 절반은 자초분**이다 — 4번을 고치며 넣은 좀비 유예(`zombie_after_s`)가 새 구멍을 열었다.
+- **해결**: 판정에 해당하는 부분을 **순수 모듈로 이관**해 단위로 고정했다 —
+  `as_level()` · `next_prev()` · `next_was_down()` · `is_outage()` 신설, `decide()` 가 `home_failed` 를
+  `cur`·`prev` 양쪽에서 검사. 껍데기에는 타이머·구독·서비스 호출·파일 입출력만 남겼다.
+  회귀 13건 추가(33 → 46), 돌연변이 2종 검출 확인.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/health.py` · `can_relay/supervisor.py` ·
+  `test/test_supervisor.py` · `Tools/can_relay_sil/sil_health.py`(신설) ·
+  `docs/function_table.md` · `docs/sw_structure/function_table.md`
+- **상태**: 완료 — SIL **8/8 PASS**, 단위 회귀 전건 통과. ⚠ **실기 미검증**(debt-075·076)
+- **적용 범위**: 4번(`home_failed` 차단)은 **감시자가 래치를 1회 관측한 뒤**에만 적용된다 — 호밍 개시 1초 안의 사망은 덮지 않는다(실험 9 경계 관측). 호밍 중단 자체는 펌웨어(`seer_homing_tick()` 이 `!pc_authority` 확인 → 취소)와 드라이버 래치가 담당하므로 **그 구간에도 보호는 유효**하다. 결함이 아니라 설계상의 하한이다
+
+> ⚠ 병합 주기(2026-08-16): 아래 두 건은 다른 세션이 **구 supervisor** 에 가한 병행 수정이다. 병합에서 supervisor 는 세션 브랜치 판(순수 `health.py` 분리·위 5건 수정 포함)으로 채택되어 아래 수정 중 supervisor 코드 부분은 대체됐고, `_tick_guarded`(틱 예외 가드)만 채택판에 이식해 유지한다. `mutation_check.py`·`home_and_zero` 관련 부분은 그대로 유효하다.
 
 ### [Fix] 감시 노드가 첫 상태 전이에서 죽는다 · 복귀 시도가 1회로 끝난다 · 검출력 검사기 거짓 초록 (적대적 리뷰 3건)
 

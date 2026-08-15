@@ -49,6 +49,24 @@ class SupervisorConfig:
     #   진단이 이보다 끊기면 두절로 본다. 진단은 1 Hz 이므로 3 주기다.
     #   ⚠ 백엔드 심박 억제 임계(`ros_alive_timeout_s`, 2.0 s)보다 **길어야 한다** —
     #     짧으면 감시자가 먼저 두절을 선언하고, 정작 정지는 아직 걸리지 않은 구간이 생긴다.
+    zombie_after_s: float = 45.0
+    #   진단 두절이 이보다 길고 **프로세스가 살아 있으면** 좀비로 본다.
+    #   `diag_timeout_s` 와 나누는 이유: 재기동 직후에는 프로세스가 이미 있고 진단은 아직
+    #   없어 그 구간이 좀비처럼 보인다. 정상 재기동마다 ERROR 를 내면 경보가 무의미해진다.
+    #   값은 실기 재기동 소요보다 커야 한다 — 근거는
+    #   `docs/verified_facts/2026-08-15-can-relay-node-health-field.md` §O4.
+    #   진짜 좀비는 무기한 조용하므로 늦게 판정해도 놓치지 않는다 —
+    #   **정지는 백엔드 심박 억제가 하고 이 판정은 관측용**이다.
+    restore_call_timeout_s: float = 10.0
+    #   복귀 서비스 호출을 이 시간 안에 응답이 없으면 **실패로 간주하고 버린다.**
+    #   `rclpy` 의 `call_async` future 는 응답이 와야만 완료되고 자체 시한이 없다 —
+    #   호출 직후 대상이 죽으면 future 가 영원히 미완료로 남는다. 중복 방지 가드가
+    #   그 future 를 보고 있으면 **이후 복귀가 영구 차단된다.**
+    restore_settle_s: float = 3.0
+    #   두절 후 진단이 다시 흐르기 시작한 뒤, 복귀를 허가하기까지 기다리는 안정화 창.
+    #   재기동한 드라이버의 첫 진단은 latched 토픽(estop 등)이 DDS 재전달로 도착하기
+    #   **전**일 수 있다 — 그 진단 하나로 복귀하면 E-stop 인가 중에 제어권을 되찾는다.
+    #   차단(HOLD) 게이트는 이 창과 무관하게 동작한다 — 막는 쪽은 항상 안전하다.
     restore_enabled: bool = True
     restart_limit: int = 3
     restart_window_s: float = 120.0
@@ -70,6 +88,9 @@ class Observation:
     #   마지막 관측 이후 **진단 두절을 겪었는가**. 이것이 「재기동으로 제어권을 잃었다」와
     #   「사람이 내렸다」를 가른다 — 수동 해제는 진단이 끊기지 않으므로 복귀시키지 않는다
     restarts_in_window: int = 0
+    cur_settle_s: Optional[float] = None
+    #   두절 후 진단이 다시 흐르기 시작한 지 몇 초 됐나. `None` = 모름(안정화 미충족으로
+    #   취급 — 모름을 「안정됐다」로 치지 않는다)
 
 
 def boot_id(path: str = BOOT_ID_PATH) -> str:
@@ -127,6 +148,21 @@ def _as_bool(text: str) -> bool:
     return str(text).strip().lower() in ("true", "1", "yes")
 
 
+def as_level(level) -> int:
+    """`DiagnosticStatus.level` → int.
+
+    ⚠ **rclpy 에서 이 필드는 `bytes` 한 바이트다**(msg 정의가 `byte`). `int(b"\x01")` 은
+    `ValueError` 를 던지므로 그대로 쓰면 첫 진단에서 감시자가 죽는다.
+    변환 불가는 0 으로 두되, **판정은 level 이 아니라 key/value 로 한다** — level 은 기록용이다.
+    """
+    if isinstance(level, (bytes, bytearray)):
+        return int.from_bytes(level, "big")
+    try:
+        return int(level)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _as_float(text: str) -> Optional[float]:
     try:
         return float(text)
@@ -150,7 +186,7 @@ def parse_diag(values, level: int = 0, message: str = "") -> dict:
         else:
             k, val = v
             kv[str(k)] = str(val)
-    out: dict = {"level": int(level), "message": str(message)}
+    out: dict = {"level": as_level(level), "message": str(message)}
     for key in ("engaged", "estop", "home_failed", "homed_effective",
                 "hb_suppressed"):
         if key in kv:
@@ -160,6 +196,68 @@ def parse_diag(values, level: int = 0, message: str = "") -> dict:
     if "drive_units" in kv:
         out["drive_units"] = kv["drive_units"]
     return out
+
+
+def next_prev(prev: Optional[dict], cur: Optional[dict],
+              verdict: str) -> Optional[dict]:
+    """다음 판정에 쓸 「직전 상태」를 고른다.
+
+    승격 조건은 「진단이 흐르는 동안의 관측」(`RUNNING`·`IDLE`)이다. 두절 중 판정
+    (`DEAD`·`ZOMBIE`·`WAIT`)은 상태를 모르는 구간이므로 직전 상태를 덮지 않는다.
+    수동 해제(`IDLE`)는 덮는다 — 사람이 내려 둔 뒤 재기동해도 되살리지 않기 위해서다.
+
+    기록 파일은 기동 시 seed 로만 쓰므로, 이 승격이 없으면 감시자 수명 안에서 `prev` 가
+    갱신되지 않는다.
+    """
+    if cur is not None and verdict in (RUNNING, IDLE):
+        return dict(cur)
+    return prev
+
+
+def is_outage(obs: Observation, cfg: SupervisorConfig) -> bool:
+    """지금이 **진단 두절 구간**인가 — 판정 이름이 아니라 사실로 정한다.
+
+    「한 번도 못 받음」과 「임계 안 공백」은 두절이 아니다.
+    """
+    return (obs.cur is None and obs.diag_age is not None
+            and obs.diag_age > cfg.diag_timeout_s)
+
+
+def prune_stamps(stamps, now: float, window_s: float) -> list:
+    """복귀 시도 시각 목록에서 창 밖을 버린 **새 목록**을 돌려준다.
+
+    잘라내기(상태 갱신)와 세기(조회)를 분리한다 — 조회 함수가 목록을 바꾸면
+    호출 순서에 따라 판정 입력이 달라진다.
+    """
+    cutoff = now - window_s
+    return [t for t in stamps if t >= cutoff]
+
+
+def restore_call_expired(sent_at: Optional[float], now: float,
+                         cfg: SupervisorConfig) -> bool:
+    """진행 중인 복귀 호출을 포기할 때가 됐는가.
+
+    `sent_at` 이 `None`(진행 중인 호출 없음)이면 `False`.
+    """
+    if sent_at is None:
+        return False
+    return (now - sent_at) > cfg.restore_call_timeout_s
+
+
+def next_was_down(was_down: bool, verdict: str, outage: bool) -> bool:
+    """다음 판정에 쓸 「두절을 겪었는가」 표시.
+
+    **세우는 근거는 판정 이름이 아니라 두절 사실이다** — 빠른 재기동은 좀비 유예(`WAIT`)
+    로만 덮여 `DEAD` 를 거치지 않으므로, 판정으로 세우면 그 경로에서 표시가 서지 않는다.
+
+    **내리는 것은 `RUNNING` 관측뿐이다** — 복귀 서비스 응답은 제어권이 실제로 붙었는지
+    말해 주지 않는다(진단이 아직 이전 상태일 수 있다).
+    """
+    if outage:
+        return True
+    if verdict == RUNNING:
+        return False
+    return was_down
 
 
 def decide(prev: Optional[dict], obs: Observation,
@@ -173,10 +271,15 @@ def decide(prev: Optional[dict], obs: Observation,
             return WAIT, "진단을 아직 받지 못했다"
         if obs.diag_age <= cfg.diag_timeout_s:
             return WAIT, f"진단 {obs.diag_age:.1f}s 경과 (임계 {cfg.diag_timeout_s:.1f}s)"
-        if obs.proc_alive is True:
+        if obs.proc_alive is True and obs.diag_age >= cfg.zombie_after_s:
             return ZOMBIE, (
-                f"진단 두절 {obs.diag_age:.1f}s 인데 프로세스는 살아 있다 — "
-                f"ROS 계층 정체. 정지는 백엔드 심박 억제가 처리한다")
+                f"진단 두절 {obs.diag_age:.1f}s 인데 프로세스는 살아 있다 "
+                f"(임계 {cfg.zombie_after_s:.0f}s 초과) — 기동 지연이 아니라 정체로 본다. "
+                f"정지는 백엔드 심박 억제가 처리한다")
+        if obs.proc_alive is True:
+            # 살아 있으나 아직 유예 안 — 재기동 직후일 수 있다. 사망으로 단정하지 않는다.
+            return WAIT, (f"진단 두절 {obs.diag_age:.1f}s · 프로세스는 있다 — "
+                          f"기동 중일 수 있다(좀비 판정까지 {cfg.zombie_after_s:.0f}s)")
         if obs.proc_alive is False:
             return DEAD, f"진단 두절 {obs.diag_age:.1f}s · 프로세스 없음"
         return DEAD, f"진단 두절 {obs.diag_age:.1f}s · 프로세스 확인 불가"
@@ -193,16 +296,25 @@ def decide(prev: Optional[dict], obs: Observation,
         return HOLD, "복귀 비활성(restore_enabled=false)"
     if obs.cur.get("estop"):
         return HOLD, "E-stop 인가 중 — 해제 후 복귀한다"
-    if obs.cur.get("home_failed"):
-        # 재기동이 이 래치를 지운다 — `_home_failed` 는 인스턴스 변수라 새 프로세스는
-        # False 로 시작하고, 드라이브의 bit15 는 실패한 호밍 뒤에도 1 로 남아 있어
-        # `homed_effective()` 가 조향을 열어 준다. 그 위에 제어권까지 자동으로 얹으면
+    if obs.cur.get("home_failed") or (prev or {}).get("home_failed"):
+        # ⚠ **`prev` 를 함께 보는 것이 요점이다.** `_home_failed` 는 인스턴스 변수라
+        # 재기동한 새 프로세스는 False 로 시작한다 — 즉 `cur` 만 보면 이 게이트가 막으려던
+        # 바로 그 소실을 게이트가 따라간다. 살아남는 값은 두절 전 마지막 관측(`prev`)뿐이다.
+        #
+        # 왜 막아야 하나: 드라이브의 bit15 는 실패한 호밍 뒤에도 1 로 남아
+        # `homed_effective()` 가 조향을 열어 준다. 거기에 제어권까지 자동으로 얹으면
         # 축이 어디 서 있는지 모르는 채 지령이 나간다(0° 지령 시 ≈136.7° 스윙).
-        # 관측된 래치는 기록에 남으므로, 여기서 복귀를 멈춰 사람이 `~/home` 를 다시
-        # 걸게 한다 — 자동 해제 경로는 두지 않는다.
+        # 자동 해제 경로는 두지 않는다 — 해제는 `~/home` 재수행뿐이다.
         return HOLD, ("직전 호밍이 끝을 못 봤다(조향 잠금) — 재기동이 그 래치를 지우므로 "
                       "자동 복귀하지 않는다. `~/home` 재수행 후 복귀할 것")
     if obs.restarts_in_window >= cfg.restart_limit:
         return HOLD, (f"복귀 시도 {obs.restarts_in_window}회 / "
                       f"{cfg.restart_window_s:.0f}s — crash-loop 로 보고 멈춘다")
+    settle = obs.cur_settle_s if obs.cur_settle_s is not None else 0.0
+    if settle < cfg.restore_settle_s:
+        # 검사를 `RESTORE` 직전에만 둔다 — 위 차단 게이트들은 안정화 전에도 동작해야 한다
+        # (막는 쪽은 항상 안전하다). 허가만 latched 토픽이 도착할 시간을 기다린다.
+        return WAIT, (f"복귀 보류 — 재기동 직후 상태 안정화 대기 "
+                      f"({settle:.1f}/{cfg.restore_settle_s:.0f}s). latched 토픽"
+                      f"(estop 등)이 아직 도착하지 않았을 수 있다")
     return RESTORE, "직전 상태가 제어권 보유였다 — 복귀한다"
