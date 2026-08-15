@@ -1396,10 +1396,10 @@ class MainWindow(QWidget):
     HOMING_TIMEOUT_S = 90.0    # 실측 소요 약 31 s
     HOMING_START_S = 10.0      # 개시(bit15=0) 를 기다리는 창
     # 호밍 완료(bit15 1) 만으로는 축이 조향 0° 에 서지 않으므로 0° 를 따로 지령한다.
-    STEER_ZERO_TOL_DEG = 0.1   # ⚠ 선택값. 정착 재현성 σ≈3 counts(≈0.00005°) 대비 여유를 둔 수치다.
+    STEER_ZERO_TOL_DEG = 0.1   # 0° 도달 판정 허용치(도). ⚠ 선택값이며 실측 근거가 없다.
     #   사용자 설정 정착 허용치(sld_tol, 0.5~10°)를 쓰지 않는다 — 그 폭은 바로잡으려는
-    #   편차(펌웨어 GOZERO 정착값 대비 +0.178°/+0.331°)보다 커서 판정이 무의미해진다.
-    STEER_ZERO_TIMEOUT_S = 10.0
+    #   편차보다 커서 지령 전에도 도달로 읽힌다.
+    STEER_ZERO_TIMEOUT_S = 10.0   # 0° 정착 대기 상한(초). ⚠ 선택값.
 
     def _homing_clicked(self):
         """호밍 버튼. 실제로 로봇이 크게 움직이므로 한 번 확인을 받는다."""
