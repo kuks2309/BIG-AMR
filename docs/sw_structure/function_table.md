@@ -42,6 +42,16 @@
 | `trnav_2ws_action_server/src/spin/spin_action_server.cpp` | 죽은 파라미터 3종 제거(`fine_correction_timeout_sec`·`fine_correction_speed_dps`·`settling_delay_ms`) + 화이트리스트 분기 제거 | `4c03c76` |
 | `can_relay/can_relay/backend.py` | `set_motor_cmds` 의 호밍 판정을 `homed_effective()` 로 통일 · `_write_bringup` 을 **구동축 전용**으로 축소 | `0b38966` · `a7420a6` |
 
+## ⚠ 2026-08-15 변경분 — 모듈 로컬 표가 **타 세션 미커밋**이라 등재하지 못한 것
+
+`can_relay` 모듈 로컬 함수표(`src/Comm/CAN/can_relay/docs/function_table.md`)가 2026-08-15
+현재 **다른 세션이 작성 중인 미커밋 파일**이라 origin/main 에 없다. 공유 트리의 그 파일을
+고치면 그 세션의 작업을 덮으므로 손대지 않았다 — 그 세션이 커밋한 뒤 아래를 반영해야 한다.
+
+| 파일 | 변경 내용 | 반영할 행 |
+| --- | --- | --- |
+| `can_relay/can_relay/backend.py` | 실패한 호밍 뒤 드라이브 `0x6041` bit15 를 조향 허용 근거로 쓰지 않는 래치 `_home_failed` 신설 ([ADR 2026-08-15](../adr/2026-08-15-failed-home-latch.md)) | 함수표 `homed_effective`·`home`·`_home_method35`·`set_motor_cmds`·`snapshot` / 인스턴스 상태표에 `_home_failed` |
+
 ## 배포 제약 (미해결)
 
 `docs/claude_guideline/**` **8개 번들이 전부 git 미추적**이라 워크트리에는 규칙 문서 자체가

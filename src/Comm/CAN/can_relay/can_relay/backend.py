@@ -149,6 +149,7 @@ class RelayBackend:
         self._thread: Optional[threading.Thread] = None
         self._homing = False
         self._homed = False         # 이번 전원 사이클에서 호밍이 완료됐는가
+        self._home_failed = False   # 우리가 건 호밍이 축을 움직여 놓고 끝을 못 봤는가
         self._homing_status: dict = {}
         # 버스별 bxCAN 에러 상태. 링크가 지원하지 않으면 비어 있고, 그 사실을
         # `health_supported=False` 로 드러낸다(조용히 숨기지 않는다).
@@ -219,9 +220,17 @@ class RelayBackend:
 
         ⚠ **신선한 피드백일 때만** 인정한다. 낡은 상태워드로 「호밍됐다」고 하면 통신이 끊긴
           뒤에도 조향이 열린다.
+
+        ⚠ **우리가 건 호밍이 끝을 못 봤으면 ②를 인정하지 않는다**(`_home_failed`).
+          bit15 는 「원점을 잡았다」이지 「0° 에 서 있다」가 아니다 — 원점을 잡은 뒤 0° 복귀
+          단계에서 실패해도 1 로 남는다. 그 상태의 bit15 로 조향을 열면 축이 어디 서 있는지
+          모르는 채 지령이 나간다. 래치는 **성공한 호밍만** 푼다 — 다른 주체(Seer)의 호밍은
+          우리가 관측할 수 없으므로 근거로 치지 않는다.
         """
         if self._homed:
             return True
+        if self._home_failed:
+            return False
         now = time.monotonic()
         nodes = [self.nodes.get(n) for n in self.cfg.steer_nodes]
         if not nodes or any(st is None for st in nodes):
@@ -235,6 +244,12 @@ class RelayBackend:
 
     def _not_homed_reason(self) -> str:
         """거부 사유 — 무엇이 모자라 막혔는지 운용자가 알 수 있게 적는다."""
+        if self._home_failed:
+            # 이 경우 노드별 bit15 를 나열해 봐야 오해만 키운다 — 전부 1 로 보이는 것이
+            # 정확히 이 래치가 존재하는 이유다.
+            return ("직전 호밍이 끝을 못 봤다 — 축이 0° 에 서 있다고 볼 수 없다. "
+                    "드라이브의 0x6041 bit15 는 「원점을 잡았다」는 뜻일 뿐이라 근거로 "
+                    "쓰지 않는다. 이동구역을 확인하고 `~/home` 를 다시 수행할 것")
         now = time.monotonic()
         detail = []
         for n in self.cfg.steer_nodes:
@@ -364,7 +379,9 @@ class RelayBackend:
                 # 호밍 출처를 가리지 않는다 — `set_steer_deg`·`set_steer_axis_deg` 와
                 # 같은 판정을 쓴다(Seer 가 호밍해 둔 상태도 인정한다).
                 if self.cfg.require_homed_for_steer and not self.homed_effective():
-                    notes.append(f"node{mid} 호밍 미완료 — 조향 거부")
+                    # 사유까지 싣는다 — 상위 모션은 이 문자열만 보고 원인을 판단한다.
+                    notes.append(f"node{mid} 호밍 미완료 — 조향 거부. "
+                                 f"{self._not_homed_reason()}")
                     continue
                 if not S.finite(tpos):
                     notes.append(f"node{mid} target_pos 비유한 — 거부")
@@ -565,6 +582,7 @@ class RelayBackend:
 
         self._homing = True
         self._homed = False
+        self._home_failed = True     # 여기부터 축이 움직인다 — 성공한 완주만 이걸 푼다
         try:
             frames = []
             for n in cfg.steer_nodes:
@@ -631,6 +649,7 @@ class RelayBackend:
                 return False, (f"0x6098=35 후에도 0x6064 가 0 근처가 아니다 {far} — "
                                f"재영점 미확인. 조향 잠금 유지")
             self._homed = True
+            self._home_failed = False
             return True, (f"method 35 완료 — 현재 위치가 홈(0°). 0x6064={newpos}. "
                           f"⚠ 전원 사이클마다 다시 해야 한다")
         finally:
@@ -697,6 +716,7 @@ class RelayBackend:
                 return False, ("펌웨어가 호밍을 거부했다 — 전제조건 미충족"
                                "(제어권·safety_mode 30·이전 호밍 종료·속도 범위)")
             self._log("호밍 개시 — 펌웨어 시퀀서. 취소는 cancel_home()")
+            self._home_failed = True    # 여기부터 축이 움직인다 — 성공한 완주만 이걸 푼다
             t0 = time.monotonic()
             last = None
             while True:
@@ -708,6 +728,7 @@ class RelayBackend:
                 if st.get("terminal"):
                     ok = st.get("state") in HOMING_OK
                     self._homed = bool(ok)
+                    self._home_failed = not ok
                     return ok, (f"{st.get('state_name')} "
                                 f"({st.get('elapsed_s')}s, "
                                 f"reached_mask=0x{st.get('reached_mask', 0):02X})")
@@ -745,6 +766,7 @@ class RelayBackend:
                 "estop": self._estop,
                 "homing": self._homing,
                 "homed": self._homed,                 # 우리가 호밍했는가
+                "home_failed": self._home_failed,     # 걸어 놓고 끝을 못 본 호밍이 있는가
                 "homed_effective": self.homed_effective(),  # 드라이브 보고 포함(Seer 호밍)
                 "homing_method": str(self.cfg.homing_method),
                 "fault": self._fault,
