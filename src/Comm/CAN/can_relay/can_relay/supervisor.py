@@ -65,7 +65,7 @@ class RelaySupervisor(Node):
             ("restore_enabled", True),
             ("restart_limit", 3),
             ("restart_window_s", 120.0),
-            ("zombie_after_s", 6.0),
+            ("zombie_after_s", 45.0),
         ])
         g = {d.name: d.value for d in p}
 

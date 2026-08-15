@@ -41,9 +41,13 @@ import time
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MACHINE = os.path.join(REPO, "src/Comm/CAN/can_relay/config/machine/foil_a082.yaml")
 
-# 감시자 임계를 실험용으로 좁힌다 — 기본값(두절 3 s·창 120 s)이면 한 항목에 분 단위가 걸린다.
-# 판정 로직은 그대로이고 시간 축만 줄인다.
+# 감시자 임계를 실험용으로 좁힌다 — 기본값(두절 3 s·좀비 45 s·창 120 s)이면 한 항목에
+# 분 단위가 걸린다. 판정 로직은 그대로이고 시간 축만 줄인다.
+# ⚠ **감시자가 받는 시간 파라미터는 전부 여기 있어야 한다.** 하나를 빠뜨리면 그 항목만
+#   기본값으로 돌아 실험이 조용히 어긋난다 — `zombie_after_s` 를 나중에 추가하면서 실제로
+#   그랬다(기본 45 s 인데 실험은 15 s 안에 ZOMBIE 를 기대했다).
 DIAG_TIMEOUT_S = 1.5
+ZOMBIE_AFTER_S = 4.0
 RESTART_WINDOW_S = 20.0
 RESTART_LIMIT = 3
 
@@ -92,6 +96,7 @@ class Ctx:
         args = ["ros2", "run", "can_relay", "relay_supervisor", "--ros-args",
                 "-p", f"state_dir:={self.state_dir}",
                 "-p", f"diag_timeout_s:={DIAG_TIMEOUT_S}",
+                "-p", f"zombie_after_s:={ZOMBIE_AFTER_S}",
                 "-p", f"restart_window_s:={RESTART_WINDOW_S}",
                 "-p", f"restart_limit:={RESTART_LIMIT}",
                 "-p", "tick_hz:=5.0"]
@@ -213,7 +218,8 @@ def exp2_zombie_suppresses_heartbeat(ctx: Ctx):
 
     os.killpg(os.getpgid(d.pid), signal.SIGSTOP)
     try:
-        if not wait_for(lambda: "ZOMBIE" in ctx.log_text("supervisor"), 15.0):
+        if not wait_for(lambda: "ZOMBIE" in ctx.log_text("supervisor"),
+                        ZOMBIE_AFTER_S + 10.0):
             return False, "ZOMBIE 판정이 나오지 않았다(DEAD 로 갈렸을 수 있다)"
     finally:
         os.killpg(os.getpgid(d.pid), signal.SIGCONT)
@@ -457,7 +463,8 @@ def main(argv=None):
 
     picked = [e for e in EXPERIMENTS if not a.only or e[0] in a.only]
     print(f"can_relay health SIL — {len(picked)}개 실험 "
-          f"(두절 임계 {DIAG_TIMEOUT_S}s · 복귀창 {RESTART_WINDOW_S}s/{RESTART_LIMIT}회)\n")
+          f"(두절 {DIAG_TIMEOUT_S}s · 좀비 {ZOMBIE_AFTER_S}s · "
+          f"복귀창 {RESTART_WINDOW_S}s/{RESTART_LIMIT}회)\n")
 
     results = []
     for num, title, fn in picked:

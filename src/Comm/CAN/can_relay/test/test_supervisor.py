@@ -264,10 +264,14 @@ def test_restarting_process_is_not_called_zombie():
     정상 재기동마다 ERROR 를 내면 경보가 무의미해진다. 진짜 좀비는 무기한 조용하므로
     유예를 둬도 놓치지 않는다.
     """
-    # 두절 임계(3.0)는 넘고 좀비 유예(6.0)는 안 넘는 구간 — 재기동 직후가 여기 있다.
-    v, why = decide(ENGAGED, Observation(cur=None, diag_age=4.0, proc_alive=True), CFG)
+    # 두절 임계는 넘고 좀비 유예는 안 넘는 구간 — 재기동 직후가 여기 있다.
+    # ⚠ 경계값을 상수로 박지 않는다. 실기 기동이 30 s 걸린다는 실측으로 유예가 6 → 45 s
+    #   로 바뀐 적이 있고, 그때 이 시험이 상수 때문에 깨졌다.
+    age = (CFG.diag_timeout_s + CFG.zombie_after_s) / 2
+    v, why = decide(ENGAGED, Observation(cur=None, diag_age=age, proc_alive=True), CFG)
     assert v == WAIT
-    assert "유예" in why
+    # 문구가 아니라 의미를 본다 — 임계값이 사유에 실려 운용자가 얼마나 더 기다리는지 안다.
+    assert f"{CFG.zombie_after_s:.0f}" in why
 
 
 def test_long_silence_with_live_process_is_zombie():

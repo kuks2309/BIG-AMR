@@ -49,12 +49,14 @@ class SupervisorConfig:
     #   진단이 이보다 끊기면 두절로 본다. 진단은 1 Hz 이므로 3 주기다.
     #   ⚠ 백엔드 심박 억제 임계(`ros_alive_timeout_s`, 2.0 s)보다 **길어야 한다** —
     #     짧으면 감시자가 먼저 두절을 선언하고, 정작 정지는 아직 걸리지 않은 구간이 생긴다.
-    zombie_after_s: float = 6.0
+    zombie_after_s: float = 45.0
     #   진단 두절이 이보다 길고 **프로세스가 살아 있으면** 좀비로 본다.
     #   `diag_timeout_s` 와 나누는 이유: 재기동 직후에는 프로세스가 이미 있고 진단은 아직
-    #   없어 그 짧은 구간이 좀비처럼 보인다. 정상 재기동마다 ERROR 를 내면 경보가 무의미해진다.
+    #   없어 그 구간이 좀비처럼 보인다. 정상 재기동마다 ERROR 를 내면 경보가 무의미해진다.
+    #   값의 근거: 실기 재기동에서 프로세스 등장 → 첫 진단까지 **30 s** 가 걸렸다
+    #   (2026-08-15 실측, `ros2 launch` + 오버레이 소싱 포함). 그보다 여유를 둔다.
     #   진짜 좀비는 무기한 조용하므로 늦게 판정해도 놓치지 않는다 —
-    #   **정지는 어차피 백엔드 심박 억제가 하고 이 판정은 관측용**이다.
+    #   **정지는 백엔드 심박 억제가 하고 이 판정은 관측용**이다.
     restore_enabled: bool = True
     restart_limit: int = 3
     restart_window_s: float = 120.0
@@ -239,12 +241,13 @@ def decide(prev: Optional[dict], obs: Observation,
             return WAIT, f"진단 {obs.diag_age:.1f}s 경과 (임계 {cfg.diag_timeout_s:.1f}s)"
         if obs.proc_alive is True and obs.diag_age >= cfg.zombie_after_s:
             return ZOMBIE, (
-                f"진단 두절 {obs.diag_age:.1f}s 인데 프로세스는 살아 있다 — "
-                f"ROS 계층 정체. 정지는 백엔드 심박 억제가 처리한다")
+                f"진단 두절 {obs.diag_age:.1f}s 인데 프로세스는 살아 있다 "
+                f"(임계 {cfg.zombie_after_s:.0f}s 초과) — 기동 지연이 아니라 정체로 본다. "
+                f"정지는 백엔드 심박 억제가 처리한다")
         if obs.proc_alive is True:
             # 살아 있으나 아직 유예 안 — 재기동 직후일 수 있다. 사망으로 단정하지 않는다.
             return WAIT, (f"진단 두절 {obs.diag_age:.1f}s · 프로세스는 있다 — "
-                          f"좀비 판정 유예 {cfg.zombie_after_s:.1f}s 대기")
+                          f"기동 중일 수 있다(좀비 판정까지 {cfg.zombie_after_s:.0f}s)")
         if obs.proc_alive is False:
             return DEAD, f"진단 두절 {obs.diag_age:.1f}s · 프로세스 없음"
         return DEAD, f"진단 두절 {obs.diag_age:.1f}s · 프로세스 확인 불가"
