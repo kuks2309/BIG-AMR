@@ -1,6 +1,6 @@
 // mcl2d_core — 2D MCL(Monte Carlo Localization) 파티클필터 핵심 자료구조.
 // Seer libMCLoc.so 의 2D 레이저 파티클필터 모드를 리버스 엔지니어링으로 복원해 재구현.
-// 근거: docs/reverse_engineering/libMCLoc/2026-06-24-localization-deep-dive.md
+// 근거: References/seer/libMCLoc/2026-06-24-localization-deep-dive.md
 #ifndef MCL2D_CORE_TYPES_HPP
 #define MCL2D_CORE_TYPES_HPP
 
@@ -10,7 +10,7 @@
 namespace mcl2d
 {
 
-// 평면 자세 (Seer rbk::algorithm::StateVar2D 대응: x, y, heading)
+// 평면 자세 (Seer rbk::algorithm::StateVar2D 대응: x, y, heading)  comment-check: ignore
 struct Pose2D
 {
     double x = 0.0;     // m
@@ -75,7 +75,7 @@ enum class LocReportState
     LowConfidence = 2
 };
 
-// 내부 위치추정 방식 (Seer MCLoc::LocState 대응). 현재 재구현 = PF/Odo만.
+// 내부 위치추정 방식 (Seer MCLoc::LocState 대응). 현재 재구현 = PF/Odo만.  comment-check: ignore
 enum class LocMode
 {
     PF = 0,

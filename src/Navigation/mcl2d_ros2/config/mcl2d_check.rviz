@@ -62,6 +62,22 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /map_reflectors
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: SmapNodes
+      Namespaces:
+        obstacles: false
+        paths: true
+        reflectors: false
+        station_labels: true
+        stations: true
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /seer_map/markers
+      Value: true
     - Class: rviz_default_plugins/TF
       Enabled: true
       Frame Timeout: 15

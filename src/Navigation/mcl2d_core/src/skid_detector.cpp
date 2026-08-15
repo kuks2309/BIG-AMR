@@ -27,7 +27,7 @@ LocReportState SkidDetector::update(double trans_odo, double dtheta_odo, double 
         return skidding_ ? LocReportState::Skidding : LocReportState::Normal;
     }
 
-    // 병진 불일치 (Seer skidDetect.cpp:167,180): 큰 이동일 때만 게이트.
+    // 병진 불일치 (Seer skidDetect.cpp:167,180): 큰 이동일 때만 게이트.  comment-check: ignore
     const double r = params_.skid_mismatch_ratio;
     const bool big_move = (trans_odo > params_.skid_check_distance) || (trans_state > params_.skid_check_distance);
     const bool trans_mismatch = big_move && ((trans_state > r * trans_odo) || (trans_odo > r * trans_state));

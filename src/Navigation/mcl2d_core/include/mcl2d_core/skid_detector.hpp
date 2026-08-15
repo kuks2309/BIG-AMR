@@ -1,6 +1,6 @@
 // 슬립(skid) 감지 — Seer CheckWheelSkid / skidDetect.cpp 재구현.
 // 휠 오도(odometry) 이동량과 위치추정(레이저) 이동량의 불일치로 미끄러짐 판정.
-// 근거: docs/reverse_engineering/libMCLoc/2026-06-24-localization-deep-dive.md §6.6 ③ (confirmed 2/2).
+// 근거: References/seer/libMCLoc/2026-06-24-localization-deep-dive.md §6.6 ③ (confirmed 2/2).
 #ifndef MCL2D_CORE_SKID_DETECTOR_HPP
 #define MCL2D_CORE_SKID_DETECTOR_HPP
 

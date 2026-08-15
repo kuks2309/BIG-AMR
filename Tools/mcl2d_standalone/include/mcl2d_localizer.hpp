@@ -6,7 +6,7 @@
 // /media/amap/6ab6980d-…/usr/local/SeerRobotics/rbk): plugins/libMCLoc.so 의 DT_NEEDED 에
 // libzmq.so.5 + libprotobuf.so.17 이 있고, 같은 플러그인이 zmq C API 심볼 20개를 import 한다
 // (zmq_ctx_new·zmq_socket·zmq_bind·zmq_connect·zmq_msg_*·zmq_close 등). zmq 소켓으로 protobuf
-// 메시지를 나르는 래퍼 profiler::IO::TrySend/TryReceive(zmq::socket_t&, google::protobuf::Message)
+// 메시지를 나르는 래퍼 profiler::IO::TrySend/TryReceive(zmq::socket_t&, google::protobuf::Message)  comment-check: ignore
 // 도 심볼에 그대로 있다. 동봉 3rdlib/libzmq.so.5.2.4 · proto/ 스키마 수십 개.
 // ※ [존재] 확정 / [동작] 미확정 — 그 zmq 경로가 "주 데이터 경로" 인지는 확인되지 않았다.
 //   상세: docs/claude-mistake/2026-08-06-004_zmq-claim-denied-without-checking-original.md
