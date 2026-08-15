@@ -5,9 +5,11 @@
 > 생성 사유: 2026-08-15 노드 health 감시 작업의 coding SOP §2 선행조사.
 > 그전까지 `can_relay` 는 루트 집계에 **미등재**였고 `coding-inventory-gate.py` 가 빈 통과했다.
 >
-> **범위 한정** — 본 표는 `can_relay/backend.py` · `driver_node.py` · `health.py` · `supervisor.py`
-> 를 담는다. 같은 패키지의 `link.py` · `protocol.py` · `safety.py` · `ui/` 는 **미작성**이며,
-> 그 파일들에 대해서는 게이트가 여전히 빈 통과한다. 등재는 별도 작업.
+> **범위 한정** — 본 표는 `can_relay/backend.py` · `driver_node.py` · `health.py` ·
+> `supervisor.py` · `home_and_zero.py` 를 담는다. 같은 패키지의 `link.py` · `protocol.py` ·
+> `safety.py` · `ui/` 는 **미작성**이며, 그 파일들에 대해서는 게이트가 여전히 빈 통과한다.
+> 등재는 별도 작업. 패키지 루트의 `mutation_check.py` 는 런타임 코드가 아니라 개발 도구라
+> 본 표의 대상이 아니다.
 >
 > ### 앵커 권위 — `파일:줄` 은 **본 문서**가 정본이다
 >
@@ -188,6 +190,40 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 
 ---
 
+## 5. `home_and_zero.py` — 호밍 → 조향 0° 복귀 운용 CLI (212줄)
+
+`ros2 run can_relay home_and_zero`. `~/home` 을 호출하고 **성공한 응답을 받은 경우에만**
+`~/steer_deg` 에 0.0 을 발행한 뒤 `joint_states` 로 도달을 확인한다. 판정 로직
+(`ZeroReturnGuard`)은 ROS 를 import 하지 않으며 입출력을 `client` 로 주입받는다.
+
+| # | 함수 | 입력 | 출력 | 기능 | 위치 |
+| --- | --- | --- | --- | --- | --- |
+| 65 | `steer_angles_from_joint_states` | `names,positions,steer_nodes` | `dict` | `joint_states` 한 장 → 축별 각도(도). **실리지 않은 축은 `None`** — 매 장마다 재구성하고 누적하지 않는다 | `home_and_zero.py:25` |
+| 66 | `fresh_or_none` | `angles,age_s,ttl_s` | `dict` | 마지막 수신이 `ttl_s` 를 넘거나 수신 이력이 없으면 전 축 `None` | `home_and_zero.py:47` |
+| 67 | `ZeroReturnGuard.__init__` | `client,tol_deg,timeout_s,nodes` | — | 판정 파라미터 보관. `tol_deg`·`timeout_s` 기본값은 **선택값이며 실측 근거 없음** | `home_and_zero.py:74` |
+| 68 | `ZeroReturnGuard.run` | — | `int` | 서비스 유무 → 호밍 → 0° 지령 → 도달 확인. **호밍 실패면 0° 를 발행하지 않는다** | `home_and_zero.py:81` |
+| 69 | `ZeroReturnGuard._await_zero` | — | `int` | 두 축이 0°±`tol_deg` 안에 들어올 때까지 대기. 실측 없는 축은 도달로 치지 않는다 | `home_and_zero.py:98` |
+| 70 | `_RosClient.__init__` | `node,steer_nodes` | — | `~/home` 클라이언트 · `~/steer_deg` 발행자 · `joint_states` 구독 생성 | `home_and_zero.py:124` |
+| 71 | `_RosClient._on_joint_states` | `msg` | — | 받은 한 장으로 각도를 **통째 교체** + 수신 시각 기록 | `home_and_zero.py:138` |
+| 72 | `_RosClient.start_clock` | — | — | 0° 대기 시계 기점(호밍 종료 시점) | `home_and_zero.py:146` |
+| 73 | `_RosClient.elapsed` | — | `float` | 기점 이후 경과(초) | `home_and_zero.py:149` |
+| 74 | `_RosClient.service_available` | — | `bool` | `~/home` 서비스 대기(5 s). 부재는 호밍 실패와 다른 종료코드로 갈린다 | `home_and_zero.py:154` |
+| 75 | `_RosClient.call_home` | — | `(bool,str)` | `~/home` 비동기 호출·완료 대기(300 s). 반환 직후 대기 시계 기점을 찍는다 | `home_and_zero.py:157` |
+| 76 | `_RosClient.send_steer_zero` | — | — | `~/steer_deg` 에 `0.0` 1회 발행(응답 없음) | `home_and_zero.py:168` |
+| 77 | `_RosClient.steer_angles_deg` | — | `dict` | `spin_once` 후 `fresh_or_none` 적용값 | `home_and_zero.py:172` |
+| 78 | `_RosClient.sleep` | `seconds` | — | `spin_once` 로 대기(콜백을 굶기지 않는다) | `home_and_zero.py:180` |
+| 79 | `_RosClient.log` | `msg` | — | 노드 로거 | `home_and_zero.py:184` |
+| 80 | `main` | `argv` | `int` | 파라미터(`tol_deg`·`timeout_s`) 선언 → 경고 → `run()` 종료코드 반환 | `home_and_zero.py:188` |
+
+### 5-1. 종료코드
+
+| 코드 | 이름 | 조건 |
+| --- | --- | --- |
+| 0 | `EXIT_OK` | 0° 도달 확인 |
+| 2 | `EXIT_HOME_FAILED` | 호밍 실패 — **0° 를 발행하지 않는다** |
+| 3 | `EXIT_ZERO_UNREACHED` | 0° 지령은 나갔으나 `timeout_s` 안에 도달 미확인 |
+| 4 | `EXIT_NO_SERVICE` | `~/home` 서비스 부재 — 호밍도 0° 도 요청하지 않는다 |
+
 ## 전역변수표
 
 ### 모듈 전역
@@ -199,6 +235,10 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | `PROC_ROOT` | `health.py:40` | `str` | `/proc`. 시험이 가짜 트리를 주입하는 지점 | 없음(상수) |
 | `COMM_MAX` | `health.py:41` | `int` | 15 — `/proc/<pid>/comm` 길이 한계. `system_health` 의 `expected_processes` 와 같은 제약 | 없음(상수) |
 | `WAIT`·`RUNNING`·`IDLE`·`DEAD`·`ZOMBIE`·`RESTORE`·`HOLD` | `health.py:44-50` | `str` | `decide()` 판정값 7종 | 없음(상수) |
+
+| `STEER_NODES` | `home_and_zero.py:19` | `tuple` | `(3, 4)` — 조향 노드 | 없음(상수) |
+| `EXIT_OK`·`EXIT_HOME_FAILED`·`EXIT_ZERO_UNREACHED`·`EXIT_NO_SERVICE` | `home_and_zero.py:20` | `int` | `0·2·3·4` (§5-1) | 없음(상수) |
+| `FEEDBACK_TTL_S` | `home_and_zero.py:21` | `float` | `1.0` — 실측을 인정하는 최대 나이(초). ⚠ 선택값이며 실측 근거 없음 | 없음(상수) |
 
 `backend.py`·`supervisor.py` 의 모듈 전역은 **0개**다(상수는 `safety.py`·`link.py`·`health.py` 소유).
 

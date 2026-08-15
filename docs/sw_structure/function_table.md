@@ -13,7 +13,7 @@
 | `seer_pose_publisher` (Seer→/robot_pose) | [src/Navigation/seer_pose_publisher/docs/function_table.md](../../src/Navigation/seer_pose_publisher/docs/function_table.md) | 8 (+이너 0) | 전수 | 2026-08-06 |
 | `mcl2d_core` | [src/Navigation/mcl2d_core/docs/function_table.md](../../src/Navigation/mcl2d_core/docs/function_table.md) | — | (별도 세션 작성) | — |
 | `line_vision` (YOLOv8-seg 라인 인식) | [src/AI/line_vision/docs/code_review/ai-line-vision/2026-08-13.md](../../src/AI/line_vision/docs/code_review/ai-line-vision/2026-08-13.md) | 17 (+dataclass 1·상수 8) | 전수 | 2026-08-13 |
-| `can_relay` / **backend·driver_node·health·supervisor 한정** | [src/Comm/CAN/can_relay/docs/function_table.md](../../src/Comm/CAN/can_relay/docs/function_table.md) | 64 (+전역 5·RelayConfig 12·SupervisorConfig 4) | **부분** — `link.py`·`protocol.py`·`safety.py`·`ui/` 미작성 | 2026-08-15 |
+| `can_relay` / **backend·driver_node·health·supervisor·home_and_zero 한정** | [src/Comm/CAN/can_relay/docs/function_table.md](../../src/Comm/CAN/can_relay/docs/function_table.md) | 80 (+전역 8·RelayConfig 12·SupervisorConfig 4) | **부분** — `link.py`·`protocol.py`·`safety.py`·`ui/` 미작성 | 2026-08-15 |
 | `trnav_2ws_action_server` / **line_follow 한정** | [src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md](../../src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md) | 13 (+struct 2·enum 1·클래스 2) | **부분** — line_follow 만 | 2026-08-14 |
 
 ## ⚠ 미등재 — inventory-gate 가 빈 통과하는 범위
@@ -28,7 +28,7 @@
 | `trnav_2ws_motion` (액션 베이스) | `qd_action_server_base.hpp` — `publishWheelCmd`·`guardSteer` 등 | 상류 조향 가드가 여기 있다 |
 | `trnav_2ws_kinematics` | IK·dual bicycle·crab | |
 | `trnav_motion_mux` · `amr_motor_cmd_translator` | 체인 중간 | |
-| `can_relay` 의 나머지 | `link.py`·`protocol.py`·`safety.py`·`ui/` | `backend.py`·`driver_node.py`·`health.py`·`supervisor.py` 는 2026-08-15 등재됨(위 표) |
+| `can_relay` 의 나머지 | `link.py`·`protocol.py`·`safety.py`·`ui/` | `backend.py`·`driver_node.py`·`health.py`·`supervisor.py`·`home_and_zero.py` 는 2026-08-15 등재됨(위 표) |
 | `QD/trnav_motion_action_server` 전체 | 액션 9개 | 검증된 상류 — 2WS 대조 기준 |
 
 ## ⚠ 2026-08-09 변경분 중 **표가 없어 등재하지 못한 것**
