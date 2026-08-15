@@ -1250,3 +1250,17 @@ def test_snapshot_exposes_home_failed():
         assert snap["homed_effective"] is False
     finally:
         be.shutdown()
+
+
+def test_failed_home_is_visible_without_sending_a_command():
+    """**화면에 드러나야 한다** — 조향이 잠긴 상태를 「정상」으로 적으면 지령을 걸어
+    거부당하기 전까지 운용자가 알 길이 없다. 실기에서 그렇게 보였다(2026-08-15 13:53,
+    ERR_ABORT 뒤 상태줄이 계속 「정상」).
+    """
+    import inspect
+    from can_relay import driver_node as D
+    src = inspect.getsource(D.CanRelayNode._on_diag_timer)
+    assert 'snap["home_failed"]' in src, "상태 판정이 래치를 보지 않는다"
+    assert 'key="home_failed"' in src, "진단 KeyValue 로도 노출해야 한다"
+    # 「호밍 진행 중」보다 뒤에 와야 한다 — 호밍 중에는 그쪽 문구가 맞다.
+    assert src.index('snap["homing"]') < src.index('snap["home_failed"]')

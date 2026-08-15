@@ -314,6 +314,8 @@ class MainWindow(QWidget):
             " border:1px solid #44515e; border-radius:4px; margin-top:6px; }"
             "QPushButton:disabled { background:#e8edf2; color:#8894a2; }")
         self.btn_home.clicked.connect(self._homing_clicked)
+        # 제어권을 쥐기 전에는 누를 수 없다. 이후 상태는 `_sync_home_button` 이 쥔다.
+        self.btn_home.setEnabled(False)
         v.addWidget(self.btn_home)
         return g
 
@@ -510,6 +512,31 @@ class MainWindow(QWidget):
             self.btn_take.setChecked(engaged)
             self.btn_take.setText("제어권 해제" if engaged else "제어권 획득")
             self.btn_take.blockSignals(False)
+        self._sync_home_button(engaged)
+
+    def _sync_home_button(self, engaged: bool):
+        """호밍 버튼은 **제어권을 쥐고 있을 때만** 누를 수 있다.
+
+        호밍은 조향 드라이브의 내부 루틴(`0x60FB:04`)을 부르는 것이라 릴레이로 버스를
+        쥐고 있어야 성립한다. 조그와 달리 **Seer 쪽 대체 경로가 없다** — Seer 로봇 API 의
+        제어 명령(2000·2001·2002·2003·2010·2022~2025)에 조향 호밍이 없다.
+
+        버튼이 제어권을 대신 잡아 주지는 않는다. 획득은 Seer 를 밀어내는 동작이라
+        운용자가 그 버튼을 눌러 명시적으로 해야 한다.
+
+        capability 로 이미 막힌 백엔드는 건드리지 않는다 — 그 사유 툴팁을 덮으면
+        「왜 못 누르는가」가 바뀌어 버린다.
+        """
+        if not self.be.can(CAP_HOME):
+            return
+        allow = bool(engaged) and not self._homing
+        if self.btn_home.isEnabled() != allow:
+            self.btn_home.setEnabled(allow)
+        self.btn_home.setToolTip(
+            "" if allow else
+            ("호밍 진행 중" if self._homing else
+             "제어권을 먼저 획득하세요 — 호밍은 릴레이로 버스를 쥐고 있어야 하고 "
+             "Seer 쪽 대체 경로가 없습니다"))
 
     def _meas_angle(self, node):
         """그 축의 실측 조향각(°). 백엔드 값이 없으면 Seer 판독으로 대신한다."""
@@ -598,8 +625,9 @@ class MainWindow(QWidget):
         elif name == "USB":
             self.btn_take.setEnabled(ok and self.btn_usb.isChecked())
         elif name == "호밍":
+            # 버튼 상태는 `_sync_home_button` 하나가 쥔다 — 여기서도 켜면 제어권을 놓은
+            # 뒤 호밍이 끝났을 때 눌 수 없어야 할 버튼이 켜진다.
             self._homing = False
-            self.btn_home.setEnabled(True)
 
     def _on_usb(self, on: bool):
         """USB 토글 — 버튼 문구를 바꾸고 개폐를 작업 스레드에 맡긴다."""
@@ -869,6 +897,11 @@ class MainWindow(QWidget):
             return
         if self._jog_th is not None and self._jog_th.is_alive():
             self.log("조그 진행 중 — 먼저 정지하세요")
+            return
+        if not self._engaged():
+            # 버튼이 이미 비활성이라 정상 경로로는 여기 오지 않는다. 그래도 막는다 —
+            # 그냥 두면 백엔드의 내부 사정(「기동돼 있지 않다」)이 운용자에게 나간다.
+            self.log("호밍 불가 — 제어권을 먼저 획득하세요")
             return
         if QMessageBox.question(
                 self, "조향 원점 복귀",

@@ -423,6 +423,11 @@ class CanRelayNode(Node):
             st.level, st.message = DiagnosticStatus.WARN, "제어권 미획득 (대기)"
         elif snap["homing"]:
             st.level, st.message = DiagnosticStatus.WARN, "호밍 진행 중 — 위치 무효"
+        elif snap["home_failed"]:
+            # 조향이 잠긴 상태를 「정상」으로 적으면, 지령을 걸어 거부당하기 전까지
+            # 운용자가 알 길이 없다. 다음에 할 일까지 문장에 싣는다.
+            st.level, st.message = (DiagnosticStatus.WARN,
+                                    "조향 잠금 — 직전 호밍 미완료. `~/home` 재수행 필요")
         elif any(not v["fresh"] for v in snap["nodes"].values()):
             stale = sorted(n for n, v in snap["nodes"].items() if not v["fresh"])
             st.level, st.message = DiagnosticStatus.ERROR, f"피드백 끊긴 노드 {stale}"
@@ -433,6 +438,7 @@ class CanRelayNode(Node):
 
         st.values = [
             KeyValue(key="engaged", value=str(snap["engaged"])),
+            KeyValue(key="home_failed", value=str(snap["home_failed"])),
             KeyValue(key="drive_units", value=str(snap["drive_units"])),
             KeyValue(key="steer_target_deg", value=str(snap["steer_target_deg"])),
             KeyValue(key="watchdog_trips", value=str(snap["watchdog_trips"])),
