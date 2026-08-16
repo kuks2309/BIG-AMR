@@ -54,21 +54,23 @@ class WheelOdometry(Node):
     def __init__(self):
         super().__init__('wheel_odometry')
 
-        self.declare_parameter('w1_x', 0.6039)
-        self.declare_parameter('w1_y', -0.0014)
-        self.declare_parameter('w2_x', -0.5961)
-        self.declare_parameter('w2_y', -0.0014)
-        self.declare_parameter('wheel_radius', 0.125)
+        # 휠 기하에는 **기본값을 두지 않는다.** 정본은 trnav_2ws_core/config/robot_geometry_2ws.yaml
+        #   하나이며 런치가 주입한다. 여기에 '그럴듯한' 기본값을 두면 정본이 갱신돼도 이 노드만
+        #   옛 값으로 조용히 돌아간다 — 그래서 미주입은 기동 실패로 처리한다.
+        for key in ('w1_x', 'w1_y', 'w2_x', 'w2_y', 'wheel_radius'):
+            self.declare_parameter(key, float('nan'))
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_footprint')
         self.declare_parameter('publish_tf', True)
 
         g = self.get_parameter
-        self.wheels = [
-            (g('w1_x').value, g('w1_y').value),
-            (g('w2_x').value, g('w2_y').value),
-        ]
-        self.wheel_radius = g('wheel_radius').value
+        geom = {k: float(g(k).value) for k in ('w1_x', 'w1_y', 'w2_x', 'w2_y', 'wheel_radius')}
+        missing = [k for k, v in geom.items() if math.isnan(v)]
+        if missing:
+            raise RuntimeError(
+                f'휠 기하 파라미터 미주입: {missing} — 런치가 robot_geometry_2ws.yaml 을 얹어야 한다')
+        self.wheels = [(geom['w1_x'], geom['w1_y']), (geom['w2_x'], geom['w2_y'])]
+        self.wheel_radius = geom['wheel_radius']
         self.odom_frame = g('odom_frame').value
         self.base_frame = g('base_frame').value
         self.publish_tf = g('publish_tf').value
@@ -79,6 +81,12 @@ class WheelOdometry(Node):
             rows.append([1.0, 0.0, -wy])
             rows.append([0.0, 1.0, wx])
         self.A = np.array(rows)
+        # 두 바퀴가 한 점에 겹치면 (v_x, v_y, ω) 를 분리할 수 없다 — pinv 는 그 경우에도 조용히
+        #   최소노름 해를 돌려주므로 여기서 먼저 막는다. det(AᵀA) = 2·d² (d = 바퀴 간 거리).
+        dx = self.wheels[0][0] - self.wheels[1][0]
+        dy = self.wheels[0][1] - self.wheels[1][1]
+        if math.hypot(dx, dy) < 1e-6:
+            raise RuntimeError('두 바퀴 좌표가 같다 — 회전을 관측할 수 없는 기하다')
         self.A_pinv = np.linalg.pinv(self.A)
 
         self.x = 0.0
