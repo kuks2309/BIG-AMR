@@ -9,7 +9,11 @@
 | 구분 | 파일 |
 | --- | --- |
 | 오도 소비(측위) | `mcl2d_core/{types,motion_model,particle_filter,skid_detector}.{hpp,cpp}` · `mcl2d_core/test/test_motion_oracle.cpp` · `mcl2d_standalone/mcl2d_localizer.{hpp,cpp}` · `mcl2d_ros2/{conversions.hpp,mcl2d_localization_node.cpp}` |
-| 오도 생산 | `motor_control/driver_node.py`(실기 휠 오도) · `trnav_2ws_gazebo/scripts/wheel_odometry.py`(시뮬) · `translate_sim_odom/{node.hpp,node.cpp,config/sim_params.yaml}` |
+| 오도 생산 | `motor_control/driver_node.py`(실기 휠 오도) |
+
+시뮬 오도(`trnav_2ws_gazebo/scripts/wheel_odometry.py` · `translate_sim_odom`)도 함께 재작성했으나,
+Gazebo·SIL 인프라는 이 세션 목적(Seer 원본 odom 분석·이식본 정합) 밖이라
+`session/5466b21a-simgeom` 브랜치로 분리했다.
 
 ## 왜
 

@@ -2,9 +2,8 @@
 """
 wheel_odometry — 실 로봇의 motor_control 이 하던 오도메트리를 시뮬에서 대신한다.
 
-실 로봇: driver_node.py 가 조향 실위치(0x6064)·구동 피드백으로 odom + odom→base_link TF 발행
-시뮬   : joint_states(joint_state_broadcaster)의 조향각·구동 각속도로 같은 계산을 한다.
-         두 경로가 같은 기구학을 써야 SIL 결과를 실기 근거로 인용할 수 있다.
+실 로봇: driver_node.py 가 0x6064(조향 실위치)·구동 피드백으로 /odom + odom→base_link TF 발행
+시뮬   : /joint_states (joint_state_broadcaster) 의 조향각·구동 각속도로 동일하게 계산
 
 2WS 정기구학 (IK 의 역):
     바퀴 i 의 속도벡터(body frame) = (v_i·cosδ_i, v_i·sinδ_i)
@@ -37,7 +36,7 @@ def yaw_to_quat(yaw):
 
 
 
-# TOPIC NAMES ARE RELATIVE, DELIBERATELY.
+# TOPIC NAMES ARE RELATIVE, DELIBERATELY (2026-08-06).
 #
 # A leading slash makes a topic ABSOLUTE and the node's namespace is ignored.
 # That is invisible with one robot, where the namespace is empty and the two
@@ -54,23 +53,21 @@ class WheelOdometry(Node):
     def __init__(self):
         super().__init__('wheel_odometry')
 
-        # 휠 기하에는 **기본값을 두지 않는다.** 정본은 trnav_2ws_core/config/robot_geometry_2ws.yaml
-        #   하나이며 런치가 주입한다. 여기에 '그럴듯한' 기본값을 두면 정본이 갱신돼도 이 노드만
-        #   옛 값으로 조용히 돌아간다 — 그래서 미주입은 기동 실패로 처리한다.
-        for key in ('w1_x', 'w1_y', 'w2_x', 'w2_y', 'wheel_radius'):
-            self.declare_parameter(key, float('nan'))
+        self.declare_parameter('w1_x', 0.6039)
+        self.declare_parameter('w1_y', -0.0014)
+        self.declare_parameter('w2_x', -0.5961)
+        self.declare_parameter('w2_y', -0.0014)
+        self.declare_parameter('wheel_radius', 0.125)
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_footprint')
         self.declare_parameter('publish_tf', True)
 
         g = self.get_parameter
-        geom = {k: float(g(k).value) for k in ('w1_x', 'w1_y', 'w2_x', 'w2_y', 'wheel_radius')}
-        missing = [k for k, v in geom.items() if math.isnan(v)]
-        if missing:
-            raise RuntimeError(
-                f'휠 기하 파라미터 미주입: {missing} — 런치가 robot_geometry_2ws.yaml 을 얹어야 한다')
-        self.wheels = [(geom['w1_x'], geom['w1_y']), (geom['w2_x'], geom['w2_y'])]
-        self.wheel_radius = geom['wheel_radius']
+        self.wheels = [
+            (g('w1_x').value, g('w1_y').value),
+            (g('w2_x').value, g('w2_y').value),
+        ]
+        self.wheel_radius = g('wheel_radius').value
         self.odom_frame = g('odom_frame').value
         self.base_frame = g('base_frame').value
         self.publish_tf = g('publish_tf').value
@@ -81,12 +78,6 @@ class WheelOdometry(Node):
             rows.append([1.0, 0.0, -wy])
             rows.append([0.0, 1.0, wx])
         self.A = np.array(rows)
-        # 두 바퀴가 한 점에 겹치면 (v_x, v_y, ω) 를 분리할 수 없다 — pinv 는 그 경우에도 조용히
-        #   최소노름 해를 돌려주므로 여기서 먼저 막는다. det(AᵀA) = 2·d² (d = 바퀴 간 거리).
-        dx = self.wheels[0][0] - self.wheels[1][0]
-        dy = self.wheels[0][1] - self.wheels[1][1]
-        if math.hypot(dx, dy) < 1e-6:
-            raise RuntimeError('두 바퀴 좌표가 같다 — 회전을 관측할 수 없는 기하다')
         self.A_pinv = np.linalg.pinv(self.A)
 
         self.x = 0.0

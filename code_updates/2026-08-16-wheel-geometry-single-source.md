@@ -1,5 +1,11 @@
 # 휠 기하를 config 단일 출처에서 읽도록
 
+## 범위
+
+Seer 오도 분석·이식 범위에 해당하는 **`motor_control/config/tongyi_amr.yaml` 정합만** 이 브랜치에 있다.
+시뮬 구현(`trnav_2ws_gazebo`·`translate_sim_odom`)은 `session/5466b21a-simgeom` 으로 분리했다 —
+Gazebo·SIL 인프라는 이 세션 목적 밖이다.
+
 ## 무엇을
 
 오도메트리 경로가 쓰는 휠 기하를 정본 `trnav_2ws_core/config/robot_geometry_2ws.yaml`

@@ -31,6 +31,18 @@ Accepted (2026-08-16). 구현·검증 완료, 최종 verdict 는 외부 리뷰 �
 현재 이 노드를 띄우는 런치 19개는 **전부** `sim_params.yaml` 을 주므로 실사용 경로에서는 발동하지
 않는다(2026-08-16 전수 확인). 즉 지금 당장의 오동작이 아니라, 런치를 하나 새로 쓸 때 열리는 문이다.
 
+## 범위 (분리)
+
+이 ADR 은 결정과 근거를 담고, **구현은 두 브랜치로 갈라져 있다.**
+
+| 부분 | 어디에 |
+| --- | --- |
+| `motor_control/config/tongyi_amr.yaml` 정합 (실기 휠 오도) | 본 브랜치 — Seer 오도 분석·이식 범위 안 |
+| 시뮬 구현(`trnav_2ws_gazebo` 런치·스크립트·시험, `translate_sim_odom`) | `session/5466b21a-simgeom` — 시뮬 스택 소유 세션 판단 |
+
+Seer 위치추정 분석 세션에서 파생됐으나 Gazebo·SIL(Software In the Loop) 인프라는 그 세션의
+목적(원본 odom 처리 분석·이식본 정합)에 해당하지 않아 분리했다.
+
 ## Decision
 
 1. **정본은 `trnav_2ws_core/config/robot_geometry_2ws.yaml` 하나다.** 새 파일을 만들지 않는다 —
@@ -40,8 +52,8 @@ Accepted (2026-08-16). 구현·검증 완료, 최종 verdict 는 외부 리뷰 �
    **기동을 실패시킨다.** 조용히 틀린 기하로 도는 것보다 뜨지 않는 편이 낫다.
    (기존 기본값은 "맞는 값처럼 보이지만 정본과 갈린" 상태였고, 그것이 이 ADR 의 원인이다.)
 3. **런치가 정본을 주입한다.** `sim.launch.py`·`fleet.launch.py` 가 `robot_geometry_2ws.yaml` 을
-   노드 파라미터로 얹는다. `translate_sim_odom` 을 띄우는 런치는 이미 전부 파라미터를 주므로
-   런치 수정이 필요 없다.
+   노드 파라미터로 얹는다(구현은 `session/5466b21a-simgeom`). `translate_sim_odom` 을 띄우는
+   런치는 이미 전부 파라미터를 주므로 런치 수정이 필요 없다.
 4. **`tongyi_amr.yaml` 의 `module_y` 를 정본과 같은 `0.0` 으로 맞춘다.**
    ⚠ `module_x` 의 전·후 배정(node1 = Rear 가정)은 **미판정이므로 건드리지 않는다** — 이 ADR 은
    좌표값을 정본에 맞출 뿐 CAN 노드 매핑을 바꾸지 않는다.
