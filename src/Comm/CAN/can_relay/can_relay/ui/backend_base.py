@@ -124,3 +124,11 @@ class BackendBase:
     def why_not(self, cap: str) -> str:
         """그 기능을 못 쓰는 이유 한 줄 — 버튼 툴팁에 그대로 쓴다."""
         return f"{self.name} 백엔드에서는 이 기능을 쓰지 않습니다"
+
+    def supervisor_status(self):
+        """감시자(relay_supervisor) 판정 `(verdict, message, age_s)`.
+
+        감시자를 볼 수 없는 백엔드(직결 등)는 `None` 을 돌려준다 — 화면은 그것을
+        「미지원」으로, `(None, …)` 튜플은 「아직 미수신」으로 구분해 그린다.
+        """
+        return None

@@ -460,6 +460,19 @@ debt-075 는 ①②③ 전 항목 상환, 잔여는 펌웨어 fail-safe 버스 �
 - `home_and_zero` 재작성(212→314줄): monotonic 시계·파라미터 주입·멱등 재발행·
   미수용/무효/미확인 종료코드(5·6·7)·confirm 게이트. 시험 20종. → debt-084 해결.
 
+## 17. GUI 에 감시 상태 표시 (2026-08-16)
+
+can_relay 가 상시 감시·자동 복귀 체계로 바뀌었으므로 운용 GUI 가 그것을 보여야 한다
+(사람이 누르지 않은 engage 가 화면에서 「감시 전이」로 설명되게).
+
+- `backend_base.supervisor_status()` 계약 신설 — 기본 `None`(미지원, 직결 백엔드).
+- `backend_ros2`: `/relay_supervisor/status` 구독 + 순수 `parse_supervisor_status`
+  (verdict 는 KeyValue 정본), `(verdict, message, age_s)` 조회.
+- `app`: 하단 상태 바 3번째 칸 — 판정별 색(7종), 미수신·두절(5 s) 구분 표시,
+  판정 전이를 GUI 로그로 기록.
+- 검증: 순수 파서 시험 3종 · 패키지 494 passed · 실장비 가동 중 감시자 유닛에서
+  수신 확인(IDLE). ⚠ 표시 렌더링 자체는 화면 실행으로만 확인 가능 — GUI 재시작 필요.
+
 ## 미검증 · 후속 (부채 등록 완료)
 
 | id | 유형 | 내용 |

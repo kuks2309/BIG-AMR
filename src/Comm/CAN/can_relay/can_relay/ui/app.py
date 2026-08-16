@@ -472,9 +472,22 @@ class MainWindow(QWidget):
         self.lab_status = QLabel(f"Seer {self._seer_ip} · 접속 시도 중…")
         self.lab_status.setStyleSheet(
             "padding:4px 8px; border-top:1px solid #cfd8e0; color:#5d6d7e;")
+        self.lab_sup = QLabel("감시 —")
+        self.lab_sup.setStyleSheet(self._SUP_CSS % "#5d6d7e")
         lay.addWidget(self.lab_link, 1)
         lay.addWidget(self.lab_status, 1)
+        lay.addWidget(self.lab_sup, 1)
         return box
+
+    _SUP_CSS = ("padding:4px 8px; border-top:1px solid #cfd8e0; "
+                "color:%s; font-weight:600;")
+    # 감시 판정 색 — 초록 = 정상 부류, 호박 = 유예, 주홍 = 차단, 빨강 = 죽음/정체,
+    # 파랑 = 복귀 중. 판정값은 감시자(`health.py`)의 7종 그대로다.
+    _SUP_COLORS = {"RUNNING": "#1e8449", "IDLE": "#5d6d7e", "WAIT": "#b7950b",
+                   "RESTORE": "#2471a3", "HOLD": "#ca6f1e",
+                   "DEAD": "#c0392b", "ZOMBIE": "#c0392b"}
+    _SUP_STALE_S = 5.0
+    #   감시자 상태의 신선 한계(초). 발행은 틱(기본 2 Hz)마다이므로 5 s 면 확실한 두절이다.
 
     _LINK_OK_CSS = ("padding:4px 8px; border-top:1px solid #cfd8e0; "
                     "color:#1e8449; font-weight:600;")
@@ -503,6 +516,7 @@ class MainWindow(QWidget):
         self._redraw_wheel()
 
         self._refresh_link()
+        self._refresh_supervisor()
         text, ok, engaged = self.be.status()
         if text != getattr(self, "_last_status", None):
             self._last_status = text
@@ -513,6 +527,37 @@ class MainWindow(QWidget):
             self.btn_take.setText("제어권 해제" if engaged else "제어권 획득")
             self.btn_take.blockSignals(False)
         self._sync_home_button(engaged)
+
+    def _refresh_supervisor(self):
+        """감시자(relay_supervisor) 판정 표시 + 판정 전이를 로그로.
+
+        감시자는 드라이버가 죽으면 자동 복귀(engage)까지 하므로, 사람이 누르지 않은
+        제어권 변화가 화면에서 「감시 전이」로 설명되게 한다.
+        """
+        got = None
+        try:
+            got = self.be.supervisor_status()
+        except Exception:
+            pass
+        if got is None:                       # 이 백엔드는 감시자를 볼 수 없다(직결 등)
+            self.lab_sup.setText("감시 — (이 백엔드에서는 비표시)")
+            self.lab_sup.setStyleSheet(self._SUP_CSS % "#5d6d7e")
+            return
+        verdict, msg, age = got
+        if verdict is None:
+            self.lab_sup.setText("감시자 미수신")
+            self.lab_sup.setStyleSheet(self._SUP_CSS % "#b7950b")
+            return
+        if age is not None and age > self._SUP_STALE_S:
+            self.lab_sup.setText(f"감시자 두절 {age:.0f}s (마지막: {verdict})")
+            self.lab_sup.setStyleSheet(self._SUP_CSS % "#c0392b")
+            return
+        self.lab_sup.setText(f"감시 {msg}" if msg else f"감시 {verdict}")
+        self.lab_sup.setStyleSheet(
+            self._SUP_CSS % self._SUP_COLORS.get(verdict, "#b7950b"))
+        if verdict != getattr(self, "_last_sup_verdict", None):
+            self._last_sup_verdict = verdict
+            self.log_line.emit(f"[감시] {msg or verdict}")
 
     def _sync_home_button(self, engaged: bool):
         """호밍 버튼은 **제어권을 쥐고 있을 때만** 누를 수 있다.

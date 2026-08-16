@@ -31,6 +31,20 @@ DRIVE_REPUBLISH_HZ = 20.0   # 드라이버 `cmd_hz` 와 같은 주기로 구동 
 ZERO_HOLD_S = 0.5           # 정지(0) 를 반복 발행하는 시간
 
 
+def parse_supervisor_status(statuses):
+    """`/relay_supervisor/status` 의 status 목록에서 `(verdict, message)` 를 뽑는다.
+
+    감시자 항목(`can_relay_supervisor` 접두)이 없으면 `None`. verdict 는 KeyValue
+    가 정본이고 message 는 사람이 읽는 전문(「판정 — 사유」)이다.
+    """
+    for st in statuses:
+        if not str(st.name).startswith("can_relay_supervisor"):
+            continue
+        kv = {v.key: v.value for v in st.values}
+        return kv.get("verdict", ""), str(st.message)
+    return None
+
+
 class RelayClient(Node):
     """`can_relay_node` 와 말하는 ROS 노드. Qt 를 import 하지 않는다.
 
@@ -63,6 +77,9 @@ class RelayClient(Node):
         self._diag_kv: dict = {}
         self._motor_state: dict = {}
         self._motor_state_at = 0.0
+        self._sup_verdict = None    # 감시자 판정. None = 아직 미수신
+        self._sup_msg = ""
+        self._sup_at = 0.0
 
         self.pub_steer = self.create_publisher(Float64, f"{ns}/steer_deg", 10)
         self.pub_steer_axis = self.create_publisher(
@@ -75,6 +92,8 @@ class RelayClient(Node):
 
         self.create_subscription(JointState, "/joint_states", self._on_joints, 10)
         self.create_subscription(DiagnosticArray, "/diagnostics", self._on_diag, 10)
+        self.create_subscription(DiagnosticArray, "/relay_supervisor/status",
+                                 self._on_supervisor, 10)
 
         self.cli_engage = self.create_client(SetBool, f"{ns}/engage")
         self.cli_stop = self.create_client(Trigger, f"{ns}/stop")
@@ -122,6 +141,15 @@ class RelayClient(Node):
                 self._diag_at = time.monotonic()
                 self._diag_kv = {kv.key: kv.value for kv in st.values}
 
+    def _on_supervisor(self, msg: DiagnosticArray):
+        """감시자 판정·전문·수신 시각을 남긴다."""
+        got = parse_supervisor_status(msg.status)
+        if got is None:
+            return
+        with self._lock:
+            self._sup_verdict, self._sup_msg = got
+            self._sup_at = time.monotonic()
+
     def _on_low_state(self, msg):
         """모터 raw 피드백을 `{motor_id: MotorState}` 로 갈무리한다."""
         with self._lock:
@@ -147,6 +175,14 @@ class RelayClient(Node):
         with self._lock:
             fresh = (time.monotonic() - self._diag_at) <= 3.0 if self._diag_at else False
             return self._diag_level, self._diag_text, fresh, dict(self._diag_kv)
+
+    def supervisor_status(self):
+        """`(verdict, message, age_s)`. 수신 이력이 없으면 `(None, "", None)`."""
+        with self._lock:
+            if self._sup_verdict is None:
+                return None, "", None
+            return (self._sup_verdict, self._sup_msg,
+                    time.monotonic() - self._sup_at)
 
     def motor_states(self) -> dict:
         """`{motor_id: MotorState}` — 1초 넘게 낡았으면 빈 dict."""
@@ -288,6 +324,12 @@ class Ros2Backend(BackendBase):
         ns = str(self.node.cfg["driver_ns"]).rstrip("/")
         return (fresh, f"can_relay {ns} · 연결됨" if fresh
                 else f"can_relay {ns} · ⚠ 끊김 — 드라이버 응답 없음")
+
+    def supervisor_status(self):
+        """감시자 판정 위임 — ROS 백엔드만 볼 수 있다. 미기동이면 미수신과 같다."""
+        if self.node is None:
+            return None, "", None
+        return self.node.supervisor_status()
 
     def status(self) -> tuple:
         """드라이버 진단을 한 줄로 요약한다. 진단이 낡았으면 정상·제어권 모두 거짓이다."""
