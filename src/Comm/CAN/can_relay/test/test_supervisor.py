@@ -15,7 +15,7 @@ from can_relay.health import (DEAD, HOLD, IDLE, RESTORE, RUNNING, WAIT, ZOMBIE,
                               Observation, SupervisorConfig, as_level, boot_id,
                               decide, default_state_dir, is_outage, next_prev,
                               next_was_down, parse_diag, proc_alive, prune_stamps,
-                              restore_call_expired)
+                              restore_call_expired, recycle_due)
 
 CFG = SupervisorConfig(diag_timeout_s=3.0, restart_limit=3, restart_window_s=120.0)
 ENGAGED = {"engaged": True}
@@ -365,6 +365,16 @@ def test_unknown_process_state_is_not_called_zombie():
     assert "확인 불가" in why
 
 
+def test_recycle_due_requires_both_ages():
+    """재생성은 두절과 「마지막 재생성 이후」가 **둘 다** 임계를 넘어야 한다."""
+    cfg = SupervisorConfig(recycle_after_s=15.0)
+    assert recycle_due(20.0, 20.0, cfg) is True
+    assert recycle_due(20.0, 5.0, cfg) is False    # 방금 재생성했다 — 간격 반복
+    assert recycle_due(5.0, 20.0, cfg) is False    # 두절이 아직 짧다
+    assert recycle_due(None, 999.0, cfg) is False  # 수신 이력 없음 — 깨질 세션이 없다
+    assert recycle_due(20.0, 20.0, SupervisorConfig(recycle_after_s=0.0)) is False  # 비활성
+
+
 def test_prune_stamps_is_pure_and_windowed():
     """잘라내기는 새 목록을 돌려주고 원본을 바꾸지 않는다(조회·갱신 분리)."""
     stamps = [100.0, 150.0, 190.0]
@@ -504,3 +514,29 @@ def test_restore_eligibility_survives_a_failed_attempt(sup, monkeypatch):
     _observe(sup, engaged=False)     # 창 밖 첫 틱
     _observe(sup, engaged=False)     # 다음 틱
     assert len(tried) >= 2, f"복귀 시도가 {len(tried)}회뿐 — 실패하면 영구 포기한다"
+
+
+def test_carry_roundtrip_preserves_watch_state(tmp_path):
+    """참여자 재생성 이월이 감시 상태를 온전히 승계해야 한다.
+
+    이월이 깨지면 재생성 순간 두절 시계·두절 경험이 초기화되어, 대상이 죽어 있던
+    경우 「한 번도 못 받음」(WAIT)으로 읽혀 복귀가 영영 걸리지 않는다.
+    """
+    rclpy.init(args=["--ros-args", "-p", f"state_dir:={tmp_path}"])
+    try:
+        a = RelaySupervisor()
+        a._was_down = True
+        a._last_diag = 123.0
+        a._restore_stamps = [1.0, 2.0]
+        a._verdict = "ZOMBIE"
+        carry = a.export_carry()
+        a.destroy_node()
+        b = RelaySupervisor(carry=carry)
+        assert b._was_down is True
+        assert b._last_diag == 123.0
+        assert b._restore_stamps == [1.0, 2.0]
+        assert b._verdict == "ZOMBIE"
+        assert b._recycle_wanted is False
+        b.destroy_node()
+    finally:
+        rclpy.shutdown()

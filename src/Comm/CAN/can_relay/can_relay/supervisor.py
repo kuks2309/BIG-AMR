@@ -46,6 +46,7 @@ from std_srvs.srv import SetBool
 from .health import (DEAD, HOLD, IDLE, RESTORE, RUNNING, WAIT, ZOMBIE,
                      Observation, SupervisorConfig, boot_id, decide,
                      default_state_dir, is_outage, next_prev, next_was_down,
+                     recycle_due,
                      parse_diag, proc_alive, prune_stamps,
                      restore_call_expired)
 
@@ -53,7 +54,7 @@ from .health import (DEAD, HOLD, IDLE, RESTORE, RUNNING, WAIT, ZOMBIE,
 class RelaySupervisor(Node):
     """`/diagnostics` 를 보고 상태를 기록하고, 재기동 후 제어권을 되돌린다."""
 
-    def __init__(self):
+    def __init__(self, carry: Optional[dict] = None):
         """파라미터 → 기록 경로 확보 → 구독·클라이언트·타이머."""
         super().__init__("relay_supervisor")
 
@@ -69,6 +70,7 @@ class RelaySupervisor(Node):
             ("zombie_after_s", 45.0),
             ("restore_call_timeout_s", 10.0),
             ("restore_settle_s", 3.0),
+            ("recycle_after_s", 15.0),
         ])
         g = {d.name: d.value for d in p}
 
@@ -80,6 +82,7 @@ class RelaySupervisor(Node):
             zombie_after_s=float(g["zombie_after_s"]),
             restore_call_timeout_s=float(g["restore_call_timeout_s"]),
             restore_settle_s=float(g["restore_settle_s"]),
+            recycle_after_s=float(g["recycle_after_s"]),
         )
         self._target = str(g["target_node"])
         self._prefix = str(g["diag_name_prefix"])
@@ -104,7 +107,19 @@ class RelaySupervisor(Node):
         self._pending = None            # 진행 중인 engage 호출 future
         self._pending_since = None      # 그 호출을 보낸 시각(monotonic)
         self._cur_seen_since = None     # 두절 후 진단이 다시 흐르기 시작한 시각(monotonic)
+        self._last_recycle = time.monotonic()  # 참여자 재생성 간격의 기준점
+        self._recycle_wanted = False    # 참이면 main() 이 컨텍스트·노드를 재구축한다
         self._last_saved = None         # 마지막으로 기록한 내용의 지문(내용 불변 시 재기록 생략)
+        if carry:
+            # 참여자 재생성 이월 — ROS 엔티티만 새로 만들고 감시 상태는 승계한다.
+            # 승계가 없으면 재생성 순간 두절 시계·두절 경험이 초기화되어, 대상이 정말
+            # 죽어 있던 경우 「한 번도 못 받음」으로 읽혀 복귀가 영영 걸리지 않는다.
+            self._prev = carry.get("prev", self._prev)
+            self._was_down = bool(carry.get("was_down", False))
+            self._restore_stamps = list(carry.get("restore_stamps", []))
+            self._last_diag = carry.get("last_diag")
+            self._verdict = carry.get("verdict", self._verdict)
+            self._last_saved = carry.get("last_saved")
 
         self.sub_diag = self.create_subscription(
             DiagnosticArray, "/diagnostics", self._on_diag, 10)
@@ -155,6 +170,16 @@ class RelaySupervisor(Node):
             self._cur_seen_since = None
         elif self._cur_seen_since is None:
             self._cur_seen_since = now
+
+        # 두절이 길면 DDS 참여자(컨텍스트·노드)를 재생성한다 — 발행은 도는데 이쪽
+        # 참여자만 못 받는 상태와 진짜 두절을 밖에서 구분할 수 없으므로, 무해한 쪽
+        # (신규 참여자)을 주기적으로 다시 만든다. 구독만 다시 만드는 것으로는 부족하다
+        # — 같은 참여자 안의 신규 구독은 계속 무수신인 고장이 있다(실측은 verified_facts).
+        if recycle_due(age, now - self._last_recycle, self.cfg):
+            self._recycle_wanted = True
+            self.get_logger().warn(
+                f"진단 두절 {age:.1f}s — DDS 참여자를 재생성한다"
+                f"(간격 {self.cfg.recycle_after_s:.0f}s, 감시 상태는 승계)")
 
         # 상태 갱신(잘라내기)은 여기서 명시적으로 — 조회가 상태를 바꾸지 않게 한다.
         self._restore_stamps = prune_stamps(self._restore_stamps, time.time(),
@@ -313,6 +338,21 @@ class RelaySupervisor(Node):
             return None
         return rec
 
+    # ── 재생성 이월 ───────────────────────────────────────────────────
+    def export_carry(self) -> dict:
+        """참여자 재생성 시 다음 노드 인스턴스로 넘길 감시 상태.
+
+        `monotonic` 기반 시각은 같은 프로세스 안에서 이어지므로 그대로 넘긴다.
+        """
+        return {
+            "prev": self._prev,
+            "was_down": self._was_down,
+            "restore_stamps": list(self._restore_stamps),
+            "last_diag": self._last_diag,
+            "verdict": self._verdict,
+            "last_saved": self._last_saved,
+        }
+
     # ── 발행 ──────────────────────────────────────────────────────────
     def _publish(self, verdict: str, why: str, obs: Observation):
         """감시자 자신의 판정을 진단으로 낸다 — 감시자가 도는지 밖에서 보이게."""
@@ -346,19 +386,33 @@ class RelaySupervisor(Node):
 
 
 def main(args=None):
-    """진입점. 감시자는 제어 경로 밖이므로 단일 스레드 실행기로 충분하다."""
-    rclpy.init(args=args)
-    node = None
-    try:
-        node = RelaySupervisor()
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        if node is not None:
-            node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+    """진입점. 감시자는 제어 경로 밖이므로 단일 스레드 실행기로 충분하다.
+
+    재생성 루프 — 노드가 `_recycle_wanted` 를 세우면 컨텍스트·노드를 허물고 같은
+    프로세스 안에서 다시 만든다(감시 상태는 `export_carry` 로 승계). 진행 중이던
+    복귀 future 는 옛 컨텍스트 소속이라 승계하지 않는다 — 복귀는 다음 틱이 재시도한다.
+    """
+    carry = None
+    while True:
+        rclpy.init(args=args)
+        node = None
+        interrupted = False
+        try:
+            node = RelaySupervisor(carry=carry)
+            while rclpy.ok() and not node._recycle_wanted:
+                rclpy.spin_once(node, timeout_sec=0.2)
+        except KeyboardInterrupt:
+            interrupted = True
+        finally:
+            recycle = (node is not None and node._recycle_wanted
+                       and not interrupted and rclpy.ok())
+            carry = node.export_carry() if recycle else None
+            if node is not None:
+                node.destroy_node()
+            if rclpy.ok():
+                rclpy.shutdown()
+        if carry is None:
+            break
 
 
 if __name__ == "__main__":
