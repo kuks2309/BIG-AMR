@@ -332,11 +332,40 @@ movw $0x0,0x98(%r12)        ; m_odom_init = m_imu_init = 0
 ⚠ **조사 한계**: 위 네 경로 밖으로 값이 들어가는 길(내부 버퍼로의 직접 `memcpy`,
 참조를 다른 곳에서 얻어 쓰기, 상속·friend 접근)은 이 방법으로 잡히지 않는다.
 
-## A.14 아직 모르는 것
+## A.14 `SymmetricMatrix(int)` 는 값을 초기화하지 않는다 `[존재]`
 
-- `SymmetricMatrix(int)` 생성자가 값을 0으로 채우는지 — 채운다면 측정잡음 0(관측 무한 신뢰),
-  아니면 미초기화. **이것이 위 A.13 의 실효를 가른다.**
+`MatrixWrapper::SymmetricMatrix::SymmetricMatrix(int)` @0x180660 — 전문이 24 명령이다:
+
+```
+mov  %rcx,0x8(%rbx)          ; n 저장
+lea  0x1(%rcx),%rax
+imul %rcx,%rax
+shr  %rdi                    ; 원소 수 = n(n+1)/2
+mov  %rdi,0x18(%rbx)
+shl  $0x3,%rdi
+call operator new            ; 원시 할당
+mov  %rax,0x20(%rbx)         ; 버퍼 포인터
+mov  <vtable>,(%rbx)
+ret
+```
+
+**`memset`·0 채움 루프가 없다.** `operator new` 로 받은 메모리를 그대로 버퍼로 쓴다.
+
+⇒ §A.13 과 합치면: `odom_covariance_`(6×6 대칭 = 원소 21개)·`imu_covariance_`(3×3 = 6개)는
+**초기화되지 않은 힙 메모리**를 담은 채 매 주기 `AdditiveNoiseSigmaSet` 으로 측정모델에 들어간다.
+
+⚠ **여기까지가 `[존재]`다.** 런타임에 그 메모리에 무엇이 있는지는 `[동작-미검증]`이다.
+프로세스 초기 할당이면 커널이 0으로 준 페이지라 사실상 0일 수 있고, 재사용된 힙이면 임의값이다.
+**실행 대조 없이 "측정 잡음이 0이다" 도 "쓰레기값이다" 도 단정하지 않는다.**
+
+관측 잡음을 실험으로 잡지 않고 상수로 두고 넘어가는 것은 현장에서 흔한 선택이지만,
+여기서는 **상수조차 넣지 않은 상태**라는 점이 다르다. 상류 `robot_pose_ekf` 가 메시지 공분산으로
+채우던 자리를 이식하면서 대입만 빠진 형태로 보인다.
+
+## A.15 아직 모르는 것
+
+- 위 미초기화 버퍼의 **런타임 실제 값** — 실기 또는 원본 구동 대조가 필요하다.
 - `UseIMU = 0` 일 때 경로(통과인지 별도인지).
-- 슬립 감지 3종(`StartSkidDetection`·`LaserOdomDetectSkid`·임계 5개)이 꺼진 이유.
+- 슬립 감지 3종이 꺼진 이유.
 - `IMUErrorDetect*` 가 켜졌을 때의 거동.
-- `wzOdoAbsDeg` 게이트 임계 1.0 deg/s 의 근거(벤더 판단, 문서 없음).
+- `wzOdoAbsDeg` 게이트 임계 1.0 deg/s 의 근거.
