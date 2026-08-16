@@ -496,10 +496,47 @@ je   → nanosleep           ; 없으면 자고 다시
 **`VarianceCalculator::cal(double)`** — `run()` 에서 3회. 결과는 스택 지역(`0x98(%rsp)`·`(%rsp)`)으로
 가서 후속 계산에 쓰이며, **§A.13 의 EKF 공분산 멤버로 들어가지 않는다.** 공분산 미스터리와는 무관하다.
 
-## A.20 아직 모르는 것
+## A.20 슬립 감지의 바깥 게이트 — 파라미터가 아니라 **타임스탬프 신선도**
 
-- `UseIMU` 값(`+0x3b0`)을 읽는 지점(§A.16).
+`SkidDetector` 블록 진입 직전(@+2344~+2391)에 같은 형태의 검사가 **두 번** 있다:
+
+```
+mov  0x…(%rsp),%rax        ; Message_Header 포인터
+test %rax,%rax ; jne       ; null 이면 _default_instance_ 사용
+mov  0x…(%rsp),%rcx        ; 직전에 처리한 시각
+cmp  %rcx,0x20(%rax)       ; header 의 +0x20 (타임스탬프)
+jbe  → +4323 (건너뜀)
+```
+
+⇒ **오도·IMU 각각의 헤더 타임스탬프가 직전보다 새로울 때만** 아래로 내려간다.
+`StartSkidDetection` 을 읽는 지점은 여기에도 없다(§A.16).
+
+그 아래에서 임계·윈도우 파라미터 5개를 읽어 설정자에 넣고
+`SkidDetector::Update` 를 부른다 — 즉 **파라미터로 끄는 구조가 보이지 않는다.**
+
+⚠ 다만 `Update` 의 반환값이 이후 어떻게 쓰이는지는 끝까지 따라가지 않았다.
+반환값 소비 지점에서 다시 걸러질 가능성은 남는다. **「슬립 감지가 돈다」로 확정하지 않는다.**
+
+## A.21 `run()` 이 올리는 진단 2건 — IMU 이상 감지
+
+| 호출 | 코드 | `rbk.error` 등급·문구 |
+| --- | --- | --- |
+| `setFatal(50400)` @+13322 | **50400** | **fatal** — "gyro original data error" |
+| `warningExists`/`setWarning`/`clearWarning`(54300) @+14072/+14126/+14397 | **54300** | warning — "imu noise is too large" |
+
+두 블록 모두 `OpenIMUErrorDetect`(값 주소 `0x7f0`) 아래에 있다 —
+@0xeca74 에서 `mov 0x7f0(%r13),%al` → `test $0x1,%al` → `je` 로 건너뛴다.
+
+배포값은 `OpenIMUErrorDetect = 0` 이고 **코드가 그 값을 실제로 읽으므로**
+이 두 진단은 **`[동작]` 비활성**이라고 말할 수 있다(§A.16 의 `StartSkidDetection` 과 대비된다 —
+그쪽은 읽는 곳이 없어 배포값 0 이 효력을 갖는지 알 수 없다).
+
+임계 `IMUNoiseDetectThred = 3.0` · `IMUErrorDetectThred = 20.0` · `IMUErrorDetectTime = 10` 은
+그래서 현재 적용되지 않는다.
+
+## A.22 아직 모르는 것
+
+- `UseIMU`(0x3b8)·`StartSkidDetection`(0x448) 을 읽는 지점 — 대조군 검증된 기법으로 못 찾았다(§A.16).
+- `SkidDetector::Update` 반환값의 소비 지점.
 - 두 공분산 버퍼의 런타임 값(§A.13~A.14) — 실기·원본 구동 대조 필요.
-- `SkidDetector` 호출이 실제로 실행되는지(게이트 분기 미확인).
 - `wzOdoAbsDeg` 게이트 임계 1.0 deg/s 의 근거.
-- `VelocityEstimatorIMU` 출력이 어디로 흘러 무엇을 바꾸는지.
