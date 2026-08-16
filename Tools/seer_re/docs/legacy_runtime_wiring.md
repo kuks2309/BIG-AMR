@@ -561,9 +561,77 @@ jbe  → +4323 (건너뜀)
 측위 쪽 슬립 대응은 별개다 — `MCLoc::CheckWheelSkid` 가 `setError(0xcdee=52718)`
 'Detect skid and stop AGV' 를 올린다(오도 생산 문서 §8.4). 두 기구는 서로 무관하다.
 
-## A.23 아직 모르는 것
+## A.23 미초기화 공분산은 **실제로 필터에 복사된다** `[존재]`
 
-- `UseIMU`(0x3b8)·`StartSkidDetection`(0x448) 을 읽는 지점 — 대조군 검증된 기법으로 못 찾았다(§A.16).
-- 두 공분산 버퍼의 런타임 값(§A.13~A.14) — 실기·원본 구동 대조 필요.
-- `wzOdoAbsDeg` 게이트 임계 1.0 deg/s 의 근거.
-- `VelocityEstimatorIMU` 가 왜 계산만 하고 버려지는가(§A.19) — 개발 잔재인지 의도인지.
+`BFL::AnalyticConditionalGaussianAdditiveNoise::AdditiveNoiseSigmaSet` @0x191f40 전문:
+
+```
+mov  0x8(%r14),%rcx ; mov %rcx,0x100(%rbx)   ; n 복사
+... 원소 수가 다르면 operator new 로 재할당, 기존 버퍼 delete ...
+mov  0x18(%r14),%r15 ; shl $0x3,%r15         ; 원소 수 × 8 바이트
+mov  0x20(%r14),%rsi                          ; src 버퍼
+mov  0x118(%rbx),%rdi                         ; dst 버퍼
+jmp  memmove@plt                              ; tail-call
+```
+
+**크기만 쓰는 것이 아니라 데이터를 `memmove` 로 통째 복사한다.**
+
+⇒ §A.13~A.14 와 합치면: `odom_covariance_`·`imu_covariance_` 의 **초기화되지 않은 힙 내용이
+매 주기 측정모델의 additive noise sigma 로 그대로 들어간다.** 경로가 끊겨 있지 않다.
+런타임에 그 메모리가 무엇인지는 여전히 `[동작-미검증]` 이다.
+
+## A.24 `UseIMU`·`StartSkidDetection` — 읽는 코드가 없다는 판정의 근거
+
+`MutableParam` 의 공개 접근자는 `isChanged` · `isMutable` · `init` · 생성자/소멸자뿐이고
+**값을 꺼내는 `operator T()`·`get()` 류가 없다**(동적 심볼 전수). 즉 값은 **멤버 직접 접근**으로만
+읽히며, 그것이 §A.16 에서 쓴 기법(값 주소 `슬롯+0x78` 스캔)과 정확히 일치한다.
+
+`loadFromConfigFile` 의 `UseIMU` 적재 직후에도 다른 멤버로 복사하는 명령이 없다(다음 `loadParam` 로 바로 넘어간다).
+
+⇒ 대조군(읽히는 파라미터 11개) + 접근자 부재 + 적재 직후 미복사 — 세 근거가 모여
+**`UseIMU`(0x3b8)·`StartSkidDetection`(0x448)은 이 라이브러리에서 소비되지 않는다**고 볼 근거가 강하다.
+다만 인라인 최적화로 형태가 완전히 달라졌을 가능성은 원리상 남으므로 **`[존재]` 수준**으로 둔다.
+
+## A.25 `wzOdoAbsDeg` 임계 1.0 deg/s — 근거 없음
+
+`robot.param` 전 테이블에서 값이 `1`/`1.0` 이면서 각속도 관련 이름을 가진 키를 조회했으나
+`RobotPosEKF` 테이블에는 없다(걸린 것은 `MCLoc.ExtraMoveAngleThreshold`·`MoveFactory.GoAngle` 등 무관한 키).
+바이너리 문자열에도 그 임계를 설명하는 항목이 없다.
+
+⇒ **1.0 deg/s 는 코드에 하드코딩된 값이며, 그 선택 근거는 원본 자산에서 확인할 수 없다.**
+벤더 판단으로 보이나 **추측하지 않는다.**
+
+## A.26 EKF 입출력의 100배 스케일 — 대칭이며 단위는 보존된다 `[존재]`
+
+**출력** `getFilterOdometer` @0x17a1a0:
+
+```
+state(1) → mulsd [0x197ee8]=100.0 → Message_Odometer.x    (0x30, double)
+state(2) → mulsd [0x197ee8]=100.0 → Message_Odometer.y    (0x40, double)
+state(6) → cvtsd2ss                → Message_Odometer.angle(0x3c, float)
+```
+
+**입력** `addOdoMeasurement` @0x179f20:
+
+```
+Message_Odometer.x (0x30) → divsd [0x197ee8]=100.0
+Message_Odometer.y (0x40) → divsd [0x197ee8]=100.0
+Message_Odometer.angle(0x3c) → cvtss2sd (배율 없음)
+```
+
+⇒ **입력 ÷100, 출력 ×100 으로 대칭이다.** 각도에는 양쪽 모두 배율이 없다.
+`proto/message_odometer.proto` 는 `double x = 3; // m` · `double y = 4; // m` · `float angle = 5; // rad` 이므로
+**발행 메시지의 단위는 미터로 보존되고, EKF 내부 상태만 그 1/100 스케일로 다룬다**(수치 조건화로 보인다).
+
+⇒ 단위 사슬은 **깨지지 않는다.** (이 절의 초판에서 "단위 정합이 어긋날 수 있다" 고 경고했으나,
+입력 쪽을 확인한 결과 대칭이어서 그 우려는 해소됐다.)
+
+속도 필드(`vel_*`)·`is_stop`·`motor_info` 는 `getFilterOdometer` 가 건드리지 않는다 —
+`run()` 이 직전에 수신 오도 메시지를 `CopyFrom` 하므로 **원본 오도 값이 그대로 실려 나간다.**
+§A.19 대로 `VelocityEstimatorIMU` 결과는 여기에도 들어가지 않는다.
+
+## A.27 아직 모르는 것
+
+- 두 공분산 버퍼의 **런타임 값**(§A.13·A.14·A.23) — 정적 분석은 여기까지다. 실기 또는 원본 구동 대조가 필요하다.
+- `VelocityEstimatorIMU` 결과가 버려지는 것이 의도인지 잔재인지 — 판단 근거 없음.
+- 내부 상태를 1/100 로 스케일한 이유 — 수치 조건화로 보이나 근거는 확인 불가.
