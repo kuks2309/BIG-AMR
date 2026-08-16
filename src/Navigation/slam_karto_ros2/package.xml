@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>slam_karto_ros2</name>
+  <version>0.1.0</version>
+  <description>
+    Seer SLAM 매핑 ROS2 어댑터. 프레임워크-독립 코어(slam_karto_core = Open Karto + g2o)를
+    rclcpp 노드로 감싼다. /scan_merged + /odom → 포즈그래프 매핑 → /map(OccupancyGrid) 와
+    .smap 저장(mcl2d_map::saveSmap). 원본 대응: 6100(매핑 시작)/6101(매핑 종료)/4010(맵 저장).
+    ※ 이 노드는 TF 를 발행하지 않는다 — map→odom 은 mcl2d 소유다
+      (docs/code_review/mcl2d-localization-chain/2026-08-07.md H1).
+  </description>
+  <maintainer email="kukwonko@gmail.com">Seer RE</maintainer>
+  <license>Proprietary (유지보수·상호운용 목적)</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+
+  <!-- 코어가 끌어오는 비-ROS 의존 (slam_karto_core/CMakeLists.txt:24-26). -->
+  <depend>eigen</depend>
+  <depend>libg2o</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

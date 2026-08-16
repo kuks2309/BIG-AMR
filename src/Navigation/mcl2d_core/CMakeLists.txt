@@ -39,6 +39,25 @@ target_include_directories(test_smap PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../mcl2
 target_link_libraries(test_smap PRIVATE mcl2d_core)
 add_test(NAME test_smap COMMAND test_smap)
 
+# .smap 왕복(load→save→load) 테스트 — 세이버가 로더의 역인지 검증한다.
+#   인자 없이 실행하면 자체 픽스처로 검증(외부 자산 불요) → 항상 ctest 대상.
+add_executable(test_smap_roundtrip ../mcl2d_map/test/test_smap_roundtrip.cpp ../mcl2d_map/src/smap.cpp)
+target_include_directories(test_smap_roundtrip PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../mcl2d_map/include)
+add_test(NAME test_smap_roundtrip COMMAND test_smap_roundtrip)
+
+# 회수된 실측 Seer 맵 전부로 하는 왕복 대조(자산이 있을 때만 등록 — 없으면 위 픽스처 테스트만 돈다).
+#   MCL2D_SMAP_MAP_DIR 로 다른 디렉터리를 지정할 수 있다.
+set(MCL2D_SMAP_MAP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../References/seer/slam_mapping/maps"
+    CACHE PATH "왕복 대조에 쓸 실측 .smap 디렉터리")
+file(GLOB MCL2D_REAL_SMAPS "${MCL2D_SMAP_MAP_DIR}/*.smap")
+list(LENGTH MCL2D_REAL_SMAPS MCL2D_REAL_SMAP_COUNT)
+if(MCL2D_REAL_SMAP_COUNT GREATER 0)
+  add_test(NAME test_smap_roundtrip_realmaps COMMAND test_smap_roundtrip ${MCL2D_REAL_SMAPS})
+  message(STATUS "test_smap_roundtrip_realmaps: 실측 .smap ${MCL2D_REAL_SMAP_COUNT}개 등록 (${MCL2D_SMAP_MAP_DIR})")
+else()
+  message(STATUS "test_smap_roundtrip_realmaps: SKIP — 실측 .smap 없음 (${MCL2D_SMAP_MAP_DIR})")
+endif()
+
 # 실제 Seer 맵으로 하는 추가 검증(선택): 맵 파일은 저장소에 없으므로 경로를 줄 때만 등록.
 #   cmake -B build -S . -DMCL2D_TEST_SMAP=<...>/map/xxx.smap
 set(MCL2D_TEST_SMAP "" CACHE FILEPATH "실맵 회귀 테스트에 쓸 .smap 경로 (비우면 미등록)")

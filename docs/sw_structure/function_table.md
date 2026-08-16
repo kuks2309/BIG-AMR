@@ -15,6 +15,7 @@
 | `line_vision` (YOLOv8-seg 라인 인식) | [src/AI/line_vision/docs/code_review/ai-line-vision/2026-08-13.md](../../src/AI/line_vision/docs/code_review/ai-line-vision/2026-08-13.md) | 17 (+dataclass 1·상수 8) | 전수 | 2026-08-13 |
 | `can_relay` / **backend·driver_node·health·supervisor·home_and_zero 한정** | [src/Comm/CAN/can_relay/docs/function_table.md](../../src/Comm/CAN/can_relay/docs/function_table.md) | 99 (+전역 10·RelayConfig 26필드·SupervisorConfig 8필드) | **부분** — `link.py`·`protocol.py`·`safety.py`·`ui/` 미작성 | 2026-08-16 |
 | `trnav_2ws_action_server` / **line_follow 한정** | [src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md](../../src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md) | 13 (+struct 2·enum 1·클래스 2) | **부분** — line_follow 만 | 2026-08-14 |
+| `seer_rawmap` (Seer `.rawmap` 디코더) | [Tools/seer_rawmap/docs/function_table.md](../../Tools/seer_rawmap/docs/function_table.md) | 37 (+dataclass 6·enum 1) | 전수 | 2026-08-08 |
 
 ## ⚠ 미등재 — inventory-gate 가 빈 통과하는 범위
 
