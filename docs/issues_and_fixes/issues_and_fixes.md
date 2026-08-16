@@ -47,6 +47,22 @@
 
 ## 2026-08-16
 
+### [Fix] systemd 드라이버 유닛 — 노드 크래시에 `Restart=on-failure` 가 발동하지 않음
+
+- **증상**(실장비, 유닛 설치 후 첫 kill 시험): 드라이버 노드를 `kill -9` 하자 유닛이
+  재기동 없이 `inactive` 로 종료. 감시자는 DEAD 를 정확히 판정했지만 되살릴 대상이
+  영영 오지 않는다.
+- **원인**: 노드가 죽으면 `ros2 launch` 가 required-프로세스 종료를 **정상 셧다운**으로
+  처리해 exit 0 으로 내려간다 — systemd 눈에 실패가 아니므로 `on-failure` 는 영영
+  발동하지 않는다. 크래시 소생이라는 유닛의 존재 이유가 정확히 그 크래시에서 무력했다.
+- **수정**: 드라이버 유닛 `Restart=on-failure` → `Restart=always`. `systemctl stop` 은
+  `always` 에서도 재기동을 만들지 않으므로 수동 정지와 충돌하지 않고, crash-loop 는
+  기존 `StartLimitIntervalSec=120`/`StartLimitBurst=3` 이 그대로 차단한다.
+- 같은 시험에서 확인된 정상 동작: 감시자 유닛의 오버레이 소싱·`/run/can_relay`
+  RuntimeDirectory 기록·DEAD 판정·15 s 참여자 재생성은 systemd 아래에서 설계대로.
+  검증 기록은 실험 완료 후 verified_facts 에 통합 기재.
+
+
 ### [Fix] `relay_supervisor` — 대상 동결 후 감시자가 영구 무수신(ZOMBIE 고착) → DDS 참여자 재생성
 
 - **증상**: 대상 노드를 60 s+ 동결(SIGSTOP) 후 재개하면 진단 발행은 정상 재개되는데

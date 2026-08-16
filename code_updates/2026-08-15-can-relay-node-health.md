@@ -425,6 +425,15 @@ debt-075 ②(실행기 정체) 실기 검증(SIGSTOP 60 s+ 주입)에서 ZOMBIE 
 ZOMBIE 45.4 s 정확, SIGCONT +1.6 s 자가 회복. 실험 기록은
 `docs/verified_facts/2026-08-16-can-relay-zombie-freeze-field.md`.
 
+## 13. systemd 실장비 검증 1차 — 드라이버 유닛 소생 결함 (2026-08-16)
+
+debt-075 ③ 실장비 검증 중 발견: 노드 `kill -9` 시 `ros2 launch` 가 exit 0 으로 내려가
+`Restart=on-failure` 가 발동하지 않고 유닛이 `inactive` 로 끝난다. 드라이버 유닛을
+`Restart=always` 로 정정(수동 `systemctl stop` 은 영향 없음, crash-loop 차단은
+StartLimit 유지). 유닛은 main 고정 배포 워크트리(`~/Project/Ford-CATL-AMR/Big-AMR-deploy`)
+에서 설치한다 — 본 저장소 워크트리는 세션 브랜치에 서 있어 overlay 가 낡는다(실측:
+감시자 실행 파일 부재로 crash-loop). 최종 검증 결과는 §14 와 verified_facts 에.
+
 ## 미검증 · 후속 (부채 등록 완료)
 
 | id | 유형 | 내용 |
