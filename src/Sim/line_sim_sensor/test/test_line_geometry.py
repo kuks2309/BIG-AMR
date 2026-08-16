@@ -2,6 +2,8 @@
 
 import math
 
+import pytest
+
 from line_sim_sensor.line_geometry import (LineSegment, anchor_line, measure,
                                           normalize_angle)
 
@@ -153,3 +155,118 @@ class TestAnchorLine:
         line = anchor_line(0.0, 0.0, 0.5, offset_x=0.0, offset_y=0.0,
                            heading_deg=30.0, length=5.0)
         assert abs(line.heading - (0.5 + math.radians(30.0))) < 1e-9
+
+
+class TestCurvedLine:
+    """곡률 ≠ 0 인 원호. 직선판과 **같은 부호 규약**을 지켜야 제어가 그대로 동작한다."""
+
+    def test_zero_curvature_matches_straight(self):
+        # 곡률 0 은 직선판과 완전히 같아야 한다(무회귀 보장)
+        arc0 = LineSegment(0.0, 0.0, 0.0, 10.0, curvature=0.0)
+        a = measure(0.0, 0.2, 0.0, arc0, LOOKAHEAD, HALF_W)
+        b = measure(0.0, 0.2, 0.0, STRAIGHT, LOOKAHEAD, HALF_W)
+        assert a.detected == b.detected
+        assert abs(a.offset - b.offset) < 1e-12
+        assert abs(a.angle - b.angle) < 1e-12
+
+    def test_on_arc_gives_zero_offset(self):
+        # 반경 5 m 좌선회 원호의 시점에 서서 접선 방향을 보면 오차 0
+        arc = LineSegment(0.0, 0.0, 0.0, 20.0, curvature=1.0 / 5.0)
+        m = measure(-LOOKAHEAD, 0.0, 0.0, arc, LOOKAHEAD, HALF_W)
+        assert m.detected
+        assert abs(m.offset) < 1e-6
+
+    def test_left_turn_line_appears_left_ahead(self):
+        # 좌선회 원호를 직진으로 바라보면 전방주시점에서 라인은 **왼쪽**에 있다 → offset 음수
+        arc = LineSegment(0.0, 0.0, 0.0, 20.0, curvature=1.0 / 5.0)
+        m = measure(0.0, 0.0, 0.0, arc, LOOKAHEAD, HALF_W)
+        assert m.offset < 0.0
+
+    def test_right_turn_line_appears_right_ahead(self):
+        arc = LineSegment(0.0, 0.0, 0.0, 20.0, curvature=-1.0 / 5.0)
+        m = measure(0.0, 0.0, 0.0, arc, LOOKAHEAD, HALF_W)
+        assert m.offset > 0.0
+
+    def test_tighter_curve_gives_larger_offset(self):
+        loose = measure(0.0, 0.0, 0.0, LineSegment(0.0, 0.0, 0.0, 20.0, 1.0 / 10.0),
+                        LOOKAHEAD, HALF_W)
+        tight = measure(0.0, 0.0, 0.0, LineSegment(0.0, 0.0, 0.0, 20.0, 1.0 / 3.0),
+                        LOOKAHEAD, HALF_W)
+        assert abs(tight.offset) > abs(loose.offset)
+
+    def test_arc_angle_matches_tangent_rotation(self):
+        # 호를 s 만큼 진행하면 접선은 κ·s 만큼 회전한다 → 그 지점에서 angle ≈ -κ·s
+        arc = LineSegment(0.0, 0.0, 0.0, 20.0, curvature=1.0 / 5.0)
+        m = measure(-LOOKAHEAD, 0.0, 0.0, arc, LOOKAHEAD, HALF_W)
+        assert abs(m.angle) < 1e-6           # 시점에서는 접선과 정렬
+        assert abs(m.along) < 1e-6
+
+    def test_arc_along_is_arc_length(self):
+        arc = LineSegment(0.0, 0.0, 0.0, 20.0, curvature=1.0 / 5.0)
+        m = measure(-LOOKAHEAD, 0.0, 0.0, arc, LOOKAHEAD, HALF_W)
+        assert abs(m.along) < 1e-6
+        # 시점에서 호를 따라 조금 간 지점의 진행량은 호 길이다
+        s = 2.0
+        th = s / 5.0
+        px, py = 5.0 * math.sin(th), 5.0 * (1.0 - math.cos(th))
+        m2 = measure(px, py, th, arc, 0.0, HALF_W)
+        assert abs(m2.along - s) < 1e-6
+
+    def test_past_arc_end_is_not_detected(self):
+        arc = LineSegment(0.0, 0.0, 0.0, 2.0, curvature=1.0 / 5.0)
+        th = 3.0 / 5.0
+        px, py = 5.0 * math.sin(th), 5.0 * (1.0 - math.cos(th))
+        assert not measure(px, py, th, arc, 0.0, HALF_W).detected
+
+    def test_anchor_carries_curvature(self):
+        line = anchor_line(1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 10.0, curvature=0.25)
+        assert abs(line.curvature - 0.25) < 1e-12
+
+
+# ── 원호 진행량은 한 바퀴까지 단조 ──
+# ±π 로 접으면 반 바퀴를 지나는 순간 along 이 음수로 뒤집혀 「라인 끝」으로 오판한다.
+
+
+def test_arc_along_is_monotonic_past_half_circle():
+    line = LineSegment(x0=0.0, y0=0.0, heading=0.0, length=20.0, curvature=0.5)  # R=2
+    radius = 2.0
+    prev = -1.0
+    for deg in range(0, 360, 15):
+        rad = math.radians(deg)
+        # 원 위의 점 — 중심 (0, R), 시점 (0,0) 에서 좌선회로 rad 만큼 진행한 자리
+        x = radius * math.sin(rad)
+        y = radius * (1.0 - math.cos(rad))
+        m = measure(x, y, rad, line, lookahead_m=1e-6, half_width_m=0.6)
+        assert m.along >= prev - 1e-9, f"deg={deg} along={m.along} < prev={prev}"
+        prev = m.along
+    assert prev > math.pi * radius  # 반 바퀴를 넘겨도 계속 는다
+
+
+def test_arc_beyond_half_circle_still_detected():
+    # R=2 원호를 3/4 바퀴(9.42 m) 돈 자리 — 종전에는 along 이 음수라 미검출이었다
+    line = LineSegment(x0=0.0, y0=0.0, heading=0.0, length=20.0, curvature=0.5)
+    rad = math.radians(270.0)
+    m = measure(2.0 * math.sin(rad), 2.0 * (1.0 - math.cos(rad)), rad, line,
+                lookahead_m=1e-6, half_width_m=0.6)
+    assert m.detected
+    assert m.along == pytest.approx(2.0 * rad, abs=1e-6)
+
+
+def test_arc_length_is_capped_at_one_lap():
+    # length 가 원주보다 길어도 한 바퀴까지만 — 시점 바로 뒤(=거의 한 바퀴)는 구간 밖
+    line = LineSegment(x0=0.0, y0=0.0, heading=0.0, length=100.0, curvature=0.5)
+    circumference = 2.0 * math.pi * 2.0
+    rad = math.radians(359.0)
+    m = measure(2.0 * math.sin(rad), 2.0 * (1.0 - math.cos(rad)), rad, line,
+                lookahead_m=1e-6, half_width_m=0.6)
+    assert m.along <= circumference + 1e-9
+    assert m.detected  # 닫힌 고리이므로 한 바퀴 안은 유효
+
+
+def test_arc_shorter_than_circumference_rejects_behind_start():
+    # length < 원주 이면 시점 뒤쪽은 종전대로 미검출이어야 한다 (무회귀)
+    line = LineSegment(x0=0.0, y0=0.0, heading=0.0, length=4.0, curvature=0.5)
+    rad = math.radians(-20.0)
+    m = measure(2.0 * math.sin(rad), 2.0 * (1.0 - math.cos(rad)), rad, line,
+                lookahead_m=1e-6, half_width_m=0.6)
+    assert not m.detected

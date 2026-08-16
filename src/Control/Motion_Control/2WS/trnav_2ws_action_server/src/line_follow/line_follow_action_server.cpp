@@ -16,6 +16,7 @@ using BicycleModel = trnav::motion::two_ws::TwoWsBicycleModel;
 using trnav::motion::two_ws::DualBicycleCommand;
 using trnav::motion::two_ws::IKResult;
 using trnav_2ws_core::LocalizationMonitor;
+using trnav_2ws_core::normalizeAngle;
 using trnav_2ws_core::RecursiveMovingAverage;
 using trnav_2ws_core::TransientGuard;
 using trnav::motion::two_ws::WheelPosition;
@@ -32,6 +33,9 @@ LineFollowActionServer::LineFollowActionServer(rclcpp::Node::SharedPtr node, Act
     double w2_y = safeParam("w2_y", 0.0);
     std::vector<WheelPosition> wheels = {{w1_x, w1_y}, {w2_x, w2_y}};
     bicycle_model_ = std::make_unique<BicycleModel>(wheels);
+    // 공통분/차이분을 그대로 받는 IK — crab_linear 가 쓰는 것과 같은 구현이다.
+    crab_ik_ = std::make_unique<trnav::motion::two_ws::TwoWsCrabIK>(
+        wheels.size(), safeParam("wheel_radius", 0.125), safeParam("gear_walk", 32.0));
 
     max_timeout_sec_ = safeParam("line_follow_max_timeout_sec", 120.0);
     enable_localization_watchdog_ = safeParam("line_follow_enable_localization_watchdog", true);
@@ -72,7 +76,14 @@ void LineFollowActionServer::reloadTuning()
     // goal 실행 직전마다 호출한다 — `ros2 param set` 으로 주행 사이 게인 조정이 가능하도록.
     gains_.kp_offset = safeParam("line_follow_kp_offset", 1.2);
     gains_.kd_offset = safeParam("line_follow_kd_offset", 0.15);
+    // 기하 정답은 kp_angle = L/(2·lookahead). 이 기체 L=1.2 m·주시 1.0 m 에서 0.6 이다.
     gains_.kp_angle = safeParam("line_follow_kp_angle", 0.6);
+    // 곡선 추종 feedforward 의 기하 정답은 L/lookahead = 1.2/1.0 = 1.2 (= 2·kp_angle).
+    gains_.k_curve_heading = safeParam("line_follow_k_curve_heading", 1.2);
+    gains_.kp_heading = safeParam("line_follow_kp_heading", 1.0);
+    gains_.kd_heading = safeParam("line_follow_kd_heading", 0.1);
+    gains_.curve_bias_gain = safeParam("line_follow_curve_bias_gain", 0.0);
+    curve_bias_gain_ = gains_.curve_bias_gain;
     gains_.max_steer_rad = safeParam("line_follow_max_steer_deg", 25.0) * M_PI / 180.0;
     gains_.slow_gain = safeParam("line_follow_slow_gain", 0.7);
     accel_ = safeParam("line_follow_accel", 0.3);
@@ -169,6 +180,13 @@ bool LineFollowActionServer::validateGoal(std::shared_ptr<const LineFollow::Goal
         RCLCPP_WARN(node_->get_logger(), "LineFollow rejected: max_duration_sec/max_distance < 0");
         return false;
     }
+    if (goal->heading_mode > static_cast<uint8_t>(line_follow::HeadingMode::ABSOLUTE))
+    {
+        RCLCPP_WARN(node_->get_logger(),
+                    "LineFollow rejected: heading_mode=%u 는 미정의 (0=FOLLOW_LINE, 1=HOLD, 2=ABSOLUTE)",
+                    goal->heading_mode);
+        return false;
+    }
     if (goal->max_duration_sec <= 0.0 && goal->max_distance <= 0.0)
     {
         // 둘 다 0 이면 **성공으로 끝날 조건이 없다** — cancel 하거나 전역 시한
@@ -182,6 +200,8 @@ bool LineFollowActionServer::validateGoal(std::shared_ptr<const LineFollow::Goal
                 "LineFollow goal accepted: v=%.3f m/s %s, coast=%.1fs, duration=%.1fs, distance=%.2fm",
                 goal->max_linear_speed, goal->reverse ? "(reverse)" : "(forward)", goal->line_lost_coast_sec,
                 goal->max_duration_sec, goal->max_distance);
+    RCLCPP_INFO(node_->get_logger(), "LineFollow heading_mode=%u (target_yaw=%.1f deg — mode 2 에서만 사용)",
+                goal->heading_mode, goal->target_yaw_deg);
     return true;
 }
 
@@ -254,10 +274,19 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
     double traveled = 0.0;
     double abs_offset_sum = 0.0;
     uint64_t abs_offset_count = 0;
-    double v_current = 0.0;  // 속도 프로파일 상태 (게이트가 막으면 0 으로 되돌린다)
-    double v_body_cmd = 0.0; // 실제로 발행한 몸체 속도 — 감속 정지의 기준
-    double steer_cmd = 0.0;  // 이번 주기 조향 목표(rad, 율제한 전)
-    double steer_hold = 0.0; // 실제로 발행한 조향(rad) — coast·정지가 유지하는 값
+    double v_current = 0.0;    // 속도 프로파일 상태 (게이트가 막으면 0 으로 되돌린다)
+    double v_body_cmd = 0.0;   // 실제로 발행한 몸체 속도 — 감속 정지의 기준
+    double steer_cmd = 0.0;    // 이번 주기 공통분(전륜 기준각, rad, 율제한 전)
+    double steer_hold = 0.0;   // 실제로 발행한 조향(rad) — coast·정지가 유지하는 값
+    double heading_hold = 0.0; // 실제로 낸 차이분(rad) — coast 가 유지하는 값
+    line_follow::SteerInputs inputs{};
+
+    // heading 목표 — FOLLOW_LINE 은 매 주기 라인 접선에서 얻고, HOLD·ABSOLUTE 는 여기서 확정한다.
+    const auto heading_mode = static_cast<line_follow::HeadingMode>(goal->heading_mode);
+    double heading_target_rad = 0.0;
+    bool have_heading_target = false;
+    double prev_heading_err = 0.0;
+    bool have_prev_heading_err = false;
 
     auto finish = [&](int8_t status, bool cancelled) {
         publishWheelCmd(0.0, last_angle_front_.load(), 0.0, last_angle_rear_.load());
@@ -293,8 +322,9 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
                 break;
             }
             v_body_cmd = line_follow::rampSpeed(v_body_cmd, 0.0, stop_decel_, dt);
-            DualBicycleCommand cmd{goal->reverse ? -v_body_cmd : v_body_cmd, steer_hold, -steer_hold};
-            IKResult ik_result = bicycle_model_->toIKResult(cmd, *ik_);
+            // 감속 중에도 자세는 그대로 — 마지막으로 낸 공통분·차이분을 다시 낸다.
+            IKResult ik_result = crab_ik_->compute(goal->reverse ? -v_body_cmd : v_body_cmd, steer_hold,
+                                                   0.0, heading_hold);
             publishWheelCmd(ik_result.wheels[0].wheel_speed * ik_result.wheels[0].direction,
                             ik_result.wheels[0].steer_rad,
                             ik_result.wheels[1].wheel_speed * ik_result.wheels[1].direction,
@@ -317,6 +347,27 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
         return;
     }
     double prev_x = rx, prev_y = ry;
+
+    // ── heading 목표 확정 ──
+    // HOLD·ABSOLUTE 는 **맵 기준 차체 yaw** 를 목표로 삼으므로 측위가 필수다. 라인만 보고는
+    // 차체 각을 알 수 없다 — 측위 없이 받아 놓고 오차 0 으로 도는 것은 유지가 아니라 무동작이다.
+    if (heading_mode != line_follow::HeadingMode::FOLLOW_LINE)
+    {
+        if (!have_pose)
+        {
+            RCLCPP_ERROR(node_->get_logger(),
+                         "LineFollow: heading_mode=%u 는 측위(map->base_link)가 필요한데 없다. abort(-4)",
+                         goal->heading_mode);
+            finish(-4, false);
+            return;
+        }
+        heading_target_rad = (heading_mode == line_follow::HeadingMode::HOLD)
+                                 ? ryaw
+                                 : normalizeAngle(goal->target_yaw_deg * M_PI / 180.0);
+        have_heading_target = true;
+        RCLCPP_INFO(node_->get_logger(), "LineFollow heading 목표 = %.2f deg (현재 %.2f deg)",
+                    heading_target_rad * 180.0 / M_PI, ryaw * 180.0 / M_PI);
+    }
 
     guard_->reset();
 
@@ -360,6 +411,10 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
             rate.sleep();
         }
     }
+
+    // Phase 0 이 결정한 기준(조향 0·진행 방향)을 IK 에 고정한다. 이후 cruise 는 이 기준
+    // ±25° 안에서만 움직이고 walk 방향은 뒤집히지 않는다 — ±90° 경계 진동을 막는 장치다.
+    crab_ik_->setInitial(0.0, goal->reverse ? -1 : 1);
 
     // ── 제어 상태 ──
     line_follow::LostCoastFsm fsm(goal->line_lost_coast_sec, resume_max_offset_);
@@ -561,30 +616,57 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
                     ++abs_offset_count;
                 }
 
-                const auto cmd = line_follow::computeCommand(offset_f, offset_rate, snap.msg.angle,
-                                                            goal->max_linear_speed, goal->reverse, gains_);
-                steer_cmd = cmd.steer_rad;
-                v_target = cmd.v_target;
+                // ── heading 목표 ──
+                // FOLLOW_LINE 은 라인 접선을, HOLD·ABSOLUTE 는 맵 기준 고정 yaw 를 목표로 둔다.
+                // 라인 추종 자체는 공통분이 담당하므로 세 경우 모두 같은 경로로 돈다 —
+                // 라인이 차체와 평행하면 FOLLOW_LINE 의 오차도 0 이라 차체는 돌지 않고,
+                // 횡오차는 crab 으로 없앤다. 세 모드의 차이는 곡선에서 드러난다.
+                double heading_err = 0.0;
+                if (heading_mode == line_follow::HeadingMode::FOLLOW_LINE)
+                {
+                    heading_err = line_follow::headingErrorFollowLine(snap.msg.angle);
+                }
+                else if (have_heading_target)
+                {
+                    // ryaw 는 이 주기 앞에서 측위로 갱신된다. 갱신에 실패하면 직전 값이 남아
+                    // 오차가 잠시 얼지만, 연속 실패는 위의 TF/health 검사가 abort 로 끊는다.
+                    heading_err = normalizeAngle(heading_target_rad - ryaw);
+                }
+                const double heading_err_rate =
+                    have_prev_heading_err ? (heading_err - prev_heading_err) / dt : 0.0;
+                prev_heading_err = heading_err;
+                have_prev_heading_err = true;
+
+                inputs = line_follow::computeSteer(offset_f, offset_rate, snap.msg.angle, heading_err,
+                                                  heading_err_rate, goal->max_linear_speed,
+                                                  heading_mode, gains_);
+                v_target = inputs.v_target;
+                feedback->heading_error_deg = heading_err * 180.0 / M_PI;
+                feedback->offset_used = inputs.offset_used;
                 feedback->phase = 1;
             }
             else // LOST_COAST — 조향 유지, 감속만(가속 금지)
             {
-                // "유지"의 대상은 **실제로 발행한 조향**이다. 율제한 전 목표(steer_cmd)를 그대로
-                // 두면 소실 직후에도 그 목표를 향해 계속 꺾인다 — 라인을 못 보는 구간에서
-                // 곡률이 오히려 커진다. 마지막 발행값으로 고정해 자세를 얼린다.
-                steer_cmd = steer_hold;
+                // "유지"의 대상은 **실제로 발행한 조향**이다. 율제한 전 목표를 그대로 두면
+                // 소실 직후에도 그 목표를 향해 계속 꺾인다 — 라인을 못 보는 구간에서 곡률이
+                // 오히려 커진다. 마지막 발행값으로 고정해 자세를 얼린다.
+                inputs.theta_body = steer_hold;
+                inputs.delta_cte = 0.0;
+                inputs.delta_heading = heading_hold;
                 v_target = 0.0;
                 feedback->phase = 2;
             }
 
             const double decel = (phase == line_follow::Phase::LOST_COAST) ? coast_decel_ : accel_;
             v_current = line_follow::rampSpeed(v_current, v_target, decel, dt);
+            steer_cmd = inputs.theta_body + inputs.delta_cte; // 공통분 = 전륜 기준각
             steer_deg = steer_cmd * 180.0 / M_PI;
 
-            // ── 자전거 모형 → IK ──
+            // ── 공통분/차이분 → IK ──
+            // front = theta_body + delta_cte (진행 방향), rear = front - delta_heading (차체 회전)
             const double vx_signed = goal->reverse ? -v_current : v_current;
-            DualBicycleCommand dual_cmd{vx_signed, steer_cmd, -steer_cmd}; // counter-steer 고정
-            IKResult ik_result = bicycle_model_->toIKResult(dual_cmd, *ik_);
+            IKResult ik_result = crab_ik_->compute(vx_signed, inputs.theta_body, inputs.delta_cte,
+                                                   inputs.delta_heading);
 
             double steer_f = ik_result.wheels[0].steer_rad;
             double steer_r = ik_result.wheels[1].steer_rad;
@@ -601,18 +683,28 @@ void LineFollowActionServer::execute(std::shared_ptr<GoalHandle> goal_handle)
                 prev_cmd_steer_f = steer_f;
                 prev_cmd_steer_r = steer_r;
             }
-            // coast·정지가 유지할 자세 = 방금 실제로 낸 조향
-            steer_hold = steer_f;
+            // coast·정지가 유지할 자세 = 방금 **실제로 낸** 공통분·차이분.
+            // IK 는 진행 기준 뒷바퀴에 −delta_heading 을 주므로, 후진이면 W2 가 진행 앞바퀴다.
+            // 물리 바퀴 순서(W1,W2)로 잡으면 후진에서 유지값이 delta_heading 만큼 어긋난다.
+            {
+                const double steer_travel_front = goal->reverse ? steer_r : steer_f;
+                const double steer_travel_rear = goal->reverse ? steer_f : steer_r;
+                steer_hold = steer_travel_front;
+                heading_hold = steer_travel_front - steer_travel_rear;
+            }
 
             // 조향 추종 오차 → TransientGuard
             const double steer_err_f = std::fabs(last_angle_front_.load() - steer_f) * 180.0 / M_PI;
             const double steer_err_r = std::fabs(last_angle_rear_.load() - steer_r) * 180.0 / M_PI;
             const double max_steer_err = std::max(steer_err_f, steer_err_r);
 
+            // 게이트가 볼 yaw rate 는 **실제로 낸 바퀴각**에서 뽑는다. 지령값을 쓰면 IK 의
+            // ±25° clamp 와 조향 율제한이 깎아낸 몫만큼 과대평가된다.
+            //   omega = vx * (tan(delta_W1) - tan(delta_W2)) / L   (W1 이 +x 쪽)
             const double wheelbase = bicycle_model_->wheelbase();
             double omega_est = 0.0;
             if (std::fabs(wheelbase) > 1e-6)
-                omega_est = vx_signed * (std::tan(steer_cmd) - std::tan(-steer_cmd)) / wheelbase;
+                omega_est = vx_signed * (std::tan(steer_f) - std::tan(steer_r)) / wheelbase;
 
             TransientGuard::GuardInput guard_input;
             guard_input.vy_cmd = 0.0;

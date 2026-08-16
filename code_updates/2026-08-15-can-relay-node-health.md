@@ -443,6 +443,50 @@ StartLimit 유지). 유닛은 main 고정 배포 워크트리(`~/Project/Ford-CA
 debt-075 는 ①②③ 전 항목 상환, 잔여는 펌웨어 fail-safe 버스 수준 직접 관측 1건.
 상세: `docs/verified_facts/2026-08-16-can-relay-systemd-field.md`
 
+## 15. 펌웨어 fail-safe 버스 수준 직접 관측 (2026-08-16) — debt-075 종결
+
+판다가 양쪽 버스 수신 전 프레임을 호스트로 올리는 것을 이용해 별도 캡처 장비 없이
+단독 도구(`Tools/can_relay_field/hb_failsafe_capture.py`)로 관측: 심박 중단 +1.60 s
+(점화 off 임계 1~2 s 정합)에 드라이브 노드 1·2 의 0x60FF=0 SDO ACK 연발(펌웨어
+`seer_stop_drives` 실증) + bus2 수신율 923→1485/s(릴레이 개방·Seer 전면 통과).
+이로써 debt-075 의 모든 항목이 실기 상환됐다. 상세:
+`docs/verified_facts/2026-08-16-can-relay-hb-failsafe-bus-field.md`
+
+## 16. 부채 상환 — SIL 실험 11 + home_and_zero 5건 (2026-08-16)
+
+- SIL 하니스에 실험 11(장기 두절 → DDS 참여자 재생성 → 승계 복귀) 추가.
+  `RECYCLE_AFTER_S=2.5` 를 감시자 파라미터로 전달(전 시간 파라미터 명시 규칙 준수).
+  돌연변이 검사: 재생성 비활성(0) 시 FAIL 확인. 전체 11/11 PASS ×2. → debt-087 축소.
+- `home_and_zero` 재작성(212→314줄): monotonic 시계·파라미터 주입·멱등 재발행·
+  미수용/무효/미확인 종료코드(5·6·7)·confirm 게이트. 시험 20종. → debt-084 해결.
+
+## 17. GUI 에 감시 상태 표시 (2026-08-16)
+
+can_relay 가 상시 감시·자동 복귀 체계로 바뀌었으므로 운용 GUI 가 그것을 보여야 한다
+(사람이 누르지 않은 engage 가 화면에서 「감시 전이」로 설명되게).
+
+- `backend_base.supervisor_status()` 계약 신설 — 기본 `None`(미지원, 직결 백엔드).
+- `backend_ros2`: `/relay_supervisor/status` 구독 + 순수 `parse_supervisor_status`
+  (verdict 는 KeyValue 정본), `(verdict, message, age_s)` 조회.
+- `app`: 하단 상태 바 3번째 칸 — 판정별 색(7종), 미수신·두절(5 s) 구분 표시,
+  판정 전이를 GUI 로그로 기록.
+- 검증: 순수 파서 시험 3종 · 패키지 494 passed · 실장비 가동 중 감시자 유닛에서
+  수신 확인(IDLE). ⚠ 표시 렌더링 자체는 화면 실행으로만 확인 가능 — GUI 재시작 필요.
+
+## 18. 타 PC 이식 — lgit-c6-4 · amap-server (2026-08-16)
+
+- `install_service.sh` 에 `MACHINE_YAML` 오버라이드 신설(유닛 ExecStart 에
+  `machine_file:=` 주입) — 타 기체 설치의 전제.
+- lgit-c6-4(같은 Foil_A082 의 팔 PC, QD 주행계·판다 실재): 코어를 정본 2026-08-16 판으로
+  갱신(감시자·home_and_zero·SIL·field 도구 포함), 포크 유지 경계 확정(config·app·
+  backend_direct·기체 결합 시험). 판다 라이브러리는 패키지 동봉 vendor 를 Tools 경로로
+  링크. 검증: 표적 282 passed · **SIL 11/11 PASS**. 유닛 설치는 sudo 라 사용자 몫.
+- 포크에서 정본으로 역이식: `wheel_axis`(바퀴 그림 좌우반전 결함 수정 — 정본에 실재하던
+  거울 결함) + 화면 규약 시험. 정본 512 passed.
+- amap-server 의 정본 저장소(`LGIT-C6-Cobot`)에 이식 커밋 `0c2a3de`.
+- 적용 가이드: `docs/deployment/2026-08-16-can-relay-supervision-deploy.md` (3개 PC).
+- UI 포크 분기는 debt-100 으로 등록.
+
 ## 미검증 · 후속 (부채 등록 완료)
 
 | id | 유형 | 내용 |

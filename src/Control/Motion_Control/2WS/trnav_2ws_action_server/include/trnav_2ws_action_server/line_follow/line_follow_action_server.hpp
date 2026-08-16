@@ -16,6 +16,7 @@
 #include "trnav_2ws_core/localization_monitor.hpp"
 #include "trnav_2ws_core/transient_guard.hpp"
 #include "trnav_2ws_kinematics/qd_bicycle_model.hpp"
+#include "trnav_2ws_kinematics/qd_crab_inverse_kinematics.hpp"
 #include "trnav_2ws_motion/qd_action_server_base.hpp"
 
 namespace trnav_2ws_action_server::line_follow
@@ -35,6 +36,8 @@ class LineFollowActionServer
 
   private:
     std::unique_ptr<trnav::motion::two_ws::TwoWsBicycleModel> bicycle_model_;
+    // 공통분/차이분을 그대로 받는 IK. front = theta_body + delta_cte, rear = front - delta_heading.
+    std::unique_ptr<trnav::motion::two_ws::TwoWsCrabIK> crab_ik_;
     std::unique_ptr<trnav_2ws_core::TransientGuard> guard_;
     std::unique_ptr<trnav_2ws_core::LocalizationMonitor> loc_monitor_;
 
@@ -74,6 +77,9 @@ class LineFollowActionServer
     double wait_line_timeout_sec_{3.0};
     double input_stale_timeout_sec_{0.5};
     int offset_filter_window_{5};
+    // 곡선 편향 계수 = lookahead / (2 · 기준행 반폭). 카메라 기하가 정한다.
+    // 0 이면 보상하지 않는다 — 실카메라 기하가 확정되기 전 기본값이다.
+    double curve_bias_gain_{0.0};
 
     // 진행 방향 ↔ 카메라 정합 검사용 논리명 (line_vision 로스터와 같은 이름).
     std::string forward_camera_{"cam_f"};

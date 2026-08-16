@@ -1,0 +1,85 @@
+--- a/include/open_karto/Karto.h
++++ b/include/open_karto/Karto.h
+@@ -5102,6 +5102,39 @@
+       return m_NumberOfRangeReadings;
+     }
+ 
++  public:
++    /**
++     * [SEER PATCH] Sets per-beam angles (radians, laser local frame).
++     *
++     * Stock Karto reconstructs beam angles as `minimumAngle + i * angularResolution`.
++     * Seer's fork stores the measured per-beam angle array instead
++     * (`LaserRangeScan::m_pAngleReadings`) and uses it when building point readings.
++     * We reproduce that behaviour: when this array is non-empty and matches the
++     * reading count, `LocalizedRangeScan::Update()` uses it verbatim.
++     * Leaving it empty keeps the stock behaviour exactly.
++     */
++    inline void SetAngleReadings(const RangeReadingsVector& rAngleReadings)
++    {
++      m_AngleReadings = rAngleReadings;
++    }
++
++    /**
++     * [SEER PATCH] Gets per-beam angles. Empty when not supplied.
++     */
++    inline const RangeReadingsVector& GetAngleReadings() const
++    {
++      return m_AngleReadings;
++    }
++
++    /**
++     * [SEER PATCH] True when per-beam angles are available for every reading.
++     */
++    inline kt_bool HasAngleReadings() const
++    {
++      return !m_AngleReadings.empty() &&
++             m_AngleReadings.size() == static_cast<size_t>(m_NumberOfRangeReadings);
++    }
++
+   private:
+     LaserRangeScan(const LaserRangeScan&);
+     const LaserRangeScan& operator=(const LaserRangeScan&);
+@@ -5109,6 +5142,8 @@
+   private:
+     kt_double* m_pRangeReadings;
+     kt_int32u m_NumberOfRangeReadings;
++    // [SEER PATCH] measured per-beam angles (rad). Empty => stock behaviour.
++    RangeReadingsVector m_AngleReadings;
+   };  // LaserRangeScan
+ 
+   ////////////////////////////////////////////////////////////////////////////////////////
+@@ -5388,15 +5423,23 @@
+         kt_double angularResolution = pLaserRangeFinder->GetAngularResolution();
+         Pose2 scanPose = GetSensorPose();
+ 
++        // [SEER PATCH] use measured per-beam angles when supplied (see
++        // LaserRangeScan::SetAngleReadings). Falls back to the stock reconstruction.
++        const kt_bool useMeasuredAngles = HasAngleReadings();
++        const RangeReadingsVector& rMeasuredAngles = GetAngleReadings();
++
+         // compute point readings
+         Vector2<kt_double> rangePointsSum;
+         kt_int32u beamNum = 0;
+         for (kt_int32u i = 0; i < pLaserRangeFinder->GetNumberOfRangeReadings(); i++, beamNum++)
+         {
+           kt_double rangeReading = GetRangeReadings()[i];
++          // [SEER PATCH] beam angle source
++          kt_double beamAngle = useMeasuredAngles ? rMeasuredAngles[i]
++                                                  : (minimumAngle + beamNum * angularResolution);
+           if (!math::InRange(rangeReading, pLaserRangeFinder->GetMinimumRange(), rangeThreshold))
+           {
+-            kt_double angle = scanPose.GetHeading() + minimumAngle + beamNum * angularResolution;
++            kt_double angle = scanPose.GetHeading() + beamAngle;
+ 
+             Vector2<kt_double> point;
+             point.SetX(scanPose.GetX() + (rangeReading * cos(angle)));
+@@ -5406,7 +5449,7 @@
+             continue;
+           }
+ 
+-          kt_double angle = scanPose.GetHeading() + minimumAngle + beamNum * angularResolution;
++          kt_double angle = scanPose.GetHeading() + beamAngle;
+ 
+           Vector2<kt_double> point;
+           point.SetX(scanPose.GetX() + (rangeReading * cos(angle)));

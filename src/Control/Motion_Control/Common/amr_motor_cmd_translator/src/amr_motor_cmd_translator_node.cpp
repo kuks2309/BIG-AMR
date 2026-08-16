@@ -1,5 +1,6 @@
 #include "amr_motor_cmd_translator/amr_motor_cmd_translator_node.hpp"
 #include <cmath>
+#include <stdexcept>
 
 namespace amr_motor_cmd_translator
 {
@@ -14,9 +15,18 @@ using trnav_msgs::msg::WheelSetArray;
 MotorCmdTranslator::MotorCmdTranslator() : Node("amr_motor_cmd_translator")
 {
     // Declare and get parameters
-    this->declare_parameter<double>("wheel_radius_m", 0.08);
-    this->declare_parameter<double>("gear_walk", 20.0);
-    this->declare_parameter<double>("gear_steer", 265.5);
+    //
+    // ⚠ 기하·감속비 3종은 **기본값을 두지 않는다.** 이 노드가 SI→raw 환산의 유일한 소유자라
+    // 그 상수가 곧 로봇이 실제로 도는 양이다. 기본값이 있으면 params 파일을 안 먹인 실행이
+    // **조용히 다른 기체 값으로 돌아간다** — 이식 원본 Carrier AGV(Automated Guided Vehicle)
+    // 값(0.08 / 20.0 / 265.5)이 그대로 남아 있어서, 조향이 실제의 1.19배로 읽히고 지령은
+    // 0.84배로만 꺾인다. 값이 틀린 채 도는 것보다 기동에서 죽는 편이 안전하다.
+    // 기체 값은 config/amr_motor_cmd_translator_qd.yaml 이 정본이다.
+    rcl_interfaces::msg::ParameterDescriptor required;
+    required.description = "필수 — config/amr_motor_cmd_translator_qd.yaml 로 반드시 지정할 것";
+    this->declare_parameter("wheel_radius_m", rclcpp::PARAMETER_DOUBLE, required);
+    this->declare_parameter("gear_walk", rclcpp::PARAMETER_DOUBLE, required);
+    this->declare_parameter("gear_steer", rclcpp::PARAMETER_DOUBLE, required);
     this->declare_parameter<double>("pulses_per_rev", 65536.0);
 
     this->declare_parameter<int>("motor_id_walk_front", 1);
@@ -41,6 +51,19 @@ MotorCmdTranslator::MotorCmdTranslator() : Node("amr_motor_cmd_translator")
     this->declare_parameter<bool>("publish_legacy_wheel_motor_state", true);
     this->declare_parameter<bool>("publish_legacy_wheel_motor_state_detailed", true);
 
+    // 미지정이면 여기서 rclcpp::exceptions::ParameterUninitializedException 이 나 노드가 뜨지 않는다.
+    // 그 실패가 「params 파일을 안 먹였다」는 신호다 — 잘못된 기하로 주행하는 것보다 낫다.
+    for (const char *name : {"wheel_radius_m", "gear_walk", "gear_steer"})
+    {
+        if (this->get_parameter(name).get_type() == rclcpp::ParameterType::PARAMETER_NOT_SET)
+        {
+            RCLCPP_FATAL(this->get_logger(),
+                         "필수 파라미터 '%s' 미지정 — config/amr_motor_cmd_translator_qd.yaml 을 "
+                         "--params-file 로 주십시오. 기본값으로 돌면 다른 기체 기하로 주행합니다.",
+                         name);
+            throw std::runtime_error(std::string("필수 파라미터 미지정: ") + name);
+        }
+    }
     radius_ = this->get_parameter("wheel_radius_m").as_double();
     gear_walk_ = this->get_parameter("gear_walk").as_double();
     gear_steer_ = this->get_parameter("gear_steer").as_double();

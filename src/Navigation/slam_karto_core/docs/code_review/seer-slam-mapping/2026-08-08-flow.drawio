@@ -1,0 +1,163 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Seer legacy 지도생성 원본 파이프라인">
+    <mxGraphModel dx="1200" dy="900" grid="0" page="1" pageWidth="1169" pageHeight="1654" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="MU" value="MultiLaser&#10;Message_AllLasers" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="20" y="20" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="EKF" value="RobotPosEKF&#10;Message_Odometer (휠+IMU EKF)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="210" y="20" width="210" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="IMU" value="DSPChassis&#10;Message_IMU" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="440" y="20" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="MCL" value="MCLoc&#10;Message_Localization" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="610" y="20" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="NP" value="NetProtocol&#10;6100/6101 @19210" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="800" y="20" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="OML" value="OnlineMapLogger" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="380" y="110" width="200" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="PACK" value="Message_MapLog 패킹&#10;(laserUndistort)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="370" y="180" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="RAW" value="resources/rawmaps/&#10;robokit_*.rawmap" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;" vertex="1" parent="1">
+          <mxGeometry x="20" y="180" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="SLA" value="SlaMapping&#10;(deque + mutex)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="370" y="265" width="200" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="LRM" value="LocalReMap&#10;(부분 재매핑)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="620" y="265" width="170" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="PC" value="PC 툴 Roboshop" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="830" y="180" width="160" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="KS" value="karto::KartoSLAM&#10;Mapper + Dataset" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="370" y="335" width="200" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="GATE" value="HasMovedEnough&#10;0.2m / 10deg" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="370" y="405" width="200" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="DROP" value="스캔 폐기" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="620" y="412" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="SM" value="ScanMatcher::MatchScan&#10;CorrelationGrid coarse→fine" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="340" y="490" width="260" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="MG" value="MapperGraph&#10;AddVertex/AddEdges/LinkNearChains" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="340" y="565" width="260" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="LC" value="TryCloseLoop&#10;coarse 0.35 → fine 0.6" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="360" y="640" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="G2O" value="G2OSolver::Compute&#10;VertexSE2/EdgeSE2&#10;BlockSolverX+CSparse+LM" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="630" y="635" width="240" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="CP" value="MapperGraph::CorrectPoses" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="630" y="725" width="240" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="RT" value="getRealTimeMapThread&#10;30ms 주기" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="350" y="725" width="220" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="OG" value="OccupancyGrid::CreateFromScans&#10;RayTrace 0.02m" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="330" y="795" width="260" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="HT" value="HTLine Hough 벽각 보정&#10;mapAngle" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="340" y="870" width="240" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="GM" value="getMessageMap&#10;→ Message_Map" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="350" y="945" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="SMAP" value="resources/maps/*.smap" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="945" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="HTTP" value="httplib 0.0.0.0:9301&#10;GET /slam, /position" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="265" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="e0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="MU" target="OML">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="EKF" target="OML">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="IMU" target="OML">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="MCL" target="OML">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="findService startScanMap/stopScanMap" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="NP" target="OML">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="OML" target="PACK">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="파일" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="PACK" target="RAW">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="토픽" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="PACK" target="SLA">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="토픽" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="PACK" target="LRM">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="real_time:true 스트리밍" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="PACK" target="PC">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="SLA" target="KS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="SLA" target="HTTP">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="KS" target="GATE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" value="미달" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="GATE" target="DROP">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" value="통과" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="GATE" target="SM">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="SM" target="MG">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="MG" target="LC">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e17" value="성립" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="LC" target="G2O">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e18" value="불성립" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="LC" target="RT">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e19" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="G2O" target="CP">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e20" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="CP" target="RT">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e21" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="RT" target="OG">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e22" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="OG" target="HT">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e23" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="HT" target="GM">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e24" value="4010 uploadmap" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="PC" target="SMAP">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e25" value="도달 근거 미확보" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="GM" target="SMAP">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

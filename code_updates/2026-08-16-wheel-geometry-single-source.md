@@ -50,10 +50,10 @@ Gazebo·SIL 인프라는 이 세션 목적 밖이다.
 ## 검증하지 못한 것
 
 `trnav_2ws_gazebo` 실빌드는 **선행 결함으로 막혔다** — 의존 패키지 `trnav_2ws_description` 이
-없는 `launch/` 를 설치하려다 CMake 에서 죽는다(debt-091, 이번 작업과 무관).
+없는 `launch/` 를 설치하려다 CMake 에서 죽는다(debt-105, 이번 작업과 무관).
 따라서 런치 수정은 정적 확인까지이고 **실기동 확인은 못 했다.**
 
 ## 남긴 것
 
-- **debt-090** — 휠 기하 사본이 둘 남았다(`sim_params.yaml` 자체 보유 · `wheel_cmd_bridge.py` 기본값).
-- **debt-091** — `trnav_2ws_description` 빌드 불가(선행 결함).
+- **debt-104** — 휠 기하 사본이 둘 남았다(`sim_params.yaml` 자체 보유 · `wheel_cmd_bridge.py` 기본값).
+- **debt-105** — `trnav_2ws_description` 빌드 불가(선행 결함).

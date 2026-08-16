@@ -23,7 +23,8 @@ from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from rcl_interfaces.msg import SetParametersResult
 from sensor_msgs.msg import CompressedImage, Image
 
-from line_vision.centerline import fit_centerline, line_error
+from line_vision.centerline import (fit_centerline, line_error,
+                                   line_x_at_row, select_line_in_roi)
 
 # 가중치 기본 위치 — yolo_detector 와 같은 `/home/nvidia/models/` 관례를 따른다.
 DEFAULT_MODEL_PATH = "/home/nvidia/models/line_seg_v1.pt"
@@ -33,6 +34,8 @@ DEFAULT_FORWARD_CAMERA = "cam_f"
 DEFAULT_REVERSE_CAMERA = "cam_r"
 # 최신 프레임만 쓴다. 큐를 늘리면 밀린 프레임을 추론하느라 지연만 커진다.
 SUBSCRIPTION_DEPTH = 1
+# 이 프레임 수만큼 연속으로 놓치면 라인 연관을 버린다(20 Hz 기준 약 1 초).
+MISS_FRAMES_TO_RESET = 20
 
 # 디버그 오버레이 색 (BGR)
 _MASK_COLOR = (0, 255, 255)
@@ -72,6 +75,9 @@ class LineSegNode(Node):
         self.declare_parameter("model_path", DEFAULT_MODEL_PATH)
         self.declare_parameter("conf_threshold", 0.5)
         self.declare_parameter("control_row_ratio", 0.8)
+        # 기준행 ROI 의 반폭(화면 반폭 대비). 피팅된 **직선**이 이 범위 안에서 기준행을
+        # 지나야 후보로 인정한다. 1.0 이면 화면 전체.
+        self.declare_parameter("roi_half_width_ratio", 0.9)
         self.declare_parameter("publish_debug_image", True)
         self.declare_parameter("direction", "forward")
         self.declare_parameter("forward_camera", DEFAULT_FORWARD_CAMERA)
@@ -84,12 +90,16 @@ class LineSegNode(Node):
 
         self._conf_threshold = float(self.get_parameter("conf_threshold").value)
         self._control_row_ratio = float(self.get_parameter("control_row_ratio").value)
+        self._roi_half_width_ratio = float(self.get_parameter("roi_half_width_ratio").value)
         self._publish_debug = bool(self.get_parameter("publish_debug_image").value)
         self._forward_camera = str(self.get_parameter("forward_camera").value)
         self._reverse_camera = str(self.get_parameter("reverse_camera").value)
         self._transport = str(self.get_parameter("image_transport").value)
         self._camera = ""
         self._flip_180 = False
+        # 프레임 간 라인 연관용 — 직전에 고른 기준행 x(px). 소실이 이어지면 비운다.
+        self._prefer_x = None
+        self._miss_frames = 0
         self._sub = None
 
         # ultralytics import 는 무겁다(torch 로드 수 초) — 모듈 단순 import(테스트
@@ -148,19 +158,25 @@ class LineSegNode(Node):
             return None
         return cv2.flip(frame, -1) if self._flip_180 else frame
 
-    def _infer_best_mask(self, frame: np.ndarray):
-        """최고 신뢰도 인스턴스의 (마스크 uint8, conf). 검출 없으면 (None, 0)."""
+    def _infer_instances(self, frame: np.ndarray):
+        """인스턴스별 (마스크 uint8, conf) 목록. 검출 없으면 빈 목록.
+
+        신뢰도가 가장 높은 인스턴스 하나만 쓰면 안 된다 — 신뢰도는 「어느 라인을 따라가야
+        하는가」와 무관하다. 바닥에 라인이 여럿이면 엉뚱한 선을 고른다(2026-08-16 실기:
+        conf 0.692 인 화면 끝 선을 골라 0.653 인 진짜 라인을 버렸다). 선택은 기하가 한다.
+        """
         result = self._model.predict(
             frame, device=0, conf=self._conf_threshold, verbose=False)[0]
         if result.masks is None or len(result.masks) == 0:
-            return None, 0.0
+            return []
         confs = result.boxes.conf.cpu().numpy()
-        best = int(confs.argmax())
-        mask_small = result.masks.data[best].cpu().numpy()
-        mask = cv2.resize(
-            (mask_small * 255).astype(np.uint8),
-            (frame.shape[1], frame.shape[0]), interpolation=cv2.INTER_NEAREST)
-        return mask, float(confs[best])
+        height, width = frame.shape[:2]
+        out = []
+        for inst, conf in zip(result.masks.data.cpu().numpy(), confs):
+            m = cv2.resize((inst * 255).astype(np.uint8), (width, height),
+                           interpolation=cv2.INTER_NEAREST)
+            out.append((m, float(conf)))
+        return out
 
     def _on_image(self, msg) -> None:
         """구독 콜백: 디코드 → 추론 → 중심선 → LineError·디버그 발행."""
@@ -170,8 +186,25 @@ class LineSegNode(Node):
             return
         height, width = frame.shape[:2]
 
-        mask, conf = self._infer_best_mask(frame)
-        line = fit_centerline(mask) if mask is not None else None
+        # 인스턴스마다 직선을 뽑고, **그 직선이 기준행 ROI 를 지나는지**로 고른다.
+        # 픽셀 유무가 아니라 직선으로 판정하므로 라인이 기준행에서 끊겨도 이어진다.
+        # 직전 프레임 위치를 prefer_x 로 넘겨 따라가던 라인을 유지한다(오래 끊기면 중앙 복귀).
+        instances = self._infer_instances(frame)
+        candidates, confs = [], []
+        for m, c in instances:
+            ln = fit_centerline(m)
+            if ln.valid:
+                candidates.append(ln)
+                confs.append(c)
+        line = select_line_in_roi(candidates, width, height, self._control_row_ratio,
+                                  roi_half_width_ratio=self._roi_half_width_ratio,
+                                  prefer_x=self._prefer_x)
+        conf = float(confs[candidates.index(line)]) if line is not None else 0.0
+        mask = None
+        if instances:
+            mask = np.zeros((height, width), dtype=np.uint8)
+            for m, _ in instances:
+                mask |= m
 
         out = LineError()
         out.header = msg.header
@@ -182,11 +215,18 @@ class LineSegNode(Node):
             out.offset = offset
             out.angle = angle
             out.confidence = conf
+            self._prefer_x = width / 2.0 + offset * (width / 2.0)
+            self._miss_frames = 0
         else:
             out.detected = False
             out.offset = 0.0
             out.angle = 0.0
             out.confidence = 0.0
+            # 잠깐 끊긴 것과 완전히 놓친 것을 구분한다 — 짧은 소실은 직전 라인을 계속
+            # 겨냥하고, 오래 끊기면 연관을 버려 화면 중앙 기준으로 새로 찾는다.
+            self._miss_frames += 1
+            if self._miss_frames > MISS_FRAMES_TO_RESET:
+                self._prefer_x = None
         self._pub_error.publish(out)
 
         if self._publish_debug and self._pub_debug.get_subscription_count() > 0:

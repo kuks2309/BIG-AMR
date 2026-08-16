@@ -37,6 +37,8 @@ class LineSimSensor(Node):
         self.declare_parameter("line_y0", 0.0)
         self.declare_parameter("line_heading_deg", 0.0)
         self.declare_parameter("line_length", 10.0)
+        # 곡률 [1/m]. 0 이면 직선, + 는 좌선회. 반경은 1/|curvature|.
+        self.declare_parameter("line_curvature", 0.0)
         self.declare_parameter("lookahead_m", 1.0)
         self.declare_parameter("half_width_m", 0.6)
         self.declare_parameter("direction", "forward")
@@ -52,12 +54,14 @@ class LineSimSensor(Node):
         self._y0 = float(self.get_parameter("line_y0").value)
         self._heading_deg = float(self.get_parameter("line_heading_deg").value)
         self._length = float(self.get_parameter("line_length").value)
+        self._curvature = float(self.get_parameter("line_curvature").value)
         # "map" 이면 즉시 확정, "start" 면 첫 자세를 받은 뒤 확정한다.
         self._line = None
         if self._frame == "map":
             self._line = LineSegment(
                 x0=self._x0, y0=self._y0,
-                heading=math.radians(self._heading_deg), length=self._length)
+                heading=math.radians(self._heading_deg), length=self._length,
+                curvature=self._curvature)
         self._lookahead = float(self.get_parameter("lookahead_m").value)
         self._half_width = float(self.get_parameter("half_width_m").value)
         self._map_frame = str(self.get_parameter("map_frame").value)
@@ -94,11 +98,15 @@ class LineSimSensor(Node):
         """`line_frame="start"` 이면 첫 자세로 라인을 확정한다. 확정된 라인을 돌려준다."""
         if self._line is None:
             self._line = anchor_line(pose[0], pose[1], pose[2],
-                                     self._x0, self._y0, self._heading_deg, self._length)
+                                     self._x0, self._y0, self._heading_deg, self._length,
+                                     self._curvature)
+            shape = ("직선" if abs(self._curvature) < 1e-9
+                     else f"원호 R={1.0 / abs(self._curvature):.2f}m "
+                          f"{'좌' if self._curvature > 0 else '우'}선회")
             self.get_logger().info(
                 f"line_sim_sensor: 라인 확정 — 시작 자세 ({pose[0]:.3f}, {pose[1]:.3f}, "
                 f"{math.degrees(pose[2]):.1f}°) 기준 → 맵 ({self._line.x0:.3f}, "
-                f"{self._line.y0:.3f}) heading {math.degrees(self._line.heading):.1f}°")
+                f"{self._line.y0:.3f}) heading {math.degrees(self._line.heading):.1f}° · {shape}")
         return self._line
 
     def _on_timer(self):

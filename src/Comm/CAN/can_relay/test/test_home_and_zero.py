@@ -12,9 +12,11 @@
 """
 import pytest
 
-from can_relay.home_and_zero import (EXIT_HOME_FAILED, EXIT_NO_SERVICE, EXIT_OK,
+from can_relay.home_and_zero import (EXIT_CMD_NOT_ACCEPTED, EXIT_HOME_FAILED,
+                                     EXIT_NO_SERVICE, EXIT_OK,
                                      EXIT_ZERO_UNREACHED, ZeroReturnGuard,
-                                     fresh_or_none, steer_angles_from_joint_states)
+                                     fresh_or_none, steer_angles_from_joint_states,
+                                     validate_params)
 
 # 호밍 완료 위치가 조향 0° 에서 벗어나는 양(도) — 이 절차가 바로잡으려는 대상의 크기다.
 # 기본 허용치가 이 값보다 작아야 판정이 성립하며, 그 관계를 아래 시험이 고정한다.
@@ -24,10 +26,12 @@ SETTLE_OFFSET_DEG = {3: 0.178, 4: 0.331}
 class FakeClient:
     """`ZeroReturnGuard` 가 요구하는 client 계약의 대역. 호출 횟수를 기록한다."""
 
-    def __init__(self, home_ok=True, home_msg="DONE", angle_script=None):
+    def __init__(self, home_ok=True, home_msg="DONE", angle_script=None,
+                 target_confirmed=True):
         self.home_ok, self.home_msg = home_ok, home_msg
         # 매 조회마다 앞에서 하나씩 꺼내 쓰고, 하나만 남으면 그것을 유지한다.
         self.angle_script = list(angle_script or [{3: 0.0, 4: 0.0}])
+        self.target_confirmed = target_confirmed   # True/False/None(진단 미수신)
         self.zero_sent = 0
         self.home_calls = 0
         self.logs: list = []
@@ -52,6 +56,9 @@ class FakeClient:
 
     def elapsed(self):
         return self._t
+
+    def steer_target_confirmed(self):
+        return self.target_confirmed
 
     def log(self, msg):
         self.logs.append(str(msg))
@@ -170,3 +177,36 @@ def test_missing_service_has_its_own_exit_code():
     assert rc == EXIT_NO_SERVICE, "서비스 부재가 호밍 실패(2)와 구분되지 않는다"
     assert c.home_calls == 0, "상대가 없는데 호밍을 요청했다"
     assert c.zero_sent == 0
+
+
+# ── 파라미터 검증 · 재발행 · 미수용 분류 ────────────────────────────────
+def test_validate_params_bounds():
+    """무효 파라미터는 사유 문자열, 유효는 None — 호밍 요청 전에 걸러진다."""
+    assert validate_params(0.1, 10.0) is None
+    assert validate_params(180.0, 10.0) is not None   # 어떤 자세든 통과시키는 허용치
+    assert validate_params(0.0, 10.0) is not None     # 영구 미도달
+    assert validate_params(-1.0, 10.0) is not None
+    assert validate_params(0.1, 0.0) is not None
+    assert validate_params(0.1, 9999.0) is not None
+    assert validate_params("x", 10.0) is not None
+
+
+def test_zero_is_resent_while_waiting():
+    """대기 중 0° 지령이 재발행된다 — 1회 발행 유실이 영구 실패가 되지 않게."""
+    c = FakeClient(angle_script=[{3: None, 4: None}])
+    rc = ZeroReturnGuard(c, timeout_s=3.5).run()
+    assert rc in (EXIT_ZERO_UNREACHED, EXIT_CMD_NOT_ACCEPTED)
+    assert c.zero_sent >= 3, f"재발행이 없다 — 발행 {c.zero_sent}회"
+
+
+def test_timeout_with_unaccepted_target_has_its_own_exit_code():
+    """드라이버가 0° 목표를 물지 않았으면 미도달이 아니라 「미수용」으로 갈린다."""
+    c = FakeClient(angle_script=[{3: 5.0, 4: 5.0}], target_confirmed=False)
+    assert ZeroReturnGuard(c, timeout_s=0.3).run() == EXIT_CMD_NOT_ACCEPTED
+    assert any("수용되지 않았습니다" in m for m in c.logs)
+
+
+def test_timeout_without_diag_stays_unreached():
+    """진단 미수신(모름)은 미수용으로 단정하지 않는다 — 미도달로 남긴다."""
+    c = FakeClient(angle_script=[{3: 5.0, 4: 5.0}], target_confirmed=None)
+    assert ZeroReturnGuard(c, timeout_s=0.3).run() == EXIT_ZERO_UNREACHED
