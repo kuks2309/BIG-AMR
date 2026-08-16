@@ -1,5 +1,18 @@
 # mcl2d_ros2 — code updates
 
+2026-08-16 / 22:15 - (pending commit) / **bringup 을 loc 스택 단일 진입점으로 — 구동 한 줄 명령 확립**
+
+- **수정** `launch/bringup.launch.py` — `smap_map_server`(같은 map_path 공유, `map_server:=true` 기본)와
+  `rviz2`(`mcl2d_check.rviz`, `rviz:=false` 기본 — DISPLAY 필요) 를 토글로 통합. 종전에는 bringup +
+  `ros2 run … smap_map_server` 를 따로 띄워야 했다. 헤더에 구동 한 줄 명령 명기
+- **구동 한 줄**: `ros2 launch mcl2d_ros2 bringup.launch.py map_path:=<repo>/map/260709_test.smap`
+
+**검증** (실기): 한 줄 기동 → 노드 7개(sick×2·merger(+container)·icp·mcl2d·smap_map_server) 단일
+launch 아래 확인, `/map 발행: 1652x1095 셀` + `loaded map` + mode 로그 w 0.021(수렴대),
+`/mcl_pose` 33 Hz. `ros2 launch -p`(dry print)로 조건부 노드 2종 해석 확인
+
+---
+
 2026-08-16 / 22:05 - (pending commit) / **initialpose relocalize 이식 + 성공 임계 노출** (원 수정: 미병합 브랜치 `fix/initialpose-relocalize` 커밋 `380bc00` — lifecycle 재작성과 같은 파일이라 merge 불가, 수동 이식)
 
 - **수정** `src/mcl2d_localization_node.cpp` —
