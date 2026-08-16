@@ -29,6 +29,14 @@ RUN_USER="$(id -un)"
 RUN_GROUP="$(id -gn)"
 # 도메인이 다르면 감시자가 드라이버의 진단을 못 본다 — 두 유닛에 같은 값을 박는다.
 ROS_DOMAIN="${ROS_DOMAIN_ID:-0}"
+# 기체 YAML 오버라이드 — 다른 기체(PC)에 설치할 때 필수다. 비우면 launch 기본값
+# (foil_a082)이 쓰이므로, 이 저장소의 원 기체가 아닌 장비에서는 반드시 지정할 것:
+#   MACHINE_YAML=/절대/경로/<기체>.yaml ./install_service.sh --apply
+MACHINE_ARG=""
+if [ -n "${MACHINE_YAML:-}" ]; then
+  [ -f "${MACHINE_YAML}" ] || { echo "MACHINE_YAML 파일이 없다: ${MACHINE_YAML}" >&2; exit 1; }
+  MACHINE_ARG=" machine_file:=${MACHINE_YAML}"
+fi
 
 DRIVER_UNIT="amr-can-relay.service"
 SUPERVISOR_UNIT="amr-can-relay-supervisor.service"
@@ -50,7 +58,8 @@ units_for_target() {
 # 넣으면 동작하지 않는다(파일 상단 주석에도 명시).
 render_unit() {
   sed -e "s|@REPO@|${REPO}|g" -e "s|@USER@|${RUN_USER}|g" \
-      -e "s|@GROUP@|${RUN_GROUP}|g" -e "s|@DOMAIN@|${ROS_DOMAIN}|g" "$1"
+      -e "s|@GROUP@|${RUN_GROUP}|g" -e "s|@DOMAIN@|${ROS_DOMAIN}|g" \
+      -e "s|@MACHINE_ARG@|${MACHINE_ARG}|g" "$1"
 }
 
 install_unit() {

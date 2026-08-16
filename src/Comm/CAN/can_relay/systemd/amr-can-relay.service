@@ -30,7 +30,7 @@ Environment=ROS_DOMAIN_ID=@DOMAIN@
 # 오버레이를 source 해야 rclpy·trnav_msgs 가 잡힌다.
 # ⚠ `colcon build` 중에는 install/ 이 일시적으로 불완전해 기동이 실패할 수 있다.
 #   그 실패도 StartLimitBurst 를 소모하므로, 빌드 전에는 `systemctl stop` 을 권한다.
-ExecStart=/bin/bash -lc 'source @REPO@/install/setup.bash && exec ros2 launch can_relay can_relay.launch.py'
+ExecStart=/bin/bash -lc 'source @REPO@/install/setup.bash && exec ros2 launch can_relay can_relay.launch.py@MACHINE_ARG@'
 
 # 어떤 종료든 되살린다. `on-failure` 로는 크래시 소생이 발동하지 않는다 —
 # 노드가 죽으면 `ros2 launch` 가 required-프로세스 종료를 정상 셧다운으로 처리해
