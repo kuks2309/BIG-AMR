@@ -473,6 +473,20 @@ can_relay 가 상시 감시·자동 복귀 체계로 바뀌었으므로 운용 G
 - 검증: 순수 파서 시험 3종 · 패키지 494 passed · 실장비 가동 중 감시자 유닛에서
   수신 확인(IDLE). ⚠ 표시 렌더링 자체는 화면 실행으로만 확인 가능 — GUI 재시작 필요.
 
+## 18. 타 PC 이식 — lgit-c6-4 · amap-server (2026-08-16)
+
+- `install_service.sh` 에 `MACHINE_YAML` 오버라이드 신설(유닛 ExecStart 에
+  `machine_file:=` 주입) — 타 기체 설치의 전제.
+- lgit-c6-4(같은 Foil_A082 의 팔 PC, QD 주행계·판다 실재): 코어를 정본 2026-08-16 판으로
+  갱신(감시자·home_and_zero·SIL·field 도구 포함), 포크 유지 경계 확정(config·app·
+  backend_direct·기체 결합 시험). 판다 라이브러리는 패키지 동봉 vendor 를 Tools 경로로
+  링크. 검증: 표적 282 passed · **SIL 11/11 PASS**. 유닛 설치는 sudo 라 사용자 몫.
+- 포크에서 정본으로 역이식: `wheel_axis`(바퀴 그림 좌우반전 결함 수정 — 정본에 실재하던
+  거울 결함) + 화면 규약 시험. 정본 512 passed.
+- amap-server 의 정본 저장소(`LGIT-C6-Cobot`)에 이식 커밋 `0c2a3de`.
+- 적용 가이드: `docs/deployment/2026-08-16-can-relay-supervision-deploy.md` (3개 PC).
+- UI 포크 분기는 debt-100 으로 등록.
+
 ## 미검증 · 후속 (부채 등록 완료)
 
 | id | 유형 | 내용 |

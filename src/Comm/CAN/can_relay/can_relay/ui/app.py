@@ -55,6 +55,19 @@ JOG = {
 }
 
 
+def wheel_axis(deg: float):
+    """조향각(°) → 바퀴 길이축의 **화면** 단위벡터.
+
+    기체 규약은 `+θ = 좌`(실기 앵커: 좌 크랩 θ=+90 → 좌측 이동)이고, 화면은 y 가
+    아래로 증가한다. `WheelView._px` 가 기체 +x(전방)를 화면 위로, +y(좌)를 화면
+    왼쪽으로 놓으므로 기체 방향 `(cos θ, sin θ)` 는 화면 `(−sin θ, −cos θ)` 가 된다.
+    부호가 뒤집히면 그림만 좌우 반전되고 값·모션은 멀쩡해 발견이 늦다 — pose
+    실측으로만 잡힌다. 이 규약은 `test_wheel_view.py` 가 고정한다.
+    """
+    th = math.radians(deg)
+    return -math.sin(th), -math.cos(th)
+
+
 class WheelView(QWidget):
     """차량 바퀴 top-view 위젯.
 
@@ -108,9 +121,7 @@ class WheelView(QWidget):
 
     def _draw_wheel(self, p, ctr, deg, s, name):
         """바퀴 하나를 사각형 + 지향 화살표 + 각도 라벨로 그린다."""
-        th = math.radians(deg)
-        ux, uy = math.cos(th), -math.sin(th)
-        ax, ay = -uy, -ux
+        ax, ay = wheel_axis(deg)
         bx, by = -ay, ax
         L = self.WHEEL_R * 2.0 * s
         W = max(8.0, self.WHEEL_R * 0.62 * s)
