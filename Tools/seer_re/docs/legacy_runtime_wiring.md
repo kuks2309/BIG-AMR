@@ -263,12 +263,43 @@ movabs $0x3eb0c6f7a0b5ed8d   →  1e-06
 각 호출 직전에는 `addsd`/`subsd`/`ucomisd`/`ja` 로 도는 짧은 루프가 있다 —
 `while` 형 각도 정규화이며, 앞서 확인한 ±π·2π 상수와 맞물린다.
 
-## A.12 아직 모르는 것
+## A.12 관측 모델 — 생성자에서 전량 확정
 
-- **`odom_covariance_`·`imu_covariance_` 에 값을 넣는 지점** — `initialize()` 도
-  `addOdoMeasurement`/`addImuMeasurement` 도 이 두 멤버를 건드리지 않는다(각 0건).
-  생성자 또는 `RobotPosEKF` 플러그인 계층일 가능성이 남는다. **미확정.**
-- 관측행렬 `Hodom`·`Himu` 의 원소(문자열 `Hodom` 은 바이너리에 실재).
+전 라이브러리에서 `SymmetricMatrix`/`Matrix` 원소를 쓰는 함수는 **둘뿐**이다
+(`objdump` 전량 + 심볼 귀속: `initialize()` 36회 · 생성자 33회). 즉 관측 모델은 **생성자에 상수로 박혀 있고**
+런타임에 바뀌지 않는다.
+
+생성자가 만드는 객체와 채우는 인덱스:
+
+| 스택 슬롯 | 형 | 채운 인덱스 | 정체 | 값 |
+| --- | --- | --- | --- | --- |
+| `rsp+0x60` | `SymmetricMatrix(6)` | (1,1)…(6,6) | **시스템 잡음 공분산** | **1e6** (σ 1000) |
+| `rsp+0x38` | `SymmetricMatrix(6)` | (1,1)…(6,6) | **오도 관측 잡음** | **1.0** |
+| `rsp+0xe8` | `Matrix(6,6)` | **(1,1) · (2,2) · (6,6)** | **`Hodom`** — 오도 관측행렬 | **1.0** |
+| `rsp+0x90` | `SymmetricMatrix(3)` | (1,1)…(3,3) | **IMU 관측 잡음** | **1.0** |
+| `rsp+0xb8` | `Matrix(3,6)` | **(1,4) · (2,5) · (3,6)** | **`Himu`** — IMU 관측행렬 | **1.0** |
+
+값은 `movabs $0x3ff0000000000000,%r13` → `mov %r13,(%rax)` 로 확인했다(= 1.0).
+행렬은 만들자마자 `operator=(0.0)`(`xorps`)으로 0 채운 뒤 위 원소만 세운다.
+
+**뜻**:
+
+```
+  Hodom :  오도는 (x, y, yaw) 만 관측한다   — z·roll·pitch 는 오도가 말하지 않는다
+  Himu  :  IMU 는 (roll, pitch, yaw) 를 관측한다
+```
+
+두 행렬이 겹치는 유일한 성분이 **yaw** 다. 그래서 yaw 는 오도(조향각 유도)와 IMU(자이로)가
+동시에 밀고 당기는 유일한 축이고, §A.6 의 `|ω| > 1.0 deg/s` 게이트가 바로 그 경합을 조절한다.
+z·roll·pitch 는 오도가 건드리지 않으므로 IMU 관측만으로 결정된다.
+
+## A.13 아직 모르는 것
+
+- **`odom_covariance_`(멤버 0x48)·`imu_covariance_`(멤버 0x70)에 값을 넣는 지점** — 여전히 못 찾았다.
+  위 표의 잡음 행렬들은 **생성자 지역 변수**(스택)로 측정모델에 넘어가는 것이고, 같은 이름의 **멤버**는
+  별개다. `update()` 가 그 멤버를 `AdditiveNoiseSigmaSet` 으로 넘기는데(§A.11),
+  쓰는 곳이 어디에도 없다면 **기본 생성 상태(빈 행렬)** 를 넘기는 셈이다 — 확인 필요.
 - `UseIMU = 0` 일 때 경로(통과인지 별도인지).
-- 슬립 감지 3종이 꺼진 이유 — 기체 판단인지 기본값인지.
-- `IMUErrorDetect*`(꺼짐)·`IMUNoiseDetectThred` 가 켜졌을 때의 거동.
+- 슬립 감지 3종(`StartSkidDetection`·`LaserOdomDetectSkid`·임계 5개)이 꺼진 이유.
+- `IMUErrorDetect*` 가 켜졌을 때의 거동.
+- `wzOdoAbsDeg` 게이트의 임계 1.0 deg/s 가 어떤 근거로 정해졌는지(벤더 판단, 문서 없음).
