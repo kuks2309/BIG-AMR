@@ -1,9 +1,8 @@
 // RE 오라클 — 원본 libMCLoc.so 의 MCLMotionModel2D 결정론 함수를 dlopen 으로 직접 구동해
 //   우리 재구현(mcl2d::supplyControlVar / doParticleMove)과 **비트 대조**한다.
-//   근거 원칙: docs/claude_guideline/reverse_engineering/principle.md §1
-//     "원본이 실제로 받는 입력을 독립적으로 정의 → 양쪽에 투입 → 비트 대조"
+//   방법: 원본이 실제로 받는 입력을 독립적으로 정의해 양쪽에 투입하고 결과를 비트로 대조한다.
 //
-// 원본 레이아웃은 전부 디스어셈블 실측(2026-08-06):
+// 원본 구조체 레이아웃은 전부 디스어셈블로 확인한 것이다:
 //   ControlVar2D  : x@0 y@8 angle@0x10 is_stop@0x18 timestamp@0x20  (DoMoveAction 3d7c64~3d7cda)
 //   MCLParticle2D : weight@0 log_weight@8 x@0x10 y@0x18 theta@0x20  (doParticleMoveAction 33cc30~33cc88)
 //   MCLMotionModel2D 멤버: [0]=초기화 플래그 · 0x90=dθ · 0x98=trans · 0xa0=direction ·

@@ -2,8 +2,9 @@
 """
 wheel_odometry — 실 로봇의 motor_control 이 하던 오도메트리를 시뮬에서 대신한다.
 
-실 로봇: driver_node.py 가 0x6064(조향 실위치)·구동 피드백으로 /odom + odom→base_link TF 발행
-시뮬   : /joint_states (joint_state_broadcaster) 의 조향각·구동 각속도로 동일하게 계산
+실 로봇: driver_node.py 가 조향 실위치(0x6064)·구동 피드백으로 odom + odom→base_link TF 발행
+시뮬   : joint_states(joint_state_broadcaster)의 조향각·구동 각속도로 같은 계산을 한다.
+         두 경로가 같은 기구학을 써야 SIL 결과를 실기 근거로 인용할 수 있다.
 
 2WS 정기구학 (IK 의 역):
     바퀴 i 의 속도벡터(body frame) = (v_i·cosδ_i, v_i·sinδ_i)
@@ -36,7 +37,7 @@ def yaw_to_quat(yaw):
 
 
 
-# TOPIC NAMES ARE RELATIVE, DELIBERATELY (2026-08-06).
+# TOPIC NAMES ARE RELATIVE, DELIBERATELY.
 #
 # A leading slash makes a topic ABSOLUTE and the node's namespace is ignored.
 # That is invisible with one robot, where the namespace is empty and the two

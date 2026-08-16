@@ -24,9 +24,9 @@ ParticleFilter2D::ParticleFilter2D(const Mcl2dParams &params, ObservationField f
         mounts_.emplace_back();
 }
 
-// ROS 프레임 스캔(rad·m) → 원본 프레임 그룹(도·mm)으로 변환해 field_.setScan.
-//   beam.angle_deg = (scan_angle + mount.yaw)·180/π (로봇좌표), dist_mm = range·1000,
-//   mount_*_mm = mount.xy·1000. is_valid = 실제 반사(range_min~range_max 내). scan 당 라이다 1대.
+// 스캔을 우도장이 쓰는 프레임으로 옮긴다. 입력 rad·m → 우도장 도·mm.
+//   beam.angle_deg = (스캔각 + mount.yaw) 를 도로 환산한 **로봇좌표** 각이고, 거리·장착 좌표는 mm 다.
+//   is_valid 는 range_min~range_max 안에 든 실제 반사만 참 — 범위 밖 값은 '무한' 이 아니라 무효다.
 void ParticleFilter2D::applyScan(const std::vector<LaserScan> &scans)
 {
     const std::size_t k = std::min(scans.size(), mounts_.size());
@@ -101,9 +101,9 @@ bool ParticleFilter2D::relocalize(const Pose2D &center, double radius, double an
     const int max_iter = std::max(1, params_.reloc_max_iterations);
     for (int counter = 0; counter < max_iter; ++counter)
     {
-        // 담금질(annealing) 스프레드: 초기 넓게 → 0으로 수축(반복 진행할수록 탐색반경 축소).
-        // ※Seer 원시식 (max-counter)/100000×length(mm)은 그들 내부 스케일(mm/가중치) — 우리
-        //   우도 스케일에 맞춰 radius 기준 수축으로 대응(RE 백로그: 원시 상수 1:1 미재현).
+        // 담금질 스프레드 — 반복이 진행될수록 탐색 반경을 0 으로 좁힌다.
+        // ⚠ 원본 식은 내부 mm·가중치 스케일을 전제로 해서 상수를 1:1 로 옮기지 못했다.
+        //   여기서는 같은 '넓게 시작해 좁힌다' 성질만 radius 기준으로 재현한다(수치 동치 아님).
         const double frac = static_cast<double>(max_iter - counter) / max_iter; // 1 → ~0
         const double spread = radius * frac * 0.15;
         const double ang_spread = angle_range * frac * 0.1;
@@ -119,7 +119,7 @@ bool ParticleFilter2D::relocalize(const Pose2D &center, double radius, double an
             p.pose.theta = normalizeAngle(p.pose.theta + uth(rng_));
         }
         updateWeights(scans); // 측정 갱신 (재추정 PDF는 RE 백로그 — 정상 PDF로 근사)
-        // 수렴 판정: 현재 추정 자세의 우도 > 임계 → 조기 종료. (updateWeights 가 setScan 완료.)
+        // 조기 종료 — 추정 자세의 우도가 임계를 넘으면 남은 반복은 시간 낭비다.
         if (likelihoodAt(estimate()) > params_.reloc_success_threshold)
         {
             resample();
@@ -128,7 +128,8 @@ bool ParticleFilter2D::relocalize(const Pose2D &center, double radius, double an
         resample();
     }
 
-    // 최종 성공검증: 추정 자세의 정상 PDF 우도 > 임계 (Seer 이중 게이팅).
+    // 조기 종료했더라도 마지막에 한 번 더 본다 — 담금질 도중의 우도는 좁힌 산포에 기댄 값이라
+    //   그것만으로 성공을 선언하면 실제로는 어긋난 자세를 통과시킬 수 있다.
     const double final_lik = likelihoodAt(estimate());
     return final_lik > params_.reloc_success_threshold;
 }
@@ -164,7 +165,8 @@ bool ParticleFilter2D::updateWeights(const std::vector<LaserScan> &scans)
     }
     if (sum <= 0.0)
     {
-        // 전 입자 우도 0 — 균등으로 두고 실패 보고(상위에서 reloc 판단).
+        // 전 입자 우도 0. 정규화하면 0 나눗셈이므로 가중치를 균등으로 두고 실패를 알린다 —
+        //   재위치추정 여부는 상위가 정한다.
         const double w = 1.0 / particles_.size();
         for (auto &p : particles_)
             p.weight = w;
@@ -179,7 +181,7 @@ bool ParticleFilter2D::updateWeights(const std::vector<LaserScan> &scans)
 
 int ParticleFilter2D::computeSampleNumber() const
 {
-    // 점유된 (x,y,theta) bin 수 k → n = k * factor, clamp[min,max] (Seer 실측)
+    // 점유 bin 수가 곧 '퍼진 정도'다. 퍼져 있으면 표본을 늘리고 수렴하면 줄인다.
     const double xy = std::max(1e-6, params_.adaptive_xy_step);
     const double abin = std::max(1e-6, params_.adaptive_angle_bin_deg * M_PI / 180.0);
     std::set<std::tuple<int, int, int>> bins;
@@ -210,7 +212,8 @@ void ParticleFilter2D::resample()
     if (acc <= 0.0)
         return;
 
-    // systematic: 단일 난수 u0 ∈ [0, 1/m) + 균등 stride 1/m (Seer: twist 1회 + stride)
+    // systematic 리샘플 — 난수를 m 번이 아니라 **한 번만** 뽑고 1/m 간격으로 훑는다.
+    //   표본 분산이 다항 리샘플보다 작고, 원본도 같은 방식이다.
     std::uniform_real_distribution<double> u(0.0, 1.0 / m);
     const double u0 = u(rng_);
     std::vector<Particle> next;
@@ -246,8 +249,9 @@ Pose2D ParticleFilter2D::estimate() const
         return est;
     est.x = sx / sw;
     est.y = sy / sw;
-    // 원형 평균. ★원본 getTheMeanParicle은 atan2f(float 단정밀도) 사용 — RE 제1원칙(원본
-    //   100% 동일)에 따라 double atan2가 아닌 float atan2f로 맞춘다(오라클 비트 대조 확인).
+    // 각도는 원형 평균으로 낸다(단순 산술평균은 ±π 경계에서 접힌다).
+    // atan2f 를 쓰는 것은 실수가 아니다 — 원본이 **단정밀도** atan2f 를 쓰므로 double 로 바꾸면
+    //   결과가 원본과 갈린다. 정밀도를 올리지 말 것.
     est.theta = ::atan2f(static_cast<float>(ss), static_cast<float>(sc));
     return est;
 }
@@ -259,12 +263,14 @@ Pose2D ParticleFilter2D::step(const Pose2D &prev_odom, const Pose2D &cur_odom, c
 
 Pose2D ParticleFilter2D::step(const Pose2D &prev_odom, const Pose2D &cur_odom, const std::vector<LaserScan> &scans)
 {
-    // 원본(MCLoc) 순서: 새 스캔 적용 → **직전 추정 자세의 우도**로 산포 모드 선택 →
-    //   kMove(결정론) → kExtraMove(산포) → 우도갱신 → 추정 → 리샘플.
-    //   우도를 먼저 구하는 이유: 모드 판정이 "지금 얼마나 믿을 만한가"를 입력으로 쓰기 때문.
+    // 순서가 곧 규약이다: 새 스캔 적용 → 직전 추정 자세의 우도 → 산포 모드 선택 →
+    //   kMove → kExtraMove → 우도갱신 → 추정 → 리샘플.
+    //   우도를 **모드 선택 전에** 구해야 한다 — 모드 판정 입력이 "지금 얼마나 믿을 만한가" 이므로,
+    //   갱신 뒤 우도를 쓰면 이번 산포가 자기 자신의 결과에 반응하는 순환이 된다.
     applyScan(scans); // updateWeights 가 한 번 더 부르지만 비용은 빔 수 선형(파티클 루프 대비 무시 가능)
-    // 모드 판정은 **직전 판정 이후 누적** 이동량으로 한다(원본 DoNormalUpdateAction 의 정적 accumu 대응).
-    //   파사드(Mcl2dLocalizer)와 같은 규칙 — 두 경로가 갈리면 같은 입력에 다른 산포가 나온다.
+    // 모드 판정은 **직전 판정 이후 누적** 이동량으로 한다. 주기당 증분을 쓰면 스캔이 오도보다
+    //   느릴 때 이동량이 과소평가돼 산포가 최소 쪽으로 치우친다.
+    //   파사드(Mcl2dLocalizer)도 같은 규칙을 쓴다 — 갈리면 같은 입력에 다른 산포가 나온다.
     if (!has_accum_)
     {
         accum_odom_ = prev_odom;

@@ -1,12 +1,12 @@
 /translate_sim_odom_node:
   ros__parameters:
-    # ── QD diagonal wheel positions ──
-    # ⚠ 2026-08-05 — Carrier AGV 대각값(0.330/0.135)에서 Foil_A082 inline 값으로.
-    #   플랜트가 컨트롤러와 다른 기하를 쓰면 SIL 이 검증하는 것이 없다.
-    #   정본: trnav_2ws_core/config/robot_geometry_2ws.yaml (검사기 C6 이 상시 대조)
+    # ── Wheel positions (base_link, m) ──
+    # ⚠ 이 값은 컨트롤러가 쓰는 기하와 **같아야 한다** — 플랜트가 다른 기하를 쓰면 SIL 이
+    #   검증하는 대상이 사라진다. 정본은 trnav_2ws_core/config/robot_geometry_2ws.yaml 이고
+    #   검사기 C6 이 상시 대조한다. 여기 값을 단독으로 고치지 말 것.
     w1_x:  0.6039
-    # ⚠ 2026-08-06 — y 를 **0 으로 확정**(사용자: 「2WS 는 구조상 제자리 스핀이므로 무조건 90도」).
-    #   종전 값 −0.0014 m 는 Seer live_models 추출 시의 **실측 잔차**이며 설계값이 아니다.
+    # ⚠ y 는 **0 이어야 한다.** 2WS 는 구조상 제자리 스핀이 ±90° 이기 때문이다.
+    #   Seer live_models 에서 뽑으면 −0.0014 m 같은 잔차가 딸려 오는데 그것은 실측 잔차이지 설계값이 아니다.
     #   두 바퀴가 같은 y 를 가지면 그 값은 기구학에서 **가정하는 회전중심을 횡으로 y 만큼
     #   옮기는** 역할만 한다 — 바퀴가 센터라인에 있으므로 자연스러운 회전중심도 그 선 위(y=0)다.
     #   잔차를 남기면 제자리 스핀이 ±89.867° 로 나와 구조값 ±90° 와 어긋난다.
@@ -16,8 +16,8 @@
     w2_y: 0.0
 
     # ── Initial pose (map frame) ──
-    # 2026-05-14 SIL 검증 시나리오: kkw1.json N17(4.952,-2.327) + yaw=0 (+X east)
-    # L3 reverse (N17→N2): edge_dir ≈ +180° (west), 차량 yaw=0° → 정합 180° → reverse OK
+    # SIL 검증 시나리오 기준점 — kkw1.json 의 N17 위치, yaw=0(+X east).
+    # 이 자세에서 L3 역주행(N17→N2)은 edge 방향이 약 180°(west)라 정합각 180° 로 reverse 가 성립한다.
     initial_x:   4.952
     initial_y:   -2.327
     initial_yaw: 0.0   # rad

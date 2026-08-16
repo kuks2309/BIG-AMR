@@ -1,15 +1,6 @@
-// non-ROS 위치추정 어댑터 — mcl2d_core(2D 레이저 파티클필터)를 ROS 없이 직접 쓰는 파사드.
-// Seer 원본도 비-ROS(자체 zmq+protobuf 미들웨어)이므로, 본 어댑터는 어떤 전송계층에도
-// 묶이지 않는 순수 호출 인터페이스를 제공한다(파일/소켓/zmq 등은 호출측이 선택).
-//
-// 위 zmq+protobuf 서술의 근거 — 2026-08-06 원본 하드 직접 조회(amap-server
-// /media/amap/6ab6980d-…/usr/local/SeerRobotics/rbk): plugins/libMCLoc.so 의 DT_NEEDED 에
-// libzmq.so.5 + libprotobuf.so.17 이 있고, 같은 플러그인이 zmq C API 심볼 20개를 import 한다
-// (zmq_ctx_new·zmq_socket·zmq_bind·zmq_connect·zmq_msg_*·zmq_close 등). zmq 소켓으로 protobuf
-// 메시지를 나르는 래퍼 profiler::IO::TrySend/TryReceive(zmq::socket_t&, google::protobuf::Message)  comment-check: ignore
-// 도 심볼에 그대로 있다. 동봉 3rdlib/libzmq.so.5.2.4 · proto/ 스키마 수십 개.
-// ※ [존재] 확정 / [동작] 미확정 — 그 zmq 경로가 "주 데이터 경로" 인지는 확인되지 않았다.
-//   상세: docs/claude-mistake/2026-08-06-004_zmq-claim-denied-without-checking-original.md
+// non-ROS 위치추정 파사드 — mcl2d_core(2D 레이저 파티클필터)를 ROS 없이 직접 쓴다.
+// 전송계층에 묶이지 않는 순수 호출 인터페이스만 제공하고, 파일·소켓·미들웨어 선택은 호출측 몫이다.
+// 원본 libMCLoc 도 ROS 를 쓰지 않으므로(zmq·protobuf 를 링크한다) 이 경계가 원본 구조와 맞는다.
 #ifndef MCL2D_LOCALIZER_HPP
 #define MCL2D_LOCALIZER_HPP
 
@@ -31,41 +22,45 @@ class Mcl2dLocalizer
   public:
     explicit Mcl2dLocalizer(const Mcl2dParams &params = {}, std::uint32_t seed = 12345);
 
-    // 장애물 점군(m) + 반사판/rssi(m, 선택)으로 Seer 충실 관측 우도장 구축.
+    // 장애물 점군 [m] + 반사판/rssi 점군 [m, 선택] 으로 관측 우도장을 만든다.
+    // 맵을 바꾸면 파티클필터가 무효화되므로 setInitialPose 를 다시 불러야 한다.
     bool loadMap(const std::vector<std::pair<double, double>> &obstacles,
                  const std::vector<std::pair<double, double>> &reflectors = {});
 
-    // 라이다 장착 자세(Roll_A084는 전·후 2개). 순서는 update(scans) 순서와 일치.
+    // 라이다 장착 자세. mounts[i] 가 update(scans) 의 scans[i] 에 대응한다 — 순서가 곧 대응 관계다.
     void setLasers(const std::vector<LaserMount> &mounts)
     {
         mounts_ = mounts;
     }
 
-    // 초기 자세(주변 산포로 파티클 생성). 맵·라이다 설정 후 호출.
+    // 초기 자세를 주고 그 주변에 파티클을 생성한다. loadMap·setLasers 뒤에 불러야 한다.
+    // 런타임 재초기화 경로이기도 하다 — 직전 추정·누적 기준점·슬립 상태를 모두 버린다.
     void setInitialPose(const Pose2D &mean);
 
-    // 한 주기: 직전/현재 오도 + 라이다 스캔들 → 추정 자세.
-    //  stopped: 로봇 정지 여부(슬립 복구 판정용), dt: 경과 시간(s).
+    // 한 주기 — 오도 두 시점과 스캔들로 추정 자세를 낸다.
+    //   prev_odom·cur_odom : 오도 절대 자세. 여기서 **증분만** 취하므로 드리프트는 전파되지 않는다.
+    //   stopped            : 참이면 예측(kMove)을 건너뛴다. 슬립 복구 판정에도 쓰인다.
+    //   dt [s]             : 직전 호출 이후 경과. 슬립 복구 시간 누적에만 쓰인다.
     Pose2D update(const Pose2D &prev_odom, const Pose2D &cur_odom, const std::vector<LaserScan> &scans,
                   bool stopped = false, double dt = 0.05);
 
-    // 전역 재위치추정(위치 손실 시). 성공하면 true + 상태 Normal 복귀.
+    // 전역 재위치추정. 실패해도 파티클은 이미 재살포된 뒤이므로 반환값을 무시하면 안 된다.
     bool relocalize(const Pose2D &center, double radius, double angle_range, const std::vector<LaserScan> &scans);
 
-    // 마지막 갱신의 평균 우도(신뢰도 지표). 0 이면 위치 손실 가능.
+    // 마지막 갱신의 평균 관측 우도. 절대 스케일이 아니라 **상대 지표**다(맵 밀도·빔 수에 의존).
     double confidence() const;
     // 마지막 갱신의 보고 상태 (Normal/Skidding/LowConfidence).
     LocReportState reportState() const
     {
         return report_state_;
     }
-    // 마지막 갱신에서 선택된 산포(ExtraMove) 크기와 모드 번호 — 원본 MCLocUpdateMode 로그 대응.
+    // 마지막 갱신에서 고른 산포 크기와 모드 번호. 진단 전용이며 제어에 쓰지 않는다.
     const ExtraMoveParams &lastExtraMove() const
     {
         return last_extra_move_;
     }
-    // 그 모드 판정에 실제로 쓰인 우도. 임계(best_particle_tolerant_threshold)와 함께 봐야 의미가 있다 —
-    //   두 값의 스케일 정합이 미검증이라(debt-031) 진단으로 노출한다.
+    // 그 모드 판정에 실제로 쓰인 우도. 임계 best_particle_tolerant_threshold 와 같은 스케일인지는
+    //   확인되지 않았으므로(debt-031) 값으로 판단하지 말고 진단으로만 볼 것.
     double lastModeLikelihood() const
     {
         return last_mode_likelihood_;
@@ -87,7 +82,7 @@ class Mcl2dLocalizer
     double last_mode_likelihood_ = 0.0;
     Pose2D prev_est_;
     bool has_prev_est_ = false;
-    Pose2D accum_odom_;     // 산포 모드 판정용 기준점 (원본 DoNormalUpdateAction 의 정적 accumu 대응)
+    Pose2D accum_odom_;     // 산포 모드 판정의 누적 기준점 — 판정할 때마다 현재 오도로 갱신된다
     bool has_accum_ = false;
 };
 

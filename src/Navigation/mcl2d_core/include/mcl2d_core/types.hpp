@@ -1,6 +1,6 @@
 // mcl2d_core — 2D MCL(Monte Carlo Localization) 파티클필터 핵심 자료구조.
-// Seer libMCLoc.so 의 2D 레이저 파티클필터 모드를 리버스 엔지니어링으로 복원해 재구현.
-// 근거: References/seer/libMCLoc/2026-06-24-localization-deep-dive.md
+// Seer libMCLoc.so 의 2D 레이저 파티클필터 모드를 리버스 엔지니어링으로 복원해 재구현한다.
+// 기본값은 이 기체의 Seer 배포 설정(robot.param) 실측값이므로 임의로 바꾸면 원본 기준선을 벗어난다.
 #ifndef MCL2D_CORE_TYPES_HPP
 #define MCL2D_CORE_TYPES_HPP
 
@@ -25,7 +25,8 @@ struct Particle
     double weight = 0.0;
 };
 
-// 오도메트리 절대 자세(연속 두 시점). 모션모델이 증분을 계산한다.
+// 오도메트리 절대 자세. 모션모델은 여기서 두 시점의 **증분만** 취하므로 절대값 드리프트는 전파되지 않는다.
+// is_stop 은 드라이브가 보고하는 정지 플래그로, 참이면 예측(kMove)을 건너뛴다.
 struct OdomSample
 {
     Pose2D pose;
@@ -109,7 +110,7 @@ struct Mcl2dParams
     double extra_move_radius = 0.040; // m  (ParticleExtraMoveRadius 40mm)
     double extra_move_angle = 0.052;  // rad (ParticleExtraMoveAngle 3deg)
 
-    // ExtraMove 모드 판정 임계. Seer MCLParams2D 실측 배포값(robot.param, 2026-07-31 조회).
+    // ExtraMove 모드 판정 임계. 원본 MCLParams2D 의 배포 설정값(robot.param)이다.
     double extra_move_dist_threshold = 0.020;       // m  (ExtraMoveDistThreshold 20mm)
     double extra_move_angle_threshold = 0.0174533;  // rad (ExtraMoveAngleThreshold 1deg)
     double best_particle_tolerant_threshold = 0.8;  // 우도 이상이면 "신뢰 높음" 취급
@@ -135,11 +136,10 @@ struct Mcl2dParams
     // 재위치추정 (Seer DoRelocAction 실측): 영역 살포 → 담금질 반복 → 이중 게이팅.
     int reloc_max_iterations = 100;       // 반복 상한 (Seer 100)
     double reloc_anneal_denom = 100000.0; // 담금질 분모 (Seer 100000)
-    // 성공 임계 — 관측 우도는 이제 Seer 충실(ObservationField, getPostProb 비트일치)이라
-    //   우도 스케일 확정: 좋은 정합 ~0.2, 자세 소이탈(0.01rad)~0.11, 대이탈~0.004(측정).
-    //   맵 밀도·빔수에 따라 절대값이 달라지므로 배포별 튜닝 대상(희소맵은 낮게). 기본은 일반값.
-    //   ※ Seer DoRelocAction 의 정확한 성공 게이트(임계·판정식)는 별도 RE 백로그.
-    //   (구 0.5 는 가우시안 근사 시절 스케일.)
+    // 성공 임계. 관측 우도는 원본 getPostProb 와 비트 일치하는 ObservationField 가 낸다 —
+    //   그 스케일에서 좋은 정합 ~0.2, 자세 0.01 rad 이탈 ~0.11, 대이탈 ~0.004 로 측정된다.
+    //   절대값이 맵 밀도·빔 수에 따라 달라지므로 희소맵에서는 낮춰야 한다(배포별 튜닝 대상).
+    //   ⚠ 원본 DoRelocAction 의 성공 게이트 판정식 자체는 아직 복원하지 못했다.
     double reloc_success_threshold = 0.1;
 
     // 슬립(skid) 감지 (Seer CheckWheelSkid/skidDetect 실측 기본값)
@@ -148,9 +148,8 @@ struct Mcl2dParams
     double skid_mismatch_ratio = 2.0; // 휠↔레이저 오도 불일치 배율 (Seer 하드코딩 2.0)
     double recover_time = 1.0;        // 정지 후 복구 대기 (s)
 
-    // 저신뢰 정지 임계 — meanWeight(평균 관측 우도) < 이 값이면 LowConfidence.
-    //   충실 우도 스케일 기준(수렴 시 파티클 평균 meanWeight ~0.05, 측정). 맵별 튜닝 대상.
-    //   (구 0.3 은 가우시안 근사 시절 스케일.)
+    // 저신뢰 정지 임계 — meanWeight(평균 관측 우도)가 이 값 미만이면 LowConfidence 로 보고한다.
+    //   수렴 상태의 meanWeight 가 ~0.05 로 측정되는 스케일 기준이며, 맵별 튜닝 대상이다.
     double stop_confidence = 0.02;
 };
 
