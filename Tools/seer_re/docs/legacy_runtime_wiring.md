@@ -293,13 +293,50 @@ movabs $0x3eb0c6f7a0b5ed8d   →  1e-06
 동시에 밀고 당기는 유일한 축이고, §A.6 의 `|ω| > 1.0 deg/s` 게이트가 바로 그 경합을 조절한다.
 z·roll·pitch 는 오도가 건드리지 않으므로 IMU 관측만으로 결정된다.
 
-## A.13 아직 모르는 것
+## A.13 관측 잡음 멤버가 채워지지 않는다 `[존재]`
 
-- **`odom_covariance_`(멤버 0x48)·`imu_covariance_`(멤버 0x70)에 값을 넣는 지점** — 여전히 못 찾았다.
-  위 표의 잡음 행렬들은 **생성자 지역 변수**(스택)로 측정모델에 넘어가는 것이고, 같은 이름의 **멤버**는
-  별개다. `update()` 가 그 멤버를 `AdditiveNoiseSigmaSet` 으로 넘기는데(§A.11),
-  쓰는 곳이 어디에도 없다면 **기본 생성 상태(빈 행렬)** 를 넘기는 셈이다 — 확인 필요.
+§A.11 에서 `update()` 가 매 주기 넘기는 두 멤버를 추적한 결과다.
+
+**생성자는 크기만 잡는다** (@+42~+87):
+
+```
+lea  0x48(%r12),%r14        ; &odom_covariance_
+mov  $0x6,%esi
+call MatrixWrapper::SymmetricMatrix::SymmetricMatrix(int)     ; 6×6, 값 미설정
+lea  0x70(%r12),%r13        ; &imu_covariance_
+mov  $0x3,%esi
+call MatrixWrapper::SymmetricMatrix::SymmetricMatrix(int)     ; 3×3, 값 미설정
+movw $0x0,0x98(%r12)        ; m_odom_init = m_imu_init = 0
+```
+
+**그 뒤로 값을 넣는 곳을 찾지 못했다.** 라이브러리 전량(269,153줄 디스어셈블 + 심볼 귀속)에서:
+
+| 경로 | 결과 |
+| --- | --- |
+| 원소 쓰기 `SymmetricMatrix::operator()(i,j)` + 저장 | `initialize()`·생성자 **둘뿐**이며 모두 **스택 지역변수** 대상 |
+| 복사 대입 `SymmetricMatrix::operator=(const SymmetricMatrix&)` | **라이브러리 전체 0건** |
+| 스칼라 대입 `operator=(double)` | 생성자 지역변수에만 |
+| `memmove` (update 내 2회) | `odom_meas_old_ ← odom_meas_`(0x138→0x168) · `imu_meas_old_ ← imu_meas_`(0x198→0x1c8) — 공분산 아님 |
+
+⇒ `odom_covariance_`·`imu_covariance_` 는 **차원만 잡힌 채** 매 주기
+`AdditiveNoiseSigmaSet` 으로 측정모델에 들어간다.
+
+상류 `robot_pose_ekf` 는 이 자리를 메시지에서 채운다
+(`odom_covariance_ = odom_meas.covariance`, `imu_covariance_ = imu_meas.covariance`).
+**Seer 판에는 그 대입이 없다.**
+
+⚠ **라벨 주의**: 위는 `[존재]` — "쓰는 코드가 없다" 는 정적 사실이다.
+그 결과 런타임에 어떤 값이 실리는지(`SymmetricMatrix(n)` 가 0으로 채우는지 미초기화인지)는
+**`[동작-미검증]`** 이다. 실행 대조 없이 "측정 잡음이 0이다 / 쓰레기값이다" 라고 단정하지 않는다.
+
+⚠ **조사 한계**: 위 네 경로 밖으로 값이 들어가는 길(내부 버퍼로의 직접 `memcpy`,
+참조를 다른 곳에서 얻어 쓰기, 상속·friend 접근)은 이 방법으로 잡히지 않는다.
+
+## A.14 아직 모르는 것
+
+- `SymmetricMatrix(int)` 생성자가 값을 0으로 채우는지 — 채운다면 측정잡음 0(관측 무한 신뢰),
+  아니면 미초기화. **이것이 위 A.13 의 실효를 가른다.**
 - `UseIMU = 0` 일 때 경로(통과인지 별도인지).
 - 슬립 감지 3종(`StartSkidDetection`·`LaserOdomDetectSkid`·임계 5개)이 꺼진 이유.
 - `IMUErrorDetect*` 가 켜졌을 때의 거동.
-- `wzOdoAbsDeg` 게이트의 임계 1.0 deg/s 가 어떤 근거로 정해졌는지(벤더 판단, 문서 없음).
+- `wzOdoAbsDeg` 게이트 임계 1.0 deg/s 의 근거(벤더 판단, 문서 없음).
