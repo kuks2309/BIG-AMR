@@ -199,30 +199,37 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 
 ---
 
-## 5. `home_and_zero.py` — 호밍 → 조향 0° 복귀 운용 CLI (212줄)
+## 5. `home_and_zero.py` — 호밍 → 조향 0° 복귀 운용 CLI (314줄)
 
-`ros2 run can_relay home_and_zero`. `~/home` 을 호출하고 **성공한 응답을 받은 경우에만**
-`~/steer_deg` 에 0.0 을 발행한 뒤 `joint_states` 로 도달을 확인한다. 판정 로직
-(`ZeroReturnGuard`)은 ROS 를 import 하지 않으며 입출력을 `client` 로 주입받는다.
+`ros2 run can_relay home_and_zero --ros-args -p confirm:=true`. `confirm` 없이는 아무
+것도 요청하지 않는다(호밍 = 100°+ 스윙). `<target_node>/home` 호출 성공 시에만
+`<target_node>/steer_deg` 에 0.0 을 **반복 발행**(멱등, `RESEND_PERIOD_S`)하고
+`joint_states` 로 도달을 확인한다. 시한 초과는 진단 `steer_target_deg` 대조로
+「미수용」과 「미도달」을 가른다. 판정 로직(`ZeroReturnGuard`)은 ROS 를 import 하지
+않으며 입출력을 `client` 로 주입받는다.
 
 | # | 함수 | 입력 | 출력 | 기능 | 위치 |
 | --- | --- | --- | --- | --- | --- |
-| 65 | `steer_angles_from_joint_states` | `names,positions,steer_nodes` | `dict` | `joint_states` 한 장 → 축별 각도(도). **실리지 않은 축은 `None`** — 매 장마다 재구성하고 누적하지 않는다 | `home_and_zero.py:25` |
-| 66 | `fresh_or_none` | `angles,age_s,ttl_s` | `dict` | 마지막 수신이 `ttl_s` 를 넘거나 수신 이력이 없으면 전 축 `None` | `home_and_zero.py:47` |
-| 67 | `ZeroReturnGuard.__init__` | `client,tol_deg,timeout_s,nodes` | — | 판정 파라미터 보관. `tol_deg`·`timeout_s` 기본값은 **선택값이며 실측 근거 없음** | `home_and_zero.py:74` |
-| 68 | `ZeroReturnGuard.run` | — | `int` | 서비스 유무 → 호밍 → 0° 지령 → 도달 확인. **호밍 실패면 0° 를 발행하지 않는다** | `home_and_zero.py:81` |
-| 69 | `ZeroReturnGuard._await_zero` | — | `int` | 두 축이 0°±`tol_deg` 안에 들어올 때까지 대기. 실측 없는 축은 도달로 치지 않는다 | `home_and_zero.py:98` |
-| 70 | `_RosClient.__init__` | `node,steer_nodes` | — | `~/home` 클라이언트 · `~/steer_deg` 발행자 · `joint_states` 구독 생성 | `home_and_zero.py:124` |
-| 71 | `_RosClient._on_joint_states` | `msg` | — | 받은 한 장으로 각도를 **통째 교체** + 수신 시각 기록 | `home_and_zero.py:138` |
-| 72 | `_RosClient.start_clock` | — | — | 0° 대기 시계 기점(호밍 종료 시점) | `home_and_zero.py:146` |
-| 73 | `_RosClient.elapsed` | — | `float` | 기점 이후 경과(초) | `home_and_zero.py:149` |
-| 74 | `_RosClient.service_available` | — | `bool` | `~/home` 서비스 대기(5 s). 부재는 호밍 실패와 다른 종료코드로 갈린다 | `home_and_zero.py:154` |
-| 75 | `_RosClient.call_home` | — | `(bool,str)` | `~/home` 비동기 호출·완료 대기(300 s). 반환 직후 대기 시계 기점을 찍는다 | `home_and_zero.py:157` |
-| 76 | `_RosClient.send_steer_zero` | — | — | `~/steer_deg` 에 `0.0` 1회 발행(응답 없음) | `home_and_zero.py:168` |
-| 77 | `_RosClient.steer_angles_deg` | — | `dict` | `spin_once` 후 `fresh_or_none` 적용값 | `home_and_zero.py:172` |
-| 78 | `_RosClient.sleep` | `seconds` | — | `spin_once` 로 대기(콜백을 굶기지 않는다) | `home_and_zero.py:180` |
-| 79 | `_RosClient.log` | `msg` | — | 노드 로거 | `home_and_zero.py:184` |
-| 80 | `main` | `argv` | `int` | 파라미터(`tol_deg`·`timeout_s`) 선언 → 경고 → `run()` 종료코드 반환 | `home_and_zero.py:188` |
+| 64a | `validate_params` | `tol_deg,timeout_s` | `Optional[str]` | 무효면 사유, 유효면 `None`. `tol∈(0,5]`·`timeout∈(0,300]`. **호밍 요청 전에** 검증 — 무효 파라미터로 축을 움직이지 않는다 | `home_and_zero.py:36` |
+| 65 | `steer_angles_from_joint_states` | `names,positions,steer_nodes` | `dict` | `joint_states` 한 장 → 축별 각도(도). **실리지 않은 축은 `None`** — 매 장마다 재구성하고 누적하지 않는다 | `home_and_zero.py:54` |
+| 66 | `fresh_or_none` | `angles,age_s,ttl_s` | `dict` | 마지막 수신이 `ttl_s` 를 넘거나 수신 이력이 없으면 전 축 `None` | `home_and_zero.py:76` |
+| 67 | `ZeroReturnGuard.__init__` | `client,tol_deg,timeout_s,nodes` | — | 판정 파라미터 보관. `tol_deg`·`timeout_s` 기본값은 **선택값이며 실측 근거 없음** | `home_and_zero.py:105` |
+| 68 | `ZeroReturnGuard.run` | — | `int` | 서비스 유무 → 호밍 → 0° 지령 → 도달 확인. **호밍 실패면 0° 를 발행하지 않는다** | `home_and_zero.py:112` |
+| 68a | `ZeroReturnGuard._classify_timeout` | `missing,angles` | `int` | 시한 초과의 사유 분리 — 드라이버가 0° 목표를 물지 않았으면(`steer_target_confirmed()` 거짓) **미수용**(5), 모름(`None`)·물었으면 미도달(3) | `home_and_zero.py:129` |
+| 69 | `ZeroReturnGuard._await_zero` | — | `int` | 도달 대기 + **`RESEND_PERIOD_S` 마다 0° 재발행**(절대각이라 멱등 — 1회 발행 유실을 스스로 복구). 실측 없는 축은 도달로 치지 않는다 | `home_and_zero.py:148` |
+| 70 | `_RosClient.__init__` | `node,steer_nodes,target_node,diag_name_prefix` | — | `<target>/home` 클라이언트 · `<target>/steer_deg` 발행자 · `joint_states`·`/diagnostics` 구독 생성. 대상·축은 파라미터 주입 | `home_and_zero.py:175` |
+| 71 | `_RosClient._on_joint_states` | `msg` | — | 받은 한 장으로 각도를 **통째 교체** + 수신 시각 기록 | `home_and_zero.py:195` |
+| 71a | `_RosClient._on_diag` | `msg` | — | 드라이버 진단에서 `steer_target_deg` 만 추출 | `home_and_zero.py:203` |
+| 71b | `_RosClient.steer_target_confirmed` | — | `Optional[bool]` | 드라이버가 0° 목표를 물었는가. 진단 미수신이면 `None`(모름 — 미수용으로 단정하지 않는다) | `home_and_zero.py:217` |
+| 72 | `_RosClient.start_clock` | — | — | 0° 대기 시계 기점(호밍 종료 시점, monotonic) | `home_and_zero.py:223` |
+| 73 | `_RosClient.elapsed` | — | `float` | 기점 이후 경과(초, **monotonic** — ROS 시계면 `use_sim_time` 에서 `/clock` 부재 시 0 에 머물러 시한 탈출구가 사라진다) | `home_and_zero.py:227` |
+| 74 | `_RosClient.service_available` | — | `bool` | `<target>/home` 서비스 대기(5 s). 부재는 호밍 실패와 다른 종료코드로 갈린다 | `home_and_zero.py:238` |
+| 75 | `_RosClient.call_home` | — | `(bool,str)` | `<target>/home` 비동기 호출·완료 대기(300 s). 반환 직후 대기 시계 기점을 찍는다 | `home_and_zero.py:241` |
+| 76 | `_RosClient.send_steer_zero` | — | — | `<target>/steer_deg` 에 `0.0` 발행(응답 없음, 재발행은 guard 소관) | `home_and_zero.py:252` |
+| 77 | `_RosClient.steer_angles_deg` | — | `dict` | `spin_once` 후 `fresh_or_none` 적용값 | `home_and_zero.py:256` |
+| 78 | `_RosClient.sleep` | `seconds` | — | `spin_once` 로 대기(콜백을 굶기지 않는다) | `home_and_zero.py:264` |
+| 79 | `_RosClient.log` | `msg` | — | 노드 로거 | `home_and_zero.py:268` |
+| 80 | `main` | `argv` | `int` | 파라미터(`tol_deg`·`timeout_s`·`confirm`·`target_node`·`steer_nodes`) 선언 → **검증·확인 게이트**(무효 6 · 미확인 7, 어느 쪽도 아무 것도 요청하지 않음) → 경고 → `run()` | `home_and_zero.py:272` |
 
 ### 5-1. 종료코드
 
@@ -231,7 +238,10 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | 0 | `EXIT_OK` | 0° 도달 확인 |
 | 2 | `EXIT_HOME_FAILED` | 호밍 실패 — **0° 를 발행하지 않는다** |
 | 3 | `EXIT_ZERO_UNREACHED` | 0° 지령은 나갔으나 `timeout_s` 안에 도달 미확인 |
-| 4 | `EXIT_NO_SERVICE` | `~/home` 서비스 부재 — 호밍도 0° 도 요청하지 않는다 |
+| 4 | `EXIT_NO_SERVICE` | `<target>/home` 서비스 부재 — 호밍도 0° 도 요청하지 않는다 |
+| 5 | `EXIT_CMD_NOT_ACCEPTED` | 시한 초과 + 진단상 드라이버가 0° 목표를 물지 않음 — 게이트 거부(E-stop·호밍 잠금) 의심 |
+| 6 | `EXIT_BAD_PARAM` | 파라미터 무효(`validate_params`) — 아무 것도 요청하지 않음 |
+| 7 | `EXIT_NOT_CONFIRMED` | `confirm:=true` 부재 — 아무 것도 요청하지 않음 |
 
 ## 전역변수표
 
@@ -245,9 +255,11 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | `COMM_MAX` | `health.py:41` | `int` | 15 — `/proc/<pid>/comm` 길이 한계. `system_health` 의 `expected_processes` 와 같은 제약 | 없음(상수) |
 | `WAIT`·`RUNNING`·`IDLE`·`DEAD`·`ZOMBIE`·`RESTORE`·`HOLD` | `health.py:44-50` | `str` | `decide()` 판정값 7종 | 없음(상수) |
 
-| `STEER_NODES` | `home_and_zero.py:19` | `tuple` | `(3, 4)` — 조향 노드 | 없음(상수) |
-| `EXIT_OK`·`EXIT_HOME_FAILED`·`EXIT_ZERO_UNREACHED`·`EXIT_NO_SERVICE` | `home_and_zero.py:20` | `int` | `0·2·3·4` (§5-1) | 없음(상수) |
-| `FEEDBACK_TTL_S` | `home_and_zero.py:21` | `float` | `1.0` — 실측을 인정하는 최대 나이(초). ⚠ 선택값이며 실측 근거 없음 | 없음(상수) |
+| `STEER_NODES` | `home_and_zero.py:23` | `tuple` | `(3, 4)` — 조향 노드 **기본값**(실행 시 `steer_nodes` 파라미터가 이긴다) | 없음(상수) |
+| `EXIT_*` 7종 | `home_and_zero.py:25` | `int` | `0·2·3·4·5·6·7` (§5-1) | 없음(상수) |
+| `RESEND_PERIOD_S` | `home_and_zero.py:27` | `float` | `1.0` — 0° 재발행 주기(절대각이라 멱등) | 없음(상수) |
+| `TOL_MAX_DEG` / `TIMEOUT_MAX_S` | `home_and_zero.py:30` | `float` | `5.0` / `300.0` — `validate_params` 상한 | 없음(상수) |
+| `FEEDBACK_TTL_S` | `home_and_zero.py:32` | `float` | `1.0` — 실측을 인정하는 최대 나이(초). ⚠ 선택값이며 실측 근거 없음 | 없음(상수) |
 
 `backend.py`·`supervisor.py` 의 모듈 전역은 **0개**다(상수는 `safety.py`·`link.py`·`health.py` 소유).
 

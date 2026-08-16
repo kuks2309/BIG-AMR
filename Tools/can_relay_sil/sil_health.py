@@ -55,6 +55,9 @@ RESTART_WINDOW_S = 60.0
 #   4번째 평가가 첫 스탬프의 창 만료를 넘겨 판정이 성립하지 않는다 — 창을 실험 전체
 #   길이보다 넉넉하게 둔다(창 만료 자체는 설계된 의미론이라 제품 쪽 문제가 아니다).
 RESTART_LIMIT = 3
+RECYCLE_AFTER_S = 2.5
+#   실험 11 은 두절 중 재생성이 「간격 반복」되는 것을 본다 — 값이 ZOMBIE_AFTER_S 보다
+#   작아야 좀비 판정 전에 첫 재생성이 나와 두 경로가 섞이지 않고 관측된다.
 
 
 class Ctx:
@@ -106,6 +109,7 @@ class Ctx:
                 "-p", f"restore_settle_s:={RESTORE_SETTLE_S}",
                 "-p", f"restart_window_s:={RESTART_WINDOW_S}",
                 "-p", f"restart_limit:={RESTART_LIMIT}",
+                "-p", f"recycle_after_s:={RECYCLE_AFTER_S}",
                 "-p", "tick_hz:=5.0"]
         args += extra or []
         return self.spawn("supervisor", args)
@@ -545,6 +549,43 @@ def exp10_restore_survives_unanswered_call(ctx: Ctx):
     return True, "무응답 호출을 시한으로 버리고 복귀를 재시도했다"
 
 
+def exp11_recycle_heals_and_preserves_state(ctx: Ctx):
+    """⑪ 장기 두절 → DDS 참여자 재생성(간격 반복) → 상태 승계로 복귀 성립.
+
+    재생성은 컨텍스트·노드를 허물고 같은 프로세스에서 다시 만든다. 이월이 깨지면
+    두절 시계·두절 경험이 초기화되어 「한 번도 못 받음」(WAIT)으로 읽히고 복귀가
+    영영 걸리지 않는다 — 그 결함이 단위·SIL 전건 통과 상태로 실기까지 간 전력이
+    있어, 이 실험이 재생성 경로를 상시 회귀로 고정한다.
+    """
+    d = ctx.driver()
+    sup = ctx.supervisor()
+    if not wait_for(lambda: ctx.state().get("engaged") is not None, 25.0):
+        return False, "감시자가 진단을 받지 못했다(기록 미생성)"
+    engage(ctx, True)
+    if not wait_engaged(ctx, True):
+        return False, f"engage 후 기록이 engaged=True 가 되지 않았다: {ctx.state()}"
+
+    hard_kill(d)
+    # 드라이버를 살리지 않고 두절을 유지 — 재생성이 최소 2회 반복되는 것을 본다
+    if not wait_for(lambda: ctx.log_text("supervisor").count("참여자를 재생성한다") >= 2,
+                    RECYCLE_AFTER_S * 6 + 20.0):
+        n = ctx.log_text("supervisor").count("참여자를 재생성한다")
+        return False, f"재생성이 반복되지 않았다 (관측 {n}회, 기대 2회+)"
+    if sup.poll() is not None:
+        return False, f"재생성 중 감시자 프로세스가 죽었다 (exit {sup.returncode})"
+    if "Traceback" in ctx.log_text("supervisor"):
+        return False, "감시자 로그에 Traceback — 재생성 경로 예외"
+
+    ctx.driver()                       # systemd 재기동 대역
+    if not wait_for(lambda: "복귀 지시" in ctx.log_text("supervisor"), 30.0):
+        return False, "재생성 뒤 복귀 지시가 나가지 않았다 — 승계(두절 경험·직전 상태) 소실 의심"
+    if not wait_for(lambda: "복귀 완료" in ctx.log_text("supervisor"), 20.0):
+        return False, "복귀가 완료되지 않았다"
+    if not wait_engaged(ctx, True):
+        return False, "복귀 후 제어권이 잡히지 않았다"
+    return True, "재생성 2회+ 반복 · 감시자 생존 · 승계 유지로 복귀 성립"
+
+
 EXPERIMENTS = [
     (1, "프로세스 소멸 → 재기동 → 제어권 복귀", exp1_kill_and_restore),
     (2, "실행기 정체 → ZOMBIE 판정", exp2_zombie_suppresses_heartbeat),
@@ -557,6 +598,7 @@ EXPERIMENTS = [
     (9, "감시자 게이트 적용 하한 (경계 관측 — 결함 실험 아님)",
         exp9_death_before_latch_is_observed),
     (10, "무응답 복귀 호출 → 영구 차단되지 않는가", exp10_restore_survives_unanswered_call),
+    (11, "장기 두절 → 참여자 재생성 → 승계 복귀", exp11_recycle_heals_and_preserves_state),
 ]
 
 
