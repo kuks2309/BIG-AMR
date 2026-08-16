@@ -172,7 +172,7 @@ python3 test/mutation_check.py --list   # 목록만
 | `block-ordering` | CSparse 순서 전략만 바뀐다 — 해는 대수적으로 같고 반올림 차이만 생긴다 |
 | `max-iterations` | 시험이 `setMaxIterations(50)` 을 명시 호출해 기본값을 덮는다 |
 
-이것들은 **실 로그 재생 회귀**(`Tools/seer_rawmap/replay/`)를 ctest 에 붙여야 잡힌다 — debt-053.
+이것들은 **실 로그 재생 회귀**(`Tools/seer_rawmap/replay/`)를 ctest 에 붙여야 잡힌다 — debt-093.
 
 ## 원본 대조 — 자산은 확보됐다
 
@@ -214,4 +214,4 @@ RE 문서와 이전 구현본은 공통으로 "Seer 실 로그 확보 시 `.smap
 실기 로그에서 매핑 명령 `6100`/`6101` 은 `OnlineMapLogger` 로 라우팅되고 완성 `.smap` 은
 PC 툴(Roboshop)이 만들어 `4010` 으로 업로드했다. 온보드 Karto+g2o 경로는 `[존재]` 이며
 이 장비의 열람 범위에서 `[동작]` 근거는 얻지 못했다. 우리는 **알고리즘**을 재현한 것이고,
-원본의 **지도 생산 경로**와 같다는 근거는 아직 없다(debt-054).
+원본의 **지도 생산 경로**와 같다는 근거는 아직 없다(debt-094).
