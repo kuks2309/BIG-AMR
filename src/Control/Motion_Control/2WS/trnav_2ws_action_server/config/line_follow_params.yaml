@@ -18,14 +18,31 @@
     steer_tolerance_deg: 1.0
     steer_timeout_sec: 5.0
 
-    # ── 조향 PD (영상 횡오차 → 전륜 조향각) ──
-    # 원본(2WD 차동)의 각속도 PD 를 조향각 공간으로 옮긴 값이다. 차동 기체에서 검증된
-    # 게인이므로 이 기체에서는 **출발점일 뿐** — 실기 재조정 대상.
+    # ── 공통분: 진행 방향 제어 (영상 횡오차·기울기 → 앞뒤 공통 조향각) ──
+    # kp_offset·kd_offset 은 원본(2WD 차동)의 각속도 PD 를 조향각 공간으로 옮긴 값이라
+    # 이 기체에서는 **출발점일 뿐** — 실기 재조정 대상이다.
+    # kp_angle 만은 기하가 정한다: L/(2·lookahead) = 1.2/(2·1.0) = 0.6.
     line_follow_kp_offset: 1.2         # 횡오차 P (rad steer per unit offset)
     line_follow_kd_offset: 0.15        # 횡오차 D
     line_follow_kp_angle: 0.6          # 라인 기울기 P (rad steer per rad)
-    line_follow_max_steer_deg: 25.0    # 조향 포화
+    line_follow_max_steer_deg: 25.0    # 공통분·차이분 각각의 포화
     line_follow_slow_gain: 0.7         # 커브 감속 v = v_max*(1 - slow*|offset|)
+
+    # ── 차이분: 차체 heading 제어 (앞뒤 조향각 차) ──
+    # heading_mode=0(FOLLOW_LINE)에서 차이분은 되먹임이 아니라 **곡률 환산**이다. 라인을
+    # 정확히 타고 있어도 angle = −κ·d 로 남기 때문이다. 필요한 앞뒤 차는 κ·L 이고
+    # κ = −angle/d 이므로 계수는 L/lookahead = 1.2/1.0 = 1.2 (= 2·kp_angle).
+    # 이 2배 관계가 맞아야 곡선에서 crab 성분 없이 순수 counter-steer 가 된다.
+    line_follow_k_curve_heading: 1.2
+    # heading_mode=1(HOLD)·2(ABSOLUTE)에서만 쓰는 yaw 오차 되먹임.
+    line_follow_kp_heading: 1.0        # heading P (rad 차이분 per rad 오차)
+    line_follow_kd_heading: 0.1        # heading D
+
+    # ── 곡선 편향 보상 ──
+    # 전방주시는 곡선에서 완벽히 추종해도 offset 이 0 이 아니다(주시점이 원호에서 d²/2R 만큼
+    # 벗어난다). 그 편향은 angle 에 비례하며 계수는 lookahead/(2·기준행 반폭) 이다.
+    # SIL 기하(주시 1.0 m, 반폭 0.6 m)에서 0.8333. 실카메라 기하가 확정되면 그 값으로 바꾼다.
+    line_follow_curve_bias_gain: 0.8333
 
     # ── 속도 ramp ──
     line_follow_accel: 0.3             # 가속 (m/s^2)
@@ -44,8 +61,12 @@
     line_follow_forward_camera: "cam_f"
     line_follow_reverse_camera: "cam_r"
 
-    # ── 지령 변화율 제한·가드 (yaw_control 과 같은 역할·값) ──
-    line_follow_steer_rate_limit: 0.35
+    # ── 지령 변화율 제한·가드 (yaw_control 과 같은 역할) ──
+    # steer_rate_limit 은 SIL 스윕으로 정했다: 0.15 rad/s 이하에서 조향이 오차를 따라가지
+    # 못해 진동하고(반전 4회·peak |offset| 0.98), 0.25~1.2 는 평탄, 2.0 은 다시 나빠진다.
+    # 무릎(0.25)에서 3.2배 여유를 두고 0.8 을 쓴다. 이 무릎은 1.0·0.3 m/s 에서 같았다 —
+    # 속도가 아니라 조향축 자체의 응답이 정한다.
+    line_follow_steer_rate_limit: 0.8
     line_follow_walk_accel_limit: 0.5
     line_follow_walk_decel_limit: 1.0
     line_follow_gate_blocked_timeout_sec: 5.0

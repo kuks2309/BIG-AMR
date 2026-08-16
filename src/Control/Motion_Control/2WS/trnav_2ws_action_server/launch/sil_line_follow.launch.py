@@ -56,6 +56,8 @@ def generate_launch_description():
                               description='라인 heading deg (맵 기준)'),
         DeclareLaunchArgument('line_length', default_value='10.0',
                               description='라인 길이 m — 끝에서 소실 경로가 시험된다'),
+        DeclareLaunchArgument('line_curvature', default_value='0.0',
+                              description='라인 곡률 1/m (0=직선, +=좌선회). 반경 = 1/|값|'),
         DeclareLaunchArgument('direction', default_value='forward',
                               description='가상 센서 방향 — goal 의 reverse 와 맞춰야 한다'),
     ]
@@ -101,6 +103,7 @@ def generate_launch_description():
                 'line_y0': _f('line_y0'),
                 'line_heading_deg': _f('line_heading_deg'),
                 'line_length': _f('line_length'),
+                'line_curvature': _f('line_curvature'),
                 'direction': LaunchConfiguration('direction'),
             },
         ],

@@ -401,6 +401,7 @@ ament_target_dependencies(amr_line_follow_node
 
 target_link_libraries(amr_line_follow_node
   trnav_2ws_kinematics::qd_inverse_kinematics
+  trnav_2ws_kinematics::qd_crab_inverse_kinematics
   trnav_2ws_core::motion_profile
   trnav_2ws_motion::qd_wheel_set_packer
   trnav_2ws_kinematics::qd_bicycle_model
@@ -416,6 +417,9 @@ if(BUILD_TESTING)
   if(TARGET line_follow_core_test)
     target_include_directories(line_follow_core_test PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    # 코어가 진행 방향을 인자로 받지 않는 근거는 IK 쪽 기하다 — 그 계약을 같은 시험에서 건다.
+    target_link_libraries(line_follow_core_test
+      trnav_2ws_kinematics::qd_crab_inverse_kinematics)
   endif()
 endif()
 
