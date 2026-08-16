@@ -443,6 +443,15 @@ StartLimit 유지). 유닛은 main 고정 배포 워크트리(`~/Project/Ford-CA
 debt-075 는 ①②③ 전 항목 상환, 잔여는 펌웨어 fail-safe 버스 수준 직접 관측 1건.
 상세: `docs/verified_facts/2026-08-16-can-relay-systemd-field.md`
 
+## 15. 펌웨어 fail-safe 버스 수준 직접 관측 (2026-08-16) — debt-075 종결
+
+판다가 양쪽 버스 수신 전 프레임을 호스트로 올리는 것을 이용해 별도 캡처 장비 없이
+단독 도구(`Tools/can_relay_field/hb_failsafe_capture.py`)로 관측: 심박 중단 +1.60 s
+(점화 off 임계 1~2 s 정합)에 드라이브 노드 1·2 의 0x60FF=0 SDO ACK 연발(펌웨어
+`seer_stop_drives` 실증) + bus2 수신율 923→1485/s(릴레이 개방·Seer 전면 통과).
+이로써 debt-075 의 모든 항목이 실기 상환됐다. 상세:
+`docs/verified_facts/2026-08-16-can-relay-hb-failsafe-bus-field.md`
+
 ## 미검증 · 후속 (부채 등록 완료)
 
 | id | 유형 | 내용 |
