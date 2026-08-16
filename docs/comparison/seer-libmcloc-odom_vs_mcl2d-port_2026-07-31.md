@@ -24,6 +24,12 @@
 
 분석 문서(2차 자료)는 [References/seer/libMCLoc/](../../References/seer/libMCLoc/PROVENANCE.md).
 
+> ⚠ **정정(배선)** — 아래에서 "odom" 이라 부르는 `MCLoc` 입력은 `OdoCalculator` 의 휠 오도가 아니라
+> **`RobotPosEKF` 가 휠 오도와 IMU 를 융합해 다시 발행한 `Message_Odometer`** 다
+> (배포 배선 `rbk/rbk.plugin`, `RobotPosEKF.UseIMU = 1`).
+> 소비 쪽 식(증분 추출·산포·슬립 판정)은 그대로 유효하지만, **입력이 순수 휠 오도라는 전제는 틀렸다.**
+> 배선 정본: `Tools/seer_re/docs/legacy_runtime_wiring.md` · 융합 내부 미조사: **debt-107**
+
 ## 1. Seer 가 odom 을 쓰는 다섯 갈래
 
 | # | 갈래 | 요지 | 등급·근거 |
