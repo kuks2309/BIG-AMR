@@ -1,5 +1,31 @@
 # mcl2d_ros2 — code updates
 
+2026-08-16 / 22:05 - (pending commit) / **initialpose relocalize 이식 + 성공 임계 노출** (원 수정: 미병합 브랜치 `fix/initialpose-relocalize` 커밋 `380bc00` — lifecycle 재작성과 같은 파일이라 merge 불가, 수동 이식)
+
+- **수정** `src/mcl2d_localization_node.cpp` —
+  - `onInitialPose`: `setInitialPose`(순간이동) → 스캔 보유 시 `loc_->relocalize(중심, 반경, 각범위, 스캔)`
+    재탐색, 스캔 부재 시 종전 방식 폴백 + WARN. 분기별 결과 로그(성공/실패/폴백)
+  - 파라미터 신설: `reloc_radius`(기본 1.5 m)·`reloc_angle_deg`(기본 30°) — lifecycle 구조에 맞춰
+    선언은 생성자, 읽기는 on_configure
+  - `reloc_success_threshold` 를 declareTuned 군에 추가(이식 기준값 0.1, WARN 감시)
+- **수정** `config/mcl2d.yaml` — `reloc_success_threshold: 0.01` 및 reloc 손잡이 2종 명기.
+  **이식 기준값 0.1 은 이 맵에서 도달 불가** — 참값 수렴 상태의 우도(mode 로그 w)가
+  0.005~0.021 실측이라, 0.1 게이트에서는 재탐색이 항상 "실패→원상복구"로 끝나
+  initialpose 가 무효과였다(사용자 증상 "수렴 안 함"의 원인)
+
+**검증** (실기, 260709_test.smap, 로봇 정지 상태):
+
+- 임계 0.1(수정 전 값): +1.5 m·+1.0 m 주입 모두 `재탐색 실패(중심 자세 유지)` — 원상 복구로
+  추정은 참값 유지(순간이동보다는 안전하나 재측위 기능 자체가 무효)
+- 임계 0.01 적용 후:
+  - **+1.0 m 주입 → `재탐색 성공`, 참값 복귀**(주입 전 x=0.0258 → 후 x=0.0262, Δ0.4 mm)
+  - +1.5 m(반경 경계) 주입 → "성공" 판정이나 **유사 지형(x=-0.51, y=-1.04)에 정착** — 맵 국소
+    유사성(alias)으로 우도 게이트가 못 가르는 영역. 참값 근처 재주입으로 즉시 복구 확인
+- 실용 지침: RViz 2D Pose Estimate 는 **참값 ~1 m 이내**에서 신뢰 가능, 그 밖은 재클릭.
+  `reloc_radius` 1.5 m 초과 오차·alias 분리는 미해결(원 수정의 잔여 항목과 동일)
+
+---
+
 2026-08-16 / 21:00 - (pending commit) / **측위 노드 lifecycle 화** (ADR `docs/adr/2026-08-16-mcl2d-lifecycle-node.md`)
 
 - **수정** `src/mcl2d_localization_node.cpp` — `rclcpp::Node` → `rclcpp_lifecycle::LifecycleNode` 전환:

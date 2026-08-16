@@ -43,3 +43,13 @@
     # 판정 게이트 (gate)
     motor_stop_threshold: 0.02       # m/s·rad/s, 이하이면 정지로 보고 예측(kMove)을 생략한다
     stop_confidence: 0.02            # 파티클 평균 가중치가 이 아래면 LowConfidence 로 보고
+
+    # 재측위 (relocalize) — /initialpose 를 탐색 중심으로 쓰는 재탐색의 손잡이
+    reloc_radius: 1.5                # m,   재탐색 반경 (사람이 찍는 오차를 덮는 크기)
+    reloc_angle_deg: 30.0            # deg, 재탐색 각도 범위 ±
+    # ⚠ 성공 게이트. 이식 기준값 0.1 은 **이 맵에서 도달 불가**다 — 참값에 수렴한 상태의
+    #   우도(mode 로그의 w)가 0.005~0.021 로 실측됐다. 임계가 그 위면 재탐색이 항상
+    #   "실패→원상복구" 로 끝나 initialpose 가 아무 효과도 못 낸다.
+    #   0.01 은 이 맵의 수렴대(통상 0.017~0.021)와 이탈대(~0.004)를 가르는 값.
+    #   맵·라이다 구성이 바뀌면 재실측해서 갱신할 것 (types.hpp 스케일 주석 참조).
+    reloc_success_threshold: 0.01

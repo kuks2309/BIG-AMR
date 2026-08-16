@@ -48,6 +48,13 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
         declare_parameter<bool>("publish_tf", true);
         declare_parameter<bool>("autostart", true); // 소비자는 main — 전이 구동은 노드 밖 책임
 
+        // `/initialpose` 수신 시 재탐색할 범위. 사람이 RViz 에서 찍는 자세는 수십 cm~수 m 틀리므로
+        //   그 자세를 정답으로 쓰지 않고 **주변을 다시 뒤진다**(onInitialPose 참조).
+        //   반경 1.5 m 는 실측 근거다 — 참값에서 1.5 m 벗어난 자세를 주입하면 스캔-맵 잔차가
+        //   369~495 mm 로 잔류한다. 재탐색 반경은 그 오차를 덮는 크기여야 의미가 있다.
+        declare_parameter<double>("reloc_radius", 1.5);
+        declare_parameter<double>("reloc_angle_deg", 30.0);
+
         // 코어 파라미터 일부만 노출한다. **기본값은 전부 현행 이식값**이라 아무것도 주지 않으면
         //   거동이 바뀌지 않는다. 전 항목(30개)을 열지 않는 이유는 대부분이 원본 libMCLoc 대조로
         //   고정된 충실도 값이어서, 임의로 여는 순간 그 기준선이 흔들리기 때문이다. 여기 연 것은
@@ -62,6 +69,10 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
         declare_parameter("stop_confidence", fidelity.stop_confidence);
         declare_parameter("init_dist_scatter", fidelity.init_dist_scatter);
         declare_parameter("init_angle_scatter", fidelity.init_angle_scatter);
+        // 재탐색 성공 게이트. 절대값이 맵 밀도·빔수에 따라 달라져 **배포별 튜닝 대상**이다
+        //   (types.hpp 의 스케일 주석 참조). 임계가 이 기체의 수렴 우도보다 높으면 재탐색이
+        //   항상 실패→원상복구로 끝난다 — 이 기체 값은 config/mcl2d.yaml 이 정본이다.
+        declare_parameter("reloc_success_threshold", fidelity.reloc_success_threshold);
 
         // 라이다 장착 자세 — [x0,y0,yaw0, ...] (m, rad), update(scans) 의 스캔 순서와 일치.
         // 병합 스캔은 merger 가 이미 base_link 기준으로 변환해 놓았으므로 **추가 변환이 없어야 한다**.
@@ -87,11 +98,14 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
         readTuned("stop_confidence", params_.stop_confidence);
         readTuned("init_dist_scatter", params_.init_dist_scatter);
         readTuned("init_angle_scatter", params_.init_angle_scatter);
+        readTuned("reloc_success_threshold", params_.reloc_success_threshold);
 
         map_frame_ = get_parameter("map_frame").as_string();
         odom_frame_ = get_parameter("odom_frame").as_string();
         base_frame_ = get_parameter("base_frame").as_string();
         publish_tf_ = get_parameter("publish_tf").as_bool();
+        reloc_radius_ = get_parameter("reloc_radius").as_double();
+        reloc_angle_ = get_parameter("reloc_angle_deg").as_double() * M_PI / 180.0;
 
         // 맵은 필수다. 빈 경로를 조용히 통과시키면 파티클필터가 생성되지 않아 update() 가 항상
         //   Pose2D{} 를 돌려주고(mcl2d_localizer.cpp) 노드는 그 (0,0,0) 을 계속 발행한다 —
@@ -260,7 +274,14 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
         return v < params_.motor_stop_threshold && w < params_.motor_stop_threshold;
     }
 
-    // RViz2 "2D Pose Estimate" → /initialpose. 파티클필터를 그 자세 주변으로 재초기화한다.
+    // RViz2 "2D Pose Estimate" → /initialpose. 받은 자세를 **정답이 아니라 탐색 중심**으로 쓴다.
+    //
+    // 사람이 찍는 자세에는 수십 cm~수 m 오차가 들어간다. 그 자세를 그대로 심으면(setInitialPose)
+    //   필터는 거기로 옮겨 갈 뿐 되돌아오지 못한다 — 실측: 참값에서 1.5 m 벗어난 자세를 주입하면
+    //   스캔-맵 잔차 369~495 mm 로 눌러앉고, 참값 근처에 찍었을 때만 7 mm 가 된다.
+    //   그래서 스캔이 있으면 `relocalize` 로 반경 안을 담금질 재탐색한다(맵에 실제로 얹히는 자세를
+    //   찾는 것이 목적이지, 사람이 찍은 좌표를 보존하는 것이 목적이 아니다).
+    //   스캔이 아직 없으면 재탐색의 근거가 없으므로 종전 방식으로 중심만 세운다.
     void onInitialPose(const geometry_msgs::msg::PoseWithCovarianceStamped &m)
     {
         // 좌표계가 다르면 값이 그대로 다른 위치를 가리킨다. 변환하지 않고 거부한다 —
@@ -273,7 +294,21 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
         }
         const Pose2D p{m.pose.pose.position.x, m.pose.pose.position.y,
                        yawFromQuat(m.pose.pose.orientation.z, m.pose.pose.orientation.w)};
-        loc_->setInitialPose(p);
+        if (scan_)
+        {
+            std::vector<LaserScan> scans = {*scan_};
+            const bool ok = loc_->relocalize(p, reloc_radius_, reloc_angle_, scans);
+            RCLCPP_INFO(get_logger(),
+                        "initialpose 재탐색 %s — 중심 x=%.3f y=%.3f yaw=%.2f deg · 반경 %.2f m · 각 ±%.1f deg · 우도 %.4f",
+                        ok ? "성공" : "실패(중심 자세 유지)", p.x, p.y, p.theta * 180.0 / M_PI, reloc_radius_,
+                        reloc_angle_ * 180.0 / M_PI, loc_->confidence());
+        }
+        else
+        {
+            // 스캔이 없으면 무엇에 맞출지가 없다. 중심만 세우고, 재탐색을 못 했다는 사실을 남긴다.
+            loc_->setInitialPose(p);
+            RCLCPP_WARN(get_logger(), "스캔 미수신 — 재탐색 없이 중심만 설정했다. 스캔이 들어온 뒤 다시 찍을 것");
+        }
         // 오도 기준점도 버린다 — 새 자세와 옛 오도 증분을 섞으면 첫 주기에 헛된 예측이 들어간다.
         //
         // ⚠ 미결 — 반대 판단도 성립한다: "prev_odom_ 은 건드리지 않는다. update() 는 오도메트리
@@ -284,8 +319,6 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
         //    실측으로 우열을 가린 적이 없다 — 판정 전까지 **결정된 사항으로 인용하지 말 것.**
         prev_odom_.reset();
         prev_stamp_.reset();
-        RCLCPP_INFO(get_logger(), "initialpose 적용: x=%.3f y=%.3f yaw=%.4f rad (%.2f deg)", p.x, p.y, p.theta,
-                    p.theta * 180.0 / M_PI);
     }
 
     void onOdom(const nav_msgs::msg::Odometry &o)
@@ -395,6 +428,8 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
     std::optional<LaserScan> scan_;
     std::string map_frame_, odom_frame_, base_frame_;
     bool publish_tf_ = true;
+    double reloc_radius_ = 1.5;   // m, `/initialpose` 재탐색 반경
+    double reloc_angle_ = 0.5236; // rad(=30°), `/initialpose` 재탐색 각도 범위 ±
 };
 
 int main(int argc, char **argv)
