@@ -15,6 +15,8 @@ add_compile_options(-Wall -Wextra)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
+find_package(lifecycle_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -35,7 +37,7 @@ add_library(mcl2d_core_lib STATIC
 target_include_directories(mcl2d_core_lib PUBLIC
   ${CORE}/include ${MAP}/include ${NONROS}/include)
 
-set(DEPS rclcpp geometry_msgs nav_msgs sensor_msgs tf2_ros)
+set(DEPS rclcpp rclcpp_lifecycle lifecycle_msgs geometry_msgs nav_msgs sensor_msgs tf2_ros)
 
 add_executable(mcl2d_localization_node src/mcl2d_localization_node.cpp)
 target_include_directories(mcl2d_localization_node PRIVATE include)
