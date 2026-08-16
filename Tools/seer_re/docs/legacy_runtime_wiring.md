@@ -534,9 +534,36 @@ jbe  → +4323 (건너뜀)
 임계 `IMUNoiseDetectThred = 3.0` · `IMUErrorDetectThred = 20.0` · `IMUErrorDetectTime = 10` 은
 그래서 현재 적용되지 않는다.
 
-## A.22 아직 모르는 것
+## A.22 슬립 판정 결과는 **로그로만 나간다**
+
+`SkidDetector::Update` 의 반환값을 끝까지 따라갔다.
+
+```
++2640/+2827 : mov %eax,%ebx            ; Update 반환값 보관
++2876       : cmpb $0x0,0x33a(%r13)    ; CalibStatus 수신 플래그
++2884       : sete %al                 ; al = (캘리브 상태 아님)
++2887       : and  %bl,%al             ; al = 슬립판정 AND 캘리브아님
++2905       : je   → +4265             ; 거짓이면 건너뜀
++2919~      : stringstream → ostream_insert → rbk::Logger::thread
+```
+
+참일 때 실행되는 블록은 **로깅뿐이다.** 그 구간(+2876~+3120)에
+`setError`·`setWarning`·`setFatal` 도, 상태 멤버 쓰기도 없다.
+
+그리고 `Message_Odometer::set_detect_skid` 는 **호출 명령이 0건**이다
+(동적 심볼 테이블에는 있으나 `.text` 에 호출지 없음) ⇒ 발행하는 오도 메시지의
+`detect_skid` 필드를 **세우지 않는다.**
+
+⇒ **이 플러그인의 슬립 감지는 시스템 거동에 영향을 주지 않는다.** 로그만 남는다.
+`StartSkidDetection` 파라미터를 읽지 않아 「끄지 못하는 것 아닌가」 했던 우려(§A.16)는
+결과적으로 무해하다 — 켜져 있어도 로그뿐이다.
+
+측위 쪽 슬립 대응은 별개다 — `MCLoc::CheckWheelSkid` 가 `setError(0xcdee=52718)`
+'Detect skid and stop AGV' 를 올린다(오도 생산 문서 §8.4). 두 기구는 서로 무관하다.
+
+## A.23 아직 모르는 것
 
 - `UseIMU`(0x3b8)·`StartSkidDetection`(0x448) 을 읽는 지점 — 대조군 검증된 기법으로 못 찾았다(§A.16).
-- `SkidDetector::Update` 반환값의 소비 지점.
 - 두 공분산 버퍼의 런타임 값(§A.13~A.14) — 실기·원본 구동 대조 필요.
 - `wzOdoAbsDeg` 게이트 임계 1.0 deg/s 의 근거.
+- `VelocityEstimatorIMU` 가 왜 계산만 하고 버려지는가(§A.19) — 개발 잔재인지 의도인지.
