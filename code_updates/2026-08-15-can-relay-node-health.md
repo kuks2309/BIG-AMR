@@ -434,6 +434,15 @@ StartLimit 유지). 유닛은 main 고정 배포 워크트리(`~/Project/Ford-CA
 에서 설치한다 — 본 저장소 워크트리는 세션 브랜치에 서 있어 overlay 가 낡는다(실측:
 감시자 실행 파일 부재로 crash-loop). 최종 검증 결과는 §14 와 verified_facts 에.
 
+## 14. systemd 실장비 최종 검증 (2026-08-16)
+
+배포 워크트리(`~/Project/Ford-CATL-AMR/Big-AMR-deploy`, main 고정) 기반 재설치 후 전 체인
+실기 PASS — kill → `Restart=always` 소생 4 s → 감시자 DEAD → 안정화 → 자동 복귀, 총 9.6 s.
+수동 해제 불개입·유닛 미-engage 기동·RuntimeDirectory 기록도 확인. 유닛 도메인은 설치
+시점 셸의 `ROS_DOMAIN_ID`(이 기체 125)로 구워진다 — CLI 조작 시 명시 필요.
+debt-075 는 ①②③ 전 항목 상환, 잔여는 펌웨어 fail-safe 버스 수준 직접 관측 1건.
+상세: `docs/verified_facts/2026-08-16-can-relay-systemd-field.md`
+
 ## 미검증 · 후속 (부채 등록 완료)
 
 | id | 유형 | 내용 |
