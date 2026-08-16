@@ -445,18 +445,31 @@ je   → nanosleep           ; 없으면 자고 다시
 
 `libRobotPosEKF.so` 는 EKF 말고도 몇 가지를 더 담고 있다.
 
-**`VelocityEstimatorIMU`** — IMU 기반 속도 추정기. `[동작]` `run()` 이 실제로 쓴다
-(`DataInput(6 doubles)` ×2 · `DataOutputVelX/Y` ×2 · `GetAngularVelMeas` ×2 · `Init`/`ResetData` 각 1).
-메서드에 `LowPassFilter(double,double,double)` 이 있다 ⇒ 가속도 적분에 저역통과를 건다.
-**IMU 는 자세 관측(§A.12 `Himu`)만이 아니라 속도 추정에도 쓰인다.**
+**`VelocityEstimatorIMU`** — IMU 기반 속도 추정기. 메서드에 `LowPassFilter(double,double,double)` 이 있다.
+`run()` 이 **호출은 한다** `[존재]` (`DataInput(6 doubles)` ×2 · `DataOutputVelX/Y` ×2 ·
+`GetAngularVelMeas` ×2 · `Init`/`ResetData` 각 1).
+
+⚠ **그러나 그 결과를 아무도 읽지 않는다.** 출력은 멤버 `0xdc0`(VelX)·`0xdc8`(VelY)·`0xdd0`(AngularVel)에
+저장되는데, 라이브러리 전량에서 그 세 오프셋에 대한 명령은 **저장 6건뿐이고 적재 0건**이다.
+`RobotPosEKF` 에 속도 접근자도 없다.
+
+⇒ **계산은 돌지만 산출물은 소비되지 않는다**(write-only). 이 추정기가 융합·발행에 관여한다는
+근거는 없다. 「IMU 가 속도 추정에도 쓰인다」로 읽으면 안 된다.
 
 **`SkidDetector`** — 미끄러짐 감지기. 오버로드 2종:
-`Update(Message_Odometer&, Message_IMU, int, int)` 와 레이저까지 받는
-`Update(Message_Odometer&, Message_IMU, Message_Laser, int, int)`.
+`Update(Message_Odometer&, Message_IMU, int, int)`(@+2632) 와 레이저까지 받는
+`Update(Message_Odometer&, Message_IMU, Message_Laser, int, int)`(@+2822).
 설정자 4종(`SetInertialThreshold(double,double)` · `SetOdometryThreshold(double)` ·
 `SetLaserOdomSwitch(bool)` · `SetLaserParam(double,double,double)`)이 `robot.param` 의
-`SkidDetect*` 키들과 대응한다. `run()` 에 호출지가 있다 `[존재]`.
-⚠ 배포는 `StartSkidDetection = 0` 이므로 **실행 여부는 `[동작-미검증]`** — 게이트 분기를 확인하지 않았다.
+`SkidDetect*` 키들과 대응한다.
+
+두 오버로드는 **멤버 `0xd50` 의 bit0** 로 갈린다(`mov 0xd50(%r13),%al` → `test $0x1,%al` → `jne`):
+세워져 있으면 레이저 포함 판정으로, 아니면 IMU 전용 판정으로 간다. 인자 두 개는 멤버
+`0xbd0`·`0xc90`(int)에서 온다.
+
+⚠ **바깥 게이트는 확인하지 못했다** — 이 구간 진입 직전이 수치 비교(`jbe → +4323`)이고
+`StartSkidDetection` 을 읽는 지점으로 특정하지 못했다. 배포가 `StartSkidDetection = 0` 이므로
+실행 여부는 여전히 **`[동작-미검증]`** 이다.
 
 **`VarianceCalculator::cal(double)`** — `run()` 에서 3회. 결과는 스택 지역(`0x98(%rsp)`·`(%rsp)`)으로
 가서 후속 계산에 쓰이며, **§A.13 의 EKF 공분산 멤버로 들어가지 않는다.** 공분산 미스터리와는 무관하다.
