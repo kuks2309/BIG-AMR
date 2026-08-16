@@ -135,7 +135,7 @@ rclpy 드라이버. Seer 마스터가 붙어 있는 상태에서 릴레이 inter
 
 ---
 
-## 3. `health.py` — 감시 판정 (순수, 320줄)
+## 3. `health.py` — 감시 판정 (순수, 339줄)
 
 ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같은 배치이며, 분리한 이유는
 `conftest.py` 가 규정한 **미소싱 회귀**다 — rclpy 뒤에 판정이 갇히면 설치 없이 전 분기를
@@ -154,7 +154,8 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | 53a2 | `restore_call_expired` | `sent_at`, `now`, `cfg` | `bool` | 진행 중인 복귀 호출을 포기할 때가 됐는가. **`rclpy` future 는 응답이 와야 완료되고 자체 시한이 없다** — 없으면 무응답 호출 하나가 이후 복귀를 영구 차단한다 | `health.py:218` |
 | 53b | `is_outage` | `obs`, `cfg` | `bool` | 지금이 **진단 두절 구간인가** — 판정 이름이 아니라 경과 시간으로 정한다. 「첫 진단 전」·「임계 안 공백」은 두절이 아니다 | `health.py:212` |
 | 53c | `next_was_down` | `was_down`, `verdict`, `outage` | `bool` | 「두절 경험」 표시. **세우는 근거는 두절 사실**(판정 이름이 아니다 — 빠른 재기동은 유예 `WAIT` 로만 덮여 `DEAD` 를 안 거친다). **내리는 것은 `RUNNING` 관측뿐** | `health.py:229` |
-| 53d | `prune_stamps` | `stamps`, `now`, `window_s` | `list` | 복귀 시각 목록에서 창(`restart_window_s`) 밖을 버린 **새 목록** 반환(원본 불변). crash-loop 판정의 분모 | `health.py:226` |
+| 53d | `prune_stamps` | `stamps`, `now`, `window_s` | `list` | 복귀 시각 목록에서 창(`restart_window_s`) 밖을 버린 **새 목록** 반환(원본 불변). crash-loop 판정의 분모 | `health.py:245` |
+| 53e | `recycle_due` | `diag_age`, `since_recycle_s`, `cfg` | `bool` | DDS 참여자를 재생성할 때가 됐는가 — 두절과 「마지막 재생성 이후」가 **둘 다** `recycle_after_s` 초과일 때. 수신 이력 없음(`None`)·비활성(≤0)은 항상 거짓 | `health.py:230` |
 | 54 | `decide` | `prev`, `obs`, `cfg` | `(판정, 사유)` | **이 노드의 모든 판단.** 순서가 곧 우선순위. `home_failed` 는 `cur`·`prev` **양쪽**을 보고, `RESTORE` 허가 직전에 **안정화 창**(`cur_settle_s ≥ restore_settle_s`, 모름=미충족)을 요구한다 | `health.py:229` |
 
 ### 3-1. `decide` 판정표 (시험이 이 표를 고정한다 — `test_supervisor.py`)
@@ -175,23 +176,24 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | 위 + 창 내 복귀 ≥ `restart_limit` | `HOLD` | crash-loop |
 | 위 전부 통과 | `RESTORE` | `~/engage true` 1회 |
 
-## 4. `supervisor.py` — 감시 노드 (ROS 껍데기, 365줄)
+## 4. `supervisor.py` — 감시 노드 (ROS 껍데기, 419줄)
 
 **제어 경로 밖이다** — CAN 에 쓰지 않고 판다를 열지 않는다. 구독·서비스 호출만 한다.
 따라서 이 노드가 죽어도 정지 보증에는 영향이 없다(정지는 펌웨어 소관). 판정은 여기 없다.
 
 | # | 함수 | 입력 | 출력 | 기능 | 위치 |
 | --- | --- | --- | --- | --- | --- |
-| 55 | `RelaySupervisor.__init__` | — | — | 파라미터 → 기록 경로 확보 → 구독(`/diagnostics`)·클라이언트(`<target>/engage`)·타이머 | `supervisor.py:56` |
-| 56 | `_on_diag` | `DiagnosticArray` | — | 접두가 맞는 status 1건만 뽑아 현재 상태로. 다른 발행자는 무시 | `supervisor.py:123` |
-| 56a | `_tick_guarded` | — | — | 타이머 진입점. `_on_tick` 예외를 삼켜 **감시자 자신이 틱 예외로 죽지 않게** 한다(죽으면 복귀 주체가 사라진다). 시험은 `_on_tick` 을 직접 불러 가드에 가려지지 않는다 | `supervisor.py:133` |
-| 57 | `_on_tick` | — | — | 관측 조립 → `decide` → 기록·복귀·발행. **프로세스 순회는 두절일 때만** | `supervisor.py:146` |
-| 59 | `_restore` | — | — | `~/engage true` 1회. 진행 중 호출이 있으면 재호출하지 않는다(제어권 조작 중복 방지) | `supervisor.py:206` |
-| 60 | `_on_restore_done` | `future` | — | 응답 처리. **신원 검사 선행**(`future is self._pending` 아니면 무시) · 성공 시 구 진단 폐기 · 기록된 사망 직전 조향 목표를 로그로만 남긴다(복원 안 함) | `supervisor.py:238` |
-| 61 | `_save` | `state` | — | 임시파일 + `os.replace` **원자 교체**(반쪽 JSON 방지). 호출부(`_on_tick`)가 내용 지문(`_last_saved`) 비교로 **변화 시에만** 부른다 | `supervisor.py:268` |
-| 62 | `_load` | — | `Optional[dict]` | **`boot_id` 불일치면 폐기** — 전원 사이클을 넘긴 기록으로 복귀하면 조향 홈 기준이 없다 | `supervisor.py:295` |
-| 63 | `_publish` | `verdict`, `why`, `obs` | — | 감시자 자신의 판정을 `~/status` 로 — 감시자가 도는지 밖에서 보이게 | `supervisor.py:317` |
-| 64 | `main` | `args` | — | 진입점. 제어 경로 밖이라 단일 스레드 실행기로 충분 | `supervisor.py:348` |
+| 55 | `RelaySupervisor.__init__` | `carry=None` | — | 파라미터 → 기록 경로 확보 → 구독(`/diagnostics`)·클라이언트(`<target>/engage`)·타이머. `carry` 가 있으면 감시 상태(`_prev`·`_was_down`·stamps·`_last_diag`·판정)를 승계 — **모든 기본 초기화 뒤에** 적용된다 | `supervisor.py:57` |
+| 56 | `_on_diag` | `DiagnosticArray` | — | 접두가 맞는 status 1건만 뽑아 현재 상태로. 다른 발행자는 무시 | `supervisor.py:138` |
+| 56a | `_tick_guarded` | — | — | 타이머 진입점. `_on_tick` 예외를 삼켜 **감시자 자신이 틱 예외로 죽지 않게** 한다(죽으면 복귀 주체가 사라진다). 시험은 `_on_tick` 을 직접 불러 가드에 가려지지 않는다 | `supervisor.py:148` |
+| 57 | `_on_tick` | — | — | 관측 조립 → `decide` → 기록·복귀·발행. **프로세스 순회는 두절일 때만.** 두절이 `recycle_after_s` 를 넘으면 참여자 재생성을 요청(`recycle_due` → `_recycle_wanted`) | `supervisor.py:161` |
+| 59 | `_restore` | — | — | `~/engage true` 1회. 진행 중 호출이 있으면 재호출하지 않는다(제어권 조작 중복 방지) | `supervisor.py:231` |
+| 60 | `_on_restore_done` | `future` | — | 응답 처리. **신원 검사 선행**(`future is self._pending` 아니면 무시) · 성공 시 구 진단 폐기 · 기록된 사망 직전 조향 목표를 로그로만 남긴다(복원 안 함) | `supervisor.py:263` |
+| 61 | `_save` | `state` | — | 임시파일 + `os.replace` **원자 교체**(반쪽 JSON 방지). 호출부(`_on_tick`)가 내용 지문(`_last_saved`) 비교로 **변화 시에만** 부른다 | `supervisor.py:293` |
+| 62 | `_load` | — | `Optional[dict]` | **`boot_id` 불일치면 폐기** — 전원 사이클을 넘긴 기록으로 복귀하면 조향 홈 기준이 없다 | `supervisor.py:320` |
+| 62a | `export_carry` | — | `dict` | 참여자 재생성 시 다음 노드 인스턴스로 넘길 감시 상태(`prev`·`was_down`·stamps·`last_diag`·판정·기록 지문). `monotonic` 시각은 같은 프로세스라 그대로 유효 | `supervisor.py:342` |
+| 63 | `_publish` | `verdict`, `why`, `obs` | — | 감시자 자신의 판정을 `~/status` 로 — 감시자가 도는지 밖에서 보이게 | `supervisor.py:357` |
+| 64 | `main` | `args` | — | 진입점(단일 스레드). **재구축 루프** — `_recycle_wanted` 가 서면 컨텍스트·노드를 허물고 `export_carry` 승계로 다시 만든다. 진행 중 복귀 future 는 옛 컨텍스트 소속이라 승계하지 않는다 | `supervisor.py:388` |
 
 **중복/유사 함수**: 없음. `health.py` 와 이름이 겹치는 함수도 없다(판정은 전부 위임).
 
@@ -259,6 +261,7 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 | `zombie_after_s` | 45.0 | 좀비 판정 유예 | 재기동 직후는 프로세스가 있고 진단이 아직 없다 — 유예 없이는 **정상 재기동마다 ERROR** 가 뜬다. 값 근거: 실기 재기동에서 프로세스 등장→첫 진단까지 **30 s**(2026-08-15 실측) |
 | `restore_enabled` | `True` | 복귀 수행 여부 | `false` 면 기록·경보만 |
 | `restart_limit` / `restart_window_s` | 3 / 120.0 | crash-loop 차단 | 반복 engage/release 는 그때마다 Seer 에게서 버스를 뺏었다 놓는다 |
+| `recycle_after_s` | 15.0 | 두절 지속 시 DDS 참여자 재생성 간격 | 발행은 도는데 이쪽 참여자만 무수신인 상태와 진짜 두절을 밖에서 구분할 수 없다 — 무해한 신규 참여자를 주기 재생성. **구독만 재생성하는 것으로는 낫지 않는다**(같은 참여자 안 신규 구독도 무수신). ⚠ 15.0 은 채택값 | `health.py` |
 
 ### `RelaySupervisor` 인스턴스 상태
 

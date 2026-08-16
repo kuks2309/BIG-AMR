@@ -406,6 +406,25 @@ supervisor 앵커 8건 갱신. main 쪽 배선 시험 1건(`test_restore_eligibi
 창 안 보류 0회 확인을 추가하고 창 경과를 모사하도록 적응(의도인 「재시도 영구 포기 금지」는 유지).
 병합 트리 검증: colcon build OK · 단위 485 passed/9 skipped · SIL 10/10 PASS.
 
+## 12. 실행기 정체 실기 실험 → 참여자 재생성 (2026-08-16)
+
+debt-075 ②(실행기 정체) 실기 검증(SIGSTOP 60 s+ 주입)에서 ZOMBIE 판정은 PASS 했으나,
+기상 후 **감시자가 영구 무수신으로 ZOMBIE 에 고착**되는 결함을 발견했다(신규 구독자는
+수신 — 동결됐던 상대와의 DDS 참여자 세션만 사망). 판별 실험으로 엔드포인트 재구독이
+무효임을 확인(같은 참여자 안 신규 구독도 무수신)하고, 수정을 **참여자 재생성**으로 올렸다:
+
+- `health.py`: `SupervisorConfig.recycle_after_s`(15 s, 채택값) + 순수 `recycle_due()`.
+- `supervisor.py`: `main()` 을 재구축 루프로 — `_recycle_wanted` 가 서면 컨텍스트·노드를
+  허물고 `export_carry()` 승계(`prev`·`was_down`·stamps·`_last_diag`·판정·기록 지문)로
+  재생성. 진행 중 복귀 future 는 옛 컨텍스트 소속이라 승계하지 않는다.
+- 1차 구현은 이월이 `_last_saved` 초기화 전에 접근해 AttributeError 사망 — launch respawn
+  이 가려서 성공처럼 보였다. 초기화 순서 정정 + carry 왕복 배선 시험 추가
+  (`test_carry_roundtrip_preserves_watch_state`).
+
+검증: 단위 487 passed · SIL 10/10 · 실기 65 s 동결 재현에서 재생성 4회 승계 연속,
+ZOMBIE 45.4 s 정확, SIGCONT +1.6 s 자가 회복. 실험 기록은
+`docs/verified_facts/2026-08-16-can-relay-zombie-freeze-field.md`.
+
 ## 미검증 · 후속 (부채 등록 완료)
 
 | id | 유형 | 내용 |

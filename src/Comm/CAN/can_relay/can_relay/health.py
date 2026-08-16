@@ -72,6 +72,10 @@ class SupervisorConfig:
     restart_window_s: float = 120.0
     #   이 창 안에 복귀를 `restart_limit` 회 넘게 시도했으면 멈춘다. 반복 engage/release 는
     #   죽은 채 있는 것보다 나쁘다 — 그때마다 Seer 에게서 버스를 뺏었다 놓는다.
+    recycle_after_s: float = 15.0
+    #   진단 두절이 이보다 길면 DDS 참여자(컨텍스트·노드)를 재생성한다. 두절 지속 중에는
+    #   같은 간격으로 반복한다. 감시 상태는 승계하며, 재생성은 관측 경로에만 작용하고
+    #   제어 경로가 없어 대상 부재 시에도 무해하다. 0 이하 = 비활성.
 
 
 @dataclass
@@ -221,6 +225,21 @@ def is_outage(obs: Observation, cfg: SupervisorConfig) -> bool:
     """
     return (obs.cur is None and obs.diag_age is not None
             and obs.diag_age > cfg.diag_timeout_s)
+
+
+def recycle_due(diag_age: Optional[float], since_recycle_s: float,
+                cfg: SupervisorConfig) -> bool:
+    """DDS 참여자를 재생성할 때가 됐는가.
+
+    조건은 둘 다다 — 진단 두절이 `recycle_after_s` 를 넘었고, 마지막 재생성 이후로도
+    같은 시간이 지났다(무한 반복이 아니라 간격 반복). `diag_age` 가 `None`(수신
+    이력 없음)이면 깨질 세션 자체가 없으므로 하지 않는다. `recycle_after_s <= 0` 은
+    비활성이다.
+    """
+    if cfg.recycle_after_s <= 0 or diag_age is None:
+        return False
+    return (diag_age > cfg.recycle_after_s
+            and since_recycle_s > cfg.recycle_after_s)
 
 
 def prune_stamps(stamps, now: float, window_s: float) -> list:
