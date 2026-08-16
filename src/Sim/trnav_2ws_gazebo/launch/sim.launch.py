@@ -31,8 +31,9 @@ from launch.actions import (DeclareLaunchArgument, ExecuteProcess,
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 
 def _strip_comments(node):
@@ -155,12 +156,14 @@ def generate_launch_description():
     bridge = Node(
         package='trnav_2ws_gazebo', executable='wheel_cmd_bridge.py',
         name='wheel_cmd_bridge', output='screen',
-        parameters=[{'use_sim_time': True, 'steer_tau': steer_lag}],
+        parameters=[PathJoinSubstitution([
+            FindPackageShare('trnav_2ws_core'), 'config', 'robot_geometry_2ws.yaml']), {'use_sim_time': True, 'steer_tau': steer_lag}],
     )
     odometry = Node(
         package='trnav_2ws_gazebo', executable='wheel_odometry.py',
         name='wheel_odometry', output='screen',
-        parameters=[{'use_sim_time': True}],
+        parameters=[PathJoinSubstitution([
+            FindPackageShare('trnav_2ws_core'), 'config', 'robot_geometry_2ws.yaml']), {'use_sim_time': True}],
     )
 
     rviz_node = Node(
