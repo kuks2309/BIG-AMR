@@ -386,18 +386,40 @@ IMU 는 거기에 더해 **회전 중일 때만** 반영된다(§A.6).
 `memmove` 2회가 그 기준선 갱신이다 — `odom_meas_old_ ← odom_meas_`(0x138→0x168),
 `imu_meas_old_ ← imu_meas_`(0x198→0x1c8).
 
-## A.16 `UseIMU` 파라미터의 소비 지점 — 미확정
+## A.16 파라미터 13개의 슬롯 지도와 소비 여부
 
-`loadFromConfigFile` @0xddfd9 이 `"UseIMU"` 를 SSO 즉치(`movl $0x49657355` + `movw $0x554d`)로 만들어
-`lea 0x340(%r15),%rsi` 로 넘긴다 ⇒ **`MutableParam<bool>` 슬롯 = `RobotPosEKF + 0x340`**,
-값 바이트는 `+0x3b0`(생성자가 `movb $0x0,0x3b0(%r12)` 로 0 초기화).
+`RobotPosEKF::loadFromConfigFile()` 의 `loadParam` 호출 **13회**를 순서대로 뽑고
+`robot.param` 의 `RobotPosEKF` 테이블 13행과 대조했다 — **타입 순서가 정확히 일치**해
+1:1 매핑이 확정된다(b,b,i,d,d,b,b,b,d,d,d,i,i).
 
-**그런데 `+0x3b0` 을 읽는 지점을 찾지 못했다.** 라이브러리 전량에서 그 오프셋 접근은
-생성자·소멸자뿐이고, `setSubscriberCallBack`·`messageIMUCallBack` 에도 그 값을 보는 분기가 없다.
+값 오프셋은 **슬롯 + 0x78** 이다. `libMCLoc` 의 `MutableParam` 과 같은 배치이며,
+아래 세 건이 그 규칙을 교차 검증한다(슬롯에서 +0x78 한 주소가 `run()` 에서 실제로 읽힌다).
 
-가능성(미검증): 접근자 인라인으로 다른 형태가 됐거나, 다른 멤버로 옮겨 담아 쓰거나,
-`RobotPosEKF::run()` 계열에서 소비한다. **"UseIMU 가 무시된다"고 단정하지 않는다** —
-찾지 못한 것이지 없음을 증명한 것이 아니다.
+| 파라미터 | 슬롯 | 값 주소 | 읽는 곳 |
+| --- | --- | --- | --- |
+| `UseIMU` | 0x340 | **0x3b8** | **없음** |
+| `OpenIMUErrorDetect` | 0x778 | 0x7f0 | `run()` ×2 ✓ |
+| `IMUErrorDetectTime` | 0x518 | 0x590 | — |
+| `IMUNoiseDetectThred` | 0x5d8 | 0x650 | — |
+| `IMUErrorDetectThred` | 0x6a8 | 0x720 | `update()` 부근에서 읽힘 |
+| `UseVO` | 0x830 | 0x8a8 | `run()` · `modelChangedSubscriber` · `calibChangedSubscriber` ✓ |
+| `StartSkidDetection` | 0x3d0 | **0x448** | **없음** |
+| `LaserOdomDetectSkid` | 0xcd8 | 0xd50 | `run()` ×2 · `setLaserOdom` · `isEnableLaserOdom` ✓ |
+| `SkidDetectAccWarnThreshold` | 0x8e8 | 0x960 | `run()` ✓ |
+| `SkidDetectRotWarnThreshold` | 0x9b8 | 0xa30 | `run()` ✓ |
+| `SkidDetectDiffPoseWarnThreshold` | 0xa88 | 0xb00 | `run()` ✓ |
+| `SkidDetectInertialWinCnt` | 0xb58 | 0xbd0 | `SkidDetector::Update` 인자 ✓ |
+| `SkidDetectDiffPoseWinCnt` | 0xc18 | 0xc90 | `SkidDetector::Update` 인자 ✓ |
+
+**`UseIMU` 와 `StartSkidDetection` 만 읽는 곳이 없다.**
+
+⚠ 이것은 여전히 `[존재]` 주장이지만 **대조군이 있다** — 같은 기법이 나머지 파라미터의 소비 지점을
+정확히 찾아냈으므로, 두 건의 부재는 방법 실패가 아니라 실제 부재일 가능성이 높다.
+그래도 **인라인·다른 접근 형태의 가능성은 남으므로 「죽은 파라미터」로 확정하지 않는다.**
+
+⚠ 함의가 있다: `StartSkidDetection` 을 읽지 않는다면 배포값 `0`이 **슬립 감지를 끄지 못한다**.
+`SkidDetector::Update` 호출은 `run()` 에 실재하고 임계·윈도우 파라미터는 정상적으로 읽힌다.
+바깥 게이트(`jbe → +4323`)의 정체를 확인하기 전까지 **「이 기체는 슬립 감지를 쓰지 않는다」고 말할 수 없다.**
 
 ## A.17 `run()` — IMU 는 선택이 아니라 **필수 전제** `[존재]`
 
