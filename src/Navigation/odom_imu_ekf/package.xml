@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>odom_imu_ekf</name>
+  <version>0.1.0</version>
+  <description>
+    휠 오도 + IMU 융합 EKF. Seer 레거시 RobotPosEKF(estimation::OdomEstimation) 이식.  comment-check: ignore
+    입력 odom(nav_msgs/Odometry) + imu(sensor_msgs/Imu) → 출력 odom_fused(nav_msgs/Odometry).
+    측위(mcl2d)는 이 융합본을 받는다 — 레거시 배선과 같은 자리다.
+  </description>
+  <maintainer email="kukwonko@gmail.com">Seer RE</maintainer>
+  <license>Proprietary (유지보수·상호운용 목적)</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>diagnostic_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
