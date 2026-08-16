@@ -16,6 +16,7 @@
 | `can_relay` / **backend·driver_node·health·supervisor·home_and_zero 한정** | [src/Comm/CAN/can_relay/docs/function_table.md](../../src/Comm/CAN/can_relay/docs/function_table.md) | 99 (+전역 10·RelayConfig 26필드·SupervisorConfig 8필드) | **부분** — `link.py`·`protocol.py`·`safety.py`·`ui/` 미작성 | 2026-08-16 |
 | `trnav_2ws_action_server` / **line_follow 한정** | [src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md](../../src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md) | 13 (+struct 2·enum 1·클래스 2) | **부분** — line_follow 만 | 2026-08-14 |
 | `seer_rawmap` (Seer `.rawmap` 디코더) | [Tools/seer_rawmap/docs/function_table.md](../../Tools/seer_rawmap/docs/function_table.md) | 37 (+dataclass 6·enum 1) | 전수 | 2026-08-08 |
+| `slam_karto_core` (Seer 지도생성 이식) | [src/Navigation/slam_karto_core/docs/function_table.md](../../src/Navigation/slam_karto_core/docs/function_table.md) | 27 (+전역·상수 13·시험 7) | 전수 — 동봉 `third_party/open_karto` 는 상류라 대상 외 | 2026-08-09 |
 
 ## ⚠ 미등재 — inventory-gate 가 빈 통과하는 범위
 
@@ -31,6 +32,7 @@
 | `trnav_motion_mux` · `amr_motor_cmd_translator` | 체인 중간 | |
 | `can_relay` 의 나머지 | `link.py`·`protocol.py`·`safety.py`·`ui/` | `backend.py`·`driver_node.py`·`health.py`·`supervisor.py`·`home_and_zero.py` 는 2026-08-15 등재됨(위 표) |
 | `QD/trnav_motion_action_server` 전체 | 액션 9개 | 검증된 상류 — 2WS 대조 기준 |
+| `slam_karto_ros2` (지도생성 ROS2 어댑터) | 노드 1개 (`slam_mapping_node.cpp` 728줄, 서비스 4종) | 코어(`slam_karto_core`)는 등재됨(위 표) |
 
 ## ⚠ 2026-08-09 변경분 중 **표가 없어 등재하지 못한 것**
 
