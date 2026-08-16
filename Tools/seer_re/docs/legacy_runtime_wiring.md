@@ -233,11 +233,42 @@ rbk::chasis::Calibration::Instance / getCalibParam<double>
 
 ⇒ 이 기체에서 **레이저 오도는 쓰이지 않는다.**
 
-## A.10 아직 모르는 것
+## A.10 초기 공분산 — `initialize()`
 
-- `odom_covariance_`(6×6)·`imu_covariance_`(3×3) 의 **런타임 값** — 생성자 뒤 어디서 채워지는지.
-  메시지 동봉 공분산인지 고정값인지 미확정.
-- `update()` 안 `AdditiveNoiseSigmaSet` **2회**가 넣는 값 — 상수가 아니라 계산값이라 미추적.
-- 관측행렬 `Hodom`·`Himu` 의 실제 원소(문자열 `Hodom` 은 바이너리에 있다).
+`initialize(Matrix const&)` @0x178f60 (343 명령)은 `SymmetricMatrix::operator()` 를 **36회**
+호출한다 = 6×6 전량을 채운다. 유일한 즉치 상수:
+
+```
+movabs $0x3eb0c6f7a0b5ed8d   →  1e-06
+```
+
+⇒ **prior 공분산 대각 = 1e-6 (σ = 0.001)**, 비대각 0. 상류의 `prior_Cov(i,i) = pow(0.001,2)` 와 같다.
+초기 자세를 강하게 믿고 출발한다는 뜻이다.
+
+`addOdoMeasurement()` 이 `initialize()` 를 호출한다 — **첫 오도 메시지가 필터를 초기화**한다.
+
+## A.11 관측 잡음이 필터에 들어가는 지점
+
+`update()` 안의 `AdditiveNoiseSigmaSet` 2회는 멤버를 **그대로** 넘긴다:
+
+| 위치 | 대상 pdf | 넘기는 공분산 |
+| --- | --- | --- |
+| @+673 | `0x18(%r12)` = `odom_meas_pdf_` | `lea 0x48(%r12)` = **`odom_covariance_`** (6×6) |
+| @+1361 | `0x28(%r12)` = `imu_meas_pdf_` | `lea 0x70(%r12)` = **`imu_covariance_`** (3×3) |
+
+⚠ 두 인자 모두 **멤버 주소 그대로**이고 임시 객체가 아니다. 상류가 하는
+`odom_covariance_ * pow(dt,2)` 같은 **dt² 스케일링이 이 경로에는 보이지 않는다.**
+(행렬 곱 임시가 있었다면 `%rsi` 가 스택을 가리켜야 한다.)
+
+각 호출 직전에는 `addsd`/`subsd`/`ucomisd`/`ja` 로 도는 짧은 루프가 있다 —
+`while` 형 각도 정규화이며, 앞서 확인한 ±π·2π 상수와 맞물린다.
+
+## A.12 아직 모르는 것
+
+- **`odom_covariance_`·`imu_covariance_` 에 값을 넣는 지점** — `initialize()` 도
+  `addOdoMeasurement`/`addImuMeasurement` 도 이 두 멤버를 건드리지 않는다(각 0건).
+  생성자 또는 `RobotPosEKF` 플러그인 계층일 가능성이 남는다. **미확정.**
+- 관측행렬 `Hodom`·`Himu` 의 원소(문자열 `Hodom` 은 바이너리에 실재).
 - `UseIMU = 0` 일 때 경로(통과인지 별도인지).
-- 슬립 감지 3종(`StartSkidDetection` 등)이 꺼진 이유 — 기체 판단인지 기본값인지.
+- 슬립 감지 3종이 꺼진 이유 — 기체 판단인지 기본값인지.
+- `IMUErrorDetect*`(꺼짐)·`IMUNoiseDetectThred` 가 켜졌을 때의 거동.
