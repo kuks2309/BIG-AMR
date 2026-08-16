@@ -1,11 +1,13 @@
 """motor_control_node — Tongyi AMR CAN 구동 ROS2 노드.
 
-토픽: /cmd_vel(Twist) 구독 · /estop(Bool) 구독 · /odom(Odometry)+TF · /joint_states · /diagnostics 발행.
-콜백은 목표 저장만(비블로킹) — CAN 타이밍은 backend 스레드 소관 (ros2-coding §2).
+토픽: cmd_vel(Twist)·estop(Bool) 구독 · odom(Odometry)+TF · joint_states · diagnostics 발행.
+콜백은 목표 저장만 하고 즉시 반환한다 — CAN 타이밍은 backend 스레드가 소유한다.
 
-⚠ 부호·매핑 3건 미판정(값 변경 금지, 확정 전까지 crab·스핀 twist 와 odom yaw 신뢰 금지):
-  kin_steer_sign → docs/debt/registry.md debt-004 /
-  module_x(구동노드 전·후 배정) · drive_sign → docs/verified_facts/2026-07-27.md §C
+여기서 발행하는 odom 은 **휠 오도메트리**다: 구동륜 속도와 조향각을 기구학으로 합쳐 적분한다.
+레이저 정합 오도(icp_odometry)와는 별개 소스이며, 둘 중 무엇을 /odom 으로 쓸지는 런치가 정한다.
+
+⚠ 부호·매핑 3건이 미판정이다(값 변경 금지). 확정 전까지 crab·스핀 twist 와 **odom yaw 를 신뢰하지 말 것**:
+  kin_steer_sign(debt-004) · steer_home_counts 기준(debt-007) · module_x 의 전·후 배정.
 """
 from __future__ import annotations
 
@@ -23,12 +25,14 @@ from tf2_ros import TransformBroadcaster
 from .backend import ModuleConfig, TongyiSdoBackend
 from .kinematics import DiffDriveKinematics, DualSteerKinematics
 
-# ── 스케일 상수 (docs/ros2_driver/2026-07-09-design-inputs.md §3 · WHEEL_RADIUS 는 §1) ──────
-# ⚠ 본 세션 미재검증 — docs/verified_facts/2026-07-27.md §C. 아래 파라미터 기본값은 별개 항목이다.
-M_S_PER_UNIT = 4.0906e-5                       # 1 unit(0.1rpm) → m/s
-COUNTS_PER_RAD = 57344.0 * 180.0 / math.pi     # 조향 57,344 counts/°
-COUNTS_PER_M = 2670177.0                       # 구동 위치
-WHEEL_RADIUS = 0.125
+# ── 스케일 상수 ──────────────────────────────────────────────────────────────
+# ⚠ 네 값 모두 드라이브 설정에서 오는 것이라 기체·펌웨어가 바뀌면 달라진다. 코드에 박힌 값은
+#   이 기체 기준이며 독립 실측으로 재확인된 적이 없다 — 특히 조향 counts/° 는 같은 상수로
+#   지령하고 되읽는 순환 측정이라 그 방식으로는 검증되지 않는다.
+M_S_PER_UNIT = 4.0906e-5                       # 드라이브 1 unit(0.1 rpm) → m/s
+COUNTS_PER_RAD = 57344.0 * 180.0 / math.pi     # 조향 엔코더 counts per rad (설정값 57,344 counts/deg 환산)
+COUNTS_PER_M = 2670177.0                       # 구동 엔코더 counts per m
+WHEEL_RADIUS = 0.125                           # m
 
 
 class MotorControlNode(Node):
@@ -42,18 +46,19 @@ class MotorControlNode(Node):
             ("allow_homing_motion", False),
             ("steer_settle_tol_deg", 3.0),
             ("homing_tol_deg", 5.0),
-            # ⚠ 라벨 상충·미판정(값 변경 금지) — docs/verified_facts/2026-07-27.md §C
+            # ⚠ 라벨이 서로 어긋나 부호가 미판정이다. 값을 바꾸지 말 것.
             ("drive_sign", -1),
-            # ⚠ 미검증(확정 전 crab/스핀 twist 금지, 실측은 -1 시사) — docs/debt/registry.md debt-004
+            # ⚠ 미검증 — 실측은 -1 을 시사한다(debt-004). 확정 전에는 crab·스핀 twist 를 쓰지 말 것.
             ("kin_steer_sign", 1),
             ("module_drive_nodes", [1, 2]),
             ("module_steer_nodes", [3, 4]),            # diff_drive 는 무시
-            # ⚠ node1 의 전/후 배정이 미판정 모순(반대 근거 유력) — spin/crab·odom yaw 부호에 영향.
-            #   docs/verified_facts/2026-07-27.md §C · docs/code_review/motor_control-can-consistency/2026-07-26.md
+            # ⚠ node1 이 전륜인지 후륜인지가 미판정이며 반대 근거가 유력하다.
+            #   이 배정이 뒤집히면 spin·crab 의 회전 방향과 odom yaw 부호가 함께 뒤집힌다.
             ("module_x", [-0.5961, 0.6039]),
             ("module_y", [-0.0014, -0.0014]),
-            # ⚠ 조향 홈 기준 미판정(호밍 후 정착 목표와 다름 → _on_odom_timer 조향각에 상시 바이어스).
-            #   YAML 미로드 시 이 기본값이 그대로 0x607A 로 나간다. docs/debt/registry.md debt-007
+            # ⚠ 조향 원점 기준이 미판정이다(debt-007) — 호밍 후 정착 목표와 달라 조향각에 상시
+            #   바이어스가 남고, 그 바이어스는 odom yaw 로 그대로 흘러간다.
+            #   YAML 을 로드하지 않으면 이 기본값이 그대로 0x607A 로 송신된다.
             ("steer_home_counts", [7871815, 7840086]),
             ("track_width", 1.2),                      # diff_drive 용
             ("odom_frame", "odom"), ("base_frame", "base_link"),
@@ -122,10 +127,15 @@ class MotorControlNode(Node):
         self.backend.estop(msg.data)
 
     def _on_freewheel(self, msg: Bool):
-        # ⚠ True = 구동축 servo-off(홀딩토크 상실). 견인/정비 전용 — ADR 2026-07-26-motor-control-drive-freewheel
+        # ⚠ True 는 구동축 servo-off 라 **홀딩토크가 사라진다** — 경사에서는 차가 굴러간다.
+        #   견인·정비 전용이며 주행 중에 부르는 경로가 있어서는 안 된다.
         self.backend.freewheel(msg.data)
 
-    # ── 오도메트리: 0x6064 변위 → 정기구학 LSQ → 적분 ───────────────────────
+    # ── 휠 오도메트리 ─────────────────────────────────────────────────────
+    # 구동축 위치(0x6064) 변위와 조향각을 정기구학 최소자승으로 합쳐 (dx, dy, dyaw) 를 얻고,
+    #   그것을 현재 yaw 로 회전시켜 자세에 누적한다. 속도를 시간 적분하는 것이 아니라
+    #   **변위를 누적**하므로 주기 지터가 자세에 섞이지 않는다.
+    # 절대 기준이 없어 오차는 계속 쌓인다 — 소비자(측위)는 절대값이 아니라 증분만 써야 한다.
     def _on_odom_timer(self):
         snap = self.backend.snapshot()
         nodes = snap["nodes"]
@@ -135,8 +145,9 @@ class MotorControlNode(Node):
         steer_rad = {}
         for m in self.modules:
             if m.steer_node is not None and nodes[m.steer_node].pos is not None:
-                # ⚠ 호밍 중(≈31 s)에는 0x6064 가 0 이라 이 식이 θ≈−137° 를 odom·joint_states 로
-                #   그대로 발행한다 — bit15 유효성 게이트 미구현. docs/debt/registry.md debt-007
+                # ⚠ 호밍 중에는 0x6064 가 0 으로 오는데 이 식은 그것을 유효한 판독으로 받아
+                #   큰 음의 조향각을 odom·joint_states 로 그대로 발행한다.
+                #   상태워드 유효성(bit15) 게이트가 아직 없다(debt-007).
                 steer_rad[m.drive_node] = (self._g["kin_steer_sign"]
                                            * (nodes[m.steer_node].pos - m.steer_home) / COUNTS_PER_RAD)
             else:
