@@ -428,10 +428,43 @@ je   → nanosleep           ; 없으면 자고 다시
 찾지 못했는데, 루프가 이미 IMU 수신을 전제로 짜여 있다는 점과 맞물린다 —
 **다만 「UseIMU 는 죽은 파라미터다」로 단정하지 않는다.** 읽는 지점을 못 찾은 것이지 부재 증명이 아니다.
 
-## A.18 아직 모르는 것
+## A.18 `run()` 이 필터를 두 번 구동하는 이유
 
-- `UseIMU` 값을 읽는 지점(§A.16).
+`addOdoMeasurement` → `addImuMeasurement` → `update()` 3연속 호출이 `run()` 안에 **두 번** 있다.
+뒤따르는 코드가 둘을 가른다:
+
+| 블록 | 위치 | 뒤에 오는 것 | 성격 |
+| --- | --- | --- | --- |
+| ① | `+637 ~ +753` | `rbk::core::Time::init()` → `VelocityEstimatorIMU()` 생성 | **초기화 1회** — `getFilterOdometer` 없음 ⇒ **발행 안 함** |
+| ② | `+12381 ~ +12535` | `Message_Odometer` 생성 → `CopyFrom` → **`getFilterOdometer()`** | **주기 경로** — 결과를 꺼내 발행 |
+
+⇒ 첫 블록은 첫 샘플로 필터·시간·속도추정기를 세우는 워밍업이고, 실제 융합 산출은 둘째 블록에서 나온다.
+§A.15 의 "첫 주기는 기준선만" 과 층위가 다르다 — 이쪽은 `run()` 진입 시 1회, 저쪽은 `update()` 내부 플래그다.
+
+## A.19 곁가지 구성요소 (같은 플러그인 안)
+
+`libRobotPosEKF.so` 는 EKF 말고도 몇 가지를 더 담고 있다.
+
+**`VelocityEstimatorIMU`** — IMU 기반 속도 추정기. `[동작]` `run()` 이 실제로 쓴다
+(`DataInput(6 doubles)` ×2 · `DataOutputVelX/Y` ×2 · `GetAngularVelMeas` ×2 · `Init`/`ResetData` 각 1).
+메서드에 `LowPassFilter(double,double,double)` 이 있다 ⇒ 가속도 적분에 저역통과를 건다.
+**IMU 는 자세 관측(§A.12 `Himu`)만이 아니라 속도 추정에도 쓰인다.**
+
+**`SkidDetector`** — 미끄러짐 감지기. 오버로드 2종:
+`Update(Message_Odometer&, Message_IMU, int, int)` 와 레이저까지 받는
+`Update(Message_Odometer&, Message_IMU, Message_Laser, int, int)`.
+설정자 4종(`SetInertialThreshold(double,double)` · `SetOdometryThreshold(double)` ·
+`SetLaserOdomSwitch(bool)` · `SetLaserParam(double,double,double)`)이 `robot.param` 의
+`SkidDetect*` 키들과 대응한다. `run()` 에 호출지가 있다 `[존재]`.
+⚠ 배포는 `StartSkidDetection = 0` 이므로 **실행 여부는 `[동작-미검증]`** — 게이트 분기를 확인하지 않았다.
+
+**`VarianceCalculator::cal(double)`** — `run()` 에서 3회. 결과는 스택 지역(`0x98(%rsp)`·`(%rsp)`)으로
+가서 후속 계산에 쓰이며, **§A.13 의 EKF 공분산 멤버로 들어가지 않는다.** 공분산 미스터리와는 무관하다.
+
+## A.20 아직 모르는 것
+
+- `UseIMU` 값(`+0x3b0`)을 읽는 지점(§A.16).
 - 두 공분산 버퍼의 런타임 값(§A.13~A.14) — 실기·원본 구동 대조 필요.
-- `run()` 이 `update()` 를 **2회** 호출하는 구조(경로가 둘인지, 하나는 예외 경로인지).
-- 슬립 감지(`SkidDetector` 클래스 실재)가 꺼진 이유와 켜졌을 때의 거동.
+- `SkidDetector` 호출이 실제로 실행되는지(게이트 분기 미확인).
 - `wzOdoAbsDeg` 게이트 임계 1.0 deg/s 의 근거.
+- `VelocityEstimatorIMU` 출력이 어디로 흘러 무엇을 바꾸는지.
