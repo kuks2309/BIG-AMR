@@ -162,12 +162,82 @@ x(6) → sin → × u(1) → x(2) 에 가산
 `sin`/`cos`/`atan2` 각 2회 · `rbk::foundation::utils::Normalize` 1회.
 쓰는 상수는 각도 계열뿐이다(π, 2π, ±π, 180.0, 1.0, −0.0) — **잡음 수치는 여기 없다.**
 
-## A.6 아직 모르는 것
+## A.6 IMU 갱신 게이트 — Seer 고유 개조 (핵심)
 
-- **잡음 σ 수치** — 생성자가 `SymmetricMatrix` 원소를 (1,1)…(6,6)·(4,1)…(4,6) 순으로 채우는 것까지는
-  보이나 각 원소의 값을 뽑지 못했다. `update()` 의 `AdditiveNoiseSigmaSet` 2회가 무엇을 넣는지도 미확정.
-- **`odom_covariance_`·`imu_covariance_` 의 런타임 출처** — 메시지 동봉 공분산인지 파라미터인지.
-- **`wzOdoAbsDeg` 의 용도** — Seer 가 추가한 멤버. 이름은 "오도 각속도 절대값(도)" 를 시사하나 미확인.
-- **`ReadIMUParam()`** 이 읽는 값과 IMU 축·부호 규약.
-- **`setLaserOdom`/`isEnableLaserOdom`/`getTargetMsgLaser`** — 레이저 오도 융합 경로가 코드에 `[존재]`한다.
-  활성 여부는 배포 파라미터 대조 전까지 `[동작-미검증]`.
+상류 `robot_pose_ekf` 에 없는 분기가 `update()` 안에 있다. 세 조각이 맞물린다.
+
+**① 값 만들기** — `addOdoMeasurement()` @+320:
+
+```
+movss  0x50(%r15),%xmm0          ; Message_Odometer.vel_rotate (float, rad/s)
+cvtss2sd
+call   rbk::foundation::utils::Rad2Deg(double)
+andps  [0x197550]                ; 0x7fffffffffffffff — 부호비트 제거 = 절대값
+movlps %xmm0, 0x1d0(%r14)        ; → wzOdoAbsDeg
+```
+
+⇒ `wzOdoAbsDeg = |Rad2Deg(odom.vel_rotate)|` — **오도가 보고한 각속도의 절대값 [deg/s]**.
+이름 그대로 `wz`(ω_z) · `Abs` · `Deg` 다.
+
+**② 쓰기** — `update()` @+905:
+
+```
+cmpb    $0x0, 0x99(%r12)         ; m_imu_init (offset 153 = 0x99)
+je      → IMU 갱신 건너뜀
+movsd   0x1d0(%r12),%xmm0        ; wzOdoAbsDeg
+ucomisd [0x1975c0],%xmm0         ; 상수 = 1.0
+jbe     → IMU 갱신 건너뜀
+... Matrix::inverse → Matrix::operator*   ; 여기서 IMU 측정 갱신
+```
+
+⇒ **IMU 측정 갱신은 `m_imu_init` 이 참이고 `|ω| > 1.0 deg/s` 일 때만 수행된다.**
+
+**③ 뜻** — 정지·직진 중에는 IMU 를 융합하지 않는다. 자이로 바이어스가 정지 구간에서 적분돼
+yaw 를 흔드는 것을 원천 차단하는 설계다. 회전할 때만 IMU 를 믿고, 그때 오도의 조향각 기반 yaw 를 교정한다.
+**임계 1.0 deg/s 는 코드에 하드코딩**돼 있다 — `robot.param` 에 이 값을 바꾸는 키가 없다.
+
+## A.7 시스템 잡음 공분산
+
+생성자 @+328~+472 가 `SymmetricMatrix(6)` 을 0 으로 채운 뒤 대각을 세운다:
+
+```
+(1,1) … (6,6) = 1000000.0        ; movabs $0x412e848000000000
+```
+
+⇒ **σ_sys = 1000** (분산 10⁶), 6축 동일. 상류 `robot_pose_ekf` 의 `sysNoise_Cov(i,i) = pow(1000,2)` 와 같은 값이다.
+사실상 "예측을 거의 믿지 않는다" 는 설정이며, 그래서 관측(오도·IMU)이 자세를 지배한다.
+
+## A.8 IMU 장착·보정값의 출처
+
+`RobotPosEKF::ReadIMUParam()` 이 부르는 것:
+
+```
+rbk::chasis::Model::Instance / getModelDevices / getModelParam<double|string>
+rbk::chasis::Calibration::Instance / getCalibParam<double>
+```
+
+⇒ IMU 장착 정보와 보정값은 `robot.param` 이 아니라 **`robot.model`(장치 목록) + 보정 저장소**에서 온다.
+`Message_ImuInstallInfo` 문자열도 바이너리에 있다.
+
+## A.9 레이저 오도 — 존재하나 꺼져 있다
+
+`libRobotPosEKF.so` 안에 **`rf2o::LaserOdometry2D`** 가 들어 있다(`N4rf2o15LaserOdometry2DE`).
+`RobotPosEKF::setLaserOdom(bool)`·`isEnableLaserOdom()`·`getTargetMsgLaser(Message_AllLasers)` 로 배선된다. `[존재]`
+
+배포 파라미터 `[동작]`:
+
+| 키 | 테이블 | 값 |
+| --- | --- | --- |
+| `StartLaserOdo` | `MCLoc` | **0** |
+| `LaserOdomDetectSkid` | `RobotPosEKF` | **0** |
+
+⇒ 이 기체에서 **레이저 오도는 쓰이지 않는다.**
+
+## A.10 아직 모르는 것
+
+- `odom_covariance_`(6×6)·`imu_covariance_`(3×3) 의 **런타임 값** — 생성자 뒤 어디서 채워지는지.
+  메시지 동봉 공분산인지 고정값인지 미확정.
+- `update()` 안 `AdditiveNoiseSigmaSet` **2회**가 넣는 값 — 상수가 아니라 계산값이라 미추적.
+- 관측행렬 `Hodom`·`Himu` 의 실제 원소(문자열 `Hodom` 은 바이너리에 있다).
+- `UseIMU = 0` 일 때 경로(통과인지 별도인지).
+- 슬립 감지 3종(`StartSkidDetection` 등)이 꺼진 이유 — 기체 판단인지 기본값인지.
