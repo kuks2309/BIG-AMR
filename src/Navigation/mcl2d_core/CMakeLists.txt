@@ -75,6 +75,13 @@ if(MCL2D_MOTION_ORACLE)
   add_executable(test_motion_oracle test/test_motion_oracle.cpp src/motion_model.cpp)
   target_include_directories(test_motion_oracle PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_link_libraries(test_motion_oracle PRIVATE ${CMAKE_DL_LIBS})
+  # 오라클은 원본과의 **소스 동치**를 재는 도구이므로 최적화를 끈다.
+  #   -O1 이상에서는 코드 생성 차이만으로 1,800 값 중 2개(약 0.1%)에 1 ulp 가 생겨 대조가 흐려진다.
+  #   번역단위 교차 실험으로 원인을 motion_model.cpp 의 코드 생성으로 특정했다
+  #   (하네스 O2 + 모션모델 O0 → 불일치 0 / 하네스 O0 + 모션모델 O2 → 불일치 2).
+  #   FMA 계약 때문이 아니다 — `-ffp-contract=off` 로도 2건이 남는다.
+  #   배포 라이브러리는 -O2 를 유지한다: 1 ulp 는 파티클 산포(mm 단위) 대비 무의미하다. 근거 debt-043
+  target_compile_options(test_motion_oracle PRIVATE -O0)
 endif()
 
 # RE 오라클 검증(선택): ObservationField ↔ 원본 getPostProb 비트 대조 Δ=0.
