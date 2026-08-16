@@ -47,6 +47,38 @@
 
 ## 2026-08-16
 
+### [Fix] translator 를 params 없이 띄워 조향 환산이 1.19배 어긋났다 — 정정된 결함의 재발
+
+- **문제**: 라인 추종 실기 중, 같은 조향 자세를 Seer 는 **−90.0°**, 우리 `/wheel_motor_state` 는
+  **−106.78°** 로 읽었다(engage 후 10초 안정, 3회 재현). 0° 에서는 양쪽이 0.33° 안에서 일치해
+  오프셋이 아니라 **환산 계수 차이**(비 1.1864)였다.
+- **원인**: 기동 스크립트가 `amr_motor_cmd_translator` 를 **`--params-file` 없이** 실행했다.
+  이 노드가 SI→raw 환산의 유일한 소유자인데, params 가 없으면 **소스 기본값**으로 떨어진다 —
+  그 기본값은 이식 원본 Carrier AGV(Automated Guided Vehicle) 것이다:
+  `amr_motor_cmd_translator_node.cpp:17-19` 의 `wheel_radius_m 0.08 / gear_walk 20.0 / gear_steer 265.5`.
+  `gear_steer 265.5` → `65536×265.5/360 = 48,332.8 c/deg` 인데 이 기체 드라이브는 **57,344.0 c/deg** 다.
+  산술 확인: 실제 90° 이동 시 counts `90×57,344 = 5,160,960`, 이를 48,332.8 로 나누면 **106.78°** —
+  관측값과 소수 둘째 자리까지 일치한다.
+  ⚠ **이 결함은 2026-08-05 에 이미 정정돼 있었다** — `config/amr_motor_cmd_translator_qd.yaml:9`
+  주석이 「90° 지령이 75.86° 로만 꺾였다(비 0.843)」로 기록해 두었다. 저장소는 고쳐져 있었고
+  **기동 절차가 그 설정을 안 먹여 되살렸다.**
+- **파급**: 조향 지령 25° → 실제 **21.1°**(−15.7%), 구동 속도 −2.3%(0.08/20.0 조합이 우연히 근사).
+  오늘 실기 3회는 영상 폐루프가 흡수해 **수렴 결과는 유효**하다(조향 게인이 실효 0.84배로 걸린 셈).
+  측위·영상만 쓰는 **`hw` 척도 실측(전방 0.53 m / 후방 0.58 m)은 이 오류와 무관하며 유효**하다.
+- **해결**:
+  1. 기동 스크립트가 `--params-file` 로 정본 yaml 을 준다.
+  2. **기하 3종(`wheel_radius_m`·`gear_walk`·`gear_steer`)의 기본값을 제거**했다 —
+     `rclcpp::PARAMETER_DOUBLE` 로만 선언하고, 미설정이면 `RCLCPP_FATAL` 후 예외로 기동을 중단한다.
+     값이 틀린 채 도는 것보다 기동에서 죽는 편이 안전하다. `pulses_per_rev` 는 양쪽이 같아 기본값 유지.
+  ⚠ 기존 검사기 `Tools/motion_chain_check/check_chain_contract.py` 는 **두 config 파일을 대조**하므로
+  **params 미지정 실행은 검사 대상 밖**이었다 — 그래서 이번 재발을 잡지 못했다.
+- **파일**:
+  - `src/Control/Motion_Control/Common/amr_motor_cmd_translator/src/amr_motor_cmd_translator_node.cpp:16-70`
+  - 기동 스크립트(세션 스크래치패드 `real_bringup.sh`) — 저장소 밖
+- **상태**: 완료 — 빌드 통과. 실행 검증 2종: params 없이 실행 시
+  `rclcpp::exceptions::ParameterUninitializedException`(`parameter 'wheel_radius_m' is not initialized`)
+  으로 즉시 종료, params 파일과 함께 실행 시 정상 기동.
+
 ### [Fix] GUI 바퀴 그림 좌우 반전 — LGIT 포크의 수정을 정본에 역이식
 
 - **증상**(정본에 실재): `+θ`(좌) 지령이 바퀴 그림에서 화면 오른쪽으로 그려짐 — 값·모션은
