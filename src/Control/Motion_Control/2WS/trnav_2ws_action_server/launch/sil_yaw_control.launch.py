@@ -63,6 +63,11 @@ def generate_launch_description():
             PathJoinSubstitution([
                 FindPackageShare('translate_sim_odom'),
                 'config', 'sim_params.yaml']),
+            # 휠 기하 정본 — 플랜트가 컨트롤러와 다른 기하로 돌면 SIL 이 검증하는 대상이 사라진다.
+            #   플랫폼별로 갈리므로 런치가 고른다(공유 파일에 두면 두 플랫폼이 같은 값으로 돈다).
+            PathJoinSubstitution([
+                FindPackageShare('trnav_2ws_core'),
+                'config', 'robot_geometry_2ws.yaml']),
             {   # YAML 뒤에 오므로 이 값이 우선한다
                 'drive_accel_mps2': _f('drive_accel'),
                 'drive_decel_mps2': _f('drive_decel'),

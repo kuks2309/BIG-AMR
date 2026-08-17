@@ -1,6 +1,8 @@
 #include "translate_sim_odom/translate_sim_odom_node.hpp"
 
 #include <cmath>
+#include <limits>
+#include <stdexcept>
 
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
@@ -10,11 +12,22 @@ namespace translate_sim_odom
 
 TranslateSimOdomNode::TranslateSimOdomNode() : rclcpp::Node("translate_sim_odom_node")
 {
-    // ── Robot geometry params (QD diagonal) ──
-    w1_x_ = declare_parameter<double>("w1_x", 0.330);
-    w1_y_ = declare_parameter<double>("w1_y", 0.135);
-    w2_x_ = declare_parameter<double>("w2_x", -0.330);
-    w2_y_ = declare_parameter<double>("w2_y", -0.135);
+    // ── 휠 기하 ──
+    // **기본값을 두지 않는다.** 이 노드는 2WS·QD 플랜트로 모두 쓰이므로 어느 한쪽 값을
+    //   기본값으로 두면 다른 쪽이 파라미터 없이 떴을 때 **조용히 남의 기하로 돈다** —
+    //   플랜트가 컨트롤러와 어긋나면 SIL 이 검증하는 대상이 사라진다.
+    //   정본은 런치가 얹는다(robot_geometry_2ws.yaml | robot_geometry_qd.yaml).
+    //   미주입은 기동 실패로 처리한다 — 형제 노드 wheel_odometry.py 와 같은 규약이다.
+    const double kUnset = std::numeric_limits<double>::quiet_NaN();
+    w1_x_ = declare_parameter<double>("w1_x", kUnset);
+    w1_y_ = declare_parameter<double>("w1_y", kUnset);
+    w2_x_ = declare_parameter<double>("w2_x", kUnset);
+    w2_y_ = declare_parameter<double>("w2_y", kUnset);
+    if (std::isnan(w1_x_) || std::isnan(w1_y_) || std::isnan(w2_x_) || std::isnan(w2_y_))
+    {
+        throw std::runtime_error(
+            "휠 기하 파라미터 미주입(w1_x/w1_y/w2_x/w2_y) — 런치가 기하 정본 YAML 을 얹어야 한다");
+    }
 
     // ── Initial pose ──
     initial_x_ = declare_parameter<double>("initial_x", 0.0);
