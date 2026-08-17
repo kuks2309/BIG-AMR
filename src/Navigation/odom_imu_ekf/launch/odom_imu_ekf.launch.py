@@ -9,9 +9,13 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
+    # 인자는 문자열로 들어온다 — 노드가 double 로 선언한 자리에 그대로 넘기면 타입이 어긋나
+    #   InvalidParameterTypeException 으로 죽는다. 명시 변환해서 넘긴다.
+    gate_deg = ParameterValue(LaunchConfiguration('imu_gate_rate_deg'), value_type=float)
     return LaunchDescription([
         DeclareLaunchArgument('odom_topic', default_value='/odom',
                               description='휠 오도 입력'),
@@ -24,7 +28,7 @@ def generate_launch_description():
         Node(
             package='odom_imu_ekf', executable='odom_imu_ekf_node',
             name='odom_imu_ekf', output='screen',
-            parameters=[{'imu_gate_rate_deg': LaunchConfiguration('imu_gate_rate_deg')}],
+            parameters=[{'imu_gate_rate_deg': gate_deg}],
             remappings=[('odom', LaunchConfiguration('odom_topic')),
                         ('imu', LaunchConfiguration('imu_topic')),
                         ('odom_fused', LaunchConfiguration('fused_topic'))],

@@ -4,7 +4,9 @@
 //
 // 레거시와 같이 **두 센서를 다 받기 전에는 발행하지 않는다.** IMU 가 없으면 측위는 이동량을
 //   전혀 받지 못한다 — 조용히 멈추지 않도록 진단으로 드러낸다.
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <optional>
 
@@ -97,8 +99,11 @@ class OdomImuEkfNode : public rclcpp::Node
 
         // 게이트 판정에 쓰는 회전율은 오도가 보고한 값이다(원본 wzOdoAbsDeg 가 odom.vel_rotate 다).
         ekf_->addOdom(pose, m.twist.twist.angular.z);
+        odom_yaw_rate_max_ = std::max(odom_yaw_rate_max_, std::fabs(m.twist.twist.angular.z));
         if (!ekf_->update())
             return; // IMU 를 아직 못 받았다 — 레거시와 같이 발행하지 않는다
+        if (ekf_->lastImuApplied())
+            ++imu_applied_;
 
         // 자세만 융합 결과로 바꾸고 나머지는 수신 메시지를 그대로 물려 보낸다
         //   (원본 run() 이 CopyFrom 뒤에 getFilterOdometer 로 자세만 덮는 것과 같다).
@@ -152,6 +157,10 @@ class OdomImuEkfNode : public rclcpp::Node
         kv("imu_initialized", ekf_->imuInitialized() ? "true" : "false");
         kv("last_imu_applied", ekf_->lastImuApplied() ? "true" : "false");
         kv("published", std::to_string(published_));
+        // 누적값 두 개가 「발행은 되는데 IMU 는 한 번도 안 쓰이는」 무증상 실패를 드러낸다 —
+        //   회전했는데도 imu_applied 가 0 이면 오도가 회전율을 안 싣고 있다는 뜻이다.
+        kv("imu_applied", std::to_string(imu_applied_));
+        kv("odom_yaw_rate_max", std::to_string(odom_yaw_rate_max_));
 
         diagnostic_msgs::msg::DiagnosticArray arr;
         arr.header.stamp = now();
@@ -168,6 +177,8 @@ class OdomImuEkfNode : public rclcpp::Node
     std::string publish_frame_;
     bool imu_seen_ = false;
     std::uint64_t published_ = 0;
+    std::uint64_t imu_applied_ = 0;
+    double odom_yaw_rate_max_ = 0.0;
 };
 
 int main(int argc, char **argv)
