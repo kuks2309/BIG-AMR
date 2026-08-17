@@ -1,19 +1,12 @@
 /translate_sim_odom_node:
   ros__parameters:
-    # ── Wheel positions (base_link, m) ──
-    # ⚠ 이 값은 컨트롤러가 쓰는 기하와 **같아야 한다** — 플랜트가 다른 기하를 쓰면 SIL 이
-    #   검증하는 대상이 사라진다. 정본은 trnav_2ws_core/config/robot_geometry_2ws.yaml 이고
-    #   검사기 C6 이 상시 대조한다. 여기 값을 단독으로 고치지 말 것.
-    w1_x:  0.6039
-    # ⚠ y 는 **0 이어야 한다.** 2WS 는 구조상 제자리 스핀이 ±90° 이기 때문이다.
-    #   Seer live_models 에서 뽑으면 −0.0014 m 같은 잔차가 딸려 오는데 그것은 실측 잔차이지 설계값이 아니다.
-    #   두 바퀴가 같은 y 를 가지면 그 값은 기구학에서 **가정하는 회전중심을 횡으로 y 만큼
-    #   옮기는** 역할만 한다 — 바퀴가 센터라인에 있으므로 자연스러운 회전중심도 그 선 위(y=0)다.
-    #   잔차를 남기면 제자리 스핀이 ±89.867° 로 나와 구조값 ±90° 와 어긋난다.
-    #   다른 기동 영향은 미미하다(turn R=1.0 m 에서 0.036°, R=0.2 m 에서 0.12°).
-    w1_y: 0.0
-    w2_x: -0.5961
-    w2_y: 0.0
+    # ── Wheel geometry ──
+    # **여기 두지 않는다.** 이 파일은 2WS·QD SIL 런치가 **함께** 받으므로 기하를 담으면
+    #   두 플랫폼이 같은 기하로 돌고, 플랜트가 컨트롤러와 어긋나는 쪽이 생긴다.
+    #   정본은 플랫폼별로 갈린다:
+    #     2WS → trnav_2ws_core/config/robot_geometry_2ws.yaml
+    #     QD  → trnav_motion_core/config/robot_geometry_qd.yaml
+    #   런치가 그중 하나를 이 파일 뒤에 얹는다.
 
     # ── Initial pose (map frame) ──
     # SIL 검증 시나리오 기준점 — kkw1.json 의 N17 위치, yaw=0(+X east).
