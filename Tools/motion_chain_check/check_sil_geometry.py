@@ -42,7 +42,10 @@ def param_files(node, context):
         try:
             out.append(str(perform_substitutions(context, normalize_to_list_of_substitutions(pf))))
         except Exception as e:
-            out.append(f"<해석실패:{type(e).__name__}>")
+            # 패키지가 아직 빌드되지 않아 FindPackageShare 가 못 푸는 경우가 대부분이다.
+            #   그것은 **런치의 결함이 아니라 환경 문제**이므로 구분해서 올린다 —
+            #   섞으면 「미주입」으로 오보고돼 없는 결함을 쫓게 된다.
+            out.append(f"<해석실패:{type(e).__name__}:{e}>")
     return out
 
 
@@ -68,7 +71,7 @@ def main():
                 if "translate_sim_odom_node" in open(p, errors="replace").read():
                     launches.append(p)
 
-    bad = 0
+    bad = env_fail = 0
     for p in sorted(launches):
         rel = os.path.relpath(p, ROOT)
         spec = importlib.util.spec_from_file_location("lch", p)
@@ -98,6 +101,12 @@ def main():
                      if os.path.basename(t).startswith("robot_geometry_")]
             plat = platform_of(p)
             want = EXPECT.get(plat)
+            unresolved = [t for t in texts if t.startswith("<해석실패")]
+            if unresolved and not geoms:
+                print(f"  ⚠ {rel}: 치환을 풀지 못했다 — 워크스페이스를 먼저 빌드하라 "
+                      f"({unresolved[0][:80]})")
+                env_fail += 1
+                continue
             if not geoms:
                 # 런치 인자로 고르는 경우(패키지 자체 런치)는 인자 기본값이 있으면 통과
                 if any("geometry_file" in str(t) for t in texts):
@@ -111,8 +120,12 @@ def main():
             else:
                 print(f"  OK   {rel}: {geoms[0]}")
 
-    print(f"\n-- 런치 {len(launches)}개 · 불합격 {bad}건")
-    return 1 if bad else 0
+    print(f"\n-- 런치 {len(launches)}개 · 불합격 {bad}건 · 해석불가 {env_fail}건")
+    if env_fail and not bad:
+        print("   ⚠ 해석불가는 결함이 아니라 미빌드 환경이다 — "
+              "`colcon build` 후 다시 실행해야 판정이 성립한다")
+    # 판정이 성립하지 않은 것을 통과로 위장하지 않는다.
+    return 1 if (bad or env_fail) else 0
 
 
 if __name__ == "__main__":
