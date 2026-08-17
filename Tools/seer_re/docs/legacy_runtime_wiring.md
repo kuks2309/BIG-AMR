@@ -630,8 +630,83 @@ Message_Odometer.angle(0x3c) → cvtss2sd (배율 없음)
 `run()` 이 직전에 수신 오도 메시지를 `CopyFrom` 하므로 **원본 오도 값이 그대로 실려 나간다.**
 §A.19 대로 `VelocityEstimatorIMU` 결과는 여기에도 들어가지 않는다.
 
+## A.28 `ReadIMUParam()` 이 읽는 것 — IMU 장착·보정 `[존재]`
+
+`RobotPosEKF::ReadIMUParam()` @0xe2ef0 이 부르는 함수는 다섯이다:
+
+```
+rbk::chasis::Model::Instance()
+rbk::chasis::Model::getModelDevices("controller")   ; 즉치 "controll"+"er", 길이 0xa
+double rbk::chasis::Model::getModelParam<double>(...)
+rbk::chasis::Calibration::Instance()
+rbk::utils::hashmap::HashBucket<...>                ; 키 조회
+```
+
+⇒ IMU 값의 출처는 `robot.param`(SQLite)이 **아니라** `robot.model`(JSON)의 `controller`
+디바이스다. 그 디바이스의 파라미터와 이 기체 배포값:
+
+| 키 | 단위 | 값 | 뜻 |
+| --- | --- | --- | --- |
+| `Bax` · `Bay` · `Baz` | m/s² | 0 · 0 · 0 | 가속도계 축별 바이어스 |
+| `x` · `y` · `z` | m | 0 · 0 · 0 | IMU 장착 위치 |
+| `qx` · `qy` · `qz` · `qw` | 1 | 0 · 0 · 0 · **1** | 장착 자세 쿼터니언 |
+| `SSF` | LSB/(°/s) | 16.03556 | 자이로 감도 스케일 |
+
+**IMU 축·부호 규약**: 장착 자세가 **단위 쿼터니언**이고 위치가 (0,0,0)이므로 이 기체에서
+IMU 프레임은 차체 프레임과 같다 — 축 교환도 부호 반전도 없다. 바이어스도 전부 0이다.
+
+⚠ **이 배포값은 `Roll_A084` 것이다.** 원본 하드의 `robot.model` 은 `"model":"Roll_A084"` 이고
+우리 기체는 `Foil_A082` 다. 값을 우리 쪽으로 옮겨 쓰지 말 것 — 규약(단위 쿼터니언 = 축 변환 없음)만
+참고 대상이다. 또 `controller` 디바이스는 `isEnabled: false` 다.
+
+출처: `/usr/local/etc/.SeerRobotics/rbk/resources/models/robot.model`
+(⚠ `rbk/` 아래가 아니다 — 이전 조사에서 `rbk/robot.model` 로 찾다 못 찾았다.)
+
+## A.29 `UseIMU` — 이 플러그인은 이름으로 참조하지 않는다 `[존재]`
+
+`robot.param` 의 `RobotPosEKF` 테이블에 실재한다:
+
+```
+Key                              Type  Value  Mutable
+UseIMU                           b     1      0        ← 이것만 Mutable=0
+OpenIMUErrorDetect               b     0      1
+IMUErrorDetectTime               i     10     1
+IMUNoiseDetectThred              d     3.0    1
+IMUErrorDetectThred              d     20.0   1
+StartSkidDetection               b     0      1
+LaserOdomDetectSkid              b     0      1
+```
+
+**대조군 실험** — 각 키 문자열의 `.rodata` 오프셋을 구해 `lea …(%rip)` 참조를 센 결과:
+
+| 키 | 오프셋 | 참조 |
+| --- | --- | --- |
+| `UseIMU` | 0x19ad68 | **0건** |
+| `OpenIMUErrorDetect` | 0x19ad84 | 1건 |
+| `StartSkidDetection` | 0x19ae5f | 1건 |
+| `IMUErrorDetectThred` | 0x19ae29 | 1건 |
+| `IMUNoiseDetectThred` | 0x19adf3 | 1건 |
+| `IMUErrorDetectTime` | 0x19adac | 1건 |
+| `LaserOdomDetectSkid` | 0x19ae8e | 1건 |
+
+형제 6개가 전부 정확히 1건인데 `UseIMU` 만 0건이다. **`Mutable=0` 인 유일한 키**라는 점과
+정합한다 — 이름 문자열을 필요로 하는 등록 경로(`MutableParam<T>::init`)를 타지 않는다.
+
+⚠ **판별력 없는 검사 하나를 함께 적어 둔다.** 「데이터 섹션에 그 주소를 담은 8바이트 포인터가
+있는가」도 봤는데 **세 키 모두 0건**이었다. 즉 이 검사는 참조되는 키와 안 되는 키를 가르지
+못하므로 **근거로 쓸 수 없다.** 판별력이 있는 것은 위의 `lea` 참조 쪽이다.
+
+⇒ **`UseIMU=0` 경로는 이 라이브러리 안에 없다.** 값을 읽는 코드가 없으므로 0으로 바꿔도
+이 플러그인의 거동은 바뀌지 않는다. IMU 융합을 끄는 스위치가 아니라는 뜻이며,
+§A.20(주루프가 IMU 수신 래치를 무조건 기다린다)과 합치면 **IMU 는 선택이 아니라 전제**다.
+
+⚠ `[존재]` 수준이다 — 다른 바이너리가 이 값을 읽어 플러그인 로드 자체를 가르는 가능성은
+이 조사로 배제되지 않는다(`grep -rl 'UseIMU'` 결과 이 `.so` 와 `robot.param` 두 곳뿐이지만,
+값 전달은 이름 없이도 가능하다).
+
 ## A.27 아직 모르는 것
 
 - 두 공분산 버퍼의 **런타임 값**(§A.13·A.14·A.23) — 정적 분석은 여기까지다. 실기 또는 원본 구동 대조가 필요하다.
 - `VelocityEstimatorIMU` 결과가 버려지는 것이 의도인지 잔재인지 — 판단 근거 없음.
 - 내부 상태를 1/100 로 스케일한 이유 — 수치 조건화로 보이나 근거는 확인 불가.
+- `UseIMU` 값을 **다른 바이너리가** 읽어 쓰는지(§A.29) — 이 플러그인 밖은 조사하지 않았다.
