@@ -21,6 +21,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(diagnostic_msgs REQUIRED)  # 입력 두절 경보 — 원본 rbk::ErrorCodes 자리
 
 # 프레임워크-독립 코어 + 맵 로더 (형제 디렉터리). ROS 의존 0인 순수 C++.
 set(CORE ${CMAKE_CURRENT_SOURCE_DIR}/../mcl2d_core)
@@ -37,7 +38,7 @@ add_library(mcl2d_core_lib STATIC
 target_include_directories(mcl2d_core_lib PUBLIC
   ${CORE}/include ${MAP}/include ${NONROS}/include)
 
-set(DEPS rclcpp rclcpp_lifecycle lifecycle_msgs geometry_msgs nav_msgs sensor_msgs tf2_ros)
+set(DEPS rclcpp rclcpp_lifecycle lifecycle_msgs geometry_msgs nav_msgs sensor_msgs tf2_ros diagnostic_msgs)
 
 add_executable(mcl2d_localization_node src/mcl2d_localization_node.cpp)
 target_include_directories(mcl2d_localization_node PRIVATE include)
@@ -61,6 +62,11 @@ if(BUILD_TESTING)
   target_link_libraries(compare_impls mcl2d_core_lib)
   ament_target_dependencies(compare_impls ${DEPS})
   install(TARGETS compare_impls DESTINATION lib/${PROJECT_NAME})
+
+  # 입력 두절 워치독은 ROS 의존이 없어 시계 없이 돈다 — ctest 에 등록해 회귀로 잡는다.
+  add_executable(test_lost_watchdog test/test_lost_watchdog.cpp)
+  target_include_directories(test_lost_watchdog PRIVATE include)
+  add_test(NAME test_lost_watchdog COMMAND test_lost_watchdog)
 endif()
 
 ament_package()

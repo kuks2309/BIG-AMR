@@ -11,12 +11,14 @@
 #include <memory>
 #include <optional>
 
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "lifecycle_msgs/msg/state.hpp"
 #include "mcl2d_core/motion_model.hpp" // normalizeAngle
 #include "mcl2d_localizer.hpp"
 #include "mcl2d_map/smap.hpp"
 #include "mcl2d_ros2/conversions.hpp"
+#include "mcl2d_ros2/lost_watchdog.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 #include "rclcpp_lifecycle/lifecycle_publisher.hpp"
@@ -80,6 +82,19 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
         //   넘긴다(그 경우 값의 정본은 merger 캘리브레이션이지 Seer 설정이 아니다 — 실측으로 갈렸다).
         const std::vector<double> kMergedNoTransform = {0.0, 0.0, 0.0};
         declare_parameter<std::vector<double>>("laser_mounts", kMergedNoTransform);
+
+        // 입력 두절 감시 임계 [ms]. 원본 ScanLostTimeThresh·OdoLostTimeThresh 의 바이너리
+        //   기본값이 둘 다 300 이다. **발행을 막지 않는다** — 원본과 같이 경보만 낸다.
+        declare_parameter<int>("scan_lost_time_thresh_ms", static_cast<int>(mcl2d_ros2::kDefaultLostThreshMs));
+        declare_parameter<int>("odo_lost_time_thresh_ms", static_cast<int>(mcl2d_ros2::kDefaultLostThreshMs));
+        declare_parameter<double>("lost_check_rate_hz", 10.0);
+
+        // `odom` 이 무엇에서 나온 값인지 — "wheel" 또는 "laser".
+        //   슬립 감지는 **휠 이동량과 레이저 위치추정 이동량의 불일치**로 판정한다. 레이저 정합
+        //   오도(icp_odometry)를 물리면 레이저↔레이저 비교가 되어 두 값이 같은 원인으로 함께
+        //   틀리므로 휠 미끄러짐을 원리적으로 검출할 수 없다. 그 조건을 조용히 두지 않고
+        //   선언하게 해서 진단에 드러낸다.
+        declare_parameter<std::string>("odom_source", "laser");
     }
 
     // 파라미터 읽기·검증 → 맵 로드 → 로컬라이저·발행자·TF 자원 생성. 실패는 FAILURE 반환으로
@@ -106,6 +121,22 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
         publish_tf_ = get_parameter("publish_tf").as_bool();
         reloc_radius_ = get_parameter("reloc_radius").as_double();
         reloc_angle_ = get_parameter("reloc_angle_deg").as_double() * M_PI / 180.0;
+
+        odom_source_ = get_parameter("odom_source").as_string();
+        if (odom_source_ != "wheel" && odom_source_ != "laser")
+        {
+            RCLCPP_ERROR(get_logger(), "odom_source 는 \"wheel\" 또는 \"laser\" 여야 한다 (받은 값 \"%s\")",
+                         odom_source_.c_str());
+            return CallbackReturn::FAILURE;
+        }
+        if (odom_source_ != "wheel")
+        {
+            RCLCPP_WARN(get_logger(),
+                        "odom_source=\"%s\" — 슬립 감지가 성립하지 않는다. 휠 이동량과 레이저 이동량을 "
+                        "대조해야 하는데 양쪽이 같은 레이저에서 나오므로 함께 틀린다. 판정은 계속 "
+                        "계산되지만 근거로 쓰지 말 것",
+                        odom_source_.c_str());
+        }
 
         // 맵은 필수다. 빈 경로를 조용히 통과시키면 파티클필터가 생성되지 않아 update() 가 항상
         //   Pose2D{} 를 돌려주고(mcl2d_localizer.cpp) 노드는 그 (0,0,0) 을 계속 발행한다 —
@@ -152,6 +183,11 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
 
         // lifecycle publisher — inactive 동안 publish() 는 무시된다. 활성화는 on_activate 의 base 호출.
         pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("mcl_pose", 10);
+        // 진단은 lifecycle 관리 대상으로 두지 않는다 — 두절 경보가 활성 전이에 묶이면
+        //   정작 알려야 할 때 눌린다. 자유 함수 쪽이 평범한 publisher 를 준다.
+        pub_diag_ = rclcpp::create_publisher<diagnostic_msgs::msg::DiagnosticArray>(*this, "/diagnostics", 10);
+        scan_watchdog_.setThresholdMs(get_parameter("scan_lost_time_thresh_ms").as_int());
+        odom_watchdog_.setThresholdMs(get_parameter("odo_lost_time_thresh_ms").as_int());
         tf_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
         // odom→base_link 조회용. 측위는 map→odom 만 발행하므로 이 체인이 base_link 의 부모를
         //   중복 생성하지 않는다(아래 publishMapToOdom 주석 참조).
@@ -196,7 +232,23 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
         //   기본 RELIABLE 로 두면 offered < requested 라 **한 건도 오지 않는다** — /odom 과 같은 함정.
         const rclcpp::QoS scan_qos = rclcpp::SensorDataQoS();
         sub_scan_ = create_subscription<sensor_msgs::msg::LaserScan>(
-            "scan", scan_qos, [this](sensor_msgs::msg::LaserScan::SharedPtr m) { scan_ = fromRosScan(*m); });
+            "scan", scan_qos, [this](sensor_msgs::msg::LaserScan::SharedPtr m) {
+                scan_ = fromRosScan(*m);
+                scan_watchdog_.markReceived(now().nanoseconds());
+            });
+
+        // 두절 감시는 **타이머**가 돌린다. 오도 콜백에 얹으면 오도가 끊긴 순간 감시도 함께
+        //   멈춰 정작 그 두절을 못 알린다.
+        const int64_t start_ns = now().nanoseconds();
+        scan_watchdog_.start(start_ns);
+        odom_watchdog_.start(start_ns);
+        const double check_hz_param = get_parameter("lost_check_rate_hz").as_double();
+        const double check_hz = check_hz_param > 0.0 ? check_hz_param : 10.0;
+        // 정상 보고는 감시 주기와 무관하게 1 Hz 로 유지한다.
+        diag_period_ticks_ = std::max(1, static_cast<int>(check_hz + 0.5));
+        diag_tick_ = 0;
+        lost_timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / check_hz),
+                                        [this]() { checkInputLoss(); });
         return CallbackReturn::SUCCESS;
     }
 
@@ -239,6 +291,130 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
         sub_odom_.reset();
         sub_scan_.reset();
         sub_init_.reset();
+        lost_timer_.reset(); // 구독이 없으면 감시할 스트림도 없다 — 두절 경보가 오발하지 않도록
+    }
+
+    // 입력 두절 감시 한 주기. 원본 MCLoc::CheckScanUpdateTime / CheckOdoUpdateTime 에 대응한다.
+    //   원본과 같이 **발행을 막지 않고** 로그 1회 + 에러코드 게시만 한다 — 자세는 계속 나간다.
+    void checkInputLoss()
+    {
+        const int64_t now_ns = now().nanoseconds();
+        scan_watchdog_.update(now_ns);
+        odom_watchdog_.update(now_ns);
+
+        if (scan_watchdog_.justLost())
+        {
+            RCLCPP_ERROR(get_logger(), "[%d] 스캔이 %ld ms 동안 갱신되지 않았다 — 로봇 스스로 회복하기를 기다린다%s",
+                         mcl2d_ros2::kErrorScanLost, scan_watchdog_.elapsedMs(now_ns),
+                         scan_watchdog_.everReceived() ? "" : " (한 건도 수신하지 못했다)");
+        }
+        else if (scan_watchdog_.justRecovered())
+        {
+            RCLCPP_INFO(get_logger(), "[%d] 스캔 수신 회복", mcl2d_ros2::kErrorScanLost);
+        }
+        if (odom_watchdog_.justLost())
+        {
+            RCLCPP_ERROR(get_logger(), "[%d] 오도가 %ld ms 동안 갱신되지 않았다 — 로봇 스스로 회복하기를 기다린다%s",
+                         mcl2d_ros2::kErrorOdoLost, odom_watchdog_.elapsedMs(now_ns),
+                         odom_watchdog_.everReceived() ? "" : " (한 건도 수신하지 못했다)");
+        }
+        else if (odom_watchdog_.justRecovered())
+        {
+            RCLCPP_INFO(get_logger(), "[%d] 오도 수신 회복", mcl2d_ros2::kErrorOdoLost);
+        }
+
+        // 상태가 바뀐 주기는 즉시, 그 외에는 1초에 한 번만 낸다 — 경보는 즉시성이,
+        //   정상 보고는 주기성이 필요하다.
+        const bool edge = scan_watchdog_.justLost() || scan_watchdog_.justRecovered() ||
+                          odom_watchdog_.justLost() || odom_watchdog_.justRecovered();
+        if (!edge && ++diag_tick_ < diag_period_ticks_)
+            return;
+        diag_tick_ = 0;
+        publishInputDiagnostics(now_ns);
+    }
+
+    void publishInputDiagnostics(int64_t now_ns)
+    {
+        if (!pub_diag_)
+            return;
+        auto status = [&](const char *stream, const mcl2d_ros2::LostWatchdog &w, int error_code) {
+            diagnostic_msgs::msg::DiagnosticStatus st;
+            st.name = std::string(get_name()) + ": " + stream + " input";
+            st.hardware_id = get_name();
+            if (w.lost())
+            {
+                st.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+                st.message = w.everReceived() ? "input lost" : "no input received";
+            }
+            else
+            {
+                st.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+                st.message = "ok";
+            }
+            auto kv = [&st](const std::string &k, const std::string &v) {
+                diagnostic_msgs::msg::KeyValue e;
+                e.key = k;
+                e.value = v;
+                st.values.push_back(e);
+            };
+            // 원본 에러 번호를 그대로 싣는다 — 우리에겐 rbk::ErrorCodes 버스가 없으므로
+            //   여기가 그 번호가 남는 유일한 자리다.
+            kv("error_code", std::to_string(error_code));
+            kv("elapsed_ms", std::to_string(w.elapsedMs(now_ns)));
+            kv("threshold_ms", std::to_string(w.thresholdMs()));
+            kv("ever_received", w.everReceived() ? "true" : "false");
+            return st;
+        };
+
+        diagnostic_msgs::msg::DiagnosticArray arr;
+        arr.header.stamp = now();
+        arr.status.push_back(status("scan", scan_watchdog_, mcl2d_ros2::kErrorScanLost));
+        arr.status.push_back(status("odom", odom_watchdog_, mcl2d_ros2::kErrorOdoLost));
+        arr.status.push_back(localizationStatus());
+        pub_diag_->publish(arr);
+    }
+
+    // 위치추정 보고 상태. 코어가 매 주기 판정하는데 여기서 꺼내지 않으면 그대로 버려진다.
+    diagnostic_msgs::msg::DiagnosticStatus localizationStatus()
+    {
+        diagnostic_msgs::msg::DiagnosticStatus st;
+        st.name = std::string(get_name()) + ": localization state";
+        st.hardware_id = get_name();
+        auto kv = [&st](const std::string &k, const std::string &v) {
+            diagnostic_msgs::msg::KeyValue e;
+            e.key = k;
+            e.value = v;
+            st.values.push_back(e);
+        };
+        if (!loc_)
+        {
+            st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+            st.message = "not configured";
+            return st;
+        }
+        const LocReportState rs = loc_->reportState();
+        switch (rs)
+        {
+        case LocReportState::Skidding:
+            st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+            st.message = "skidding";
+            break;
+        case LocReportState::LowConfidence:
+            st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+            st.message = "low confidence";
+            break;
+        default:
+            st.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+            st.message = "ok";
+            break;
+        }
+        kv("report_state", std::to_string(static_cast<int>(rs)));
+        kv("confidence", std::to_string(loc_->confidence()));
+        kv("odom_source", odom_source_);
+        // 슬립 판정이 성립하는 조건인지 함께 싣는다 — 성립하지 않는데 "normal" 을
+        //   근거로 쓰는 것이 이 진단이 막으려는 오독이다.
+        kv("skid_detection", odom_source_ == "wheel" ? "valid" : "degenerate (laser vs laser)");
+        return st;
     }
 
     void release()
@@ -323,6 +499,7 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
 
     void onOdom(const nav_msgs::msg::Odometry &o)
     {
+        odom_watchdog_.markReceived(now().nanoseconds());
         const Pose2D cur = fromRosOdom(o);
         const rclcpp::Time stamp(o.header.stamp);
         if (!prev_odom_ || !scan_)
@@ -430,6 +607,15 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
     bool publish_tf_ = true;
     double reloc_radius_ = 1.5;   // m, `/initialpose` 재탐색 반경
     double reloc_angle_ = 0.5236; // rad(=30°), `/initialpose` 재탐색 각도 범위 ±
+
+    // 입력 두절 감시 — 원본 ScanLostTimeThresh·OdoLostTimeThresh 대응. 발행은 막지 않는다.
+    rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diag_;
+    rclcpp::TimerBase::SharedPtr lost_timer_;
+    mcl2d_ros2::LostWatchdog scan_watchdog_;
+    mcl2d_ros2::LostWatchdog odom_watchdog_;
+    int diag_tick_ = 0;
+    int diag_period_ticks_ = 10; // 감시 10 Hz 기준 정상 보고 1 Hz
+    std::string odom_source_ = "laser"; // "wheel" 이 아니면 슬립 감지가 성립하지 않는다
 };
 
 int main(int argc, char **argv)
