@@ -55,11 +55,24 @@ def client(monkeypatch):
     return c
 
 
+@pytest.fixture
+def client_guarded(monkeypatch):
+    """지령 포트가 열린 클라이언트 + 포트별 대역 기록기."""
+    made = {}
+
+    def factory(ip, port, **k):
+        made.setdefault(port, RecordingTransport(ip, port))
+        return made[port]
+
+    monkeypatch.setattr(api, "SeerTransport", factory)
+    return SeerApi("192.168.44.82", allow_guarded=True), made
+
 # ---------- 지령 포트 게이트 ----------
+
 
 def test_guarded_ports_blocked_by_default(client):
     """19205/06/07/10 은 기본값에서 막힌다 — 문서를 안 읽어도 사고가 안 나야 한다."""
-    for call in (client.stop, lambda: client.open_loop_move(0.1),
+    for call in (client.stop, lambda: client.open_loop_move(0.1, 0.0, 0.0, 600),
                  lambda: client.go_target("LM1"), lambda: client.set_do(15, True),
                  lambda: client.download_map("m")):
         with pytest.raises(SeerGuardedPortError):
@@ -76,9 +89,9 @@ def test_guarded_allowed_when_opted_in(monkeypatch):
     monkeypatch.setattr(api, "SeerTransport",
                         lambda ip, port, **k: made.setdefault(port, RecordingTransport(ip, port)))
     c = SeerApi("192.168.44.82", allow_guarded=True)
-    c.open_loop_move(0.1, 0.0, 0.0)
-    assert made[ports.API_PORT_CTRL].calls == [(api.API_CTRL_MOTION,
-                                                {"vx": 0.1, "vy": 0.0, "w": 0.0})]
+    c.open_loop_move(0.1, 0.0, 0.0, 600)
+    assert made[ports.API_PORT_CTRL].calls == [
+        (api.API_CTRL_MOTION, {"vx": 0.1, "vy": 0.0, "w": 0.0, "duration": 600})]
 
 
 def test_api_numbers_are_pinned_to_literals():
@@ -157,8 +170,8 @@ def test_get_max_connections_uses_status_port_not_guarded(client):
     assert ports.API_PORT_CTRL not in client._made
     assert ports.API_PORT_STATE in client._made
 
-
 # ---------- 편호·포트 배선 ----------
+
 
 @pytest.mark.parametrize("method,api_type", [
     ("get_robot_info", 1000),
@@ -227,8 +240,8 @@ def test_iter_alarms_handles_null_levels(client):
     tr.responses[1050] = {"fatals": None, "ret_code": 0}
     assert list(client.iter_alarms()) == []
 
-
 # ---------- 맵 다운로드 ----------
+
 
 def _map_client(monkeypatch, raw):
     made = {}
@@ -275,8 +288,8 @@ def test_download_map_large_body_not_misread_as_error(monkeypatch):
     c = _map_client(monkeypatch, body)
     assert c.download_map("big") == body
 
-
 # ---------- 연결 관리 ----------
+
 
 def test_transport_is_reused_per_port(client):
     client.get_pose()
@@ -289,3 +302,151 @@ def test_close_releases_all(client):
     tr = client._made[ports.API_PORT_STATE]
     client.close()
     assert tr.closed and client._transports == {}
+
+# ---------- 확장분: 제어권·dead-man·신규 편호 ----------
+
+
+def test_open_loop_requires_duration():
+    """`duration` 은 dead-man 타이머다 — 기본값을 두면 호출자가 정지 시간을 고르지 않고 지나간다."""
+    import inspect
+    sig = inspect.signature(SeerApi.open_loop_move)
+    p = sig.parameters["duration_ms"]
+    assert p.default is inspect.Parameter.empty, "duration_ms 에 기본값이 생기면 안 된다"
+
+
+def test_open_loop_puts_duration_on_the_wire(client_guarded):
+    c, made = client_guarded
+    c.open_loop_move(0.1, -0.2, 0.3, duration_ms=600)
+    assert made[ports.API_PORT_CTRL].calls == [
+        (2010, {"vx": 0.1, "vy": -0.2, "w": 0.3, "duration": 600})]
+
+
+def test_seize_and_release_go_to_config_port(client_guarded):
+    """제어권은 19207(설정)로 나간다 — 제어권 획득 자체가 게이트 대상이다."""
+    c, made = client_guarded
+    c.seize_control("big-amr")
+    c.release_control()
+    assert made[ports.API_PORT_CONFIG].calls == [
+        (4005, {"nick_name": "big-amr"}), (4006, None)]
+
+
+def test_control_owner_uses_status_port(client):
+    """소유자 조회는 조회 포트라 게이트에 걸리지 않는다."""
+    client.get_control_owner()
+    assert ports.API_PORT_STATE in client._made
+    assert client._made[ports.API_PORT_STATE].calls == [(1060, None)]
+
+
+def test_preempted_ret_code_pinned():
+    assert api.CONTROL_PREEMPTED_RET_CODE == 40020
+
+
+@pytest.mark.parametrize("method,api_type", [
+    ("get_run_info", 1002), ("get_mode", 1003), ("get_blocked", 1006),
+    ("get_brake", 1008), ("get_path", 1010), ("get_area", 1011),
+    ("get_estop", 1012), ("get_reloc_status", 1021), ("get_loadmap_status", 1022),
+    ("get_all_status2", 1101), ("get_all_status3", 1102), ("get_init_status", 1111),
+    ("get_robot_model", 1500),
+])
+def test_added_status_api_numbers(client, method, api_type):
+    """추가 조회 편호가 리터럴로 고정돼 있는가 — 상수를 기대값에 쓰면 같이 틀린다."""
+    getattr(client, method)()
+    assert client._made[ports.API_PORT_STATE].calls == [(api_type, None)]
+
+
+def test_slam_status_body(client):
+    client.get_slam_status(return_resultmap=True)
+    assert client._made[ports.API_PORT_STATE].calls == [(1025, {"return_resultmap": True})]
+
+
+def test_map_md5_appends_smap_and_keys_by_caller_form(client):
+    """1302 는 `.smap` 을 요구하고 1300 은 확장자 없이 준다 — 래퍼가 그 비대칭을 흡수한다.
+
+    확장자를 안 붙이면 로봇이 `ret_code 40051 "no this map file"` 로 거부한다(실측).
+    반환 키는 호출자가 준 형태여야 1300 의 `maps[]` 와 바로 맞물린다.
+    """
+    client.get_map_status()
+    tr = client._made[ports.API_PORT_STATE]
+    tr.responses[1302] = {"map_info": [{"name": "m1.smap", "md5": "aa"},
+                                       {"name": "m2.smap", "md5": "bb"}], "ret_code": 0}
+    assert client.get_map_md5(["m1", "m2.smap"]) == {"m1": "aa", "m2.smap": "bb"}
+    assert tr.calls[-1] == (1302, {"map_names": ["m1.smap", "m2.smap"]})
+
+
+def test_map_md5_raises_when_a_requested_name_is_absent(client):
+    """요청한 이름이 응답에 없으면 예외다 — None 이 md5 처럼 흘러가면 대조가 조용히 통과한다.
+
+    실기는 없는 지도가 섞이면 요청 **전체**를 `ret_code 40051` 로 거부한다(부분 결과 없음).
+    이 시험은 그럼에도 응답이 이가 빠져 왔을 때 조용히 넘어가지 않는 것을 고정한다.
+    """
+    client.get_map_status()
+    tr = client._made[ports.API_PORT_STATE]
+    tr.responses[1302] = {"map_info": [{"name": "m1.smap", "md5": "aa"}], "ret_code": 0}
+    with pytest.raises(SeerProtocolError, match="없는맵"):
+        client.get_map_md5(["m1", "없는맵"])
+
+
+def test_motor_info_and_stations_default_empty(client):
+    assert client.get_motor_info() == []
+    assert client.get_stations() == []
+
+
+def test_go_target_carries_source_id_and_options(client_guarded):
+    """3051 은 source_id 를 요구한다 — 이전 구현은 id 만 보내 참조 구현과 달랐다."""
+    c, made = client_guarded
+    c.go_target("LM1")
+    assert made[ports.API_PORT_TASK].calls[-1] == (
+        3051, {"id": "LM1", "source_id": "SELF_POSITION"})
+    c.go_target("LM2", source_id="LM1", task_id=7, max_speed=0.5)
+    assert made[ports.API_PORT_TASK].calls[-1] == (
+        3051, {"id": "LM2", "source_id": "LM1", "task_id": "7", "max_speed": 0.5})
+
+
+def test_go_target_list_wraps_segments(client_guarded):
+    c, made = client_guarded
+    segs = [{"source_id": "LM1", "id": "LM2"}]
+    c.go_target_list(segs)
+    assert made[ports.API_PORT_TASK].calls[-1] == (3066, {"move_task_list": segs})
+
+
+def test_set_params_picks_4001_or_4002(client_guarded):
+    """save 여부로 편호가 갈린다 — 4001 은 휘발, 4002 는 저장까지."""
+    c, made = client_guarded
+    body = {"MoveFactory": {"MaxAcc": 1.0}}
+    c.set_params(body)
+    assert made[ports.API_PORT_CONFIG].calls[-1] == (4001, body)
+    c.set_params(body, save=True)
+    assert made[ports.API_PORT_CONFIG].calls[-1] == (4002, body)
+
+
+def test_soft_estop_goes_to_other_port(client_guarded):
+    c, made = client_guarded
+    c.soft_estop(True)
+    assert made[ports.API_PORT_OTHER].calls[-1] == (6004, {"status": True})
+
+
+@pytest.mark.parametrize("method,api_type", [
+    ("pause_task", 3001), ("resume_task", 3002), ("cancel_task", 3003),
+])
+def test_task_control_api_numbers(client_guarded, method, api_type):
+    c, made = client_guarded
+    getattr(c, method)()
+    assert made[ports.API_PORT_TASK].calls[-1] == (api_type, None)
+
+
+@pytest.mark.parametrize("method,api_type", [
+    ("calibrate_gyro", 2001), ("confirm_location", 2003),
+])
+def test_control_api_numbers(client_guarded, method, api_type):
+    c, made = client_guarded
+    getattr(c, method)()
+    assert made[ports.API_PORT_CTRL].calls[-1] == (api_type, None)
+
+
+def test_low_level_bodies_pass_through_unchanged(client_guarded):
+    """필드명이 확인되지 않은 편호는 dict 를 그대로 싣는다 — 이름을 발명하지 않는다."""
+    c, made = client_guarded
+    c.translate({"dist": 1.0, "vx": 0.2})
+    assert made[ports.API_PORT_TASK].calls[-1] == (3055, {"dist": 1.0, "vx": 0.2})
+    c.turn({"angle": 1.57, "vw": 0.3})
+    assert made[ports.API_PORT_TASK].calls[-1] == (3056, {"angle": 1.57, "vw": 0.3})

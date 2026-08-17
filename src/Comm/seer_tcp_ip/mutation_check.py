@@ -154,6 +154,91 @@ MUTATIONS = [
         ("            self._raise_connection_limit_if_that(resp_type, body)\n", "")]),
     ("T14", "한도 거부 판정에서 포트 대조를 제거 — 무관한 응답까지 한도로 오진", "transport.py", [
         ("        if resp_type != self.port or not body:", "        if not body:")]),
+
+    # ---- 제어권 세션 (control.py) ----
+    ("C1", "반납 전 정지를 보내지 않음 — 관성으로 계속 간다", "control.py", [
+        ("            if self.stop_on_exit:\n                self.api.stop()",
+         "            if False:\n                self.api.stop()")]),
+    ("C2", "예외 경로에서 반납하지 않음 — 다음 클라이언트가 40020 으로 막힌다", "control.py", [
+        ("    def __exit__(self, *exc):\n        self.release()\n        return False\n\n\n"
+         "class JogKeepalive",
+         "    def __exit__(self, *exc):\n        return False\n\n\nclass JogKeepalive")]),
+    ("C3", "정지 실패 시 반납을 건너뜀 — 제어권을 쥔 채 남는다", "control.py", [
+        ("        try:\n            if self.stop_on_exit:\n                self.api.stop()\n"
+         "        finally:\n            self.held = False\n            self.api.release_control()",
+         "        if self.stop_on_exit:\n            self.api.stop()\n"
+         "        self.held = False\n        self.api.release_control()")]),
+    ("C4", "이중 획득 가드 제거 — 반납 짝이 깨진다", "control.py", [
+        ("        if self.held:\n            raise SeerControlError(",
+         "        if False:\n            raise SeerControlError(")]),
+    ("C5", "소유자 조회 실패가 획득을 막는다", "control.py", [
+        ("        try:\n            self.previous_owner = self.api.get_control_owner()\n"
+         "        except Exception:\n            self.previous_owner = {}",
+         "        self.previous_owner = self.api.get_control_owner()")]),
+    ("C6", "빈 nick_name 가드 제거 — 로봇 화면에서 소유자를 못 가린다", "control.py", [
+        ('        if not str(nick_name).strip():', '        if False:')]),
+    ("C7", "주기 ≥ dead-man 검증 제거 — 매 주기 섰다 갔다 한다", "control.py", [
+        ("        if interval_s * 1000.0 >= duration_ms:", "        if False:")]),
+    ("C8", "duration_ms=0(무한) 을 허용 — dead-man 이 사라진다", "control.py", [
+        ("        if duration_ms <= 0:", "        if False:")]),
+    ("C9", "jog 재송신에서 duration 을 뺌 — 그 지령이 무한이 된다", "control.py", [
+        ("        self.api.open_loop_move(self.vx, self.vy, self.w, duration_ms=self.duration_ms)",
+         "        self.api.open_loop_move(self.vx, self.vy, self.w, duration_ms=0)")]),
+    ("C10", "due() 가 항상 True — 과송신으로 로봇이 연결을 정리한다", "control.py", [
+        ("        if self._last_sent_at is None:\n            return True\n"
+         "        return (self._clock() - self._last_sent_at) >= self.interval_s",
+         "        return True")]),
+    ("C11", "set_velocity 가 즉시 송신 — 주기 계약 붕괴", "control.py", [
+        ("        self.vx, self.vy, self.w = float(vx), float(vy), float(w)\n\n    def due",
+         "        self.vx, self.vy, self.w = float(vx), float(vy), float(w)\n"
+         "        self.tick()\n\n    def due")]),
+    ("C12", "stop() 이 속도를 0 으로 되돌리지 않음 — 다음 tick 이 다시 달린다", "control.py", [
+        ("        self.vx = self.vy = self.w = 0.0\n        return self.api.stop()",
+         "        return self.api.stop()")]),
+
+    # ---- 확장 편호 (api.py) ----
+    ("N1", "open_loop_move 에 duration 기본값 부여 — 호출자가 정지 시간을 안 고른다", "api.py", [
+        ("def open_loop_move(self, vx: float, vy: float, w: float,"
+         " duration_ms: int) -> dict:",
+         "def open_loop_move(self, vx: float = 0.0, vy: float = 0.0,"
+         " w: float = 0.0,\n                       duration_ms: int = 600) -> dict:")]),
+    ("N2", "2010 요청에서 duration 필드 누락", "api.py", [
+        ('                         {"vx": float(vx), "vy": float(vy), "w": float(w),\n'
+         '                          "duration": int(duration_ms)})',
+         '                         {"vx": float(vx), "vy": float(vy), "w": float(w)})')]),
+    ("N3", "제어권 획득을 조회 포트로 보냄 — 게이트를 우회한다", "api.py", [
+        ("        return self.call(ports.API_PORT_CONFIG, API_CONFIG_SEIZE_CONTROL,",
+         "        return self.call(ports.API_PORT_STATE, API_CONFIG_SEIZE_CONTROL,")]),
+    ("N4", "제어권 편호 4005/4006 맞바꿈", "api.py", [
+        ("API_CONFIG_SEIZE_CONTROL = 4005  # {\"nick_name\":…}\n"
+         "API_CONFIG_RELEASE_CONTROL = 4006  # 무파라미터",
+         "API_CONFIG_SEIZE_CONTROL = 4006  # {\"nick_name\":…}\n"
+         "API_CONFIG_RELEASE_CONTROL = 4005  # 무파라미터")]),
+    ("N5", "40020 상수를 다른 값으로 — 제어권 거부를 못 알아본다", "api.py", [
+        ("CONTROL_PREEMPTED_RET_CODE = 40020", "CONTROL_PREEMPTED_RET_CODE = 40021")]),
+    ("N6", "go_target 에서 source_id 를 뺌", "api.py", [
+        ('        body = {"id": str(site_id), "source_id": str(source_id)}',
+         '        body = {"id": str(site_id)}')]),
+    ("N7", "set_params 가 save 무시하고 항상 4002(저장) — 휘발 의도가 사라진다", "api.py", [
+        ("        api = API_CONFIG_SAVE_PARAMS if save else API_CONFIG_SET_PARAMS",
+         "        api = API_CONFIG_SAVE_PARAMS")]),
+    ("N8", "소프트 비상정지를 제어 포트로 보냄", "api.py", [
+        ("        return self.call(ports.API_PORT_OTHER, API_OTHER_SOFT_ESTOP,",
+         "        return self.call(ports.API_PORT_CTRL, API_OTHER_SOFT_ESTOP,")]),
+    ("N9", "1060 조회 편호를 1061 로", "api.py", [
+        ("API_CONTROL_OWNER = 1060", "API_CONTROL_OWNER = 1061")]),
+    ("N10", "맵 md5 반환 키를 로봇 형태로 — 1300 의 이름과 안 맞물린다", "api.py", [
+        ('        return {orig: by_sent[s] for orig, s in zip(wanted, sent)}',
+         '        return by_sent')]),
+    ("N11", "1302 에 .smap 을 안 붙임 — 로봇이 40051 로 거부한다", "api.py", [
+        ('        sent = [n if n.endswith(".smap") else n + ".smap" for n in wanted]',
+         '        sent = list(wanted)')]),
+    ("N12", "요청한 이름이 응답에 없어도 통과 — None 이 md5 처럼 흘러간다", "api.py", [
+        ("        missing = [o for o, s in zip(wanted, sent) if s not in by_sent]\n"
+         "        if missing:\n"
+         '            raise SeerProtocolError(f"1302 응답에 요청한 지도가 없다: {missing}")\n'
+         "        return {orig: by_sent[s] for orig, s in zip(wanted, sent)}",
+         "        return {orig: by_sent.get(s) for orig, s in zip(wanted, sent)}")]),
 ]
 
 

@@ -3,6 +3,38 @@
 > 인벤토리(함수표·전역변수표): [docs/code_review/seer_tcp_ip/2026-08-07.md](code_review/seer_tcp_ip/2026-08-07.md)
 > 설계 결정: [ADR 2026-08-07-seer-api-tcp-hal](../../../../docs/adr/2026-08-07-seer-api-tcp-hal.md)
 
+## 2026-08-18 / (pending commit) — 편호 커버리지 17 → 50, 제어권 세션 신설, `duration` 필수화
+
+- **왜**: 모션 지령이 그대로는 동작하지 않았다. Seer 는 지령 전에 제어권(4005)을 요구하고 없으면
+  `ret_code 40020` 으로 거부하는데, 패키지에 4005/4006/1060 래퍼가 없었다.
+  (ADR `2026-08-18-seer-tcp-ip-api-coverage.md`)
+- **조사**: 동봉 참조 문서(`References/Seer-Driver/robokit_tcp_api.md`)에 4005·4006·1060·1040·
+  1302·1500·3066·4010·6004 가 **없다**. 요청 JSON 형태까지 있는 정본은 사용자 저장소
+  `T-Robot_seer_gui/seer_core/client.py`(로컬 485줄)였다. 근거 없는 편호는 감싸지 않았다.
+- **신설** `control.py` — `SeerControlSession`(획득→사용→정지→반납, 예외 경로에서도 반납),
+  `JogKeepalive`(dead-man 재송신, `interval < duration` 불변식 검증), `preempted_by_control`,
+  `describe_owner`. 스레드를 만들지 않고 호출자가 `tick()` 을 부른다.
+- **파괴 변경**: `open_loop_move(vx, vy, w, duration_ms)` — `duration_ms` 를 **필수**로 했다.
+  `duration` 은 dead-man 타이머이고 이전 구현은 그 필드를 아예 보내지 않아, 보내는 쪽이 죽었을 때
+  로봇이 서는지 말할 수 없었다. 기본값을 두지 않은 이유는 호출자가 정지 시간을 반드시 고르게 하기
+  위해서다. 저장소 내 호출자 0건이라 실비용 없음.
+- **`go_target`**: `source_id`(기본 `SELF_POSITION`)·`task_id`·임의 옵션 통과를 추가. 이전에는
+  `{"id"}` 만 보내 참조 구현과 달랐다.
+- **실기에서 잡은 것 2건**
+  1. **1302 는 `.smap` 확장자를 요구한다** — 1300 이 주는 이름을 그대로 넣으면
+     `ret_code 40051 "no this map file"`. 래퍼가 확장자를 붙이고 반환 키는 호출자 형태로 돌려
+     1300 과 맞물리게 했다. 붙인 뒤 md5 가 1300 의 `current_map_md5` 와 일치.
+  2. **1302 는 all-or-nothing** — 없는 지도가 섞이면 요청 전체를 거부한다. 처음엔 「없는 것은 빼고
+     돌려준다」로 설계·시험했는데 **가짜 소켓이 그 가정을 통과시켰고 실기 호출이 뒤집었다.**
+     응답에 요청한 이름이 없으면 예외로 바꿨다(None 이 md5 처럼 흘러가면 대조가 조용히 통과한다).
+- **주석 규칙 위반 정정**: 초안에서 근거·인용·정정 이력을 주석에 넣었다가 걷어냈다. 근거는
+  인벤토리 §0 으로 옮겼다(경위: `docs/claude-mistake/2026-08-18-001`).
+- **검증**: 100 passed · 돌연변이 **57/57 검출**(신규 C1~C12·N1~N12) · flake8 0 · 금지패턴 0 ·
+  colcon 2패키지 · 실기 조회 경로 확인(§ 인벤토리 6).
+- **잔여(⚠)**: 쓰기 API 24종은 **실기 미검증**(단위 시험만). 2022 편호 충돌 미해소.
+  Push(19301) 미구현. broker 미착수 상태에서 제어권 세션이 생겨 **동시 4005 사고가 이제 실제로
+  가능**해졌다.
+
 ## 2026-08-17 / (pending commit) — 패키지를 `Comm/seer_tcp_ip` 로 옮기고 이름을 `seer_tcp_ip` 로 바꿈
 
 - **왜**: `seer_api` 는 어느 API 인지 말하지 않았다 — Seer 는 TCP/IP NetProtocol·ModbusTCP·내부 zmq
