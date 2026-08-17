@@ -18,6 +18,13 @@ TOOL = os.path.join(HERE, "scan_gate.py")
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 HOOK = os.path.join(ROOT, "docs", "claude_guideline", "coding", "hooks", "coding-comment-gate.py")
 
+# 가이드라인 번들은 git 미추적이라 **새 워크트리·새 클론에는 없다.** 그때 이 도구는
+#   「규칙 비활성」로 판정을 거부하는 것이 옳은 동작이므로, 시험도 실패가 아니라 건너뛴다.
+#   시험이 여기서 죽으면 번들 부재가 도구 결함으로 오독된다.
+if not os.path.isfile(HOOK):
+    print(f"[SKIP] 게이트 훅이 없다({HOOK}) — 규칙 비활성 환경이라 건너뛴다")
+    sys.exit(0)
+
 MARK = "/" + "/"
 DATE_BODY = "2026" + "-08-17 에 고쳤다."
 ARROW_BODY = "값이 3 " + "-" + "> 5 로 간다."
