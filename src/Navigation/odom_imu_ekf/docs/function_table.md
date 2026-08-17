@@ -14,7 +14,7 @@
 | `predict(d_trans, d_yaw)` | ekf.cpp:39-66 | 병진 증분(m), 회전 증분(rad) | — | 상태 전진 + 공분산 전파. 야코비안 비영은 yaw 열뿐이라 그 희소성만큼만 전개하고 대각에 시스템 잡음을 더한다 |
 | `correct(indices, count, measurement, noise)` | ekf.cpp:68-101 | 관측 상태 인덱스 목록, 관측값, 관측 잡음 | — | 성분별 순차 갱신. H 가 상태를 고르기만 하므로 스칼라 잔차로 같은 결과가 난다. 각도 성분은 잔차·결과 모두 정규화 |
 | `update()` | ekf.cpp:103-156 | — | bool(한 주기 성립 여부) | 한 주기 융합. **오도·IMU 를 둘 다 받기 전에는 거짓**을 돌려주고 아무것도 하지 않는다. 센서별 첫 주기는 기준선만 세운다. IMU 는 회전율이 게이트를 넘을 때만 반영 |
-| `pose()` / `odomInitialized()` / `imuInitialized()` / `lastImuApplied()` | ekf.hpp:76-93 | — | 융합 자세 · 초기화·반영 여부 | 없음(조회 전용). `lastImuApplied` 는 게이트 통과 진단용 |
+| `pose()` / `odomInitialized()` / `imuInitialized()` / `lastImuApplied()` | ekf.hpp:75-93 | — | 융합 자세 · 초기화·반영 여부 | 없음(조회 전용). `lastImuApplied` 는 게이트 통과 진단용 |
 
 ### 멤버 변수 (전역변수 없음 — 모듈 전역 0)
 
@@ -41,10 +41,10 @@
 
 | 함수 | 위치 | 입력 | 출력 | 부작용 |
 | --- | --- | --- | --- | --- |
-| `quatToRpy(x, y, z, w, roll, pitch, yaw)` | odom_imu_ekf_node.cpp:24-37 | 쿼터니언 4성분 | roll·pitch·yaw(참조 출력) | 없음(순수). `asin` 인자를 잘라 수치오차로 NaN 이 되는 것을 막는다 |
-| `OdomImuEkfNode()` 생성자 | odom_imu_ekf_node.cpp:43-76 | ROS 파라미터(잡음 4종·게이트·발행 프레임·진단 주기) | — | 코어 생성, 구독 2종(오도 BEST_EFFORT·IMU SensorDataQoS), 발행 2종, 진단 타이머 |
-| `onImu(m)` | odom_imu_ekf_node.cpp:78-85 | `sensor_msgs/Imu` | — | 자세를 코어에 넣고 수신 표시. 여기서는 융합을 돌리지 않는다 |
-| `onOdom(m)` | odom_imu_ekf_node.cpp:87-126 | `nav_msgs/Odometry` | — | 한 주기 융합 구동 + 발행. 수신 메시지를 그대로 물려 보내며 **자세만** 덮는다. IMU 미수신이면 발행하지 않는다 |
+| `quatToRpy(x, y, z, w, roll, pitch, yaw)` | odom_imu_ekf_node.cpp:23-37 | 쿼터니언 4성분 | roll·pitch·yaw(참조 출력) | 없음(순수). `asin` 인자를 잘라 수치오차로 NaN 이 되는 것을 막는다 |
+| `OdomImuEkfNode()` 생성자 | odom_imu_ekf_node.cpp:43-75 | ROS 파라미터(잡음 4종·게이트·발행 프레임·진단 주기) | — | 코어 생성, 구독 2종(오도 BEST_EFFORT·IMU SensorDataQoS), 발행 2종, 진단 타이머 |
+| `onImu(m)` | odom_imu_ekf_node.cpp:78-84 | `sensor_msgs/Imu` | — | 자세를 코어에 넣고 수신 표시. 여기서는 융합을 돌리지 않는다 |
+| `onOdom(m)` | odom_imu_ekf_node.cpp:86-126 | `nav_msgs/Odometry` | — | 한 주기 융합 구동 + 발행. 수신 메시지를 그대로 물려 보내며 **자세만** 덮는다. IMU 미수신이면 발행하지 않는다 |
 | `publishDiag()` | odom_imu_ekf_node.cpp:128-169 | — (타이머 구동) | — | `/diagnostics` 발행. IMU 미수신은 ERROR — 조용한 무발행을 막는다. 누적값이 「발행은 되는데 IMU 는 한 번도 안 쓰인다」를 드러낸다 |
 | `main` | odom_imu_ekf_node.cpp:184-190 | argc/argv | int | `rclcpp::spin` |
 

@@ -88,6 +88,13 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
         declare_parameter<int>("scan_lost_time_thresh_ms", static_cast<int>(mcl2d_ros2::kDefaultLostThreshMs));
         declare_parameter<int>("odo_lost_time_thresh_ms", static_cast<int>(mcl2d_ros2::kDefaultLostThreshMs));
         declare_parameter<double>("lost_check_rate_hz", 10.0);
+
+        // `odom` 이 무엇에서 나온 값인지 — "wheel" 또는 "laser".
+        //   슬립 감지는 **휠 이동량과 레이저 위치추정 이동량의 불일치**로 판정한다. 레이저 정합
+        //   오도(icp_odometry)를 물리면 레이저↔레이저 비교가 되어 두 값이 같은 원인으로 함께
+        //   틀리므로 휠 미끄러짐을 원리적으로 검출할 수 없다. 그 조건을 조용히 두지 않고
+        //   선언하게 해서 진단에 드러낸다.
+        declare_parameter<std::string>("odom_source", "laser");
     }
 
     // 파라미터 읽기·검증 → 맵 로드 → 로컬라이저·발행자·TF 자원 생성. 실패는 FAILURE 반환으로
@@ -114,6 +121,22 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
         publish_tf_ = get_parameter("publish_tf").as_bool();
         reloc_radius_ = get_parameter("reloc_radius").as_double();
         reloc_angle_ = get_parameter("reloc_angle_deg").as_double() * M_PI / 180.0;
+
+        odom_source_ = get_parameter("odom_source").as_string();
+        if (odom_source_ != "wheel" && odom_source_ != "laser")
+        {
+            RCLCPP_ERROR(get_logger(), "odom_source 는 \"wheel\" 또는 \"laser\" 여야 한다 (받은 값 \"%s\")",
+                         odom_source_.c_str());
+            return CallbackReturn::FAILURE;
+        }
+        if (odom_source_ != "wheel")
+        {
+            RCLCPP_WARN(get_logger(),
+                        "odom_source=\"%s\" — 슬립 감지가 성립하지 않는다. 휠 이동량과 레이저 이동량을 "
+                        "대조해야 하는데 양쪽이 같은 레이저에서 나오므로 함께 틀린다. 판정은 계속 "
+                        "계산되지만 근거로 쓰지 말 것",
+                        odom_source_.c_str());
+        }
 
         // 맵은 필수다. 빈 경로를 조용히 통과시키면 파티클필터가 생성되지 않아 update() 가 항상
         //   Pose2D{} 를 돌려주고(mcl2d_localizer.cpp) 노드는 그 (0,0,0) 을 계속 발행한다 —
@@ -347,7 +370,51 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
         arr.header.stamp = now();
         arr.status.push_back(status("scan", scan_watchdog_, mcl2d_ros2::kErrorScanLost));
         arr.status.push_back(status("odom", odom_watchdog_, mcl2d_ros2::kErrorOdoLost));
+        arr.status.push_back(localizationStatus());
         pub_diag_->publish(arr);
+    }
+
+    // 위치추정 보고 상태. 코어가 매 주기 판정하는데 여기서 꺼내지 않으면 그대로 버려진다.
+    diagnostic_msgs::msg::DiagnosticStatus localizationStatus()
+    {
+        diagnostic_msgs::msg::DiagnosticStatus st;
+        st.name = std::string(get_name()) + ": localization state";
+        st.hardware_id = get_name();
+        auto kv = [&st](const std::string &k, const std::string &v) {
+            diagnostic_msgs::msg::KeyValue e;
+            e.key = k;
+            e.value = v;
+            st.values.push_back(e);
+        };
+        if (!loc_)
+        {
+            st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+            st.message = "not configured";
+            return st;
+        }
+        const LocReportState rs = loc_->reportState();
+        switch (rs)
+        {
+        case LocReportState::Skidding:
+            st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+            st.message = "skidding";
+            break;
+        case LocReportState::LowConfidence:
+            st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+            st.message = "low confidence";
+            break;
+        default:
+            st.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+            st.message = "ok";
+            break;
+        }
+        kv("report_state", std::to_string(static_cast<int>(rs)));
+        kv("confidence", std::to_string(loc_->confidence()));
+        kv("odom_source", odom_source_);
+        // 슬립 판정이 성립하는 조건인지 함께 싣는다 — 성립하지 않는데 "normal" 을
+        //   근거로 쓰는 것이 이 진단이 막으려는 오독이다.
+        kv("skid_detection", odom_source_ == "wheel" ? "valid" : "degenerate (laser vs laser)");
+        return st;
     }
 
     void release()
@@ -548,6 +615,7 @@ class Mcl2dLocalizationNode : public rclcpp_lifecycle::LifecycleNode
     mcl2d_ros2::LostWatchdog odom_watchdog_;
     int diag_tick_ = 0;
     int diag_period_ticks_ = 10; // 감시 10 Hz 기준 정상 보고 1 Hz
+    std::string odom_source_ = "laser"; // "wheel" 이 아니면 슬립 감지가 성립하지 않는다
 };
 
 int main(int argc, char **argv)
