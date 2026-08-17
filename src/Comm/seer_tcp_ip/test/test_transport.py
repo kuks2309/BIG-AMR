@@ -1,4 +1,4 @@
-"""seer_api.transport 회귀 시험.
+"""seer_tcp_ip.transport 회귀 시험.
 
 핵심 고정 대상:
   1. 공식 SDK `packMsg` 와 **바이트 동일** — 우리가 만든 프레임이 로봇이 받는 프레임과 같은가.
@@ -18,8 +18,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from seer_api import ports, transport  # noqa: E402
-from seer_api.transport import (  # noqa: E402
+from seer_tcp_ip import ports, transport  # noqa: E402
+from seer_tcp_ip.transport import (  # noqa: E402
     SeerProtocolError,
     SeerTransport,
     pack,
@@ -27,16 +27,29 @@ from seer_api.transport import (  # noqa: E402
 )
 
 # ---- 공식 SDK 원본 로드 (원문 대조용) ----
-_SDK_PATH = os.path.join(
-    os.path.dirname(__file__),
-    "../../../../../References/Seer-Driver/github_sdk/Robokit_TCP_API_py/netprotocol/rbkNetProtoEnums.py",
-)
+#: 저장소 루트 기준 위치. 깊이를 세지 않고 **위로 올라가며 찾는다** — 고정 `../` 개수를 쓰면
+#: 패키지를 옮기는 순간 경로가 어긋나고, `_load_official` 이 조용히 skip 하면서
+#: 바이트 동일성 시험 3건과 그것이 지키던 돌연변이 T4 의 검출력이 함께 사라진다.
+_SDK_REL = "References/Seer-Driver/github_sdk/Robokit_TCP_API_py/netprotocol/rbkNetProtoEnums.py"
+
+
+def _find_sdk():
+    """저장소 루트를 위로 탐색해 공식 SDK 원본 경로를 찾는다. 없으면 None."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    while True:
+        candidate = os.path.join(here, _SDK_REL)
+        if os.path.exists(candidate):
+            return candidate
+        parent = os.path.dirname(here)
+        if parent == here:
+            return None
+        here = parent
 
 
 def _load_official():
-    path = os.path.abspath(_SDK_PATH)
-    if not os.path.exists(path):
-        pytest.skip(f"공식 SDK 원본 없음: {path}")
+    path = _find_sdk()
+    if path is None:
+        pytest.skip(f"공식 SDK 원본 없음 (위로 탐색 실패): {_SDK_REL}")
     spec = importlib.util.spec_from_file_location("rbkNetProtoEnums_ref", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

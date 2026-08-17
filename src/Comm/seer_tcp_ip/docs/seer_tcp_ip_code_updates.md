@@ -1,7 +1,30 @@
-# seer_api Code Updates
+# seer_tcp_ip Code Updates
 
-> 인벤토리(함수표·전역변수표): [docs/code_review/seer_api/2026-08-07.md](code_review/seer_api/2026-08-07.md)
-> 설계 결정: [ADR 2026-08-07-seer-api-tcp-hal](../../../../../docs/adr/2026-08-07-seer-api-tcp-hal.md)
+> 인벤토리(함수표·전역변수표): [docs/code_review/seer_tcp_ip/2026-08-07.md](code_review/seer_tcp_ip/2026-08-07.md)
+> 설계 결정: [ADR 2026-08-07-seer-api-tcp-hal](../../../../docs/adr/2026-08-07-seer-api-tcp-hal.md)
+
+## 2026-08-17 / (pending commit) — 패키지를 `Comm/seer_tcp_ip` 로 옮기고 이름을 `seer_tcp_ip` 로 바꿈
+
+- **왜**: `seer_api` 는 어느 API 인지 말하지 않았다 — Seer 는 TCP/IP NetProtocol·ModbusTCP·내부 zmq
+  를 모두 갖고 있고 이 패키지는 첫 번째 전용이다. 그리고 `Comm/TCP_IP/` 중간층은 자식이 하나뿐이라
+  아무것도 묶고 있지 않았다. 형제 `can_relay` 도 이름 자체에 전송을 담는다.
+  (ADR `2026-08-07-seer-api-tcp-hal` §Decision 1 개정)
+- **조치**
+  - `src/Comm/TCP_IP/seer_api/` → `src/Comm/seer_tcp_ip/`, 내부 모듈 디렉토리·`resource/` 마커 동반 개명.
+    빈 껍데기가 된 `src/Comm/TCP_IP/` 제거.
+  - `package.xml <name>`·`setup.py package_name`·`setup.cfg` 경로·`mutation_check.py PKG` 를 `seer_tcp_ip` 로.
+  - 소비자 3곳 갱신 — `seer_lidar_tf`(exec_depend + import 2), `seer_read_lidar_install.py`(import +
+    소스 트리 fallback 경로), `Tools/seer_re/seer_param.sh`(PYTHONPATH + import).
+  - `References/Seer-Driver/seer_api_guide.md` 인용은 **참조 문서 파일명**이라 그대로 둔다.
+- **부수 수선**: `test_transport.py` 의 공식 SDK 경로가 고정 `../` 5단이라 이동 후 어긋났다.
+  `_load_official` 이 조용히 skip 하면서 바이트 동일성 시험 3건과 그것이 지키던 돌연변이 `T4` 의
+  검출력이 함께 사라졌다(47 passed + 3 skipped, T4 미검출). **저장소 루트를 위로 탐색하는
+  `_find_sdk()`** 로 바꿔 깊이에 무관하게 만들었다 — 돌연변이 검사가 이 퇴행을 잡았다.
+- **검증**: 50 passed · 돌연변이 **33/33 검출** · flake8 0 · `colcon build --packages-select
+  seer_tcp_ip seer_lidar_tf` 성공 · 실기(192.168.44.82) 3경로 정상 — 단독 스크립트 출력 동일,
+  노드 TF 발행(`base_footprint -> [scan_front, scan_rear]`), `seer_param.sh` API 1400 조회(value=5).
+- **잔여(⚠)**: `Comm/CAN/can_relay` 는 그대로라 `Comm/` 아래 깊이가 섞인다. systemd 배포가 경로에
+  의존할 수 있어 확인 없이 옮기지 않았다 — 평탄화는 미결(ADR §Decision 1).
 
 ## 2026-08-10 / (pending commit) — 포트 정책의 전제가 실측으로 뒤집혀 값·근거·이름을 교체
 
@@ -42,7 +65,7 @@
 - **잔여(⚠)**: 지령 포트 쓰기 API 6종(`stop`·`open_loop_move`·`relocate`·`go_target`·`set_do`·
   `download_map`)은 **실기 미호출** — 단위 시험(가짜 소켓)만 통과. broker 미착수(**debt-072**),
   HAL 메시지 계약 미확정(**debt-073**).
-  경위 기록: [docs/claude-mistake/2026-08-07-002](../../../../../docs/claude-mistake/2026-08-07-002_vendor-question-drafted-while-holding-the-source.md).
+  경위 기록: [docs/claude-mistake/2026-08-07-002](../../../../docs/claude-mistake/2026-08-07-002_vendor-question-drafted-while-holding-the-source.md).
 
 ## 2026-08-07 / (pending commit) — 패키지 신설: Seer TCP/IP API 클라이언트 3층
 

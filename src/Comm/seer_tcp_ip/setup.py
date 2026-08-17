@@ -1,6 +1,6 @@
 from setuptools import setup
 
-package_name = "seer_api"
+package_name = "seer_tcp_ip"
 
 setup(
     name=package_name,

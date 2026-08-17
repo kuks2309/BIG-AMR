@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""seer_api 회귀의 **검출력** 검사 — 동작을 하나씩 망가뜨려 시험이 잡는지 본다.
+"""seer_tcp_ip 회귀의 **검출력** 검사 — 동작을 하나씩 망가뜨려 시험이 잡는지 본다.
 
 ## 왜 필요한가
 
@@ -19,8 +19,8 @@
 
 ## 사용
 
-    python3 src/Comm/TCP_IP/seer_api/mutation_check.py            # 전 항목
-    python3 src/Comm/TCP_IP/seer_api/mutation_check.py T1 P2      # 지정 항목만
+    python3 src/Comm/seer_tcp_ip/mutation_check.py            # 전 항목
+    python3 src/Comm/seer_tcp_ip/mutation_check.py T1 P2      # 지정 항목만
 
 원본은 어떤 경로로 끝나도 복원한다(예외·중단 포함).
 """
@@ -33,7 +33,7 @@ import subprocess
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
-PKG = HERE / "seer_api"
+PKG = HERE / "seer_tcp_ip"
 
 # (id, 되돌리는 내용, 파일명, [(찾을 문자열, 바꿀 문자열), …])
 MUTATIONS = [

@@ -1,4 +1,4 @@
-"""seer_api.api 회귀 시험 — 편호·포트 배선과 지령 포트 게이트.
+"""seer_tcp_ip.api 회귀 시험 — 편호·포트 배선과 지령 포트 게이트.
 
 정책 시험이 핵심이다: ADR 2026-08-07 §Decision 3 의 "지령 포트는 broker 단일 소유"를
 문서가 아니라 코드가 강제하는지 확인한다.
@@ -12,9 +12,9 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from seer_api import api, ports  # noqa: E402
-from seer_api.api import SeerApi  # noqa: E402
-from seer_api.transport import SeerGuardedPortError, SeerProtocolError  # noqa: E402
+from seer_tcp_ip import api, ports  # noqa: E402
+from seer_tcp_ip.api import SeerApi  # noqa: E402
+from seer_tcp_ip.transport import SeerGuardedPortError, SeerProtocolError  # noqa: E402
 
 
 class RecordingTransport:

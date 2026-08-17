@@ -9,7 +9,7 @@ install_info 는 2D(x/y/yaw)만 제공하므로 z/roll/pitch = 0 (z 는 파라�
 장착 캘리브는 거의 불변이므로 기본은 1회 읽어 latch(StaticTransformBroadcaster).
 poll_period > 0 이면 주기적으로 재조회하여 갱신한다.
 
-프로토콜 구현은 여기 있지 않다 — `src/Comm/TCP_IP/seer_api` 가 저장소에서 Seer 와 TCP 로
+프로토콜 구현은 여기 있지 않다 — `src/Comm/seer_tcp_ip` 가 저장소에서 Seer 와 TCP 로
 말하는 유일한 지점이다(ADR docs/adr/2026-08-07-seer-api-tcp-hal.md).
 출처/프로토콜: References/Seer-Driver/robokit_tcp_api_laser.md
 """
@@ -20,8 +20,8 @@ from rclpy.node import Node
 from geometry_msgs.msg import TransformStamped
 from tf2_ros import StaticTransformBroadcaster
 
-from seer_api import SeerApi
-from seer_api.api import API_LASER
+from seer_tcp_ip import SeerApi
+from seer_tcp_ip.api import API_LASER
 
 
 def _yaw_to_quat(yaw_rad):
@@ -52,7 +52,7 @@ class SeerLidarTf(Node):
         self.done = False  # main() 에서 one-shot 종료 판정
 
         # 조회 전용(19204). 지령 포트를 쓸 일이 없으므로 allow_guarded 기본값(False) 유지 —
-        # seer_port 에 지령 포트를 넣으면 seer_api 게이트가 막는다(의도된 동작).
+        # seer_port 에 지령 포트를 넣으면 seer_tcp_ip 게이트가 막는다(의도된 동작).
         self._client = SeerApi(self.seer_ip, timeout=self.connect_timeout)
 
         if self.calibration_out:
@@ -144,7 +144,7 @@ class SeerLidarTf(Node):
             self._timer.cancel()  # latch 후 종료(static 은 계속 유지됨)
 
     def _query_lasers(self):
-        """레이저 목록 조회. 응답 편호·seq 대조와 부분 수신 처리는 seer_api 가 한다."""
+        """레이저 목록 조회. 응답 편호·seq 대조와 부분 수신 처리는 seer_tcp_ip 가 한다."""
         return self._client.call(self.seer_port, API_LASER).get("lasers", [])
 
     def _frame_for(self, device_name):
