@@ -6,7 +6,7 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    # 인식 계층(line_vision/line_seg.launch.py)과 trnav_motion_mux 가 먼저 떠 있어야 한다.
+    # 인식 계층(src/AI/line_vision/launch/line_seg.launch.py)과 trnav_motion_mux 가 먼저 떠 있어야 한다.
     # mux 가 없으면 /motion/wheel_cmd/line_follow 를 발행해도 하류로 나가지 않는다.
     pose_topic = LaunchConfiguration('line_follow_pose_topic')
     return LaunchDescription([

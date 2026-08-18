@@ -72,20 +72,25 @@ class FleetWheelBridge(Node):
     def __init__(self):
         super().__init__('fleet_wheel_bridge')
 
-        self.declare_parameter('w1_x', 0.6039)
-        self.declare_parameter('w1_y', -0.0014)
-        self.declare_parameter('w2_x', -0.5961)
-        self.declare_parameter('w2_y', -0.0014)
-        self.declare_parameter('wheel_radius', 0.125)
+        # 휠 기하에는 **기본값을 두지 않는다.** 정본은 trnav_2ws_core/config/robot_geometry_2ws.yaml
+        #   하나이며 런치가 주입한다. 여기에 '그럴듯한' 기본값을 두면 정본이 갱신돼도 이 노드만
+        #   옛 값으로 조용히 돌아간다 — 그래서 미주입은 기동 실패로 처리한다.
+        for key in ('w1_x', 'w1_y', 'w2_x', 'w2_y', 'wheel_radius'):
+            self.declare_parameter(key, float('nan'))
         self.declare_parameter('steer_limit_rad', math.pi / 2.0)
         self.declare_parameter('steer_tau', 0.0)
         self.declare_parameter('cmd_timeout', 0.5)
         self.declare_parameter('rate_hz', 100.0)
 
         g = self.get_parameter
-        self.wheels = [(g('w1_x').value, g('w1_y').value),
-                       (g('w2_x').value, g('w2_y').value)]
-        self.wheel_radius = g('wheel_radius').value
+        geom = {k: float(g(k).value) for k in ('w1_x', 'w1_y', 'w2_x', 'w2_y', 'wheel_radius')}
+        missing = [k for k, v in geom.items() if math.isnan(v)]
+        if missing:
+            raise RuntimeError(
+                f'휠 기하 파라미터 미주입: {missing} — 런치가 robot_geometry_2ws.yaml 을 얹어야 한다')
+        self.wheels = [(geom['w1_x'], geom['w1_y']),
+                       (geom['w2_x'], geom['w2_y'])]
+        self.wheel_radius = geom['wheel_radius']
         self.steer_limit = g('steer_limit_rad').value
         self.steer_tau = float(g('steer_tau').value)
         self.cmd_timeout = float(g('cmd_timeout').value)

@@ -55,6 +55,19 @@ JOG = {
 }
 
 
+def wheel_axis(deg: float):
+    """조향각(°) → 바퀴 길이축의 **화면** 단위벡터.
+
+    기체 규약은 `+θ = 좌`(실기 앵커: 좌 크랩 θ=+90 → 좌측 이동)이고, 화면은 y 가
+    아래로 증가한다. `WheelView._px` 가 기체 +x(전방)를 화면 위로, +y(좌)를 화면
+    왼쪽으로 놓으므로 기체 방향 `(cos θ, sin θ)` 는 화면 `(−sin θ, −cos θ)` 가 된다.
+    부호가 뒤집히면 그림만 좌우 반전되고 값·모션은 멀쩡해 발견이 늦다 — pose
+    실측으로만 잡힌다. 이 규약은 `test_wheel_view.py` 가 고정한다.
+    """
+    th = math.radians(deg)
+    return -math.sin(th), -math.cos(th)
+
+
 class WheelView(QWidget):
     """차량 바퀴 top-view 위젯.
 
@@ -108,9 +121,7 @@ class WheelView(QWidget):
 
     def _draw_wheel(self, p, ctr, deg, s, name):
         """바퀴 하나를 사각형 + 지향 화살표 + 각도 라벨로 그린다."""
-        th = math.radians(deg)
-        ux, uy = math.cos(th), -math.sin(th)
-        ax, ay = -uy, -ux
+        ax, ay = wheel_axis(deg)
         bx, by = -ay, ax
         L = self.WHEEL_R * 2.0 * s
         W = max(8.0, self.WHEEL_R * 0.62 * s)
@@ -314,6 +325,8 @@ class MainWindow(QWidget):
             " border:1px solid #44515e; border-radius:4px; margin-top:6px; }"
             "QPushButton:disabled { background:#e8edf2; color:#8894a2; }")
         self.btn_home.clicked.connect(self._homing_clicked)
+        # 제어권을 쥐기 전에는 누를 수 없다. 이후 상태는 `_sync_home_button` 이 쥔다.
+        self.btn_home.setEnabled(False)
         v.addWidget(self.btn_home)
         return g
 
@@ -470,9 +483,22 @@ class MainWindow(QWidget):
         self.lab_status = QLabel(f"Seer {self._seer_ip} · 접속 시도 중…")
         self.lab_status.setStyleSheet(
             "padding:4px 8px; border-top:1px solid #cfd8e0; color:#5d6d7e;")
+        self.lab_sup = QLabel("감시 —")
+        self.lab_sup.setStyleSheet(self._SUP_CSS % "#5d6d7e")
         lay.addWidget(self.lab_link, 1)
         lay.addWidget(self.lab_status, 1)
+        lay.addWidget(self.lab_sup, 1)
         return box
+
+    _SUP_CSS = ("padding:4px 8px; border-top:1px solid #cfd8e0; "
+                "color:%s; font-weight:600;")
+    # 감시 판정 색 — 초록 = 정상 부류, 호박 = 유예, 주홍 = 차단, 빨강 = 죽음/정체,
+    # 파랑 = 복귀 중. 판정값은 감시자(`health.py`)의 7종 그대로다.
+    _SUP_COLORS = {"RUNNING": "#1e8449", "IDLE": "#5d6d7e", "WAIT": "#b7950b",
+                   "RESTORE": "#2471a3", "HOLD": "#ca6f1e",
+                   "DEAD": "#c0392b", "ZOMBIE": "#c0392b"}
+    _SUP_STALE_S = 5.0
+    #   감시자 상태의 신선 한계(초). 발행은 틱(기본 2 Hz)마다이므로 5 s 면 확실한 두절이다.
 
     _LINK_OK_CSS = ("padding:4px 8px; border-top:1px solid #cfd8e0; "
                     "color:#1e8449; font-weight:600;")
@@ -501,6 +527,7 @@ class MainWindow(QWidget):
         self._redraw_wheel()
 
         self._refresh_link()
+        self._refresh_supervisor()
         text, ok, engaged = self.be.status()
         if text != getattr(self, "_last_status", None):
             self._last_status = text
@@ -510,6 +537,62 @@ class MainWindow(QWidget):
             self.btn_take.setChecked(engaged)
             self.btn_take.setText("제어권 해제" if engaged else "제어권 획득")
             self.btn_take.blockSignals(False)
+        self._sync_home_button(engaged)
+
+    def _refresh_supervisor(self):
+        """감시자(relay_supervisor) 판정 표시 + 판정 전이를 로그로.
+
+        감시자는 드라이버가 죽으면 자동 복귀(engage)까지 하므로, 사람이 누르지 않은
+        제어권 변화가 화면에서 「감시 전이」로 설명되게 한다.
+        """
+        got = None
+        try:
+            got = self.be.supervisor_status()
+        except Exception:
+            pass
+        if got is None:                       # 이 백엔드는 감시자를 볼 수 없다(직결 등)
+            self.lab_sup.setText("감시 — (이 백엔드에서는 비표시)")
+            self.lab_sup.setStyleSheet(self._SUP_CSS % "#5d6d7e")
+            return
+        verdict, msg, age = got
+        if verdict is None:
+            self.lab_sup.setText("감시자 미수신")
+            self.lab_sup.setStyleSheet(self._SUP_CSS % "#b7950b")
+            return
+        if age is not None and age > self._SUP_STALE_S:
+            self.lab_sup.setText(f"감시자 두절 {age:.0f}s (마지막: {verdict})")
+            self.lab_sup.setStyleSheet(self._SUP_CSS % "#c0392b")
+            return
+        self.lab_sup.setText(f"감시 {msg}" if msg else f"감시 {verdict}")
+        self.lab_sup.setStyleSheet(
+            self._SUP_CSS % self._SUP_COLORS.get(verdict, "#b7950b"))
+        if verdict != getattr(self, "_last_sup_verdict", None):
+            self._last_sup_verdict = verdict
+            self.log_line.emit(f"[감시] {msg or verdict}")
+
+    def _sync_home_button(self, engaged: bool):
+        """호밍 버튼은 **제어권을 쥐고 있을 때만** 누를 수 있다.
+
+        호밍은 조향 드라이브의 내부 루틴(`0x60FB:04`)을 부르는 것이라 릴레이로 버스를
+        쥐고 있어야 성립한다. 조그와 달리 **Seer 쪽 대체 경로가 없다** — Seer 로봇 API 의
+        제어 명령(2000·2001·2002·2003·2010·2022~2025)에 조향 호밍이 없다.
+
+        버튼이 제어권을 대신 잡아 주지는 않는다. 획득은 Seer 를 밀어내는 동작이라
+        운용자가 그 버튼을 눌러 명시적으로 해야 한다.
+
+        capability 로 이미 막힌 백엔드는 건드리지 않는다 — 그 사유 툴팁을 덮으면
+        「왜 못 누르는가」가 바뀌어 버린다.
+        """
+        if not self.be.can(CAP_HOME):
+            return
+        allow = bool(engaged) and not self._homing
+        if self.btn_home.isEnabled() != allow:
+            self.btn_home.setEnabled(allow)
+        self.btn_home.setToolTip(
+            "" if allow else
+            ("호밍 진행 중" if self._homing else
+             "제어권을 먼저 획득하세요 — 호밍은 릴레이로 버스를 쥐고 있어야 하고 "
+             "Seer 쪽 대체 경로가 없습니다"))
 
     def _meas_angle(self, node):
         """그 축의 실측 조향각(°). 백엔드 값이 없으면 Seer 판독으로 대신한다."""
@@ -598,8 +681,9 @@ class MainWindow(QWidget):
         elif name == "USB":
             self.btn_take.setEnabled(ok and self.btn_usb.isChecked())
         elif name == "호밍":
+            # 버튼 상태는 `_sync_home_button` 하나가 쥔다 — 여기서도 켜면 제어권을 놓은
+            # 뒤 호밍이 끝났을 때 눌 수 없어야 할 버튼이 켜진다.
             self._homing = False
-            self.btn_home.setEnabled(True)
 
     def _on_usb(self, on: bool):
         """USB 토글 — 버튼 문구를 바꾸고 개폐를 작업 스레드에 맡긴다."""
@@ -869,6 +953,11 @@ class MainWindow(QWidget):
             return
         if self._jog_th is not None and self._jog_th.is_alive():
             self.log("조그 진행 중 — 먼저 정지하세요")
+            return
+        if not self._engaged():
+            # 버튼이 이미 비활성이라 정상 경로로는 여기 오지 않는다. 그래도 막는다 —
+            # 그냥 두면 백엔드의 내부 사정(「기동돼 있지 않다」)이 운용자에게 나간다.
+            self.log("호밍 불가 — 제어권을 먼저 획득하세요")
             return
         if QMessageBox.question(
                 self, "조향 원점 복귀",

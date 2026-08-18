@@ -1,6 +1,8 @@
 #include "translate_sim_odom/translate_sim_odom_node.hpp"
 
 #include <cmath>
+#include <limits>
+#include <stdexcept>
 
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
@@ -10,11 +12,22 @@ namespace translate_sim_odom
 
 TranslateSimOdomNode::TranslateSimOdomNode() : rclcpp::Node("translate_sim_odom_node")
 {
-    // ── Robot geometry params (QD diagonal) ──
-    w1_x_ = declare_parameter<double>("w1_x", 0.330);
-    w1_y_ = declare_parameter<double>("w1_y", 0.135);
-    w2_x_ = declare_parameter<double>("w2_x", -0.330);
-    w2_y_ = declare_parameter<double>("w2_y", -0.135);
+    // ── 휠 기하 ──
+    // **기본값을 두지 않는다.** 이 노드는 2WS·QD 플랜트로 모두 쓰이므로 어느 한쪽 값을
+    //   기본값으로 두면 다른 쪽이 파라미터 없이 떴을 때 **조용히 남의 기하로 돈다** —
+    //   플랜트가 컨트롤러와 어긋나면 SIL 이 검증하는 대상이 사라진다.
+    //   정본은 런치가 얹는다(robot_geometry_2ws.yaml | robot_geometry_qd.yaml).
+    //   미주입은 기동 실패로 처리한다 — 형제 노드 wheel_odometry.py 와 같은 규약이다.
+    const double kUnset = std::numeric_limits<double>::quiet_NaN();
+    w1_x_ = declare_parameter<double>("w1_x", kUnset);
+    w1_y_ = declare_parameter<double>("w1_y", kUnset);
+    w2_x_ = declare_parameter<double>("w2_x", kUnset);
+    w2_y_ = declare_parameter<double>("w2_y", kUnset);
+    if (std::isnan(w1_x_) || std::isnan(w1_y_) || std::isnan(w2_x_) || std::isnan(w2_y_))
+    {
+        throw std::runtime_error(
+            "휠 기하 파라미터 미주입(w1_x/w1_y/w2_x/w2_y) — 런치가 기하 정본 YAML 을 얹어야 한다");
+    }
 
     // ── Initial pose ──
     initial_x_ = declare_parameter<double>("initial_x", 0.0);
@@ -27,10 +40,10 @@ TranslateSimOdomNode::TranslateSimOdomNode() : rclcpp::Node("translate_sim_odom_
     integrate_rate_hz_ = declare_parameter<double>("integrate_rate_hz", 50.0);
 
     // ── 구동·조향 동특성 ──
-    // ⚠ 기본값 0 = 제한 없음 = **종전 즉응 거동 그대로**. 이 노드는 QD·2WS 의 SIL·HIL
-    //   런치 19개가 공유하며 그중 8개는 **이미 검증이 끝난 QD 런치**다. 기본값을 바꾸면
-    //   그 검증 결과가 말없이 무효가 되므로, 새 동특성은 런치가 **명시적으로 켤 때만** 쓴다.
-    //   권장값(근거는 헤더 주석): drive_*_mps2 = 0.0833, steer_rate_dps = 57.1
+    // ⚠ 기본값 0 은 '제한 없음' 이라 지령이 곧 실제값인 즉응 모델이 된다. 이 노드를 QD·2WS 의
+    //   SIL·HIL 런치 여러 개가 공유하고 일부는 이미 검증을 마쳤으므로, 기본값을 켜는 쪽으로
+    //   바꾸면 그 검증이 말없이 무효가 된다. 동특성은 런치가 **명시적으로 켤 때만** 쓴다.
+    //   권장값과 그 한계는 헤더 주석에 있다 — 자릿수 감으로만 쓸 것.
     drive_accel_mps2_ = declare_parameter<double>("drive_accel_mps2", 0.0);
     drive_decel_mps2_ = declare_parameter<double>("drive_decel_mps2", 0.0);
     steer_rate_rad_s_ = declare_parameter<double>("steer_rate_dps", 0.0) * M_PI / 180.0;
@@ -60,8 +73,8 @@ TranslateSimOdomNode::TranslateSimOdomNode() : rclcpp::Node("translate_sim_odom_
                                                                                     rclcpp::SensorDataQoS());
     imu_pub_ = create_publisher<sensor_msgs::msg::Imu>("/imu/data", rclcpp::SensorDataQoS());
     wheel_state_pub_ = create_publisher<trnav_msgs::msg::WheelMotor>("/wheel_motor_state", rclcpp::QoS(10));
-    // 엔코더 counts 를 담은 상세 상태. 상위가 속도 적분 대신 **위치**로 진행량을 풀 수 있게 한다.
-    // 종전에는 이 토픽 자체가 없어 액션이 IMU yaw 누적 외에는 각을 알 수단이 없었다.
+    // 엔코더 counts 를 담은 상세 상태. 상위가 속도 적분 대신 **위치**로 진행량을 풀 수 있게 한다 —
+    //   실기 드라이브가 위치를 올려 주므로 SIL 도 같은 수단을 제공해야 액션 코드가 갈리지 않는다.
     wheel_state_detailed_pub_ =
         create_publisher<trnav_msgs::msg::WheelMotorState>("/wheel_motor_state_detailed", rclcpp::QoS(10));
 
@@ -191,13 +204,12 @@ void TranslateSimOdomNode::integrateAndPublish()
     //   x 성분 쌍:  vx_1 - vx_2 = ω(y_2 - y_1)  →  분모 = 두 바퀴의 **y 간격**
     //   y 성분 쌍:  vy_1 - vy_2 = ω(x_1 - x_2)  →  분모 = 두 바퀴의 **x 간격**
     //
-    // ⚠ 2026-08-05 정정 — 종전 코드는 x 성분 쌍만 썼다. **QD(대각 배치)에서는 문제가 없다**
-    //   — y 간격이 0.27 m 라 잘 조건화된다. 이 코드는 원래 QD 용으로 쓰였다.
-    //   그런데 **inline(2WS)은 y_1 = y_2 라 분모가 0** 이고, 그때 가드가 else 로 빠져
-    //   **ω 를 0 으로 강제**했다 — 상위가 어떤 각속도를 지령해도 플랜트가 조용히 버린다.
-    //   그 결과 spin·turn 이 SIL 에서 재현되지 않고, 크랩의 yaw 유지 루프도 검증되지
-    //   않았다(yaw 가 변할 수 없으므로 heading error 가 항상 0 으로 나온다).
-    //   ⇒ **분모가 큰 쪽**을 고른다. inline 은 x 간격이 휠베이스(1.200 m)라 잘 조건화된다.
+    // ⚠ 어느 쌍을 쓰든 되는 것이 아니다 — 배치에 따라 한쪽 분모가 0 이 된다.
+    //   QD(대각 배치)는 y 간격이 있어 x 성분 쌍이 잘 조건화되지만,
+    //   **inline(2WS)은 y_1 = y_2 라 x 성분 쌍의 분모가 0** 이다. 그 경우 ω 가 0 으로 강제되면
+    //   상위가 어떤 각속도를 지령해도 플랜트가 조용히 버려서, spin·turn 이 SIL 에서 재현되지 않고
+    //   크랩의 yaw 유지 루프도 검증되지 않는다(yaw 가 변하지 않으니 heading error 가 늘 0 이다).
+    //   ⇒ **분모가 큰 쪽**을 고른다. inline 에서는 x 간격이 휠베이스라 그쪽이 잘 조건화된다.
     //     대각 배치에서는 둘 다 유효하며 큰 쪽을 고르므로 QD 거동은 바뀌지 않는다.
     double vx_body = 0.0, vy_body = 0.0, omega = 0.0;
     if (received)
@@ -307,7 +319,7 @@ void TranslateSimOdomNode::integrateAndPublish()
     imu_msg.linear_acceleration.x = 0.0;
     imu_pub_->publish(imu_msg);
 
-    // ── Publish /wheel_motor_state (실제값 — 종전의 지령 되울림이 아니다) ──
+    // ── Publish /wheel_motor_state — 지령이 아니라 동특성을 통과한 **실제값**을 싣는다 ──
     trnav_msgs::msg::WheelMotor wheel_msg;
     wheel_msg.velocity_front = v0;
     wheel_msg.angle_front = s0;

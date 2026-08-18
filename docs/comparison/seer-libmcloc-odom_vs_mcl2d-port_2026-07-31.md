@@ -24,6 +24,12 @@
 
 분석 문서(2차 자료)는 [References/seer/libMCLoc/](../../References/seer/libMCLoc/PROVENANCE.md).
 
+> ⚠ **정정(배선)** — 아래에서 "odom" 이라 부르는 `MCLoc` 입력은 `OdoCalculator` 의 휠 오도가 아니라
+> **`RobotPosEKF` 가 휠 오도와 IMU 를 융합해 다시 발행한 `Message_Odometer`** 다
+> (배포 배선 `rbk/rbk.plugin`, `RobotPosEKF.UseIMU = 1`).
+> 소비 쪽 식(증분 추출·산포·슬립 판정)은 그대로 유효하지만, **입력이 순수 휠 오도라는 전제는 틀렸다.**
+> 배선 정본: `Tools/seer_re/docs/legacy_runtime_wiring.md` · 융합 내부 미조사: **debt-107**
+
 ## 1. Seer 가 odom 을 쓰는 다섯 갈래
 
 | # | 갈래 | 요지 | 등급·근거 |
@@ -275,3 +281,63 @@ odom 자체의 기구학(`*Odometer::CalSpeed`)은 이 테이블 밖이며 이�
 - **구조**: 액션 분리·모드 트리·임계·정지 분기는 실측대로 이식. 미이식은 debt-044 의 4함수.
 
 ⇒ 정직한 등급: **결정론 경로 = 검증된 동일(1 ulp 예외) · 난수 경로 = 분포 동일 · 구조 = 충실(4함수 미이식)**.
+## 8. 스캔·오도 두절 게이트 원본 실측 — debt-106 근거
+
+스캔이 끊겼을 때 원본이 무엇을 하는지 63G 원본 하드에서 확인했다. 우리 이식본에는 이 게이트가 없다(debt-106).
+
+### 8.1 파라미터 실체
+
+| 항목 | 값 | 근거(원본 실측) |
+| --- | --- | --- |
+| 키 이름 | `ScanLostTimeThresh` | `.rodata` 0x570688 |
+| 설명 | "…ld in receiving laser scan by localization(ms)" | `.rodata` 0x5706fa |
+| 형·기본값·범위 | `int` · **300** · [0, 10000] | `loadParam<int>` @0x1eccbd 인자 `$0x12c` · `$0x0` · `$0x2710` |
+| 단위 | **ms** | 설명 문자열 `(ms)` + 소비부 `imul $0xf4240`(×1e6) 로 ns 환산 |
+| 저장 위치 | `MCLoc+0x710` (`MutableParam<int>`), **값은 +0x78 = `MCLoc+0x788`** | `lea 0x710(%r13),%r12` @0x1ecbfb. `+0x78` 규칙은 다른 슬롯 6개(`CheckLocState`·`DoDailyLoc`·`PublishLoc`·`LocWithRef`·`CheckDetectingTagAfterSomeDistance`)에서 교차 확인 |
+| 자매 키 | `OdoLostTimeThresh` (`MCLoc+0x650`, 값 0x6c8) · 기본 **300** · 같은 범위 | `.rodata` 0x5706d8 · `mov 0x6c8(%r15),%ecx` @0x1dc91c |
+
+⚠ **정정** — debt-048 최초 등록에 「robot.param 기본 300 ms」라고 적었으나, **이 키는 원본 하드의 어떤
+설정 파일에도 없다**(`grep -rI 'ScanLostTimeThresh'` → `libMCLoc.so` 단 1건, `.param`/`.json`/`.model` 0건).
+값 300 은 **바이너리 기본값**이며, 배포는 그 기본값으로 돈다. 값은 같지만 출처 표기가 틀렸다.
+
+### 8.2 소비 지점 — 단 하나
+
+전 바이너리에서 슬롯 `[0x710, 0x7d0)` 을 레지스터 베이스로 접근하는 곳을 전수 조사한 결과,
+`MCLoc::MCLoc()` · `MCLoc::~MCLoc()` · `MCLoc::loadFromConfigFile()`(3회) 외의 유일한 독자는
+**`MCLoc::CheckScanUpdateTime()`** 이다. 그 함수는 `MCLoc::RunNew()` 에서 **1회** 호출되며
+(`CheckOdoUpdateTime()` 바로 다음, 0x1dbd3b) **반환값이 쓰이지 않는다** — 순수 부작용 함수다.
+
+판정식 (0x1df13c–0x1df160):
+
+```
+rax = now_ns − this[0x1810]           ; 마지막 스캔 이후 경과(ns)
+ecx = this[0x788]                     ; ScanLostTimeThresh (ms)
+rcx = (int64)ecx × 1,000,000          ; ms → ns
+if (rcx >= rax) goto 정상경로          ; 임계 이상이면 아무 일도 없음
+```
+
+### 8.3 초과 시 하는 일 — 로그 + 에러코드가 전부
+
+| 동작 | 내용 | 근거 |
+| --- | --- | --- |
+| 로그 1회 | `"Scan has not been updated for " << N << " ms, waiting for recover by robot itself."` | 문자열 0x571444 · 0x5713e6, 정적 플래그 `err_reported`@0x901478 로 1회 제한 |
+| 에러 게시 | `rbk::ErrorCodes::setError(0xcb86 = **52102**, msg)` | 0x1e006f |
+| 복귀 | 정상 판정 시 `clearError(52102)` | 0x1df754 |
+| 에러 문구·등급 | **52102 = "localization module cannot get laser data"**, `rbk.error` 의 **`error`** 계층(fatal/error/warning/notice 중 2번째) | `rbk/rbk.error:75` |
+| 오도 자매 | `OdoLostTimeThresh` 초과 → `setError(0xcb8a = **52106**)` = "odo data lost" | 0x1dd85a · `rbk.error` |
+
+**⇒ 원본은 스캔이 끊겨도 위치추정을 멈추지 않는다.** 발행 중단·상태 강등·재위치추정 유발 중
+어느 것도 하지 않는다. 자세는 계속 오도로 전진·발행되고, 로그 문구 그대로 **"로봇 스스로 회복하기를
+기다린다"**. 즉 우리 2-rate 이식이 만든 "스캔 두절 시 오도로 흘러감" 은 **원본과 같은 동작**이며,
+빠진 것은 **관측 가능성**(경보) 하나뿐이다.
+
+⚠ **범위 밖(미확인)**: 에러 52102 를 상위 계층(rbk core·태스크 엔진)이 어떻게 쓰는지는
+`libMCLoc.so` 밖이라 여기서 말하지 않는다. 「로봇이 멈추는가」는 본 조사로 답할 수 없다.
+
+### 8.4 이식본에 주는 결론
+
+- **게이트가 아니라 워치독**이다. `/mcl_pose` 발행을 막는 코드를 넣으면 **원본과 달라진다**.
+- 이식해야 할 것은 ① 마지막 스캔 시각 추적 ② 300 ms 초과 시 1회 경고 로그 ③ 상태 노출.
+  ③ 의 대응물이 우리에겐 없다 — 코드리뷰 2026-08-07 **#M3(진단 상태 미발행)** 이 선행되어야
+  에러코드 게시에 해당하는 자리가 생긴다. 두 항목을 함께 처리하는 것이 맞다.
+- 오도 쪽 `OdoLostTimeThresh`(300 ms → 52106)도 같은 구조이므로 같은 배선에 얹는다.

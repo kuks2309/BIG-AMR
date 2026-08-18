@@ -37,8 +37,9 @@ from launch.actions import RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 #: Where each robot parks at spawn — one bay per AGV class, on a spur off the
 #: cross aisle at the end of that class's own run, so an idle robot never stands
@@ -142,7 +143,9 @@ def _one_robot(name, pose, xacro_file, steer_lag, delay=0.0):
     odometry = Node(
         package='trnav_2ws_gazebo', executable='wheel_odometry.py',
         name='wheel_odometry', namespace=name, output='screen',
-        parameters=[{'use_sim_time': True}],
+        parameters=[PathJoinSubstitution([
+            FindPackageShare('trnav_2ws_core'), 'config', 'robot_geometry_2ws.yaml']),
+            {'use_sim_time': True}],
     )
 
     # Chained: spawn -> jsb -> steer -> drive -> bridge/odometry. One at a time

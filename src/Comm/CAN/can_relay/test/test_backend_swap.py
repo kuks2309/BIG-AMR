@@ -510,3 +510,82 @@ def test_poll_loop_resends_steer_in_source():
     src = inspect.getsource(D.DirectBackend._loop)
     assert "_steer_counts" in src and "steer_target_frames" in src, \
         "폴 루프가 조향을 재송신하지 않는다"
+
+
+# ── 호밍 버튼은 제어권을 쥐고 있을 때만 (2026-08-15 사용자 요청) ──────────────
+# 호밍은 조향 드라이브의 내부 루틴(0x60FB:04)이라 릴레이로 버스를 쥐고 있어야 성립하고,
+# 조그와 달리 Seer 쪽 대체 경로가 없다 — Seer 제어 API(2000·2001·2002·2003·2010·
+# 2022~2025)에 조향 호밍이 없다. 그래서 못 누르게 하고 이유를 보여 준다.
+class _Btn:
+    """`btn_home` 대역 — 위젯 트리 없이 활성/툴팁만 본다."""
+    def __init__(self, enabled=False):
+        self._on, self.tip = enabled, None
+    def isEnabled(self): return self._on
+    def setEnabled(self, on): self._on = bool(on)
+    def setToolTip(self, t): self.tip = t
+
+
+def _win_with_home_button(can_home=True, homing=False):
+    from can_relay.ui import app as A
+    win = A.MainWindow.__new__(A.MainWindow)        # 위젯 생성 없이 로직만 본다
+    win.btn_home = _Btn()
+    win._homing = homing
+    win.be = type("BE", (), {"can": staticmethod(lambda cap: can_home)})()
+    return win
+
+
+def test_home_button_is_disabled_until_control_is_acquired():
+    win = _win_with_home_button()
+    win._sync_home_button(False)
+    assert win.btn_home.isEnabled() is False
+    assert "제어권" in win.btn_home.tip, win.btn_home.tip
+    win._sync_home_button(True)
+    assert win.btn_home.isEnabled() is True
+    assert not win.btn_home.tip, "누를 수 있으면 사유가 남아 있으면 안 된다"
+
+
+def test_home_button_stays_disabled_while_homing():
+    """제어권이 있어도 호밍 중에는 못 누른다 — 재진입을 버튼 단에서 막는다."""
+    win = _win_with_home_button(homing=True)
+    win._sync_home_button(True)
+    assert win.btn_home.isEnabled() is False
+    assert "호밍 진행 중" in win.btn_home.tip, win.btn_home.tip
+
+
+def test_home_button_untouched_when_backend_cannot_home():
+    """capability 로 이미 막힌 버튼은 건드리지 않는다 — 그 사유 툴팁을 덮으면 안 된다."""
+    win = _win_with_home_button(can_home=False)
+    win.btn_home.setToolTip("이 백엔드는 호밍을 쓰지 않습니다")
+    win._sync_home_button(True)
+    assert win.btn_home.isEnabled() is False
+    assert win.btn_home.tip == "이 백엔드는 호밍을 쓰지 않습니다"
+
+
+def test_homing_click_without_control_says_what_to_do():
+    """버튼을 우회해 들어와도 막고, **백엔드 내부 사정이 아니라** 할 일을 말한다."""
+    from can_relay.ui import app as A
+    win = A.MainWindow.__new__(A.MainWindow)
+    win._homing, win._jog_th, win._ops = False, None, []
+    win._engaged = lambda: False
+    win.log = win._ops.append
+    win._run_op = lambda *a, **k: win._ops.append(("run_op", a))
+    win._homing_clicked()
+    assert any("제어권을 먼저 획득" in str(m) for m in win._ops), win._ops
+    assert not any(isinstance(m, tuple) for m in win._ops), "호밍이 실제로 나가면 안 된다"
+
+
+def test_home_button_state_has_a_single_owner():
+    """`_on_op_done` 이 버튼을 다시 켜면 안 된다 — 제어권을 놓은 뒤 켜져 버린다."""
+    import inspect
+    from can_relay.ui import app as A
+    src = inspect.getsource(A.MainWindow._on_op_done)
+    tail = src.split('"호밍"')[-1]
+    assert "btn_home.setEnabled" not in tail, \
+        "호밍 완료 분기가 버튼을 직접 켠다 — 상태 소유자가 둘이 된다"
+
+
+def test_refresh_drives_the_home_button_every_cycle():
+    """상태 동기를 주기 갱신이 돌려야 한다 — 이벤트에만 걸면 제어권 상실을 놓친다."""
+    import inspect
+    from can_relay.ui import app as A
+    assert "_sync_home_button" in inspect.getsource(A.MainWindow._refresh)

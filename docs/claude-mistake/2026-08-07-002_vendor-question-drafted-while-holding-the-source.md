@@ -4,7 +4,7 @@ type: mistake
 category: context-missing
 status: closed
 reflected_assets:
-  - src/Comm/TCP_IP/seer_api/seer_api/ports.py:1-13
+  - src/Comm/seer_tcp_ip/seer_tcp_ip/ports.py:1-13
   - docs/adr/2026-08-07-seer-api-tcp-hal.md#context
   - docs/debt/registry.md
   - Tools/seer_re/seer_param.sh

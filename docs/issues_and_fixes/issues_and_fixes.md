@@ -45,6 +45,288 @@
 
 ---
 
+## 2026-08-16
+
+### [Fix] translator 를 params 없이 띄워 조향 환산이 1.19배 어긋났다 — 정정된 결함의 재발
+
+- **문제**: 라인 추종 실기 중, 같은 조향 자세를 Seer 는 **−90.0°**, 우리 `/wheel_motor_state` 는
+  **−106.78°** 로 읽었다(engage 후 10초 안정, 3회 재현). 0° 에서는 양쪽이 0.33° 안에서 일치해
+  오프셋이 아니라 **환산 계수 차이**(비 1.1864)였다.
+- **원인**: 기동 스크립트가 `amr_motor_cmd_translator` 를 **`--params-file` 없이** 실행했다.
+  이 노드가 SI→raw 환산의 유일한 소유자인데, params 가 없으면 **소스 기본값**으로 떨어진다 —
+  그 기본값은 이식 원본 Carrier AGV(Automated Guided Vehicle) 것이다:
+  `amr_motor_cmd_translator_node.cpp:17-19` 의 `wheel_radius_m 0.08 / gear_walk 20.0 / gear_steer 265.5`.
+  `gear_steer 265.5` → `65536×265.5/360 = 48,332.8 c/deg` 인데 이 기체 드라이브는 **57,344.0 c/deg** 다.
+  산술 확인: 실제 90° 이동 시 counts `90×57,344 = 5,160,960`, 이를 48,332.8 로 나누면 **106.78°** —
+  관측값과 소수 둘째 자리까지 일치한다.
+  ⚠ **이 결함은 2026-08-05 에 이미 정정돼 있었다** — `config/amr_motor_cmd_translator_qd.yaml:9`
+  주석이 「90° 지령이 75.86° 로만 꺾였다(비 0.843)」로 기록해 두었다. 저장소는 고쳐져 있었고
+  **기동 절차가 그 설정을 안 먹여 되살렸다.**
+- **파급**: 조향 지령 25° → 실제 **21.1°**(−15.7%), 구동 속도 −2.3%(0.08/20.0 조합이 우연히 근사).
+  오늘 실기 3회는 영상 폐루프가 흡수해 **수렴 결과는 유효**하다(조향 게인이 실효 0.84배로 걸린 셈).
+  측위·영상만 쓰는 **`hw` 척도 실측(전방 0.53 m / 후방 0.58 m)은 이 오류와 무관하며 유효**하다.
+- **해결**:
+  1. 기동 스크립트가 `--params-file` 로 정본 yaml 을 준다.
+  2. **기하 3종(`wheel_radius_m`·`gear_walk`·`gear_steer`)의 기본값을 제거**했다 —
+     `rclcpp::PARAMETER_DOUBLE` 로만 선언하고, 미설정이면 `RCLCPP_FATAL` 후 예외로 기동을 중단한다.
+     값이 틀린 채 도는 것보다 기동에서 죽는 편이 안전하다. `pulses_per_rev` 는 양쪽이 같아 기본값 유지.
+  ⚠ 기존 검사기 `Tools/motion_chain_check/check_chain_contract.py` 는 **두 config 파일을 대조**하므로
+  **params 미지정 실행은 검사 대상 밖**이었다 — 그래서 이번 재발을 잡지 못했다.
+- **파일**:
+  - `src/Control/Motion_Control/Common/amr_motor_cmd_translator/src/amr_motor_cmd_translator_node.cpp:16-70`
+  - 기동 스크립트(세션 스크래치패드 `real_bringup.sh`) — 저장소 밖
+- **상태**: 완료 — 빌드 통과. 실행 검증 2종: params 없이 실행 시
+  `rclcpp::exceptions::ParameterUninitializedException`(`parameter 'wheel_radius_m' is not initialized`)
+  으로 즉시 종료, params 파일과 함께 실행 시 정상 기동.
+
+### [Fix] GUI 바퀴 그림 좌우 반전 — LGIT 포크의 수정을 정본에 역이식
+
+- **증상**(정본에 실재): `+θ`(좌) 지령이 바퀴 그림에서 화면 오른쪽으로 그려짐 — 값·모션은
+  정상이라 화면만 조용히 거울이 된다. LGIT 포크가 2026-08-12 실기(pose 실측)로 잡아 고친
+  결함이 정본에는 남아 있었다(이식 중 포크 시험이 드러냄).
+- **수정**: 포크의 `wheel_axis()`(기체 `+θ=좌` → 화면 `(−sinθ,−cosθ)`) 를 정본 `app.py` 에
+  역이식, `_draw_wheel` 이 그것을 쓰도록 교체. 화면 규약 시험(`test_wheel_view.py`,
+  기체 무관 순수부)을 정본에 채택 — 기체 실측 앵커부는 포크 소관.
+- **검증**: 정본 512 passed · lgit 표적 282 passed(실측 앵커 포함).
+
+
+### [Fix] `home_and_zero` 잔여 결함 5건 (debt-084) + SIL 에 참여자 재생성 상시 회귀 (debt-087 축소)
+
+- **debt-084 상환 5건**: ① `elapsed()` ROS 시계 → `monotonic`(신선도와 동일 축 —
+  `use_sim_time`+`/clock` 부재 시 무한 대기 제거) ② `target_node`·`steer_nodes`
+  파라미터화(하드코딩 제거, `main()` 한 곳 주입) ③ 0° 지령 `RESEND_PERIOD_S`(1 s)
+  멱등 재발행 + 진단 `steer_target_deg` 대조로 시한 초과를 「미수용」(코드 5)과
+  「미도달」(3)로 분리 ④ `validate_params`(tol∈(0,5]·timeout∈(0,300], 위반 시 코드 6,
+  호밍 요청 전 차단) ⑤ `confirm:=true` 게이트(부재 시 코드 7, 아무 것도 요청 안 함).
+  시험 20종(신규 4) 통과 · 패키지 491 passed.
+- **debt-087 축소**: SIL 실험 11(장기 두절 → 참여자 재생성 → 승계 복귀) 추가 —
+  재생성 반복·감시자 생존·Traceback 부재·승계 복귀를 상시 회귀로 고정. 돌연변이
+  검사(재생성 비활성 → FAIL) 확인. 전체 11/11 PASS ×2.
+- **registry ID 위생**: 완전중복 4건(027~030)을 별칭 스텁으로 전환(외부 인용 보전),
+  022 구본 사본 1행 병합, CSM 충돌 2건 개번(034→088·035→089, 코드 참조 없음 전수 확인),
+  채번 규약 + 「다음 채번」 카운터 신설.
+
+
+### [Fix] systemd 드라이버 유닛 — 노드 크래시에 `Restart=on-failure` 가 발동하지 않음
+
+- **증상**(실장비, 유닛 설치 후 첫 kill 시험): 드라이버 노드를 `kill -9` 하자 유닛이
+  재기동 없이 `inactive` 로 종료. 감시자는 DEAD 를 정확히 판정했지만 되살릴 대상이
+  영영 오지 않는다.
+- **원인**: 노드가 죽으면 `ros2 launch` 가 required-프로세스 종료를 **정상 셧다운**으로
+  처리해 exit 0 으로 내려간다 — systemd 눈에 실패가 아니므로 `on-failure` 는 영영
+  발동하지 않는다. 크래시 소생이라는 유닛의 존재 이유가 정확히 그 크래시에서 무력했다.
+- **수정**: 드라이버 유닛 `Restart=on-failure` → `Restart=always`. `systemctl stop` 은
+  `always` 에서도 재기동을 만들지 않으므로 수동 정지와 충돌하지 않고, crash-loop 는
+  기존 `StartLimitIntervalSec=120`/`StartLimitBurst=3` 이 그대로 차단한다.
+- 같은 시험에서 확인된 정상 동작: 감시자 유닛의 오버레이 소싱·`/run/can_relay`
+  RuntimeDirectory 기록·DEAD 판정·15 s 참여자 재생성은 systemd 아래에서 설계대로.
+  검증 기록은 실험 완료 후 verified_facts 에 통합 기재.
+
+
+### [Fix] `relay_supervisor` — 대상 동결 후 감시자가 영구 무수신(ZOMBIE 고착) → DDS 참여자 재생성
+
+- **증상**: 대상 노드를 60 s+ 동결(SIGSTOP) 후 재개하면 진단 발행은 정상 재개되는데
+  감시자는 두절 카운터만 계속 키우며 ZOMBIE 에 고착. 이후 어떤 상태 변화도 못 본다.
+- **진단**(실기 판별 실험): 신규 구독자·신규 발행자와는 즉시 통신되므로 수신 경로는
+  정상 — 동결됐던 상대와의 **참여자(participant) 세션만 사망**. 엔드포인트 재구독은
+  무효(같은 참여자 안 신규 구독도 무수신, 291 s 관측).
+- **수정**: 두절이 `recycle_after_s`(15 s) 를 넘으면 `main()` 재구축 루프가 컨텍스트·노드를
+  허물고 다시 만든다. 감시 상태(`prev`·`was_down`·stamps·`_last_diag`·판정)는
+  `export_carry` 로 승계 — 승계가 없으면 재구축 순간 「한 번도 못 받음」(WAIT)이 되어
+  대상이 정말 죽은 경우 복귀가 영영 걸리지 않는다.
+- **1차 구현 결함**: 이월 코드가 `_last_saved` 초기화 전에 접근해 AttributeError 사망,
+  launch respawn 이 가려 「성공」처럼 보였다 — 단위·SIL 전건 통과 상태에서 실기 재현만이
+  드러냈다(debt-087 의 재확인 사례). 초기화 순서 정정 + carry 왕복 배선 시험 추가.
+- **검증**: 실기 65 s 동결 재현 — 재생성 4회 동안 두절 시계 연속(승계 정상), ZOMBIE
+  45.4 s 정확 판정, SIGCONT +1.6 s 자가 회복(ZOMBIE → RUNNING). 단위 487 · SIL 10/10.
+  기록: `docs/verified_facts/2026-08-16-can-relay-zombie-freeze-field.md`
+
+
+### [Fix] SIL 하니스 — 실험 4 의 두절 대기가 누적 로그에 걸려 kill 이 감시자를 앞지른다
+
+- **문제**: 실험 4(crash-loop 차단)가 간헐 실패. 4번의 kill 이 ~7초 만에 끝나는데 감시자는
+  복귀를 2회밖에 시도하지 못해(한도 3 미달) 판정이 영원히 안 뜬다.
+- **원인**: `wait_outage_seen` 이 누적 로그에서 `DEAD|ZOMBIE` **존재**를 검사 — 1주기째의
+  기록이 남아 있어 2~4주기째는 기다리지 않고 즉시 참. kill 루프가 감시자의
+  감지→재기동→복귀 주기와 동기화되지 않았다. 이 결함은 `"DEAD" in log` 시절부터 있었고,
+  이전 통과들은 복귀가 빨라 우연히 시도 3회를 채운 것이다.
+- **해결**: 존재 검사 → **횟수 증가** 검사(`outage_count()` + `baseline` 인자). 실험 4는
+  주기마다 「두절 +1 → 재기동 → 복귀 지시 +1」을 확인한 뒤 다음 kill 로 — 시도가
+  결정론적으로 쌓인다. 단일 kill 사용처(실험 1·3·5·7·9·10)는 기준선 0이 옳음을 확인.
+- **파일**: `Tools/can_relay_sil/sil_health.py`
+- **상태**: 완료 — SIL 10/10 PASS. 덧붙여 이 실패 로그는 무응답 시한 수정이 실전 조건에서
+  작동함을 보여 줬다(kill 이 호출 도중 떨어져 「무응답 5s — 포기하고 재시도」 자연 발생)
+
+### [Fix] `relay_supervisor` — 재기동 직후 latched E-stop 도착 전에 자동 복귀가 나간다
+
+- **문제**: E-stop 이 인가된 채(발행자 상주) 드라이버를 재기동하면 감시자가 **E-stop 인가
+  중에 제어권을 자동으로 되찾는다.** SIL 실험 5 실기 로그: `ZOMBIE → RESTORE → 복귀 완료`
+  가 estop 발행 중에 발생. 이전 통과들은 estop 재전달이 첫 진단보다 우연히 빨랐던 것.
+- **원인**: E-stop 토픽은 latched(TRANSIENT_LOCAL)라 재기동한 노드에 재전달되지만 **DDS
+  재전달이 첫 진단 발행보다 늦을 수 있다.** 감시자는 첫 진단 하나(estop=False)만 보고
+  `RESTORE` 를 허가했다 — `decide()` 에 「이 진단이 완전한가」를 묻는 장치가 없었다.
+- **해결**: `restore_settle_s`(기본 3 s) 안정화 창 — 두절 후 진단이 다시 흐르기 시작한 지
+  이 시간이 지나야 `RESTORE` 허가. 검사는 `RESTORE` 직전에만 둔다(차단 게이트는 안정화
+  전에도 동작 — 막는 쪽은 항상 안전하다). `cur_settle_s=None`(모름)은 미충족으로 취급.
+- **파일**: `can_relay/health.py` · `can_relay/supervisor.py` · `test/test_supervisor.py` ·
+  `Tools/can_relay_sil/sil_health.py`
+- **상태**: 완료 — 단위 49 passed(안정화 경계 3점 + 차단 게이트 무대기 확인), SIL 재실행
+
+### [Fix] `relay_supervisor` — 버린 복귀 호출의 늦은 콜백이 새 호출의 시한 기준을 지운다
+
+- **문제**: 시한 초과로 버린 future 의 done 콜백이 **새 호출의 송신 시각을 지울 수 있다**
+  — 그러면 새 호출도 무응답일 때 시한 판정이 다시는 서지 않아, 어제 닫은 영구 차단이
+  다른 문으로 되살아난다. 늦은 응답이 도착하면 「복귀 완료」 이중 처리도 가능.
+- **원인**: `_on_restore_done` 첫 줄이 무조건 `self._pending_since = None`. rclpy 는
+  executor 가 붙은 future 의 콜백을 태스크로 미룰 수 있어, 구 future 의 콜백이 새 호출
+  생성 **후에** 돌 수 있다(현재 humble 에서 인라인으로 도는 것은 구현 우연).
+- **해결**: 콜백 첫 줄에 신원 검사 — `future is not self._pending: return`. 어느 실행
+  순서에서도 버린 호출이 현재 호출의 상태를 건드리지 못한다. 곁들여, 복귀 완료 시
+  「조향 대조」 로그가 `self._cur = None` **직후에 그 값을 읽어 항상 None** 을 찍던 죽은
+  로직을 제거하고 기록된 목표만 남기게 했다.
+- **파일**: `can_relay/supervisor.py`
+- **상태**: 완료 — 경합 자체는 타이밍 의존이라 SIL 로 강제 재현 불가, 코드 검사로 확정
+
+### [Fix] `relay_supervisor` — 무응답 복귀 호출이 이후 복귀를 영구 차단
+
+- **문제**: 감시자가 `~/engage` 를 부른 뒤 응답이 오지 않으면 **그 이후 모든 복귀가
+  조용히 차단**된다. 감시자의 존재 이유가 복귀인데 기능이 0이 된다. 발생 조건이
+  현실적이다 — crash-loop 이 정확히 「복귀 직후 다시 죽는」 상황이다.
+- **원인**: `supervisor.py` `_restore()` 의 중복 방지 가드가
+  `self._pending.done()` 만 본다. `rclpy` 의 `call_async` future 는 **응답이 와야만**
+  완료되고 **자체 시한이 없다**(`rclpy/client.py` `call_async` 소스 확인 — future 를
+  만들어 `_pending_requests` 에 넣고 반환할 뿐, `Future` 에 시한 멤버 없음).
+  대상이 죽으면 `done()` 이 영원히 False 라 가드가 영구히 막는다.
+- **해결**: 판정을 순수 모듈로 분리해 `health.py` 에 `restore_call_expired()` 신설
+  (`restore_call_timeout_s`, 기본 10 s). `supervisor.py` 는 호출 시각을 기록하고
+  시한 초과 시 future 를 **버리고 재시도**한다. 취소된 future 의 done 콜백은 무시한다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/health.py` · `can_relay/supervisor.py` ·
+  `test/test_supervisor.py` · `Tools/can_relay_sil/sil_health.py` ·
+  `Tools/can_relay_sil/deaf_engage.py`(신규)
+- **상태**: 완료 — 3층 검증. 원인 확증(rclpy 소스) · 순수 함수 돌연변이 검출(1 failed) ·
+  **실물 경로 돌연변이 검출**(수정 제거 시 SIL 실험 10 FAIL, 수정본 PASS)
+
+> ⚠ **시험을 세 번 다시 만들었다.** 1차는 「복귀 지시 로그 직후 kill」이었는데 그 시점엔
+> 응답이 이미 도착해 있어(실기 engage 응답 ~7 ms) **수정을 빼도 통과하는 거짓 확신**이었다.
+> 2차는 스텁과 실드라이버가 같은 서비스명을 광고해 실드라이버가 8 ms 에 응답, **재현
+> 조건이 형성되지 않았다.** 3차에서 감시자의 `target_node` 를 스텁 전용 이름으로 돌려
+> 서비스명을 독점하게 하고서야 성립했다. **「시험이 통과했다」는 「기능이 동작한다」가
+> 아니다** — 돌연변이로 시험 자체를 검증하기 전에는 판단을 미룰 것.
+
+### [Fix] SIL 하니스 — 실패한 실험의 로그가 지워져 낡은 디렉토리를 오독
+
+- **문제**: `--keep` 없이 돌린 실험이 실패하면 임시 디렉토리가 삭제된다. 진단하려고
+  `ls -dt /tmp/sil-eN-* | head -1` 하면 **이전 실행분**이 잡히고, 그 로그가 그럴듯해
+  잘못된 결론으로 이어진다. 같은 세션에서 3회 발생했다.
+- **원인**: `main()` 이 `ctx.cleanup()` 을 무조건 부르고, 보존은 `--keep` 플래그에만 의존.
+- **해결**: 실험이 실패하면 `--keep` 여부와 무관하게 `ctx.keep_logs()` 로 보존하고
+  경로를 항상 출력한다(3줄).
+- **파일**: `Tools/can_relay_sil/sil_health.py`
+- **상태**: 완료
+
+## 2026-08-15
+
+### [Fix] `relay_supervisor` 결함 5건 — SIL 하니스가 잡은 「단위는 통과, 기능은 0」
+
+- **문제**: 노드 health 감시·복귀가 `main` 병합 시점에 **전 기능 무동작**이었다. 단위 회귀
+  40여 건이 전건 통과하는 동안 감시자는 기동 몇 초 만에 죽거나, 죽지 않아도 복귀를 한 번도
+  수행하지 못했다. 실기였다면 「감시 중」으로 보이면서 실제로는 아무것도 안 하는 상태로
+  운용됐을 것이다.
+- **원인**: 5건 모두 **순수 판정(`health.py` 로직)이 아니라 ROS 껍데기·실물 타입 경계**에 있었다.
+  단위 시험이 `decide()` 만 함수로 부르고 프로세스·메시지·타이머를 한 번도 통과시키지 않았다.
+  | # | 근본 원인 | 위치 |
+  | --- | --- | --- |
+  | 1 | `DiagnosticStatus.level` 은 rclpy 에서 `bytes` 한 바이트인데 `int()` 로 변환 → 첫 진단에 크래시 | `health.py` `parse_diag` |
+  | 2 | rclpy 로거는 **호출 지점마다 severity 고정** — 한 줄에서 `warn`/`info` 를 골라 부르면 두 번째가 `ValueError` | `supervisor.py` `_on_tick` |
+  | 3 | `_prev` 를 기동 시 파일에서 한 번만 읽고 승격하지 않음 → 「감시자는 살고 드라이버만 재기동」이라는 **설계 의도 경로에서 복귀가 성립하지 않음** | `supervisor.py` `_on_tick` |
+  | 4 | `_home_failed` 게이트가 `cur` 만 검사 → **재기동이 지우는 값을 게이트가 따라감**(막으려던 그 소실) | `health.py` `decide` |
+  | 5 | `_was_down` 을 복귀 서비스 응답으로 내림 + 판정 이름으로만 세움 → 복귀가 1회만 되고, 빠른 재기동은 유예 `WAIT` 로 덮여 표시가 안 섬 | `supervisor.py` `_on_restore_done` · `health.py` `next_was_down` |
+  ⚠ **5번의 절반은 자초분**이다 — 4번을 고치며 넣은 좀비 유예(`zombie_after_s`)가 새 구멍을 열었다.
+- **해결**: 판정에 해당하는 부분을 **순수 모듈로 이관**해 단위로 고정했다 —
+  `as_level()` · `next_prev()` · `next_was_down()` · `is_outage()` 신설, `decide()` 가 `home_failed` 를
+  `cur`·`prev` 양쪽에서 검사. 껍데기에는 타이머·구독·서비스 호출·파일 입출력만 남겼다.
+  회귀 13건 추가(33 → 46), 돌연변이 2종 검출 확인.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/health.py` · `can_relay/supervisor.py` ·
+  `test/test_supervisor.py` · `Tools/can_relay_sil/sil_health.py`(신설) ·
+  `docs/function_table.md` · `docs/sw_structure/function_table.md`
+- **상태**: 완료 — SIL **8/8 PASS**, 단위 회귀 전건 통과. ⚠ **실기 미검증**(debt-075·076)
+- **적용 범위**: 4번(`home_failed` 차단)은 **감시자가 래치를 1회 관측한 뒤**에만 적용된다 — 호밍 개시 1초 안의 사망은 덮지 않는다(실험 9 경계 관측). 호밍 중단 자체는 펌웨어(`seer_homing_tick()` 이 `!pc_authority` 확인 → 취소)와 드라이버 래치가 담당하므로 **그 구간에도 보호는 유효**하다. 결함이 아니라 설계상의 하한이다
+
+> ⚠ 병합 주기(2026-08-16): 아래 두 건은 다른 세션이 **구 supervisor** 에 가한 병행 수정이다. 병합에서 supervisor 는 세션 브랜치 판(순수 `health.py` 분리·위 5건 수정 포함)으로 채택되어 아래 수정 중 supervisor 코드 부분은 대체됐고, `_tick_guarded`(틱 예외 가드)만 채택판에 이식해 유지한다. `mutation_check.py`·`home_and_zero` 관련 부분은 그대로 유효하다.
+
+### [Fix] 감시 노드가 첫 상태 전이에서 죽는다 · 복귀 시도가 1회로 끝난다 · 검출력 검사기 거짓 초록 (적대적 리뷰 3건)
+
+- **문제**: ① 감시 노드가 상태 전이 로그에서 `ValueError` 로 죽고, `Restart=always` 아래에서
+  2초 crash-loop 가 된다. ② 복귀 시도가 실패해도 재시도하지 않고 영구 포기한다.
+  ③ 검출력 검사기가 무관한 기존 실패 1건만 있으면 모든 돌연변이를 「검출」로 집계한다.
+  ④ 배선 시험이 미소싱 환경에서 파일 전체 수집을 중단시킨다.
+- **원인**:
+  ① `supervisor.py` 전이 로그가 **한 줄에서** `warn`/`info` 를 번갈아 불렀다. rclpy 는 로그
+  컨텍스트를 **호출 지점(파일·함수·줄)** 으로 캐시하고 severity 변경을 거부한다
+  (`rcutils_logger.py` `Logger severity cannot be changed between calls.`). 직접 재현 확인.
+  예외가 `self._verdict = verdict`·`self._was_down = True` **앞에서** 터지므로 두절 사실이
+  기록되지 않고, `main()` 은 `KeyboardInterrupt` 만 잡아 프로세스가 죽는다.
+  ⇒ 같은 날 넣은 `_prev` 갱신(복귀 활성화)이 **실행에 도달한 적이 없다**.
+  ② `decide()` → `_prev = _cur` → `_restore()` 순서라 **복귀를 내는 그 틱에 판정 입력이
+  지워진다.** `_restore()` 가 서비스 미준비로 실패하면 다음 틱은 `IDLE` 이고 재시도가 없다.
+  ③ `mutation_check.py` 가 검출을 `" failed" in 요약줄` 로 판정했다 — 실패의 **원인**을 묻지 않는다.
+  ④ 배선 시험이 모듈 스코프에서 `import rclpy` 했다. `conftest.py` 는 「설치·소싱 없이도 돈다」를
+  계약으로 선언하며, 수집 에러는 실행 전체를 중단시킨다.
+- **해결**:
+  ① severity 별 **호출 지점 분리** + 타이머 진입점을 `_tick_guarded` 로 감싸 틱 예외로 감시자가
+  죽지 않게 한다(시험은 `_on_tick` 을 직접 부르므로 가드에 가려지지 않는다).
+  ② 복귀·보류 틱에는 `_prev` 를 덮지 않는다. 아울러 별칭이 아니라 `dict()` 사본으로 넘긴다.
+  ③ 대상 시험별 **기준선 실패 집합을 먼저 재고, 거기 없던 시험이 새로 깨질 때만** 검출로 인정.
+  출력에 신규 실패 시험 이름을 싣는다.
+  ④ `pytest.importorskip("rclpy")` 로 감싸 배선 시험만 건너뛴다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/supervisor.py` ·
+  `src/Comm/CAN/can_relay/mutation_check.py` · `src/Comm/CAN/can_relay/test/test_supervisor.py`
+- **상태**: 완료 — can_relay **467 passed / 1 skipped / 0 failed** ·
+  돌연변이 **C1·H5·F1 3/3 검출**(각각 어느 시험이 새로 깨졌는지 함께 출력) ·
+  미소싱 경로 **16 passed / 1 skipped**, 소싱 경로 **47 passed**.
+  ⚠ **실기 미검증** — 드라이버를 실제로 죽여 복귀가 나가는지 확인한 적이 없다.
+  ⚠ 이 3건은 **작성자가 아닌 별도 lane(적대적 리뷰)** 이 찾았다. 작성자의 배선 시험 2건은
+  `RUNNING→IDLE` 만 밟아 `RUNNING→DEAD→RESTORE` 경로를 지나가지 않았다.
+  ⚠ 잔여 지적은 `debt-082`(검사기가 실 소스를 덮어씀) · `debt-083`(`joint_states` 다중 발행자) ·
+  `debt-084`(CLI 잔여 5건 — 시계축 혼용·하드코딩 등) · `debt-085`(주입 경계 바깥 시험 0건).
+
+---
+
+
+### [Fix] 감시 복귀가 한 번도 발동하지 않음 · 0° 도달 판정에 신선도 없음 · 종료코드 미도달 (3건)
+
+- **문제**: ① 드라이버가 죽어도 감시자가 제어권을 복귀시키지 않는다. 반대로 운용자가 의도적으로
+  반환한 뒤에는 요청하지 않은 재획득이 날 수 있다. ② 0° 복귀 대기 도중 한 축의 피드백이 끊겨도
+  굳은 값으로 「조향 0° 복귀 완료」가 날 수 있다. ③ 「서비스 없음」이 호밍 실패와 같은 종료코드로
+  나와 원인이 구분되지 않는다.
+- **원인**:
+  ① `supervisor.py:89` — `self._prev` 대입이 파일 전체에서 그 한 곳뿐이다(`__init__`).
+  `_save()`(`:152`)는 매 틱 파일에 쓰지만 아무도 되읽지 않아 `decide(self._prev, …)`(`:138`)가
+  **부팅 시점 스냅샷**을 계속 쓴다. 두 유닛이 함께 부팅되면 `_prev=None` 이라
+  `health.py` 의 「직전 기록도 미획득」 분기로 떨어져 복귀가 걸리지 않는다.
+  ② `home_and_zero.py` `_RosClient._on_joint_states` — 받은 축만 덮어쓰고 **없는 축을 지우지 않는다.**
+  발행자는 믿을 수 없는 축을 빼고 보내는데(`driver_node.py:409-415` `if deg is None: continue`)
+  그 보호가 수신 측에서 되돌려진다. 수신 시각도 쓰지 않아 통신 두절을 알 수 없다.
+  ③ `home_and_zero.py` — `EXIT_NO_SERVICE` 는 정의만 있고 `return` 0회.
+  `call_home()` 이 `(False, …)` 를 돌려주므로 `run()` 은 `EXIT_HOME_FAILED`(2)를 낸다.
+- **해결**:
+  ① `_save()` 직후 `self._prev = self._cur`(1줄 + 근거 주석). 부팅 시 `_load()` 는 유지.
+  ② 순수 함수 2개 신설 — `steer_angles_from_joint_states()`(매 장마다 재구성, 없는 축은 `None`) ·
+  `fresh_or_none()`(`FEEDBACK_TTL_S` 초과 또는 수신 이력 없음 → 전 축 `None`). 배선 갱신.
+  ③ client 계약에 `service_available()` 추가, `run()` 이 그것으로 갈라 `EXIT_NO_SERVICE`(4) 반환.
+  미도달 메시지의 「목표는 걸려 있으므로」 삭제 — `~/steer_deg` 는 응답 없는 발행이라 수리 여부를 알 수 없다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/{supervisor.py,home_and_zero.py}` ·
+  `src/Comm/CAN/can_relay/test/{test_supervisor.py,test_home_and_zero.py}` ·
+  `src/Comm/CAN/can_relay/mutation_check.py`
+- **상태**: 완료 — can_relay **465 passed / 1 skipped / 0 failed** ·
+  돌연변이 **F1·F2a·F2b·F3 4/4 검출** · 주석검사 5종 5파일 0건.
+  ⚠ **실기 미검증** — ①은 드라이버를 실제로 죽여 복귀를 확인한 적이 없다.
+  ⚠ ①의 회귀는 **배선 시험**이라야 잡힌다 — 기존 `test_supervisor.py` 는 `decide()` 에 `prev` 를
+  직접 넣는 순수 시험 16건뿐이라 이 결함을 지나갔다. 같은 형태로 검사기에서도 결함이 하나 나왔다:
+  요청한 돌연변이 id 를 대소문자 불일치로 조용히 건너뛰고 「전 항목 검출」을 찍었다(같은 커밋에서 정정).
+
+---
+
 ## 2026-08-10
 
 ### [Fix] pytest 수집 중단 해소 — 모듈 레벨 skip → fixture (debt-057 상환)

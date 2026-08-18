@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>line_webview</name>
+  <version>0.1.0</version>
+  <description>브라우저로 라인 인식을 확인하는 뷰어. 카메라 JPEG 를 디코드 없이 흘리고 /line/error 의 중심선·수치를 브라우저가 겹쳐 그린다.</description>
+  <maintainer email="kukwonko@gmail.com">kuks</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>ai_msgs</exec_depend>
+  <exec_depend>cctv_webview</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -36,8 +36,16 @@ AbstractOdometer::Update()                    @0x1539c0   ← 주기 진입점
         ↓
 OdoCalculator::SetMsgOdo → Message_Odometer{x, y, angle(float), is_stop, timestamp}
         ↓
+RobotPosEKF  ← Message_IMU (DSPChassis)          ★ 오도·IMU 융합 (UseIMU=1)
+        ↓ Message_Odometer (융합본)
 MCLoc::DoMoveAction  (위치추정 입력 — 앞 문서 §1)
 ```
+
+> ⚠ **정정** — `MCLoc` 은 `OdoCalculator` 의 오도를 **직접 받지 않는다.** 배포 배선(`rbk/rbk.plugin`)상
+> `OdoCalculator → RobotPosEKF → MCLoc` 이고, 중간의 `RobotPosEKF`(`estimation::OdomEstimation`,
+> `robot_pose_ekf` 계열)가 오도와 IMU 를 융합한다. 이 기체는 `RobotPosEKF.UseIMU = 1` 로 **융합이 켜져 있다.**
+> ⇒ **위치추정이 소비하는 오도는 순수 휠 오도가 아니다.** 배선 정본: `Tools/seer_re/docs/legacy_runtime_wiring.md`.
+> 융합식·공분산·IMU 축 정렬은 미조사(**debt-107**).
 
 ### 1.1 측정량·발행량은 `.proto` 정본으로 확정 ✓
 
@@ -189,12 +197,17 @@ vtable 슬롯은 `_ZTV19MultiSteersOdometer`(0x4046c0)의 **재배치 항목 실
 Skidding → `setError(0xcdee=52718)` 'Detect skid and stop AGV(Automated Guided Vehicle)', 복구는 정지 후 `recoverTime` 1 s.
 배포값 `CheckDistance 1.0` m · `CheckAngle 30.0°` · `recoverTime 1.0` s.
 
-### 8.5 오도 자체를 되돌리는 경로는 **없다** ✓
+### 8.5 오도 자체를 되돌리는 경로는 **없다** — 단, 융합은 있다 ✓
 
 `OdoCalculator` 가 구독하는 것은 `NavSpeed`·`Controller`·`MotorInfos` **셋뿐**이고
 **위치추정을 구독하지 않는다**(`setSubscriberCallBack` 계열 심볼 전수). `SetInitVal(OdometerOutput)` 은
 `SetInitValFrom_odo()`·`run()` 에서만 불리는 **시작 시 초기화** 경로다.
-⇒ 위치추정 결과를 오도에 되먹여 드리프트를 리셋하는 구조가 아니다. 오도는 계속 흘러가고 소비자가 증분만 떠 쓴다.
+⇒ **위치추정 결과**를 오도에 되먹여 드리프트를 리셋하는 구조는 아니다. 오도는 계속 흘러가고 소비자가 증분만 떠 쓴다.
+
+⚠ 그러나 **IMU 는 되먹여진다** — `OdoCalculator` 로가 아니라 그 **하류의 `RobotPosEKF`** 에서다.
+휠 오도와 IMU 가 융합된 뒤에야 `MCLoc` 으로 간다(§1 정정). 따라서 「오도 = 순수 휠 적분」이라는 그림은
+`OdoCalculator` 출력까지만 맞고, 위치추정이 보는 오도에는 **관성 보정이 이미 들어 있다.**
+특히 yaw 는 조향각에서 유도된 값과 자이로가 섞이므로, 조향 원점 바이어스의 영향이 그만큼 희석된다.
 
 ### 8.6 프로토콜에는 슬립 관측 틀이 있으나 **이 배포에서는 쓰이지 않는다** ✓
 

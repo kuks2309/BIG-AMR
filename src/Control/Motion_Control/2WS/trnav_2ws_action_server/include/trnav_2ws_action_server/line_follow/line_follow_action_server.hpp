@@ -16,6 +16,7 @@
 #include "trnav_2ws_core/localization_monitor.hpp"
 #include "trnav_2ws_core/transient_guard.hpp"
 #include "trnav_2ws_kinematics/qd_bicycle_model.hpp"
+#include "trnav_2ws_kinematics/qd_crab_inverse_kinematics.hpp"
 #include "trnav_2ws_motion/qd_action_server_base.hpp"
 
 namespace trnav_2ws_action_server::line_follow
@@ -35,6 +36,8 @@ class LineFollowActionServer
 
   private:
     std::unique_ptr<trnav::motion::two_ws::TwoWsBicycleModel> bicycle_model_;
+    // 공통분/차이분을 그대로 받는 IK. front = theta_body + delta_cte, rear = front - delta_heading.
+    std::unique_ptr<trnav::motion::two_ws::TwoWsCrabIK> crab_ik_;
     std::unique_ptr<trnav_2ws_core::TransientGuard> guard_;
     std::unique_ptr<trnav_2ws_core::LocalizationMonitor> loc_monitor_;
 
@@ -54,6 +57,9 @@ class LineFollowActionServer
     LineSnapshot getLineSnapshot() const;
     /// goal 진입 시 캐시를 비운다 — 직전 goal 의 오차·카메라로 판단하지 않기 위해.
     void resetLineSnapshot();
+    /// mux 소스 전환 실패를 치명으로 볼지. 기본 true — 실패하면 지령이 바퀴에 도달하지
+    /// 않는데 영상 폐루프라 오차는 계속 들어와 「안 움직였는데 성공」이 된다. SIL 은 false.
+    bool require_motion_source_{true};
     std::string expectedCamera(bool reverse) const;
     void reloadTuning();
 
@@ -71,6 +77,9 @@ class LineFollowActionServer
     double wait_line_timeout_sec_{3.0};
     double input_stale_timeout_sec_{0.5};
     int offset_filter_window_{5};
+    // 곡선 편향 계수 = lookahead / (2 · 기준행 반폭). 카메라 기하가 정한다.
+    // 0 이면 보상하지 않는다 — 실카메라 기하가 확정되기 전 기본값이다.
+    double curve_bias_gain_{0.0};
 
     // 진행 방향 ↔ 카메라 정합 검사용 논리명 (line_vision 로스터와 같은 이름).
     std::string forward_camera_{"cam_f"};
@@ -81,6 +90,8 @@ class LineFollowActionServer
     double walk_accel_limit_{0.5};
     double walk_decel_limit_{1.0};
     double gate_blocked_timeout_sec_{5.0};
+    // 전역 시한만 yaw_control(60)보다 길다 — 그쪽은 목표 거리가 있어 소요를 예측할 수 있지만
+    // 라인 추종은 라인 길이가 곧 주행 시간이라 짧은 시한이 정상 주행을 끊는다.
     double max_timeout_sec_{120.0};
     bool enable_localization_watchdog_{true};
 };

@@ -71,8 +71,15 @@ def generate_launch_description():
         name='translate_sim_odom_node',
         output='screen',
         condition=IfCondition(plant),
-        parameters=[PathJoinSubstitution([
-            FindPackageShare('translate_sim_odom'), 'config', 'sim_params.yaml'])],
+        parameters=[
+            PathJoinSubstitution([
+                FindPackageShare('translate_sim_odom'), 'config', 'sim_params.yaml']),
+            # 휠 기하 정본 — 플랜트가 컨트롤러와 다른 기하로 돌면 SIL 이 검증하는 대상이 사라진다.
+            #   플랫폼별로 갈리므로 런치가 고른다(공유 파일에 두면 두 플랫폼이 같은 값으로 돈다).
+            PathJoinSubstitution([
+                FindPackageShare('trnav_2ws_core'),
+                'config', 'robot_geometry_2ws.yaml']),
+        ],
     )
 
     # SIL 전용 pose 어댑터 — PoseWithCovarianceStamped → PoseStamped(/robot_pose).

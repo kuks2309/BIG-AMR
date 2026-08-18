@@ -10,6 +10,39 @@ python3 Tools/comment_check/test_check_comments.py               # 회귀 테스
 
 종료 코드: `0` 불일치 없음 · `1` 불일치 있음 · `2` 사용법 오류.
 
+## 자매 도구 — `scan_gate.py` (`debt-103` 상환 도구)
+
+`check_comments.py` 가 **인용 정합**을 보는 반면, `scan_gate.py` 는 **이력 서술 금지**를 본다.
+게이트 훅은 이번에 추가된 텍스트만 보므로, 이미 들어가 있는 주석은 이 도구로 훑는다.
+
+```bash
+python3 Tools/comment_check/scan_gate.py src Tools        # 게이트와 동일 판정
+python3 Tools/comment_check/scan_gate.py --strict <경로>   # 게이트보다 넓게
+python3 Tools/comment_check/test_scan_gate.py             # 계약 시험
+```
+
+판정 규칙을 **훅에서 직접 불러 쓴다** — 복사해 두면 훅이 바뀌는 순간 조용히 어긋나
+「통과」를 근거로 쓸 수 없게 된다. 계약 시험이 훅을 임시로 무력화해 도구 판정이 따라
+바뀌는지 확인하므로, 복사본으로 회귀하면 시험이 깨진다.
+
+`--strict` 는 게이트가 막지 않는 서술어까지 본다. 근거로 인용할 때는 **어느 모드였는지**
+함께 적어야 한다 — 기본 모드만이 게이트와 같다.
+
+## 자매 도구 — `refresh_anchors.py` (함수표 줄 앵커 재생성)
+
+함수표의 `파일:시작-끝` 은 코드를 한 줄만 끼워 넣어도 전부 밀린다. 손으로 맞추면 반드시
+어긋나고, 어긋난 앵커는 **그 표를 읽는 다음 작업자를 엉뚱한 코드로 보낸다**(coding SOP §2 가
+이 표를 선독하게 하므로 비용이 곧바로 발생한다).
+
+```bash
+python3 Tools/comment_check/refresh_anchors.py <표.md> <소스디렉터리>...
+python3 Tools/comment_check/refresh_anchors.py --check <표.md> <소스디렉터리>...   # 보고만
+python3 Tools/comment_check/test_refresh_anchors.py
+```
+
+계약 시험이 고정하는 것 — 생성자(반환형 없음) · 이름공간 스코프 상수 · 다중 이름 행
+(`` `a` / `b` ``) · 호출부 오인 · 생성자 초기화 리스트 vs 클래스 밖 정의(`:` vs `::`) · 멱등성.
+
 ## 검사 5종
 
 | 종류 | 무엇을 본다 | 예 |

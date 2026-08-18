@@ -1141,3 +1141,126 @@ def test_home_comp_reports_the_drive_not_our_flag():
     rows = {d["motor_id"]: d for d in be.motor_states()}
     for n in be.cfg.steer_nodes:
         assert rows[n]["home_comp"] is False
+
+
+# ── 실패한 호밍 뒤 bit15 를 인정하지 않는다 (_home_failed 래치) ───────────────
+# 2026-08-14 17시 실기의 조합을 고정한다: 시퀀서는 ERR_GOZERO(reached_mask=0x01)로 끝났는데
+# 두 축의 상태워드는 0x9450 이라 bit15 가 1 이었다. bit15 는 「원점을 잡았다」이지 「0° 에 서
+# 있다」가 아니므로, 그 상태에서 조향이 열리면 축 위치를 모르는 채 지령이 나간다.
+FIELD_SW_HOMED = 0x9450     # 실기에서 읽힌 값 — bit15=1, bit13(homing error)=0
+
+
+def _mark_field_statusword(be):
+    """두 조향축을 실기에서 읽힌 상태워드 그대로 세운다(위치는 −리밋 = 0 counts)."""
+    import time as _t
+    for n in be.cfg.steer_nodes:
+        st = be.nodes[n]
+        st.statusword = FIELD_SW_HOMED
+        st.position = 0                 # node4 가 −리밋에 서 있던 값
+        st.last_seen = _t.monotonic()
+
+
+def _fail_home_via_sequencer(link, be, state=10):
+    """시퀀서를 그 종료 상태로 돌려 호밍을 실패시킨다. 기본값 10 = ERR_GOZERO."""
+    link.homing_script = [MockLink.homing_state(state, elapsed_s=31, reached_mask=1)]
+    return be.home(**HOME_KW)
+
+
+def test_failed_home_blocks_steer_even_though_drive_reports_bit15():
+    """ERR_GOZERO 로 끝났는데 bit15=1 이면 **막아야 한다** — 실기 조합 그대로."""
+    link, be = make(require_homed_for_steer=True, homing_method="firmware")
+    be.start()
+    try:
+        ok, why = _fail_home_via_sequencer(link, be)
+        assert ok is False and "ERR_GOZERO" in why, why
+        _mark_field_statusword(be)                  # 두 축 0x9450 — 실기에서 읽힌 값
+        assert S.is_homed(be.nodes[3].statusword) is True, "bit15 는 1 이어야 한다"
+        assert be.homed_effective() is False, "실패한 호밍 뒤에는 bit15 를 인정하지 않는다"
+        with pytest.raises(S.UnsafeCommand) as e:
+            be.set_steer_deg(10.0)
+        assert "끝을 못 봤다" in str(e.value), str(e.value)
+    finally:
+        be.shutdown()
+
+
+def test_failed_home_blocks_raw_motor_cmds_too():
+    """raw 경로(`set_motor_cmds`)도 같은 판정을 쓴다 — 한쪽만 막으면 우회로가 남는다."""
+    link, be = make(require_homed_for_steer=True, homing_method="firmware")
+    be.start()
+    try:
+        _fail_home_via_sequencer(link, be)
+        _mark_field_statusword(be)
+        notes = be.set_motor_cmds([mc(3, tpos=1000)])
+        assert any("끝을 못 봤다" in n for n in notes), notes
+        assert 3 not in be._steer_counts, "거부됐는데 목표가 반영되면 안 된다"
+    finally:
+        be.shutdown()
+
+
+def test_home_timeout_latches_failure():
+    """종료 상태를 못 보고 취소로 끝난 경우도 실패다 — 축이 어중간한 데 서 있다."""
+    link, be = make(require_homed_for_steer=True, homing_method="firmware")
+    be.start()
+    try:
+        link.homing_script = [MockLink.homing_state(4)]      # WAIT 에서 멈춤
+        ok, _ = be.home(poll_s=0.01, timeout_s=0.2)
+        assert ok is False
+        _mark_homed_by_drive(be)
+        assert be.homed_effective() is False
+    finally:
+        be.shutdown()
+
+
+def test_successful_home_clears_the_latch():
+    """성공한 호밍만 래치를 푼다 — 풀리지 않으면 영영 조향을 못 한다."""
+    link, be = make(require_homed_for_steer=True, homing_method="firmware")
+    be.start()
+    try:
+        _fail_home_via_sequencer(link, be)
+        assert be._home_failed is True
+        link.homing_script = [MockLink.homing_state(5, elapsed_s=34, reached_mask=3)]
+        ok, _ = be.home(**HOME_KW)
+        assert ok is True
+        assert be._home_failed is False
+        assert be.homed_effective() is True
+        be.set_steer_deg(10.0)                       # 예외가 나면 실패
+    finally:
+        be.shutdown()
+
+
+def test_latch_does_not_break_seer_homing_promise():
+    """**우리가 호밍을 건 적이 없으면** 래치가 서지 않는다 — Seer 호밍 인정은 그대로다."""
+    link, be = make(require_homed_for_steer=True)
+    assert be._home_failed is False, "시도한 적 없는데 래치가 서 있으면 안 된다"
+    _mark_homed_by_drive(be)
+    assert be.homed_effective() is True
+    be.set_steer_deg(10.0)
+
+
+def test_snapshot_exposes_home_failed():
+    """진단이 「왜 막혔는지」를 볼 수 있어야 한다 — 상태를 감추면 현장에서 원인을 못 찾는다."""
+    link, be = make(require_homed_for_steer=True, homing_method="firmware")
+    be.start()
+    try:
+        assert be.snapshot()["home_failed"] is False
+        _fail_home_via_sequencer(link, be)
+        snap = be.snapshot()
+        assert snap["home_failed"] is True
+        assert snap["homed"] is False
+        assert snap["homed_effective"] is False
+    finally:
+        be.shutdown()
+
+
+def test_failed_home_is_visible_without_sending_a_command():
+    """**화면에 드러나야 한다** — 조향이 잠긴 상태를 「정상」으로 적으면 지령을 걸어
+    거부당하기 전까지 운용자가 알 길이 없다. 실기에서 그렇게 보였다(2026-08-15 13:53,
+    ERR_ABORT 뒤 상태줄이 계속 「정상」).
+    """
+    import inspect
+    from can_relay import driver_node as D
+    src = inspect.getsource(D.CanRelayNode._on_diag_timer)
+    assert 'snap["home_failed"]' in src, "상태 판정이 래치를 보지 않는다"
+    assert 'key="home_failed"' in src, "진단 KeyValue 로도 노출해야 한다"
+    # 「호밍 진행 중」보다 뒤에 와야 한다 — 호밍 중에는 그쪽 문구가 맞다.
+    assert src.index('snap["homing"]') < src.index('snap["home_failed"]')

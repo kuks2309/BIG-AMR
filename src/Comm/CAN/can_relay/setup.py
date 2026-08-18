@@ -17,6 +17,9 @@ setup(
         ("share/" + package_name + "/config", glob("config/*.yaml")),
         # 장비별 캘리브레이션 — 기체마다 한 장. 설치 안 하면 launch 가 못 찾는다.
         ("share/" + package_name + "/config/machine", glob("config/machine/*.yaml")),
+        # systemd 유닛 템플릿. install_service.sh 는 소스 트리에서 읽지만, 설치본에도
+        # 두어야 배포된 워크스페이스만 가진 장비에서 유닛 내용을 확인할 수 있다.
+        ("share/" + package_name + "/systemd", glob("systemd/*.service")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -28,7 +31,9 @@ setup(
     entry_points={
         "console_scripts": [
             "can_relay_node = can_relay.driver_node:main",
+            "home_and_zero = can_relay.home_and_zero:main",
             "can_relay_gui = can_relay.ui.gui_node:main",
+            "relay_supervisor = can_relay.supervisor:main",
         ],
     },
 )

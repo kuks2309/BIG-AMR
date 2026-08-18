@@ -1,6 +1,7 @@
 # ADR 2026-08-07 — Seer TCP/IP API 를 `src/Comm/TCP_IP/seer_api` 로 분리하고 HAL 경계를 ROS 인터페이스에 둔다
 
-- **Status**: Accepted — 2026-08-07, **사실 2·3 정정 2026-08-10**
+- **Status**: Accepted — 2026-08-07, **사실 2·3 정정 2026-08-10**, **§Decision 1 배치 개정 2026-08-17**
+  (`Comm/TCP_IP/seer_api` → `Comm/seer_tcp_ip`, 패키지·모듈명 `seer_tcp_ip`)
   (라이브러리·이관 실기 검증 완료 / broker 노드는 미착수 — §Decision 3 참조)
   ⚠ 초판의 "지령 포트 동시연결 1" 전제는 **반증됐다**(실제 5, 거부형). 결론은 유지, 근거·이름 교체.
   경위: `docs/claude-mistake/2026-08-07-002`.
@@ -66,7 +67,7 @@ Seer(SRC) Robokit NetProtocol 은 **16B 헤더(0x5A) + JSON, 응답 편호 = 요
 ### 사실 4 — HAL 경계를 잘못 두면 교체가 불가능해진다
 
 `Comm/TCP_IP` 는 *전송 수단*으로 나눈 축이고, HAL 이 요구하는 축은 *누가 그 능력을 제공하는가*
-(Seer 컨트롤러냐 우리 스택이냐)다. 상위 노드가 `seer_api` 를 직접 import 하면, Seer 를 우리
+(Seer 컨트롤러냐 우리 스택이냐)다. 상위 노드가 `seer_tcp_ip` 를 직접 import 하면, Seer 를 우리
 MCL/nav(`src/Navigation/mcl2d_*`)로 교체할 때 상위 코드를 전부 고쳐야 한다.
 
 ### 확인한 제약 (2026-08-07 실측)
@@ -83,22 +84,40 @@ API 1000 → model=Foil_A082, version=v3.4.5.22
 
 ## Decision
 
-### 1. 배치 — `src/Comm/TCP_IP/seer_api/` (ament_python)
+### 1. 배치 — `src/Comm/seer_tcp_ip/` (ament_python)
 
-`Comm/<전송>/<상대방>` 축을 `Comm/CAN/can_relay` 와 대칭으로 맞춘다. `Comm/TCP_IP` 는 **전송 버킷**,
-`seer_api` 는 **상대방 이름 패키지**다. `Comm/TCP_IP` 아래에 Seer 외 TCP 상대가 생기면 형제 패키지로 추가한다.
+> ❌ **개정 2026-08-17.** 초판은 `src/Comm/TCP_IP/seer_api/` 였다. 원문은 아래 인용으로 보존한다.
+>
+> > `Comm/<전송>/<상대방>` 축을 `Comm/CAN/can_relay` 와 대칭으로 맞춘다. `Comm/TCP_IP` 는 **전송 버킷**,
+> > `seer_api` 는 **상대방 이름 패키지**다. `Comm/TCP_IP` 아래에 Seer 외 TCP 상대가 생기면 형제 패키지로 추가한다.
+
+패키지는 `src/Comm/seer_tcp_ip/`, 패키지·파이썬 모듈명 모두 **`seer_tcp_ip`** 다. 바꾼 이유 셋:
+
+1. **`seer_api` 는 어느 API 인지 말하지 않는다.** Seer 는 TCP/IP NetProtocol · ModbusTCP · 내부
+   zmq 를 모두 갖고 있고(`biguamr-seer-internal-transport`), 이 패키지는 **첫 번째 전용**이다.
+   이름이 전송을 담으면 그 모호함이 사라진다.
+2. **`TCP_IP/` 중간층이 아무것도 묶고 있지 않았다** — 자식이 `seer_api` 하나뿐이었다.
+   전송 축은 이름이 이미 말하므로 디렉토리로 한 번 더 말할 필요가 없다.
+3. **형제 `can_relay` 도 이름 자체에 전송을 담는다.** `seer_tcp_ip` 가 그 명명과 같은 계열이다.
+
+`Comm/CAN/can_relay` 는 **그대로 둔다** — systemd 배포(`Big-AMR-deploy`, main 고정)가 경로에
+의존할 수 있어 확인 없이 옮기지 않는다. 그래서 당분간 `Comm/` 아래 깊이가 섞인다.
+같은 이유가 해소되면 `Comm/can_relay` 로 평탄화해 축을 통일한다(미결).
+
+Seer 외 TCP 상대가 생기면 `Comm/<상대방>_<전송>` 형제로 추가한다(예: lgit 의
+로봇→PC 작업 위임 브릿지를 이식하면 `Comm/seer_task_bridge`).
 
 ### 2. 3층 구조 — 교체 시 무엇이 삭제되고 무엇이 남는지로 층을 가른다
 
 | 층 | 파일 | 책임 | Seer 폐기 시 |
 |---|---|---|---|
-| 전송 | `seer_api/transport.py` | 소켓, 16B 헤더 pack/unpack, seq 순환·응답 seq 대조, `recv_exact`, 타임아웃·재연결, 최소 요청 간격 | **삭제** |
-| 포트 정책 | `seer_api/ports.py` | 포트 상수 + 관측 한도·한도 파라미터 이름 + 게이트 집합 판정 | **삭제** |
-| API 바인딩 | `seer_api/api.py` | 편호별 타입드 호출(1004/1005/1007/1009/1050/1300/2000/2010/4011/6001) | **삭제** |
+| 전송 | `seer_tcp_ip/transport.py` | 소켓, 16B 헤더 pack/unpack, seq 순환·응답 seq 대조, `recv_exact`, 타임아웃·재연결, 최소 요청 간격 | **삭제** |
+| 포트 정책 | `seer_tcp_ip/ports.py` | 포트 상수 + 관측 한도·한도 파라미터 이름 + 게이트 집합 판정 | **삭제** |
+| API 바인딩 | `seer_tcp_ip/api.py` | 편호별 타입드 호출(1004/1005/1007/1009/1050/1300/2000/2010/4011/6001) | **삭제** |
 | **HAL 경계** | **ROS2 토픽·서비스·액션 계약** | 능력 이름(`/odom`, 배터리, 맵, nav) | **유지** — 구현만 교체 |
 
-**HAL 경계는 파이썬 클래스가 아니라 ROS 인터페이스 이름이다.** `seer_api` 는 그 계약의 한 구현일 뿐이며,
-상위 알고리즘 패키지는 `seer_api` 를 import 하지 않는다.
+**HAL 경계는 파이썬 클래스가 아니라 ROS 인터페이스 이름이다.** `seer_tcp_ip` 는 그 계약의 한 구현일 뿐이며,
+상위 알고리즘 패키지는 `seer_tcp_ip` 를 import 하지 않는다.
 
 ### 3. 포트 접근 정책 — 지령·설정 포트는 라이브러리 직결 금지
 
@@ -153,7 +172,7 @@ API 1000 → model=Foil_A082, version=v3.4.5.22
 - **동시연결 한도가 미지에서 실측·질의 가능으로 바뀌었다** — 벤더 문의 없이 로봇이 직접 답한다.
 
 **비용**
-- `seer_lidar_tf` 가 `seer_api` 에 exec_depend 를 갖는다(colcon 빌드 순서 의존 1건 증가).
+- `seer_lidar_tf` 가 `seer_tcp_ip` 에 exec_depend 를 갖는다(colcon 빌드 순서 의존 1건 증가).
 - `seer_read_lidar_install.py` 는 패키지 밖 단독 스크립트라, 미소싱 환경을 위해 소스 트리 경로 fallback 을 둔다.
 
 **남는 위험 / 미해결**
@@ -171,8 +190,8 @@ API 1000 → model=Foil_A082, version=v3.4.5.22
 |---|---|---|
 | 단위 회귀 | **50 passed** | `python3 -m pytest test/ -q` (패키지 루트) |
 | 공식 SDK 바이트 동일성 | 본문 있음/없음 모두 `packMsg` 와 일치 | `test_transport.py::test_pack_matches_official_sdk_*` — 원본 `rbkNetProtoEnums.py` 를 직접 로드해 대조 |
-| **회귀 검출력** | **33/33 검출** | `python3 src/Comm/TCP_IP/seer_api/mutation_check.py` |
-| colcon 빌드 | `seer_api`, `seer_lidar_tf` 2패키지 성공 | `colcon build --packages-select seer_api seer_lidar_tf --symlink-install` |
+| **회귀 검출력** | **33/33 검출** | `python3 src/Comm/seer_tcp_ip/mutation_check.py` |
+| colcon 빌드 | `seer_tcp_ip`, `seer_lidar_tf` 2패키지 성공 | `colcon build --packages-select seer_tcp_ip seer_lidar_tf --symlink-install` |
 | 실기 조회 | 1000/1004/1009/1300/1400 정상 | `Foil_A082 v3.4.5.22`, FrontLiDAR·RearLiDAR install_info, `current_map=260709_test` |
 | **동시연결 한도** | 19204·19301=**10**, 19205/06/07/10=**5** | 실기 API 1400 6건 + 원본 하드 `robot.param` `NetProtocol` 테이블(동일 값) |
 | **한도 초과 거동** | **거부형** — 신규만 거부, 기존 연결 생존 | 19204 에 연결 증가 → 9번째부터 `type=19204`, `ret_code=61001`; 직후 #1 재요청 정상 |
@@ -206,7 +225,7 @@ API 1000 → model=Foil_A082, version=v3.4.5.22
 1. `git revert` 또는 이관 2파일을 이전 리비전으로 복원 —
    `git checkout <이전-커밋> -- src/Sensors/Lidar/2D/seer_read_lidar_install.py src/Sensors/Lidar/2D/seer_lidar_tf/`
 2. `src/Comm/TCP_IP/` 디렉토리 삭제.
-3. `seer_lidar_tf/package.xml` 의 `<exec_depend>seer_api</exec_depend>` 제거.
+3. `seer_lidar_tf/package.xml` 의 `<exec_depend>seer_tcp_ip</exec_depend>` 제거.
 4. `colcon build --packages-select seer_lidar_tf` 재실행.
 
 영속 상태·스키마·펌웨어 변경 없음. Seer 컨트롤러에 쓰기 동작 없음(조회만).

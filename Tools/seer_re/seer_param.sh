@@ -32,11 +32,11 @@ DEFAULT_PAIRS=(
 )
 
 live_query() {  # $1=plugin $2=param
-  PYTHONPATH="$REPO/src/Comm/TCP_IP/seer_api:${PYTHONPATH:-}" \
+  PYTHONPATH="$REPO/src/Comm/seer_tcp_ip:${PYTHONPATH:-}" \
   SEER_IP="$SEER_IP" PLUGIN="$1" PARAM="$2" python3 - <<'PY'
 import os, sys
 try:
-    from seer_api import SeerApi
+    from seer_tcp_ip import SeerApi
 except ImportError as e:
     print(f"(라이브러리 import 실패: {e})"); sys.exit(0)
 plugin, param = os.environ["PLUGIN"], os.environ["PARAM"]

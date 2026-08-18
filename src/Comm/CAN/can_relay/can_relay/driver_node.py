@@ -45,7 +45,7 @@ from std_srvs.srv import SetBool, Trigger
 
 from . import safety as S
 from .backend import RelayBackend, RelayConfig
-from .link import MOTOR_BUS, MockLink, PandaLink
+from .link import MOTOR_BUS, MockLink, PandaLink, panda_library_error
 
 # E-stop 은 래치 상태다 — 늦게 붙은 구독자도 현재 값을 받아야 한다.
 LATCHED_QOS = QoSProfile(depth=1,
@@ -86,6 +86,9 @@ class CanRelayNode(Node):
             ("low_state_hz", 50.0),  # /motor/low_state 발행 주기
             ("health_hz", 1.0),     # per-bus CAN 에러 상태(0xc3) 폴링
             ("homing_speed", 0),    # firmware 경로 전용. 0=펌웨어 기본(2500)
+            # ROS 계층 생존 표시가 이보다 낡으면 백엔드가 심박을 끊는다(0=판정 안 함).
+            # 표시를 찍는 것이 아래 진단 타이머이므로 `diag_hz` 와 결합한다.
+            ("ros_alive_timeout_s", 2.0),
 
             # ── 장비별 캘리브레이션 (config/machine/<기체>.yaml) ──────────
             # 여기 기본값은 **안전한 쪽**이다: 호밍 비활성 + 홈 미설정 + 호밍 전 조향 차단.
@@ -130,6 +133,21 @@ class CanRelayNode(Node):
         if len(rng) != 2 or rng[0] >= rng[1]:
             raise ValueError(f"home_search_range 는 [최소, 최대] 여야 한다 (받은 값: {rng})")
 
+        # ROS 생존 표시는 진단 타이머가 찍는다 — 임계가 그 주기보다 짧으면 정상 동작 중에도
+        # 심박이 끊긴다. 두 파라미터가 결합해 있으므로 기동 시점에 막는다.
+        alive_ttl = float(g["ros_alive_timeout_s"])
+        diag_hz = float(g["diag_hz"])
+        if alive_ttl > 0.0:
+            if diag_hz <= 0.0:
+                raise ValueError(
+                    "ros_alive_timeout_s 를 쓰려면 diag_hz 가 0보다 커야 한다 — "
+                    "생존 표시를 찍는 것이 진단 타이머다")
+            if alive_ttl < 2.0 / diag_hz:
+                raise ValueError(
+                    f"ros_alive_timeout_s({alive_ttl}) 가 진단 주기의 2배"
+                    f"({2.0 / diag_hz:.2f}s) 보다 짧다 — 정상 동작 중에도 심박이 끊긴다. "
+                    f"임계를 늘리거나 diag_hz({diag_hz})를 올릴 것")
+
         cfg = RelayConfig(
             drive_nodes=tuple(int(n) for n in g["drive_nodes"]),
             steer_nodes=tuple(steer_nodes),
@@ -154,6 +172,7 @@ class CanRelayNode(Node):
             home_profile_vel=int(g["home_profile_vel"]),
             home_search_range=(rng[0], rng[1]),
             require_homed_for_steer=bool(g["require_homed_for_steer"]),
+            ros_alive_timeout_s=alive_ttl,
         )
         self._cfg = cfg
         self.get_logger().info(
@@ -172,6 +191,13 @@ class CanRelayNode(Node):
         else:
             serial = g["panda_serial"] or None
             self.link = PandaLink(serial=serial, log=logger)
+            lib_err = panda_library_error()
+            if lib_err is not None:
+                # 기동은 막지 않는다(진단·대기 상태는 유효하고, 크래시는 systemd 재기동
+                # 루프가 된다). 다만 첫 `~/engage` 에서야 알게 되는 것을 막기 위해
+                # 기동 시점에 크게 남긴다.
+                self.get_logger().error(
+                    f"판다 라이브러리 없음 — `~/engage` 가 거부될 것이다: {lib_err}")
         self.backend = RelayBackend(self.link, cfg, log=logger)
 
         # 모터 계층 메시지. 없으면 저수준 경로를 열지 않는다(조용히 대체하지 않는다).
@@ -370,6 +396,13 @@ class CanRelayNode(Node):
             "`~/home_cancel` 로 가능합니다(펌웨어 시퀀서가 취소 프레임을 냅니다). "
             "그래도 이동구역이 비어 있는지 먼저 확인하세요.")
         ok, why = self.backend.home(speed=int(self._g["homing_speed"]))
+        # rclpy 는 로그 컨텍스트를 호출 지점(파일·함수·줄)으로 캐시하고 severity 변경을
+        # 거부한다 — 한 줄에서 info/error 를 번갈아 부르면 두 번째가 ValueError 다.
+        msg = f"호밍 결과 — {'성공' if ok else '실패'}: {why}"
+        if ok:
+            self.get_logger().info(msg)
+        else:
+            self.get_logger().error(msg)
         res.success = ok
         res.message = why
         return res
@@ -402,17 +435,26 @@ class CanRelayNode(Node):
     def _on_diag_timer(self):
         """백엔드 스냅샷을 진단 1건으로 요약해 발행한다.
 
-        level 은 심각한 것부터 고른다: 루프 오류 → CAN 버스 이상 → E-stop → 제어권 미획득
-        → 호밍 중 → 피드백 끊김 → SDO 거부 → 정상. key/value 에는 제어권·지령·워치독·
-        노드별 상태와 버스 에러 카운터(REC/TEC 는 uint8 이라 255 에서 포화)를 싣는다.
+        level 은 심각한 것부터 고른다: 심박 중단 → 루프 오류 → CAN 버스 이상 → E-stop →
+        제어권 미획득 → 호밍 중 → 피드백 끊김 → SDO 거부 → 정상. key/value 에는 제어권·
+        지령·워치독·노드별 상태와 버스 에러 카운터(REC/TEC 는 uint8 이라 255 에서 포화)를 싣는다.
+
+        **이 타이머가 백엔드에 ROS 생존을 찍는 지점이다.** 실행기가 정체하면 여기가
+        멈추고, 백엔드가 그것을 보고 심박을 끊어 펌웨어에 정지를 넘긴다. 찍기를
+        발행보다 **먼저** 한다 — 발행이 실패해도 실행기 자체는 돌고 있었기 때문이다.
         """
+        self.backend.mark_ros_alive()
         snap = self.backend.snapshot()
         st = DiagnosticStatus()
         st.name = "can_relay: 릴레이 구동"
         st.hardware_id = str(self._g["panda_serial"] or "auto")
 
         bus_fault = self.backend.bus_fault()
-        if snap["fault"]:
+        if snap["hb_suppressed"]:
+            # 심박 중단은 「곧 펌웨어가 세운다」는 뜻이라 어떤 사유보다 위다.
+            st.level = DiagnosticStatus.ERROR
+            st.message = f"심박 중단 — {snap.get('hb_block_note') or '사유 미상'}"
+        elif snap["fault"]:
             st.level, st.message = DiagnosticStatus.ERROR, f"루프 오류: {snap['fault']}"
         elif bus_fault:
             # 버스 이상은 지령이 나가도 도달하지 않는다는 뜻이라 상위로 올린다.
@@ -423,6 +465,11 @@ class CanRelayNode(Node):
             st.level, st.message = DiagnosticStatus.WARN, "제어권 미획득 (대기)"
         elif snap["homing"]:
             st.level, st.message = DiagnosticStatus.WARN, "호밍 진행 중 — 위치 무효"
+        elif snap["home_failed"]:
+            # 조향이 잠긴 상태를 「정상」으로 적으면, 지령을 걸어 거부당하기 전까지
+            # 운용자가 알 길이 없다. 다음에 할 일까지 문장에 싣는다.
+            st.level, st.message = (DiagnosticStatus.WARN,
+                                    "조향 잠금 — 직전 호밍 미완료. `~/home` 재수행 필요")
         elif any(not v["fresh"] for v in snap["nodes"].values()):
             stale = sorted(n for n, v in snap["nodes"].items() if not v["fresh"])
             st.level, st.message = DiagnosticStatus.ERROR, f"피드백 끊긴 노드 {stale}"
@@ -431,10 +478,18 @@ class CanRelayNode(Node):
         else:
             st.level, st.message = DiagnosticStatus.OK, "정상"
 
+        # 감시 노드(`supervisor.py`)가 **이 목록만 보고** 상태를 기록·복귀한다.
+        # 그래서 estop·home_failed·homed_effective·hb_suppressed 는 message 문자열이
+        # 아니라
+        # key/value 로 낸다 — 문장 파싱에 기대면 문구를 고치는 순간 감시가 깨진다.
         st.values = [
             KeyValue(key="engaged", value=str(snap["engaged"])),
+            KeyValue(key="estop", value=str(snap["estop"])),
+            KeyValue(key="home_failed", value=str(snap["home_failed"])),
             KeyValue(key="drive_units", value=str(snap["drive_units"])),
             KeyValue(key="steer_target_deg", value=str(snap["steer_target_deg"])),
+            KeyValue(key="homed_effective", value=str(snap["homed_effective"])),
+            KeyValue(key="hb_suppressed", value=str(snap["hb_suppressed"])),
             KeyValue(key="watchdog_trips", value=str(snap["watchdog_trips"])),
             KeyValue(key="rejected_commands", value=str(self._rejected)),
             KeyValue(key="tx", value=str(snap["tx"])),
