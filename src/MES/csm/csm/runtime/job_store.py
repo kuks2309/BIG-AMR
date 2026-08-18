@@ -15,7 +15,7 @@ the other broken.
 
 from collections import namedtuple
 
-from ..job import Job, JobContext
+from ..job import Job, JobContext, Carried
 from ..job_fsm import build_job_fsm
 
 #: One job and everything needed to run it.
@@ -54,7 +54,8 @@ class JobStore:
 
     # ---------------------------------------------------------------- jobs
 
-    def create(self, from_station, to_station, priority=0, task_type=None):
+    def create(self, from_station, to_station, priority=0, task_type=None,
+               carries=Carried.ROLL):
         self._job_seq += 1
         now = self.clock()
         job = Job(
@@ -64,6 +65,7 @@ class JobStore:
             priority=priority,
             created_at=now,
             state_since=now,
+            carries=carries,
         )
         # What the equipment asked for: load, unload, or swap. Carried so the
         # adapter can issue the right operation without re-deriving it.
@@ -77,7 +79,8 @@ class JobStore:
 
         record = JobRecord(job, ctx, build_job_fsm(on_change=self._on_change))
         self.active.append(record)
-        self.logger(f"[{job.job_id}] created: {from_station} -> {to_station}")
+        self.logger(f"[{job.job_id}] created: {from_station} -> {to_station}"
+                    f" ({carries.value})")
         return record
 
     def _on_change(self, ctx, transition):

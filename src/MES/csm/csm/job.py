@@ -6,6 +6,24 @@ lifecycle.
 """
 
 from dataclasses import dataclass, field
+from enum import Enum
+
+
+class Carried(Enum):
+    """What a job is moving.
+
+    Every hop in this plant is an EXCHANGE, not a delivery: a robot brings a
+    full roll to a machine and takes the empty core away, or brings an empty
+    core and takes the finished roll. Both directions are transport jobs, and
+    until now the model could not tell them apart — so the six bobbin-return
+    jobs in the specification could not be expressed at all.
+
+    The deck names both loads explicitly ("Roll Pallet" and "Bobbin Pallet") and
+    puts them on all three legs.
+    """
+
+    ROLL = "roll"        # material — full, going forward through the process
+    BOBBIN = "bobbin"    # the empty core, going back upstream
 
 
 @dataclass
@@ -17,6 +35,10 @@ class Job:
     to_station: str
     priority: int = 0
     created_at: float = 0.0
+
+    #: Roll or bobbin. Defaults to ROLL because every job that existed before
+    #: this field was one, so no existing caller changes meaning.
+    carries: Carried = Carried.ROLL
 
     #: Name of the current FSM state, mirrored here so the record is readable
     #: without reaching into the machine.
@@ -33,7 +55,8 @@ class Job:
 
     def __str__(self):
         return (f"{self.job_id} [{self.state_name}] "
-                f"{self.from_station} -> {self.to_station}")
+                f"{self.from_station} -> {self.to_station} "
+                f"({self.carries.value})")
 
 
 class JobContext:

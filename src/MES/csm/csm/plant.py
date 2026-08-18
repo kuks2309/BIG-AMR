@@ -76,7 +76,12 @@ import math
 
 # ---------------------------------------------------------------- geometry
 
-HALL_W, HALL_E = -23.0, 20.0     # hall extent in x (assumption A1)
+HALL_W, HALL_E = -23.0, 26.0     # hall extent in x (assumption A1)
+#: Extended east from 20.0 on 2026-08-18 to make room for leg C's WIP rack.
+#: Segment C had `buffer: []` — no rack at all — so two of its four job types
+#: (fetch-from-rack and divert-to-rack) could not run. The south row between
+#: the west aisle and WIP_CTR is fully occupied: the slitter's four LD ports
+#: reach x -13.3 and CTR1_LD sits at -11.2, leaving no 3 m gap anywhere.
 HALL_S, HALL_N = -13.0, 13.0     # hall extent in y
 WALL_T = 0.2
 
@@ -102,8 +107,8 @@ DOCK_INSET = 1.5
 AISLE_N_Y = 3.0                        # north aisle
 AISLE_S_Y = -3.0                       # south aisle
 AISLE_W_X = -20.0                      # west cross aisle
-AISLE_E_X = 16.0                       # east cross aisle
-PARK_X = [-21.5, 17.5]                 # parking spurs, off the cross aisles
+AISLE_E_X = 22.0                       # east cross aisle
+PARK_X = [-21.5, 23.5]                 # parking spurs, off the cross aisles
 
 #: Machine face y (the side the robot approaches from).
 _FACE_N = ROW_N_Y - MACHINE_D / 2.0
@@ -195,6 +200,27 @@ _add("WIP_CTR", "MACHINE", (_WIP_X, ROW_S_Y), _dock_s(_WIP_X))
 for i in (1, 2):
     _add(f"WIP_CTR_{i}", "BUFFER", (_WIP_X, ROW_S_Y),
          _dock_s(_WIP_X + (i - 1.5) * 2 * PORT_OFFSET), machine=False)
+
+#: Leg C's rack — the WIP Slitter. Added 2026-08-18; segment C had none, so a
+#: coater whose slitter was full had nowhere to put its output and the divert
+#: branch was untestable on a third of the line.
+_WIP_SLT_X = 19.0
+_add("WIP_SLT", "MACHINE", (_WIP_SLT_X, ROW_S_Y), _dock_s(_WIP_SLT_X))
+for i in (1, 2):
+    _add(f"WIP_SLT_{i}", "BUFFER", (_WIP_SLT_X, ROW_S_Y),
+         _dock_s(_WIP_SLT_X + (i - 1.5) * 2 * PORT_OFFSET), machine=False)
+
+#: HOW MUCH EACH RACK HOLDS — not how many docks it has.
+#:
+#: The deck counts WIP Gravure Print 2EA, WIP Coater 13EA and WIP Slitter 30EA.
+#: Those are SLOTS, not access points: the customer layout puts only a handful of
+#: AGV positions at each rack, and a rack plainly holds more rolls than it has
+#: places to stand. Modelling 30 docks would be wrong as well as unbuildable.
+#:
+#: So each rack has two access ports and a capacity. The divert decision asks
+#: "is the rack full?", which is a capacity question, and the robot asks "where
+#: do I stand?", which is a dock question. They are not the same number.
+BUFFER_CAPACITY = {"WIP_GRV": 2, "WIP_CTR": 13, "WIP_SLT": 30}
 
 #: Solid bodies robots must never drive through.
 OBSTACLES = {n: s["machine"] for n, s in STATIONS.items() if s["solid"]}
@@ -293,7 +319,7 @@ SEGMENTS = [
         "payload": 3.5,
         "from": [f"CTR{i}_ULD" for i in range(1, 5)],
         "to": [f"SLT_LD{i}" for i in range(1, 5)],
-        "buffer": [],
+        "buffer": ["WIP_SLT_1", "WIP_SLT_2"],
     },
 ]
 
