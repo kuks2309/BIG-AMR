@@ -28,6 +28,12 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>teleop_twist_keyboard</exec_depend>
+  <!-- The MES that gives the fleet work. fleet.launch.py starts it by default
+       (mes:=false opts out), so the fleet cannot come up with nothing driving
+       it. This does point Sim at MES, the opposite of the usual direction; it
+       is an exec_depend only — no Sim code imports csm, the launch file just
+       names the executable. -->
+  <exec_depend>csm</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

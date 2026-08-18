@@ -31,6 +31,7 @@ learns which CAN hardware is underneath. This is the same move, one layer up.
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -159,6 +160,162 @@ class EquipmentAdapter(ABC):
         """All station ids this adapter knows about."""
 
 
+# ---------------------------------------------------------------------------
+# THE EQUIPMENT MODEL — OPC-UA, from `AGV与主机设备对接流程及协议.xlsx`
+# (sheet 主机与AGV交互变量表; analysed in the project handbook, outside this
+# repository). Variable names below are the CUSTOMER'S, for the same reason the
+# ACS field names are the vendor's: a renamed signal cannot be checked against
+# the real machine.
+#
+# Every signal exists twice — `_UW` (unwind) and `_RW` (rewind).
+# ---------------------------------------------------------------------------
+
+
+class Polarity(Enum):
+    """First digit of `MC_Num`. Note the numbering is NOT alphabetical."""
+
+    ANODE = 1
+    CATHODE = 2
+
+
+class EquipmentType(Enum):
+    """Second character of `MC_Num`."""
+
+    GRAVURE = "A"
+    COATING = "T"
+    COLD_PRESS = "L"
+
+
+class DockingAxis(Enum):
+    """`MC_Axis_Num` — WHICH of a machine's four docking axes is meant.
+
+    A machine is not one port. It has an unwind side and a rewind side, each
+    with an A and a B axis, and the whole variable block is duplicated `_UW` /
+    `_RW` to match. The deck's coater drawing shows the pair directly:
+    Unwinder takes a bobbin and gives back a roll, Rewinder takes a roll and
+    gives back a bobbin.
+    """
+
+    UNWIND_A = 1
+    UNWIND_B = 2
+    REWIND_A = 3
+    REWIND_B = 4
+
+    @property
+    def is_unwind(self):
+        return self in (DockingAxis.UNWIND_A, DockingAxis.UNWIND_B)
+
+    @property
+    def suffix(self):
+        """The variable-name suffix for this axis's half of the block."""
+        return "_UW" if self.is_unwind else "_RW"
+
+
+class MachineNumber:
+    """`MC_Num`, e.g. `1A01` — string[5]. THE station's real identity.
+
+    This replaces the invented names (`station_3`, `station_out`) that the CSM
+    grew while the protocol was unknown. It is also exactly the `station_map`
+    record the specification's section 7 asks for: our name on one side, the
+    customer's port id on the other.
+
+        1     A     01
+        |     |     +-- sequence number
+        |     +-------- equipment type: A gravure, T coating, L cold press
+        +-------------- polarity:       1 anode,   2 cathode
+    """
+
+    __slots__ = ("polarity", "equipment", "sequence")
+
+    def __init__(self, polarity, equipment, sequence):
+        self.polarity = Polarity(polarity)
+        self.equipment = EquipmentType(equipment)
+        self.sequence = int(sequence)
+
+    @classmethod
+    def parse(cls, text):
+        """Read a `MC_Num` off the wire.
+
+        Rejects anything that is not the documented shape rather than guessing.
+        A misread machine number sends a robot to the wrong machine, so this is
+        the wrong place to be lenient.
+        """
+        text = str(text).strip()
+        if len(text) != 4 or not text[0].isdigit() or not text[2:].isdigit():
+            raise ValueError(f"MC_Num must look like 1A01, got {text!r}")
+        return cls(int(text[0]), text[1], int(text[2:]))
+
+    def __str__(self):
+        return f"{self.polarity.value}{self.equipment.value}{self.sequence:02d}"
+
+    def __eq__(self, other):
+        return isinstance(other, MachineNumber) and str(self) == str(other)
+
+    def __hash__(self):
+        return hash(str(self))
+
+    def __repr__(self):
+        return f"MachineNumber({self})"
+
+
+class MaterialPresence(Enum):
+    """What is physically on the machine, from three booleans.
+
+    The protocol does not report a status; it reports presence, with
+    `MC_Rolling_Full`, `MC_Roll_Null` and `MC_Roll_IN`. Those three replace the
+    five-value `StationStatus` this file invented while the protocol was
+    unknown:
+
+        Rolling_Full  Roll_Null  Roll_IN   meaning
+              1            0         0     a full roll is on the machine
+              0            1         0     nothing on the machine
+              0            0         1     an empty bobbin is on the machine
+
+    EMPTY_BOBBIN is the one that matters and the one we could not express: it is
+    what makes the specification's six bobbin-return jobs observable at all.
+    """
+
+    FULL_ROLL = "full_roll"
+    NOTHING = "nothing"
+    EMPTY_BOBBIN = "empty_bobbin"
+    #: The three booleans disagreed. Real machines can report this during a
+    #: transition, and it must not be silently rounded to one of the others.
+    INCONSISTENT = "inconsistent"
+
+    @classmethod
+    def from_signals(cls, rolling_full, roll_null, roll_in):
+        flags = (bool(rolling_full), bool(roll_null), bool(roll_in))
+        if flags == (True, False, False):
+            return cls.FULL_ROLL
+        if flags == (False, True, False):
+            return cls.NOTHING
+        if flags == (False, False, True):
+            return cls.EMPTY_BOBBIN
+        return cls.INCONSISTENT
+
+
+class TaskProcessing(Enum):
+    """`AGV_Task_Processing` — the nine codes the AGV reports to the machine.
+
+    `TransportResult` collapses 2-7 into a single BUSY. These are the customer's
+    own distinctions and two of them (6 and 7) are exactly the conditions this
+    file previously had to infer.
+
+    Code 4 is load-bearing: it is the customer's own trigger for diverting to a
+    WIP rack, which is what the specification's jobs 4, 8 and 12 exist for.
+    """
+
+    SUCCESS = 1
+    BUFFER_EMPTY = 2                # no material to take
+    BUFFER_AWAITING_STORAGE = 3
+    BUFFER_FULL = 4                 # no empty slot -> divert to WIP
+    BUFFER_LACKS_MATERIAL = 5
+    TRAFFIC_JAM = 6
+    GOING_TO_CHARGE = 7
+    AGV_FAULT = 8
+    TASK_CANCELLED = 9
+
+
 class TransportResult(Enum):
     """Outcome of a transport job, as reported by the ACS."""
 
@@ -245,6 +402,188 @@ class TransportResult(Enum):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# THE ORDER MODEL — ADR 2026-08-18-acs-order-task-interface
+#
+# Field names and enum members below are the VENDOR'S SPELLING, taken from
+# `References/local/acs/schema.graphql` (outside this repository: vendor
+# material, this repository is public). They are deliberately not renamed to
+# our taste — a name that differs from the schema cannot be checked against the
+# live server, and this is the interface the real ACS arrives behind.
+# ---------------------------------------------------------------------------
+
+
+class TaskKind(Enum):
+    """One step of an order. The schema's enum, verbatim.
+
+    The CSM specification (rev01 §5) names six tasks: MOVE, LOAD, UNLOAD, WAIT,
+    SCAN, CHARGE. Five map onto identically-named members here; **WAIT is
+    STAGE** — the specification's own "ACS kind" column says so. The remaining
+    members exist in the schema and are carried so that an order read back from
+    the server is representable, not because we issue them.
+    """
+
+    NONE = "NONE"
+    LOAD = "LOAD"
+    UNLOAD = "UNLOAD"
+    STAGE = "STAGE"          # the specification's WAIT — hold at the port
+    SCAN = "SCAN"
+    TURN = "TURN"
+    PORT_CUSTOM = "PORT_CUSTOM"
+    CHARGE = "CHARGE"
+    MAINT = "MAINT"
+    MOVE = "MOVE"
+    NODE_CUSTOM = "NODE_CUSTOM"
+
+
+@dataclass
+class AcsTask:
+    """One entry of an order's task list — the schema's `TaskInput`.
+
+    Every field is optional except `kind`, matching the schema. `target` is the
+    port or node id; leaving it None is meaningful for kinds that do not need
+    one (CHARGE picks its own charger unless told otherwise).
+    """
+
+    kind: TaskKind
+    target: str = None
+    vehicleSlot: int = None
+    amount: int = None
+    carrierId: str = None
+    carrierModel: str = None
+    carrierCustom: object = None
+    independent: bool = None
+    enterReverse: bool = None
+    chargeTo: int = None
+    expectedDuration: int = None
+    noBlockingTime: int = None
+    waitTimeout: int = None
+    turnAngle: float = None
+    custom: object = None
+
+
+@dataclass
+class AcsOrder:
+    """What `createOrder` takes — the schema's `CreateOrderInput`.
+
+    `id` is ours to choose and is how every later operation names this order, so
+    it must be unique and stable. We use the job id, which makes an ACS order
+    traceable back to the job that raised it without a second lookup — that is
+    the `acs_order_id` field the specification's §7 job record asks for.
+    """
+
+    id: str
+    tasks: list = field(default_factory=list)
+    vehicleId: str = None
+    priority: int = None
+    hotLot: int = None
+    custom: object = None
+    requester: str = None
+    requesterDetail: str = None
+    comment: str = None
+
+
+@dataclass
+class SimpleResponse:
+    """What every ACS mutation returns — `{errorCode: Int!, message: String}`.
+
+    One integer for every failure mode there is. See `classify_error_code`.
+    """
+
+    errorCode: int
+    message: str = ""
+
+    @property
+    def ok(self):
+        return self.errorCode == 0
+
+
+#: Error codes WE invented, because the vendor's table has not been supplied.
+#:
+#: Marked PROVISIONAL and kept in one place on purpose. When the real table
+#: arrives, this dict and `classify_error_code` are the only things that change
+#: — nothing else in the CSM is allowed to interpret an integer error code.
+PROVISIONAL_ERROR_CODES = {
+    0: TransportResult.ACCEPTED,
+}
+
+
+def classify_error_code(code):
+    """Turn an ACS `errorCode` into a TransportResult. THE ONLY PLACE THAT MAY.
+
+    ⚠ THE VENDOR'S ERROR-CODE TABLE DOES NOT EXIST IN THE SCHEMA. Our own
+    analysis calls it "the single most important thing still owed to us", and
+    the CSM specification carries it as assumption A7. So the busy-versus-
+    rejected distinction — the one that decides whether a job is retried for
+    ever or failed while it would have run — is currently a guess.
+
+    The guess is confined to this function so that receiving the table is a
+    one-function change rather than a hunt across the codebase. Anywhere else
+    that wants to know what a code means must call this.
+
+    Until the table exists we treat every non-zero code as BUSY, i.e. retryable.
+    That is the deliberately conservative direction: retrying a job that should
+    have been rejected wastes robot time and is visible in the logs, whereas
+    failing a job that would have run loses material movement silently. The job
+    FSM's own retry ceiling stops the first from running away.
+    """
+    if code in PROVISIONAL_ERROR_CODES:
+        return PROVISIONAL_ERROR_CODES[code]
+    return TransportResult.BUSY
+
+
+def build_order(job, requester="CSM"):
+    """Turn a CSM job into an ACS order — an id and an ordered task list.
+
+    The sequences are the specification's, rev01 §5:
+
+        a roll delivery          MOVE -> LOAD -> MOVE -> UNLOAD
+        deliver-and-collect      MOVE -> UNLOAD -> WAIT -> LOAD   (ONE visit)
+
+    The second is the one that matters, and it is why an order has to be a list
+    at all. `Carried`'s docstring states the plant's actual shape: **every hop
+    here is an exchange, not a delivery** — a robot brings a full roll to a
+    machine and takes the empty core away in the same visit. Expressed as two
+    orders that is two trips to the same port; expressed as one order it is one
+    visit, which is what the machine's docking handshake expects.
+
+    WAIT is `TaskKind.STAGE`. The specification's own "ACS kind" column says so.
+
+    The order id is the job id. That is deliberate: it makes an ACS order
+    traceable back to the job that raised it with no second lookup, and it is
+    what the §7 job record calls `acs_order_id`.
+    """
+    same_port = job.from_station == job.to_station
+    if same_port:
+        # One visit. Put down what we carry, hold while the machine works the
+        # exchange, then pick up what it gives back. The hold is not padding —
+        # the machine confirms placement and pickup separately (MC_Put_OK then
+        # MC_Take_OK), so the robot must still be there between them.
+        tasks = [
+            AcsTask(kind=TaskKind.MOVE, target=job.from_station),
+            AcsTask(kind=TaskKind.UNLOAD, target=job.from_station),
+            AcsTask(kind=TaskKind.STAGE, target=job.from_station),
+            AcsTask(kind=TaskKind.LOAD, target=job.from_station),
+        ]
+    else:
+        tasks = [
+            AcsTask(kind=TaskKind.MOVE, target=job.from_station),
+            AcsTask(kind=TaskKind.LOAD, target=job.from_station),
+            AcsTask(kind=TaskKind.MOVE, target=job.to_station),
+            AcsTask(kind=TaskKind.UNLOAD, target=job.to_station),
+        ]
+
+    return AcsOrder(
+        id=job.job_id,
+        tasks=tasks,
+        priority=job.priority,
+        requester=requester,
+        # What the job moves, carried through so the ACS and any later reader
+        # can tell a roll job from a bobbin job without asking us.
+        comment=job.carries.value,
+    )
+
+
 class AcsAdapter(ABC):
     """The fleet controller: picks a robot and a route, then drives it there."""
 
@@ -264,3 +603,59 @@ class AcsAdapter(ABC):
         also tell the ACS, or a robot keeps driving toward a job nobody is
         waiting for any more.
         """
+
+    # -- the order interface -------------------------------------------------
+    #
+    # ADR 2026-08-18-acs-order-task-interface. These are what the real ACS
+    # actually exposes; the three methods above are kept so that the existing
+    # call sites and 193 tests keep working while call sites move over one at a
+    # time. `submit_job` has a default implementation here that builds an order
+    # and calls `create_order`, so an adapter only has to implement one of the
+    # two paths.
+
+    def create_order(self, order) -> SimpleResponse:
+        """Submit an `AcsOrder` — an id and an ORDERED LIST OF TASKS.
+
+        This is the schema's `createOrder`. An implementation that does not
+        override it falls back to the old single-move path, so existing
+        adapters keep working unchanged.
+        """
+        raise NotImplementedError
+
+    def order_state(self, order_id) -> TransportResult:
+        """Where an order has got to.
+
+        The real ACS offers a subscription carrying a monotonic sequence number
+        and both old and new value, which is how gap detection stays free — see
+        the schema notes above. Polling is the fallback, not the design.
+        """
+        return self.get_job_result(order_id)
+
+    def cancel_order(self, order_id) -> SimpleResponse:
+        """Withdraw an order. Distinct from abort — see `abort_order`."""
+        ok = self.cancel_job(order_id)
+        return SimpleResponse(0 if ok else 1)
+
+    def abort_order(self, order_id) -> SimpleResponse:
+        """Stop an order that is already running.
+
+        ⚠ Takes NO drop-off location. The meeting notes said otherwise; the
+        schema settles it — `AbortOrderInput` has id, requester, requesterDetail
+        and comment, and nothing else. The ACS decides where the load goes. Do
+        not add that parameter back.
+        """
+        raise NotImplementedError
+
+    def pause_order(self, order_id) -> SimpleResponse:
+        raise NotImplementedError
+
+    def resume_order(self, order_id) -> SimpleResponse:
+        raise NotImplementedError
+
+    def make_order_fail(self, order_id) -> SimpleResponse:
+        """Force an order to a failed terminal state."""
+        raise NotImplementedError
+
+    def make_order_success(self, order_id) -> SimpleResponse:
+        """Force an order to a successful terminal state."""
+        raise NotImplementedError

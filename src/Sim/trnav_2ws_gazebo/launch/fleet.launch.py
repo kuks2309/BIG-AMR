@@ -26,10 +26,16 @@ start in parallel, because they have separate managers.
 """
 
 import os
+import sys
 import xml.dom.minidom
 
 import xacro
 from ament_index_python.packages import get_package_share_directory
+
+# The plant is the single source of truth for where things are — see its
+# header. Importing it is what stops the launch and the CSM disagreeing
+# about the floor they are both standing on.
+from csm import plant
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
                             SetEnvironmentVariable, TimerAction)
@@ -43,12 +49,23 @@ from launch_ros.substitutions import FindPackageShare
 
 #: Where each robot parks at spawn — one bay per AGV class, on a spur off the
 #: cross aisle at the end of that class's own run, so an idle robot never stands
-#: on a lane another class needs. Positions come from csm/plant.py PARKING.
-START_POSES = [
-    (-21.5, 1.5, 0.0),      # amr1 — 1.5T AGV A, west end (ASRS -> Gravure LD)
-    (17.5, 1.5, 0.0),       # amr2 — 1.5T AGV B, east end (Gravure ULD -> Coater LD)
-    (17.5, -1.5, 0.0),      # amr3 — 3.5T AGV,   east end (Coater ULD -> Slitter LD)
-]
+#: on a lane another class needs.
+#:
+#: IMPORTED from csm/plant.py, not copied. The old copy said "Positions come
+#: from csm/plant.py PARKING" and then drifted from it: commit 5745612 moved
+#: PARK_X[1] from 17.5 to 23.5 to make room for leg C's WIP rack, and these
+#: three literals stayed at 17.5. amr2 and amr3 then spawned 6 m from the bays
+#: the CSM believed they were in, drove east to reach them, and wedged against
+#: a wall — the same commit had also grown HALL_E from 20 to 26 without
+#: regenerating factory.world, so the building was still the old size. A
+#: comment cannot keep two files in step; an import can.
+#:
+#: Order is the AGV class order, which is what binds a robot to a leg:
+#:   A = 1.5T AGV A, west end   (ASRS -> Gravure LD)
+#:   B = 1.5T AGV B, east end   (Gravure ULD -> Coater LD)
+#:   C = 3.5T AGV,   east end   (Coater ULD -> Slitter LD)
+_PARK_ORDER = ('A', 'B', 'C')
+START_POSES = [plant.PARKING[k] + (0.0,) for k in _PARK_ORDER]
 #: One pose per robot, and the count is clamped to len(START_POSES) — so this
 #: list, not FLEET_ROBOTS, is the ceiling on fleet size. Each pose must match
 #: the parking bay its robot's segment owns in csm/plant.py PARKING, because a
@@ -138,7 +155,17 @@ def _one_robot(name, pose, xacro_file, steer_lag, delay=0.0):
         # so docking can command a steering angle at zero speed.
         package='trnav_2ws_gazebo', executable='fleet_wheel_bridge.py',
         name='fleet_wheel_bridge', namespace=name, output='screen',
-        parameters=[{'use_sim_time': True, 'steer_tau': steer_lag}],
+        # The same wheel geometry the odometry node gets. eead4a6 made this
+        # bridge REQUIRE w1_x/w1_y/w2_x/w2_y/wheel_radius — it declares them
+        # NaN and raises if they are still NaN — but only the odometry node was
+        # given the file. Every robot's bridge then died at startup with
+        # "휠 기하 파라미터 미주입", nothing was left subscribing /amrN/cmd_vel,
+        # and the whole fleet spawned and sat still. Both nodes read one file so
+        # they cannot disagree about where the wheels are.
+        # The dict comes second so steer_tau, a launch argument, still wins.
+        parameters=[PathJoinSubstitution([
+            FindPackageShare('trnav_2ws_core'), 'config', 'robot_geometry_2ws.yaml']),
+            {'use_sim_time': True, 'steer_tau': steer_lag}],
     )
     odometry = Node(
         package='trnav_2ws_gazebo', executable='wheel_odometry.py',
@@ -169,6 +196,30 @@ def _one_robot(name, pose, xacro_file, steer_lag, delay=0.0):
     return [rsp, spawn] + ordering
 
 
+def _robot_count():
+    """How many robots to spawn, resolved before the description is built.
+
+    The count decides how many nodes exist, so it cannot be a
+    LaunchConfiguration — those are not resolved until later. It is read
+    straight from argv instead, which is what makes `robots:=N` behave like
+    every other launch argument here.
+
+    Until 2026-08-18 this read FLEET_ROBOTS alone and `robots:=N` was declared
+    but never looked at, so `robots:=2` silently spawned three anyway. The
+    argument is honoured first now; FLEET_ROBOTS still works and is still what
+    docs/verification/2026-08-10-two-robot-one-hour-soak.md uses.
+    """
+    for arg in sys.argv[1:]:
+        if arg.startswith('robots:='):
+            try:
+                return int(arg.split(':=', 1)[1])
+            except ValueError:
+                # Let the declared argument's own validation report it rather
+                # than dying here with a traceback out of a helper.
+                break
+    return int(os.environ.get('FLEET_ROBOTS', '3'))
+
+
 def generate_launch_description():
     pkg_gazebo = get_package_share_directory('trnav_2ws_gazebo')
     pkg_desc = get_package_share_directory('trnav_2ws_description')
@@ -178,10 +229,15 @@ def generate_launch_description():
 
     args = [
         DeclareLaunchArgument('robots', default_value='3',
-                              description='how many robots to spawn (1-3)'),
+                              description='how many robots to spawn (1-3); '
+                                          'FLEET_ROBOTS is the fallback'),
         DeclareLaunchArgument('gui', default_value='true'),
         DeclareLaunchArgument('steer_lag', default_value='0.0',
                               description='steering servo lag, seconds'),
+        DeclareLaunchArgument('mes', default_value='true',
+                              description='also start the MES that gives the '
+                                          'robots work; false leaves them '
+                                          'spawned but idle'),
     ]
     gui = LaunchConfiguration('gui')
 
@@ -213,8 +269,8 @@ def generate_launch_description():
 
     # The count is read at description time rather than as a substitution,
     # because the number of nodes depends on it and a LaunchConfiguration is
-    # not resolved until later.
-    count = int(os.environ.get('FLEET_ROBOTS', '3'))
+    # not resolved until later. See _robot_count.
+    count = _robot_count()
     count = max(1, min(count, len(START_POSES)))
 
     robots = []
@@ -223,4 +279,30 @@ def generate_launch_description():
                              xacro_file, LaunchConfiguration('steer_lag'),
                              delay=i * 8.0)
 
-    return LaunchDescription(args + [resource_path, gzserver, gzclient] + robots)
+    # The MES. Without it the fleet spawns, activates every controller, and
+    # then stands still for ever — nothing publishes /amrN/cmd_vel, which reads
+    # exactly like a broken simulation and is not one. It was a separate
+    # `ros2 run csm sim_node` that was simply easy to forget.
+    #
+    # `count` is passed from the same variable that built the robots, so the
+    # fleet and the MES cannot disagree about how many robots exist. Getting
+    # that wrong is silent: sim_node's own default is 0, which means the
+    # single-robot world, and it then drives nothing in a namespaced fleet.
+    #
+    # DELAYED, not started with everything else. Robots come up staggered
+    # (delay=i * 8.0 above) and the ACS picks the robot nearest the pickup,
+    # where one that has not reported odometry yet sorts last but is still
+    # eligible — see sim_acs.py, _dispatch. Offered work before any robot has a
+    # pose it would hand the job to whichever sorted first. The wait covers the
+    # last robot's stagger plus its controller bring-up, measured at ~12 s.
+    mes = TimerAction(
+        period=(count - 1) * 8.0 + 15.0,
+        actions=[Node(
+            package='csm', executable='sim_node', output='screen',
+            arguments=['--robots', str(count)],
+            condition=IfCondition(LaunchConfiguration('mes')),
+        )],
+    )
+
+    return LaunchDescription(
+        args + [resource_path, gzserver, gzclient] + robots + [mes])
