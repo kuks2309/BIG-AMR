@@ -247,3 +247,74 @@ SlipSensor 심볼:  libprotocol.so  정의 88 / 참조 0
 
 즉 원본이 누적 오차를 감당하는 방식은 "정밀한 적분"이 아니라
 **증분만 사용 + 관측 보정 + 불확실성 적응 + 이상 시 정지** 네 겹이고, 우리는 그중 셋을 갖췄다.
+
+---
+
+## 9. `MultiSteersOdometer::CaldPose()` 줄 단위 복원 ✓
+
+`libOdoCalculator.so` 에 **DWARF 가 살아 있다.** 그래서 생 오프셋이 아니라 **멤버 이름**과
+**원본 소스 줄 번호**로 확정된다. 원본 트리:
+`/root/workspace/3.4.5.20/plugins/OdoCalculator/src/Odometer/multisteerodometer.cpp`
+(형제: `odometer.{h,cpp}` · `ackermanodometer.cpp` · `diffodometer.cpp` · `dualdiffodometer.cpp` ·
+`multidiffodometer.cpp` · `omniodometer.cpp` · `rgv2odometer.cpp`)
+
+### 9.1 `AbstractOdometer` 레이아웃 — 앞선 §3 의 생 오프셋이 전부 이름으로 확정된다
+
+| 오프셋 | 멤버 | §3 에서 부르던 이름 |
+| --- | --- | --- |
+| 11 | `bool flagFirstInputGot` | — |
+| 12 | `bool flagDebugDetail` | — |
+| 13 | `bool flagCumEncPoseMode` | `0xd` |
+| 184 / 192 | `uint64_t tcur` / `tpre` | `0xb8` |
+| 216 / 224 / 232 | `output.vx` / `vy` / `vw` | `0xd8` / `0xe0` / `0xe8` |
+| 240 / 248 / 256 | `output.dx` / `dy` / `dyaw` | `0xf0` / `0xf8` / `0x100` |
+| 264 / 272 / 280 | `output.x` / `y` / `yaw` | `0x108` / `0x110` / `0x118` |
+| 320 | `double thresConsistent` | — |
+
+`struct OdometerOutput` 전체 88 B, `AbstractOdometer` 전체 328 B.
+⇒ §3 의 해독은 **전부 맞았다** — 이름으로 재확인됐다.
+
+### 9.2 `CaldPose()` — 원본 159~195행
+
+주소 `0x14f300`~`0x14fe80`. 줄 번호는 DWARF 줄 테이블 실측이다.
+
+```
+159  진입
+160  AbstractOdometer::CaldPose()                 ; 기저 클래스 선처리
+163  if (!flagFirstInputGot) goto 190             ; 첫 입력 전에는 증분을 만들지 않는다
+166  Eigen 벡터 2개 생성 + memset 0
+168  ┌ 모터맵 순회 ─────────────────────────────
+171  │   ds = motor.second[+0x38]                 ; 휠 변위
+172  │   δ  = motor.second[+0x20]                 ; 조향각
+173  │   b[2i]   = cos(δ) * ds
+174  │   b[2i+1] = sin(δ) * ds
+     └ 순회 끝 → general_matrix_vector_product     ; 계수행렬(§2 CalOdoCoef 사전 역행렬) × b
+180  output.dx, output.dy ← 결과                  ; 0xf0 에 16 B 동시 저장(movupd)
+182  output.dyaw          ← 결과                  ; 0x100
+184  if (flagDebugDetail)
+185      stringstream → rbk::Logger::thread()
+190  output.vx = output.vy = 0 ; output.vw = 0    ; 공통 종료 + 163 의 early-exit 착지점
+195  정리
+```
+
+**읽어야 할 두 가지**:
+
+1. **`CaldPose` 는 속도를 항상 0으로 지운다**(190행). 속도는 `CalSpeed()` 소관이다 —
+   `RobotPosEKF` 의 게이트 입력 `wzOdoAbsDeg`(= `odom.vel_rotate`)는 여기서 나오지 않는다.
+2. **첫 입력 전에는 증분이 생산되지 않는다**(163행 게이트). 그 경로도 190행으로 착지하므로
+   `dx`/`dy`/`dyaw` 는 **직전 값이 남고** 속도만 0이 된다.
+
+### 9.3 우리 것과의 대조
+
+| | 레거시 `CaldPose` | `motor_control/driver_node.py` |
+| --- | --- | --- |
+| 휠 계측 | `(ds, δ)` 쌍 | `(ds, δ)` 쌍 — 같은 구조 |
+| 벡터화 | `b[2i]=cos δ·ds`, `b[2i+1]=sin δ·ds` | `modules_to_twist` 내부 |
+| 역해 | 계수행렬 사전 역행렬 × b | 정기구학 최소자승 |
+| 첫 입력 게이트 | `flagFirstInputGot` | `self._prev_pos is not None` — 같은 성질 |
+| 속도 | `CaldPose` 가 0으로 지움 | 별도 |
+
+⇒ **구조는 같고 역해 방법이 다르다.** 수치 동일성은 대조로 확인해야 한다 —
+`libOdoCalculator.so` 는 `dlopen` 성공·`ldd` 미해결 0건·핵심 심볼 `.dynsym` 공개
+(`_ZN19MultiSteersOdometerC1Ev` · `_ZN19MultiSteersOdometer8CaldPoseEv` 등)라
+karto 오라클과 같은 경로가 열려 있다.
