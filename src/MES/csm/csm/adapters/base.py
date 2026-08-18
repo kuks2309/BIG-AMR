@@ -155,6 +155,21 @@ class EquipmentAdapter(ABC):
         so the capability can be revoked in one place.
         """
 
+    def can_accept(self, station_id) -> bool:
+        """Is this station free to RECEIVE something right now?
+
+        Default: only an idle one. Not abstract, because it is derivable from
+        `get_station_status` and every existing implementation already answers
+        it correctly by that rule.
+
+        A WAREHOUSE is the exception and must override this. A store is never
+        idle — it permanently holds material to give — but it can always take a
+        return. Judging it by status alone refuses it as a destination, which
+        is what silently swallowed every leg-A bobbin return: the route to the
+        ASRS existed, the ASRS simply never looked free.
+        """
+        return self.get_station_status(station_id) is StationStatus.IDLE
+
     @abstractmethod
     def list_stations(self):
         """All station ids this adapter knows about."""

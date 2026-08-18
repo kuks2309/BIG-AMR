@@ -77,12 +77,19 @@ class MesApp:
 
 
 def build_mes(equipment, acs, source_for, clock=time.monotonic, logger=print,
-              job_timeout_s=600.0, poll_seconds=None, install_supervisor=True):
+              job_timeout_s=600.0, poll_seconds=None, install_supervisor=True,
+              return_for=None):
     """Assemble the CSM.
 
     :param equipment: EquipmentAdapter — mock, or the CATL one when it exists
     :param acs:       AcsAdapter — mock, SimAcs, or the real fleet controller
     :param source_for: callable(station_id) -> the station that FEEDS it.
+    :param return_for: callable(station_id) -> where that station's empty
+        BOBBIN goes, or None if it does not hand one back. Supplying it turns
+        on the specification's three bobbin-return jobs (3, 7 and 11).
+        `plant.bobbin_return_for` is the real implementation. Left None the
+        behaviour is exactly as before: unload calls are treated as requests
+        for material, which is what every existing caller expects.
         Note the direction. A machine calls for material to be brought TO it,
         so what we need to know is where that material comes from — not where
         this machine's output goes next.
@@ -101,6 +108,7 @@ def build_mes(equipment, acs, source_for, clock=time.monotonic, logger=print,
     periods = poll_seconds or {}
     monitor = EquipmentMonitorTask(store, source_for=source_for,
                                    period=periods.get("equipment_monitor"))
+    monitor.return_for = return_for
     dispatcher = DispatcherTask(store, period=periods.get("dispatcher"))
     tracker = JobTrackerTask(store, period=periods.get("job_tracker"))
 

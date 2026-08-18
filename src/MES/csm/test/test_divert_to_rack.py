@@ -31,6 +31,12 @@ class FakeEquipment:
     def get_station_status(self, station_id):
         return self.status.get(station_id, StationStatus.IDLE)
 
+    def can_accept(self, station_id):
+        # Same rule as EquipmentAdapter's default. Spelled out because this
+        # double does not inherit from it — it stands in for the interface
+        # rather than implementing it.
+        return self.get_station_status(station_id) is StationStatus.IDLE
+
     def send_station_command(self, station_id, command):
         return True
 

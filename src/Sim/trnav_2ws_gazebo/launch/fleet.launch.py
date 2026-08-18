@@ -293,10 +293,19 @@ def generate_launch_description():
     # (delay=i * 8.0 above) and the ACS picks the robot nearest the pickup,
     # where one that has not reported odometry yet sorts last but is still
     # eligible — see sim_acs.py, _dispatch. Offered work before any robot has a
-    # pose it would hand the job to whichever sorted first. The wait covers the
-    # last robot's stagger plus its controller bring-up, measured at ~12 s.
+    # pose it would hand the job to whichever sorted first.
+    #
+    # The margin is 30 s, not the ~12 s a controller bring-up takes, because
+    # the bring-up RACES. This launch already staggers robots 8 s apart for
+    # that reason (see the note on _one_robot). With a 15 s margin the MES
+    # started at 31 s while the last robot's spawn_entity was still waiting on
+    # Gazebo's /spawn_entity service; that spawn then hung, its controllers and
+    # wheel bridge never started, and the robot sat immobile — while the MES,
+    # seeing a robot with a valid pose, gave it a job. Another robot
+    # manoeuvring nearby drove into it. Starting the MES after the fleet is
+    # fully up costs 15 s once and removes that whole class of failure.
     mes = TimerAction(
-        period=(count - 1) * 8.0 + 15.0,
+        period=(count - 1) * 8.0 + 30.0,
         actions=[Node(
             package='csm', executable='sim_node', output='screen',
             arguments=['--robots', str(count)],

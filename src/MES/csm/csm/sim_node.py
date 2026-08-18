@@ -109,6 +109,12 @@ class DriveTask(FsmTask):
         self.acs._stop()
 
 
+#: How many batches after a station is fed before we ask for its empty
+#: core back. Stands for "the machine has finished with the roll"; two
+#: batches comfortably exceeds the default 12 s processing time.
+BOBBIN_DELAY_BATCHES = 2
+
+
 class MesSimNode(Node):
 
     def __init__(self, batch_seconds, job_timeout, process_seconds,
@@ -145,11 +151,17 @@ class MesSimNode(Node):
             logger=lambda m: self.get_logger().info(m),
             job_timeout_s=job_timeout,
             poll_seconds={"job_tracker": 1.0 / MES_RATE_HZ},
+            # Turns on the specification's bobbin returns (jobs 3, 7, 11).
+            # Every hop in this plant is an exchange, so without this the line
+            # moves rolls forward and never sends an empty core back.
+            return_for=plant.bobbin_return_for,
         )
 
         # The fake factory. A ROS timer is fine — RosSpinTask fires it.
         self.create_timer(batch_seconds + 2.0, self._produce_batch)
         self._next_station = 0
+        #: Stations fed a roll and not yet asked for their empty core back.
+        self._fed = []
 
         chain = " -> ".join(s["name"] + ": " + s["from"][0] + " -> "
                              + s["to"][0].split("_")[0] + "_LD"
@@ -170,6 +182,33 @@ class MesSimNode(Node):
         station = self._callers[self._next_station % len(self._callers)]
         self._next_station += 1
         self.equipment.raise_call(station, TaskType.LOAD, source="PDA")
+
+        # AND THE OTHER HALF OF THE EXCHANGE.
+        #
+        # A machine that has been fed a roll is holding the empty core once it
+        # has consumed it, and the specification has three jobs for getting
+        # that core back (3, 7 and 11). Nothing in this factory used to ask for
+        # them, so the forward half of every hop was exercised and the return
+        # half never was.
+        #
+        # Delayed rather than raised immediately: the machine cannot hand back
+        # a core it has not finished with, and asking instantly would test a
+        # state the real line never reaches.
+        #
+        # The delay is counted in BATCHES, not in a rotation of the caller
+        # list. Keying it to the rotation made the first bobbin appear after
+        # twelve batches — about five and a half minutes — which is long enough
+        # that a person watching concludes the feature does not work. What the
+        # delay actually stands for is "the machine has finished with the
+        # roll", and two batches already exceeds the processing time.
+        self._fed.append(station)
+        if len(self._fed) > BOBBIN_DELAY_BATCHES:
+            spent = self._fed.pop(0)
+            if plant.bobbin_return_for(spent):
+                self.equipment.raise_call(spent, TaskType.UNLOAD,
+                                          source="machine")
+                self.get_logger().info(
+                    f"--- {spent} has an empty bobbin to return ---")
 
         # No force-stocking. Only the store is permanently supplied; every
         # machine has to be FED, then PROCESS, before anything downstream can

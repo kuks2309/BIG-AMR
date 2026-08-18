@@ -164,6 +164,12 @@ class MockEquipment(EquipmentAdapter):
         """
         self._outlet[load_id] = unload_id
 
+    def can_accept(self, station_id):
+        """A warehouse always has room for a returned bobbin."""
+        if station_id in self._store_ids:
+            return True
+        return super().can_accept(station_id)
+
     def mark_store(self, *station_ids):
         """Declare these to be warehouses: always supplied, never processing."""
         self._store_ids.update(station_ids)

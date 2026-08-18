@@ -371,6 +371,49 @@ def sources_for(destination):
     return out
 
 
+def bobbin_return_for(station):
+    """Where the EMPTY BOBBIN goes when this station has finished with it.
+
+    Specification jobs 3, 7 and 11 — the three returns that had no
+    implementation at all, and assumption A5 which gives their destinations:
+
+        leg A   Gravure LD  -> ASRS                (back to the store)
+        leg B   Coater LD   -> Gravure ULD         (one process upstream)
+        leg C   Slitter LD  -> Coater ULD          (one process upstream)
+
+    Read from SEGMENTS rather than written out, because the rule IS the segment
+    reversed: a bobbin goes back the way its roll came. Writing the three pairs
+    as a literal table would be a second place for the plant to be described,
+    and the last time this file had two descriptions of one thing the launch
+    spawned robots six metres from where the CSM believed they were.
+
+    Every hop here is an exchange, not a delivery (see `Carried`), so this is
+    the return half of every material job, not a special case.
+
+    Returns None for a station that is not a segment destination — the ASRS and
+    the WIP racks do not hand bobbins back.
+    """
+    for seg in SEGMENTS:
+        if station in seg["to"]:
+            # The bobbin goes to the station that supplied the roll. Where a
+            # segment has several sources, the paired one is the natural
+            # partner; FEEDS holds that pairing.
+            paired = FEEDS.get(station)
+            if paired and paired in seg["from"]:
+                return paired
+            return seg["from"][0]
+    return None
+
+
+def is_bobbin_return(from_station, to_station):
+    """True if this pair is a bobbin going back upstream, not a roll going on.
+
+    Useful to callers that have a job and want to know which direction it runs
+    without re-deriving the segment.
+    """
+    return bobbin_return_for(from_station) == to_station
+
+
 def buffer_for(source):
     """The WIP rack that stranded material from this source should go to.
 
@@ -435,9 +478,23 @@ def segment_of(robot_name):
 
 
 def segment_for_job(from_station, to_station):
+    """Which leg a job belongs to — and therefore which AGV class carries it.
+
+    Matches BOTH directions along a segment, because a leg's robots carry the
+    roll forward and the empty core back. The specification says so directly:
+    jobs 5 and 7 are both LOWBIGB, 9 and 11 are both HIGHBIG, 1 and 3 are both
+    LOWBIGA. The bobbin is not a different leg, it is the return half of one.
+
+    This used to match the forward direction only. Every bobbin return was then
+    rejected by the ACS with "no segment", because CTR1_LD -> GRV1_ULD is
+    segment B read backwards and matched nothing — visible in the simulator as
+    five bobbin jobs created and five failed.
+    """
     for s in SEGMENTS:
         if from_station in s["from"] and to_station in s["to"]:
             return s
+        if from_station in s["to"] and to_station in s["from"]:
+            return s                      # the return half of the same leg
     return None
 
 
