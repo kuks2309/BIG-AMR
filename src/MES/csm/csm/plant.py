@@ -371,6 +371,22 @@ def sources_for(destination):
     return out
 
 
+def buffer_for(source):
+    """The WIP rack that stranded material from this source should go to.
+
+    A rack buffers the INPUT of the process it serves — WIP_GRV feeds the
+    gravures, so material bound for a gravure parks there. That is why the
+    diversion runs from the upstream source to the rack of the DESTINATION's
+    leg, not to a rack beside the source.
+
+    Returns the rack's access ports, or [] if the source has no leg.
+    """
+    for seg in SEGMENTS:
+        if source in seg["from"]:
+            return list(seg["buffer"])
+    return []
+
+
 def segment_of_station(station):
     """Which leg a station belongs to, by any of its roles. None if unknown.
 

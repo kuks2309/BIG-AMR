@@ -104,6 +104,15 @@ class JobStore:
         self.station_busy.add(station_id)
         return True
 
+    def station_claimed(self, station_id):
+        """Is a job already in flight against this station? Read-only.
+
+        `claim_station` both tests and takes, which is right for the caller that
+        wants the claim. The diversion scan needs to look without taking, or it
+        would claim a source it then decides not to use.
+        """
+        return station_id in self.station_busy
+
     def find_finished_stations(self):
         """Stations with material waiting and no job already covering them.
 
