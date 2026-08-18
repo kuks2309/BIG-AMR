@@ -335,6 +335,55 @@ for _i in range(1, 5):
     FEEDS[f"CTR{_i}_LD"] = f"GRV{_i}_ULD"
     FEEDS[f"SLT_LD{_i}"] = f"CTR{_i}_ULD"
 
+def sources_for(destination):
+    """Every station that could supply this destination, BEST FIRST.
+
+    FEEDS answers "which port is paired with this one". That is not the same
+    question as "where should this material come from", and treating it as if it
+    were is why a coater whose own gravure was empty would wait while the other
+    three gravures held finished material it could have taken.
+
+    The order encodes two decisions, both cheap to change:
+
+      1. **The rack first.** Material already parked on a WIP rack is preferred
+         over fresh material upstream. Otherwise parked rolls accumulate: the
+         rack only ever fills, because there is always something newer to take.
+      2. **Then the paired machine, then its siblings.** FEEDS' pairing is a
+         sensible default — it spreads four destinations across four sources
+         instead of everybody queueing at the first one — but it is a preference
+         now, not a constraint.
+
+    Returns candidates only. Whether a candidate can actually supply right now
+    is a separate question, asked by the caller against live station status, and
+    whether the MATERIAL matches is a third question we cannot yet answer at all
+    (the customer has not given us the matching rules).
+    """
+    seg = segment_of_station(destination)
+    if seg is None:
+        return [FEEDS[destination]] if destination in FEEDS else []
+    out = list(seg["buffer"])                       # 1. clear the rack first
+    paired = FEEDS.get(destination)
+    if paired and paired not in out:                # 2. its own pair next
+        out.append(paired)
+    for src in seg["from"]:                         # 3. then any sibling
+        if src not in out:
+            out.append(src)
+    return out
+
+
+def segment_of_station(station):
+    """Which leg a station belongs to, by any of its roles. None if unknown.
+
+    Distinct from `segment_of(robot_name)` below, which answers the same
+    question for a ROBOT. Naming them alike shadowed one with the other.
+    """
+    for seg in SEGMENTS:
+        if (station in seg["from"] or station in seg["to"]
+                or station in seg["buffer"]):
+            return seg
+    return None
+
+
 #: A machine's material goes in one port and comes out the other — the line IP
 #: summary lists these as "Unwinder / Rewinder" pairs. Without the link the two
 #: ports are unrelated stations and the line cannot fill past its first stage:

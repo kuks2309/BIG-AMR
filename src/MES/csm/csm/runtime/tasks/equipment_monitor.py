@@ -48,6 +48,12 @@ class EquipmentMonitorTask(FsmTask):
         super().__init__(name=name, period=period)
         self.store = store
         self.source_for = source_for
+
+        #: Ranked alternatives for a destination. Defaults to "whatever
+        #: source_for said", so a caller that supplied only the single-source
+        #: callable keeps its existing behaviour exactly.
+        self.sources_for = getattr(source_for, "candidates",
+                                   lambda sid: [source_for(sid)])
         self.wakes = list(wakes or [])
 
         self.created = 0
@@ -58,14 +64,26 @@ class EquipmentMonitorTask(FsmTask):
 
     async def step(self):
         for call in self.store.equipment.poll_calls():
-            source = self.source_for(call.station_id)
+            # TRY EVERY CANDIDATE, NOT JUST THE PAIRED ONE.
+            #
+            # `source_for` names one station. When that one is empty the call
+            # used to be deferred, even if a sibling upstream was holding
+            # finished material — so a coater could sit idle while three
+            # gravures had output waiting. `sources_for` ranks the alternatives
+            # (rack first, then the pair, then siblings) and the first that can
+            # actually supply wins.
+            source = None
+            for cand in self.sources_for(call.station_id):
+                if self._can_supply(cand):
+                    source = cand
+                    break
 
-            # A source that is empty, still processing, or faulted cannot serve
-            # this call yet. Leave the call outstanding — do NOT acknowledge it
-            # — so it is picked up again once material exists. Acknowledging
-            # here would tell the machine it had been heard and then drop the
-            # request, which is the silent failure this layer must not have.
-            if not self._can_supply(source):
+            # Nothing anywhere can serve this call yet. Leave it outstanding —
+            # do NOT acknowledge it — so it is picked up again once material
+            # exists. Acknowledging here would tell the machine it had been
+            # heard and then drop the request, which is the silent failure this
+            # layer must not have.
+            if source is None:
                 self.deferred += 1
                 continue
 

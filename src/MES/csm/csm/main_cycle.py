@@ -117,11 +117,17 @@ class MainCycle:
         from .adapters.base import StationStatus
 
         for call in self.store.equipment.poll_calls():
-            source = self.source_for(call.station_id)
+            # Every candidate, best first — not just the paired station. See
+            # equipment_monitor for why one fixed source starves the line.
+            source = None
+            for cand in self.sources_for(call.station_id):
+                if (self.store.equipment.get_station_status(cand)
+                        is StationStatus.FINISHED):
+                    source = cand
+                    break
             # Not servable yet: leave the call outstanding rather than
             # acknowledging work we are not going to do.
-            if (self.store.equipment.get_station_status(source)
-                    is not StationStatus.FINISHED):
+            if source is None:
                 continue
             if not self.store.claim_station(call.station_id):
                 continue
@@ -135,6 +141,14 @@ class MainCycle:
         comes from. Answering that is the CSM's job.
         """
         return "ASRS"
+
+    def sources_for(self, station_id):
+        """Candidates that could feed this one, best first.
+
+        Defaults to the single answer `source_for` gives, so an override of
+        that alone still works. `plant.sources_for` is the real implementation.
+        """
+        return [self.source_for(station_id)]
 
     def step_jobs(self):
         """Advance every active job by one tick, retiring the terminal ones."""
