@@ -168,7 +168,14 @@ class MockEquipment(EquipmentAdapter):
         self._outlet[load_id] = unload_id
 
     def can_accept(self, station_id):
-        """A warehouse always has room for a returned bobbin."""
+        """A warehouse always has room for a returned bobbin.
+
+        Unless the equipment has said otherwise — `buffer_full` is checked
+        first, because "a store always has room" is our assumption and code 4
+        is the customer's measurement.
+        """
+        if self.buffer_full(station_id):
+            return False
         if station_id in self._store_ids:
             return True
         return super().can_accept(station_id)

@@ -155,6 +155,14 @@ class EquipmentAdapter(ABC):
         so the capability can be revoked in one place.
         """
 
+    def task_processing(self, station_id):
+        """The last `AGV_Task_Processing` code reported at this station.
+
+        None when the adapter does not carry one — most do not yet, and a
+        missing code must never be read as a code of zero.
+        """
+        return None
+
     def can_accept(self, station_id) -> bool:
         """Is this station free to RECEIVE something right now?
 
@@ -168,7 +176,26 @@ class EquipmentAdapter(ABC):
         is what silently swallowed every leg-A bobbin return: the route to the
         ASRS existed, the ASRS simply never looked free.
         """
+        if self.buffer_full(station_id):
+            return False
         return self.get_station_status(station_id) is StationStatus.IDLE
+
+    def buffer_full(self, station_id) -> bool:
+        """Has the equipment ITSELF said this port has no empty slot?
+
+        THE CUSTOMER'S OWN SIGNAL, AND IT WINS OVER OUR INFERENCE. Code 4 is
+        reported by the AGV that just tried to place material there. Station
+        status is our reading of whether a port looks free; this is the
+        equipment saying it is not. When the two disagree, the one that was
+        actually present is right.
+
+        A separate method because every path that asks "can this take
+        material?" has to honour it — including a warehouse, which otherwise
+        answers yes on the grounds that a store always has room.
+        """
+        code = self.task_processing(station_id)
+        return (code is not None
+                and TaskProcessing(code) is TaskProcessing.BUFFER_FULL)
 
     @abstractmethod
     def list_stations(self):
@@ -415,6 +442,54 @@ class TransportResult(Enum):
 # `runtime/tasks/job_tracker.py`, `seer_client.py`). Widening the interface is a
 # deliberate change across eight files and wants an ADR, not a drive-by edit.
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class ProcessingOutcome:
+    """What the CSM should DO about an `AGV_Task_Processing` code."""
+
+    result: "TransportResult"
+    #: Code 4 only. The destination has no empty slot, so the material has to
+    #: go somewhere — the WIP rack — rather than the job simply failing.
+    divert_to_buffer: bool = False
+    note: str = ""
+
+
+def interpret_task_processing(code):
+    """Turn one of the nine codes into a CSM decision. THE ONLY PLACE THAT MAY.
+
+    Same rule as `classify_error_code`, and for the same reason: nine codes
+    scattered across the codebase become nine independent guesses, and the two
+    that matter most are easy to get backwards.
+
+    `TransportResult` collapses codes 2-7 into a single BUSY. That is not wrong
+    — all six are retryable — but it throws away WHY, and one of them is not
+    merely retryable:
+
+      4  buffer full, no empty slot   THE CUSTOMER'S OWN DIVERT TRIGGER. The
+                                      specification has three jobs (4, 8, 12)
+                                      that exist for exactly this condition,
+                                      and until now the CSM inferred it from
+                                      station status instead of being told.
+
+    The two that end a job rather than delaying it:
+
+      8  AGV fault during transport   the robot is out, not the job
+      9  task cancelled
+
+    ⚠ Codes 2, 3 and 5 are read as retryable because they describe a MATERIAL
+    state that can change without anyone intervening. That is our reading of
+    the customer's wording, not something they have confirmed.
+    """
+    code = TaskProcessing(code)
+    if code is TaskProcessing.SUCCESS:
+        return ProcessingOutcome(TransportResult.ARRIVED, note="success")
+    if code is TaskProcessing.BUFFER_FULL:
+        return ProcessingOutcome(TransportResult.BUSY, divert_to_buffer=True,
+                                 note="destination full — park on the WIP rack")
+    if code in (TaskProcessing.AGV_FAULT, TaskProcessing.TASK_CANCELLED):
+        return ProcessingOutcome(TransportResult.FAILED, note=code.name.lower())
+    return ProcessingOutcome(TransportResult.BUSY, note=code.name.lower())
 
 
 # ---------------------------------------------------------------------------
