@@ -40,3 +40,11 @@ src/**/log/
 # external_reference/handling.md §5 (licence / external disclosure).
 meeting_files/
 References/local/
+
+# The CSM's own records database, written at runtime by `--db`. Generated
+# data, not source — and it carries production material identifiers.
+csm_records.db
+csm_records.db-shm
+csm_records.db-wal
+*.db-shm
+*.db-wal
