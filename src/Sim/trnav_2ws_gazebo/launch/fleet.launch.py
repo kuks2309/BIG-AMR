@@ -259,6 +259,9 @@ def generate_launch_description():
         DeclareLaunchArgument('gui', default_value='true'),
         DeclareLaunchArgument('steer_lag', default_value='0.0',
                               description='steering servo lag, seconds'),
+        DeclareLaunchArgument('battery_scale', default_value='1.0',
+                              description='speed up battery drain and charge, '
+                                          'for watching a charge cycle'),
         DeclareLaunchArgument('mes', default_value='true',
                               description='also start the MES that gives the '
                                           'robots work; false leaves them '
@@ -335,7 +338,9 @@ def generate_launch_description():
         period=(count - 1) * 15.0 + 20.0,
         actions=[Node(
             package='csm', executable='sim_node', output='screen',
-            arguments=['--robots', str(count)],
+            arguments=['--robots', str(count),
+                       '--battery-scale',
+                       LaunchConfiguration('battery_scale')],
             condition=IfCondition(LaunchConfiguration('mes')),
         )],
     )

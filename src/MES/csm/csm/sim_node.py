@@ -173,7 +173,7 @@ def _rack_sizes():
 class MesSimNode(Node):
 
     def __init__(self, batch_seconds, job_timeout, process_seconds,
-                 robot_names=None):
+                 robot_names=None, battery_scale=1.0):
         super().__init__("csm")
 
         # Every station the equipment layer knows about, INCLUDING the outbound
@@ -227,6 +227,8 @@ class MesSimNode(Node):
         # machine whether it may enter — MC_Enter_Permitted, condition 7.
         self.acs = SimAcs(self, robot_names=robot_names,
                           equipment=self.equipment)
+        for robot in self.acs.robots:
+            robot.battery_scale = battery_scale
 
         # The racks, at the customer's documented capacities. Without these
         # the rack records exist and hold nothing, so "the destination is
@@ -343,6 +345,9 @@ def main():
                         help="seconds a job may spend in one state before t5")
     parser.add_argument("--ui-port", type=int, default=8080,
                         help="live view in a browser; 0 turns it off")
+    parser.add_argument("--battery-scale", type=float, default=1.0,
+                        help="speed up battery drain and charge, for watching "
+                             "a charge cycle without waiting an hour")
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
@@ -350,7 +355,8 @@ def main():
     # sets with -entity. None means the single-robot world.
     names = [f"amr{i + 1}" for i in range(args.robots)] if args.robots else None
     node = MesSimNode(args.batch_seconds, args.job_timeout,
-                      args.process_seconds, robot_names=names)
+                      args.process_seconds, robot_names=names,
+                      battery_scale=args.battery_scale)
 
     # The live view. Started AFTER the node, so it always has something to
     # show, and never allowed to stop the simulation: a port already in use is

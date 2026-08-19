@@ -447,6 +447,28 @@ class SimRobot:
         self._noted_immobile = False
         #: Same, for waiting on a machine's entry permission.
         self._noted_permission = False
+
+        #: BATTERY, percent. Simulated, and deliberately crude — what matters
+        #: for the CSM is that the number falls while working and rises on a
+        #: charger, not that the curve is right. A real cell's behaviour is
+        #: the robot's own business and section 7 does not retain it.
+        self.battery = 100.0
+        #: Multiplies both drain and charge, for DEMONSTRATION only.
+        #:
+        #: At 1.0 a working robot takes about an hour to reach the charge
+        #: threshold, which is the right order for a real AGV and far too slow
+        #: to watch. Raising it does not make the model more or less correct —
+        #: it only compresses the clock — so it is a knob rather than a
+        #: different rate, and it is never used to claim a real duration.
+        self.battery_scale = 1.0
+        self._battery_stamp = None
+        #: Set while the robot is on a charger and told to charge.
+        self._charging_to = None
+        #: A charge accepted while this robot was working, applied when the
+        #: job ends. See `_charge_order`.
+        self._charge_pending = None
+        #: So the flat-battery warning is logged once, not every cycle.
+        self._noted_flat = False
         #: Which rule last published a zero velocity. See `_stop`.
         self._halt_reason = None
         #: Set while reversing out of a bay after finishing.
@@ -538,6 +560,8 @@ class SimRobot:
         joint_state_broadcaster, which runs only once the controller chain is
         up, and stops if that chain dies.
         """
+        if self.battery <= 0.0:
+            return False            # flat: it cannot drive anywhere
         if self._joints_stamp is None:
             return False
         return (self._now() - self._joints_stamp) < self.CONTROLLERS_TIMEOUT_S
@@ -889,6 +913,49 @@ class SimRobot:
                 return False
         return True
 
+    #: Percent per second while driving, and while merely powered. Chosen so
+    #: a robot working continuously needs a charge after roughly an hour,
+    #: which is the order the deck implies (0.5 m/s, shift-length duty). Not a
+    #: measured figure and not claimed to be one.
+    DRAIN_MOVING = 0.020
+    DRAIN_IDLE = 0.002
+    CHARGE_RATE = 0.50
+
+    def _step_battery(self, moving):
+        """Drain or charge, once per control cycle.
+
+        Driven by ELAPSED TIME rather than counting ticks, so the number means
+        the same thing whatever rate the controller happens to run at.
+        """
+        now = self._now()
+        if self._battery_stamp is None:
+            self._battery_stamp = now
+            return
+        elapsed = max(0.0, now - self._battery_stamp)
+        self._battery_stamp = now
+
+        on_charger = self.pose is not None and plant.is_charger(self.pose[:2])
+        if self._charging_to is not None and on_charger:
+            self.battery = min(
+                self._charging_to,
+                self.battery + self.CHARGE_RATE * self.battery_scale * elapsed)
+            if self.battery >= self._charging_to:
+                self._charging_to = None
+                self.node.get_logger().info(
+                    f"{self._tag()}charged to {self.battery:.0f}%")
+            return
+        rate = self.DRAIN_MOVING if moving else self.DRAIN_IDLE
+        self.battery = max(0.0, self.battery - rate * self.battery_scale * elapsed)
+
+    def start_charging(self, to_level=90.0):
+        """Told by the ACS to charge. The CSM decides WHEN; this obeys.
+
+        Recorded rather than acted on directly: a robot charges by being on a
+        charger, so this only says what it is doing there and how full is
+        enough.
+        """
+        self._charging_to = to_level
+
     def _machine_permits(self, station):
         """May we cross this machine's door? False means we have stopped.
 
@@ -1149,6 +1216,22 @@ class SimRobot:
             return              # no ground truth yet — never command blind
 
         x, y, yaw = self.pose
+        self._step_battery(moving=math.hypot(*self.vel) > MOVING_MIN)
+
+        # A FLAT BATTERY STOPS THE ROBOT, which is the point of modelling one.
+        # Until this existed a robot drove happily at 0% and the feature could
+        # not fail — which meant it could not be trusted either.
+        #
+        # Not a fault to recover from here: something has to come and get it,
+        # exactly as on a real floor. What the CSM must do is never let it
+        # happen, and `can_move` is what stops it being given more work.
+        if self.battery <= 0.0:
+            if not self._noted_flat:
+                self._noted_flat = True
+                self.node.get_logger().warn(
+                    f"{self._tag()}battery flat — stopped where it stands")
+            self._stop("battery flat")
+            return
 
         # ===================== TRAFFIC — EVERY ROBOT ========================
         #
@@ -1772,12 +1855,23 @@ class SimRobot:
             return True
         return False
 
+    def _apply_pending_charge(self):
+        """Start a charge that was accepted while this robot was busy."""
+        if self._charge_pending is None:
+            return
+        level, self._charge_pending = self._charge_pending, None
+        self.start_charging(to_level=level)
+        self._go_home()
+        self.node.get_logger().info(
+            f"{self._tag()}job done — going to charge to {level:.0f}%")
+
     def _finish(self, job_id, result):
         # Reported upward. The fleet owns the job -> result table, because a
         # caller asking "is job_7 done?" must get an answer whichever robot
         # happened to carry it — and after the robot has moved on to the next.
         if self.on_finished:
             self.on_finished(job_id, result)
+        self._apply_pending_charge()
 
         # BACK OUT before the bay is released. The robot is physically in it
         # until it has driven clear, and freeing the interlock while it still
@@ -1965,6 +2059,14 @@ class SimAcs(AcsAdapter):
         if not order.tasks:
             return SimpleResponse(ERR_NO_TASKS, "order carries no tasks")
 
+        # A CHARGE ORDER IS NOT A TRANSPORT. It moves a named robot to its own
+        # charger and tops it up; there is no material, no source and no
+        # destination, so the LOAD/UNLOAD reading below does not apply to it.
+        charge = next((t for t in order.tasks if t.kind is TaskKind.CHARGE),
+                      None)
+        if charge is not None:
+            return self._charge_order(order, charge)
+
         frm = next((t.target for t in order.tasks
                     if t.kind is TaskKind.LOAD), None)
         to = next((t.target for t in reversed(order.tasks)
@@ -1977,6 +2079,68 @@ class SimAcs(AcsAdapter):
         result = self._dispatch(order.id, frm, to, order.priority or 0)
         return SimpleResponse(_RESULT_TO_CODE.get(result, ERR_BUSY),
                               result.value)
+
+    def _charge_order(self, order, charge):
+        """Send a robot to its charger. The CSM decided; this obeys.
+
+        The robot is named in the MOVE task's target as `charger:<robot>`,
+        because a charger is that robot's own slot and no other robot may use
+        it — so naming the place would be naming the robot anyway.
+        """
+        move = next((t for t in order.tasks if t.kind is TaskKind.MOVE), None)
+        target = (move.target or "") if move else ""
+        name = target.split(":", 1)[1] if target.startswith("charger:") else None
+        robot = next((r for r in self.robots if r.name == name), None)
+        if robot is None:
+            return SimpleResponse(ERR_UNKNOWN_STATION,
+                                  f"no robot named {name!r}")
+        if robot.busy and order.priority and order.priority >= 100:
+            # CRITICAL: TAKE THE JOB OFF IT AND GO NOW.
+            #
+            # "Finish the job first" deadlocks whenever the remaining charge
+            # cannot outlast the job — and the simulator produced exactly that:
+            # a robot told to charge after its current job, which then went
+            # flat mid-job, so the job never ended and the charge never
+            # started. All three robots died holding jobs they could not
+            # finish.
+            #
+            # The job is FAILED rather than quietly dropped, so the CSM sees a
+            # terminal state and can raise it again for whoever is free. A job
+            # nobody is doing must never look like a job in progress.
+            abandoned = robot._active_job
+            if abandoned is not None:
+                robot._finish(abandoned, TransportResult.FAILED)
+                self._results[abandoned] = TransportResult.FAILED
+                self.node.get_logger().warn(
+                    f"{robot.name}: recalled to charge — {abandoned} given up")
+            robot.start_charging(to_level=float(charge.chargeTo or 90))
+            robot._go_home()
+            self._results[order.id] = TransportResult.IN_PROGRESS
+            return SimpleResponse(0, "recalled to charge")
+
+        if robot.busy:
+            # ACCEPTED AND DEFERRED, not refused.
+            #
+            # Refusing was wrong and the simulator proved it: the CSM sends a
+            # critically low robot even while it is working, this refused every
+            # such order BECAUSE it was working, and the two halves argued 43
+            # times in one run while the battery went to zero. A robot cannot
+            # abandon a roll in an aisle, but the request is still valid — so
+            # it is remembered and honoured the moment the job ends.
+            robot._charge_pending = float(charge.chargeTo or 90)
+            self._results[order.id] = TransportResult.ACCEPTED
+            self.node.get_logger().info(
+                f"{robot.name}: will charge to {charge.chargeTo}% "
+                f"after this job")
+            return SimpleResponse(0, "queued until the current job ends")
+
+        robot.start_charging(to_level=float(charge.chargeTo or 90))
+        # Its charger IS its parking slot, so going home is going to charge.
+        robot._go_home()
+        self._results[order.id] = TransportResult.IN_PROGRESS
+        self.node.get_logger().info(
+            f"{robot.name}: charging to {charge.chargeTo}% at its slot")
+        return SimpleResponse(0, "charging")
 
     def order_state(self, order_id):
         return self._results.get(order_id, TransportResult.UNKNOWN)
@@ -2111,6 +2275,8 @@ class SimAcs(AcsAdapter):
                 # operator most wants to know when a leg has gone quiet.
                 "responsive": r.can_move,
                 "halted_because": r._halt_reason,
+                "battery": round(r.battery, 1),
+                "charging_to": r._charging_to,
             })
         return out
 

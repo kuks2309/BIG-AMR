@@ -133,7 +133,15 @@ function table(el, cols, rows, cell) {
   el.innerHTML = h;
 }
 const n1 = v => (v === null || v === undefined) ? null : (+v).toFixed(1);
-const cls = (v, good) => '<span class="' + (v === good ? 'ok' : 'bad') + '">' + v + '</span>';
+function battery(r) {
+  if (r.battery === null || r.battery === undefined) return null;
+  const v = r.battery;
+  const c = v <= 12 ? 'bad' : (v <= 30 ? 'warn' : 'ok');
+  const charging = r.charging_to ? ' <span class="muted">&#8593;'
+                                   + r.charging_to + '</span>' : '';
+  return `<span class="${c}">${v.toFixed(0)}%</span>${charging}`;
+}
+const cls = (v, good) = '<span class="' + (v === good ? 'ok' : 'bad') + '">' + v + '</span>';
 
 /* ---- the map ------------------------------------------------------- */
 function drawPlant(p) {
@@ -158,7 +166,11 @@ function drawPlant(p) {
   const [rl, rw] = p.robot_size;
   for (const k of p.parking)
     s += `<rect class="park" x="${X(k.x)-rl/2}" y="${Y(k.y)-rw/2}"
-          width="${rl}" height="${rw}" rx="0.2"/>`;
+          width="${rl}" height="${rw}" rx="0.2"
+          ${k.charger ? 'stroke="#d29922" stroke-dasharray="none"' : ''}/>`;
+  for (const k of p.parking) if (k.charger)
+    s += `<text class="lbl" x="${X(k.x)}" y="${Y(k.y)+0.4}"
+          text-anchor="middle" fill="#d29922">&#9889;</text>`;
   s += '<g id="robots"></g>';
   svg.innerHTML = s;
 }
@@ -172,7 +184,8 @@ function drawRobots(fleet) {
     if (!r.position) continue;
     const [x, y] = r.position;
     const deg = -(r.yaw || 0) * 180 / Math.PI;
-    const colour = !r.responsive ? '#f85149' : (r.busy ? '#4c9aff' : '#3d4a5c');
+    const colour = !r.responsive ? '#f85149'
+      : (r.charging_to ? '#d29922' : (r.busy ? '#4c9aff' : '#3d4a5c'));
     s += `<g transform="translate(${X(x)},${Y(y)}) rotate(${deg})">
             <rect x="${-rl/2}" y="${-rw/2}" width="${rl}" height="${rw}" rx="0.2"
                   fill="${colour}" stroke="#0b0e13" stroke-width="0.12"/>
@@ -219,8 +232,9 @@ async function tick() {
   $('s-unrested').className = 'stat' + (c.unrested_decisions ? ' warn' : '');
 
   $('n-fleet').textContent = d.fleet.length;
-  table($('t-fleet'), ['robot','leg','busy','job','going to','v','responsive','halted because'],
-    d.fleet, r => [r.name, r.leg, r.busy ? 'yes' : '<span class="muted">idle</span>',
+  table($('t-fleet'), ['robot','leg','battery','busy','job','going to','at','responsive','halted because'],
+    d.fleet, r => [r.name, r.leg, battery(r),
+      r.busy ? 'yes' : '<span class="muted">idle</span>',
       r.job_id, r.leg_target,
       r.position ? `${n1(r.position[0])},${n1(r.position[1])}` : null,
       cls(r.responsive ? 'yes' : 'NO', 'yes'),

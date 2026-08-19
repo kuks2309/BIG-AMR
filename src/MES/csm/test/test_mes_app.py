@@ -331,7 +331,13 @@ def test_the_store_is_gated_when_a_dispatcher_is_present():
     assert app.store.create("station_3", "station_9").ctx.dispatch_permit is False
 
 
-def test_all_three_are_registered_with_the_supervisor():
+def test_every_task_is_registered_with_the_supervisor():
+    """Four now: charging joined the three job-layer FSMs.
+
+    The list is asserted in full rather than by count, because a task that is
+    constructed and never registered is a task that silently never runs — and
+    a supervisor exists precisely so that cannot happen quietly.
+    """
     _, _, app = build()
     assert [f.name for f in app.supervisor.fsms] == \
-        ["equipment_monitor", "dispatcher", "job_tracker"]
+        ["equipment_monitor", "dispatcher", "job_tracker", "charging"]

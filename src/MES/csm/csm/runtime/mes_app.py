@@ -29,22 +29,28 @@ import time
 
 from .job_store import JobStore
 from .supervisor import Supervisor
-from .tasks import DispatcherTask, EquipmentMonitorTask, JobTrackerTask
+from .tasks import (ChargingTask, DispatcherTask,
+                    EquipmentMonitorTask, JobTrackerTask)
 
 
 class MesApp:
-    """The assembled system: a store, three FSMs, and a supervisor over them."""
+    """The assembled system: a store, its FSMs, and a supervisor over them."""
 
-    def __init__(self, store, monitor, dispatcher, tracker, supervisor):
+    def __init__(self, store, monitor, dispatcher, tracker, supervisor,
+                 charging=None):
         self.store = store
         self.monitor = monitor
         self.dispatcher = dispatcher
         self.tracker = tracker
+        #: Optional so that a caller wanting only the job layer — and every
+        #: test written before charging existed — is unaffected.
+        self.charging = charging
         self.supervisor = supervisor
 
     @property
     def tasks(self):
-        return (self.monitor, self.dispatcher, self.tracker)
+        core = (self.monitor, self.dispatcher, self.tracker)
+        return core + ((self.charging,) if self.charging else ())
 
     async def tick_all(self):
         """Step all three once, in order, without the supervisor.
@@ -112,18 +118,21 @@ def build_mes(equipment, acs, source_for, clock=time.monotonic, logger=print,
     monitor.return_for = return_for
     dispatcher = DispatcherTask(store, period=periods.get("dispatcher"))
     tracker = JobTrackerTask(store, period=periods.get("job_tracker"))
+    charging = ChargingTask(store, period=periods.get("charging"))
 
     # The graph. Appended after construction because it has a cycle — the
     # tracker tells the dispatcher that capacity came back, and the dispatcher
     # tells the tracker to move the job it just granted.
     monitor.wakes.extend([dispatcher, tracker])
+    charging.wakes.append(tracker)
     dispatcher.wakes.append(tracker)
     tracker.wakes.append(dispatcher)
 
     supervisor = None
     if install_supervisor:
         supervisor = Supervisor(logger=logger)
-        for task in (monitor, dispatcher, tracker):
+        for task in (monitor, dispatcher, tracker, charging):
             supervisor.register(task)
 
-    return MesApp(store, monitor, dispatcher, tracker, supervisor)
+    return MesApp(store, monitor, dispatcher, tracker, supervisor,
+                  charging=charging)

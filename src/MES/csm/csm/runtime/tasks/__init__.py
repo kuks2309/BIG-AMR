@@ -19,7 +19,9 @@ records the failure and the siblings keep going.
 """
 
 from .dispatcher import DispatcherTask
+from .charging import ChargingTask
 from .equipment_monitor import EquipmentMonitorTask
 from .job_tracker import JobTrackerTask
 
-__all__ = ["EquipmentMonitorTask", "DispatcherTask", "JobTrackerTask"]
+__all__ = ["EquipmentMonitorTask", "DispatcherTask", "JobTrackerTask",
+           "ChargingTask"]

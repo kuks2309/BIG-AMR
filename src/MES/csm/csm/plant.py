@@ -617,3 +617,59 @@ PARKING_JOIN_SLOTS = {seg: parking_join_slots(seg) for seg in _PARK_SIDE}
 PARKING = {seg: slots[0] for seg, slots in PARKING_SLOTS.items()}
 #: Where each parking spur meets its cross aisle.
 PARKING_JOIN = {seg: joins[0] for seg, joins in PARKING_JOIN_SLOTS.items()}
+
+
+#: WHICH QUEUE SLOTS HAVE POWER.
+#:
+#: A CHARGER IS A PARKING SLOT WITH A CABLE, not a separate place. That is how
+#: the real plant works — a robot waiting and a robot charging are in the same
+#: row — and it means charging needs no new geometry at all.
+#:
+#: Every second slot is powered, which is not a guess: deck slide 30 marks
+#: "Charger 5EA" for the Big AGV fleet on each polarity, and the cathode fleet
+#: is 2 + 2 + 6 = ten robots. One charger per two robots gives A:1 + B:1 + C:3
+#: = 5 — the deck's own number.
+#:
+#: ⚠ The real bays are 5.2 x 2.2 m against a 1.6 x 0.9 m robot, so a real
+#: charging bay is much larger than a parking slot. We do not model that: it
+#: matters for the floor plan and not for deciding who charges when.
+CHARGER_EVERY = 2
+
+
+def charging_slots(segment):
+    """Indices of this leg's queue slots that can charge."""
+    return list(range(0, FLEET[segment], CHARGER_EVERY))
+
+
+#: leg -> [(x, y)] of its charging positions.
+CHARGERS = {seg: [PARKING_SLOTS[seg][i] for i in charging_slots(seg)]
+            for seg in _PARK_SIDE}
+
+
+def charger_for(robot_name):
+    """Where this robot goes to charge, or None if its leg has no charger.
+
+    Its OWN leg's charger, because a robot is bound to one leg and driving it
+    across the plant to another leg's charger would cross every lane it is
+    meant to stay out of.
+
+    The nearest charging slot to the robot's own parking slot, so a robot that
+    is already parked usually has nowhere to go.
+    """
+    segment = ROBOT_SEGMENT.get(robot_name)
+    if segment is None or not CHARGERS.get(segment):
+        return None
+    home = parking_for(robot_name)
+    if home is None:
+        return CHARGERS[segment][0]
+    return min(CHARGERS[segment],
+               key=lambda c: (c[0] - home[0]) ** 2 + (c[1] - home[1]) ** 2)
+
+
+def is_charger(position, tolerance=0.3):
+    """Is this position one of the charging slots?"""
+    for slots in CHARGERS.values():
+        for x, y in slots:
+            if abs(x - position[0]) <= tolerance and abs(y - position[1]) <= tolerance:
+                return True
+    return False

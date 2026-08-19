@@ -55,7 +55,10 @@ def _plant():
         "docks": [{"name": n, "x": xy[0], "y": xy[1]}
                   for n, xy in plant.DOCKS.items()],
         "parking": [{"name": f"{seg}{i + 1}", "x": xy[0], "y": xy[1],
-                     "leg": seg}
+                     "leg": seg,
+                     # A charger is a parking slot with power, so the map
+                     # marks the slot rather than drawing a separate thing.
+                     "charger": xy in plant.CHARGERS.get(seg, [])}
                     for seg, slots in plant.PARKING_SLOTS.items()
                     for i, xy in enumerate(slots)],
     }

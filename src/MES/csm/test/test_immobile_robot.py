@@ -14,7 +14,7 @@ import pytest
 from csm.adapters.sim_acs import SimRobot
 
 
-def robot(joints_stamp, now=100.0):
+def robot(joints_stamp, now=100.0, battery=100.0):
     """A SimRobot with only what `can_move` reads.
 
     Built without __init__ for the same reason test_traffic.py does it: the
@@ -24,6 +24,9 @@ def robot(joints_stamp, now=100.0):
     r = object.__new__(SimRobot)
     r._joints_stamp = joints_stamp
     r._now = lambda: now
+    # `can_move` reads the battery too — a robot with no charge cannot drive
+    # anywhere, whatever its controllers are doing.
+    r.battery = battery
     return r
 
 
@@ -58,3 +61,14 @@ def test_pose_is_not_evidence_that_a_robot_can_move():
     stalled = robot(None)
     stalled.pose = (23.5, -1.5, 0.0)      # a perfectly good ground-truth pose
     assert not stalled.can_move
+
+
+# -- and a flat robot cannot move either -------------------------------------
+
+def test_a_flat_battery_means_it_cannot_move():
+    """Controllers reporting perfectly and no charge is still immobile."""
+    assert not robot(99.5, battery=0.0).can_move
+
+
+def test_a_charged_robot_with_live_controllers_can_move():
+    assert robot(99.5, battery=55.0).can_move
