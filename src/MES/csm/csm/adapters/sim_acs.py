@@ -828,8 +828,15 @@ class SimRobot:
 
         if not self._homing:
             self._homing = True
+            # `park_{segment}` was a NameError here — `segment` is never
+            # defined in this method — so every attempt to drive home killed
+            # the drive FSM. It survived unseen because homing is only reached
+            # by a robot that is idle AND away from its bay, which the fleet
+            # rarely was until charging started sending robots out.
+            node = roads.park_node(self.name)
             self._home_waypoints = list(
-                ROADS.route_to_node(self.pose[:2], f"park_{segment}")) or [bay]
+                ROADS.route_to_node(self.pose[:2], node) if node else []
+            ) or [bay]
             self.node.get_logger().info(
                 f"{self._tag()}no work — returning to park via "
                 f"{len(self._home_waypoints)} waypoints")
@@ -924,6 +931,22 @@ class SimRobot:
     DRAIN_MOVING = 0.020
     DRAIN_IDLE = 0.002
     CHARGE_RATE = 0.50
+
+    @property
+    def charging(self):
+        """Has this robot been told to charge and not finished?
+
+        A CHARGING ROBOT IS NOT A FREE ROBOT, even though it is not busy. It
+        was excluded by neither test, so the dispatcher took a robot that was
+        sitting on a charger part-charged, drove it away on a job, and left it
+        draining — while `charging_to` stayed set, so the live view went on
+        reporting it as charging the whole time it was going down. Observed
+        2026-08-19: amr1 rose 20% -> 30%, took a job, and fell again.
+
+        Cleared by `_step_battery` on reaching the target, so the exclusion
+        ends on its own rather than needing anyone to remember to lift it.
+        """
+        return self._charging_to is not None
 
     def _step_battery(self, moving):
         """Drain or charge, once per control cycle.
@@ -2323,6 +2346,7 @@ class SimAcs(AcsAdapter):
 
         free = [r for r in self.robots
                 if not r.busy
+                and not r.charging
                 and r.pose is not None
                 and r.can_move
                 and plant.ROBOT_SEGMENT.get(r.name) == segment["name"]]

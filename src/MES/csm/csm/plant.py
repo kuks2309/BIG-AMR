@@ -521,13 +521,28 @@ def parking_for(robot_name):
     over with a default — a default would mean sending two robots to the same
     coordinates, which is what this replaced.
     """
-    segment = ROBOT_SEGMENT.get(robot_name)
+    segment, index = parking_index(robot_name)
     if segment is None:
         return None
-    peers = sorted(n for n, s in ROBOT_SEGMENT.items() if s == segment)
-    index = peers.index(robot_name)
     slots = PARKING_SLOTS[segment]
     return slots[index] if index < len(slots) else None
+
+
+def parking_index(robot_name):
+    """Which leg this robot parks on, and its place in that leg's queue.
+
+    Split out of `parking_for` because two things need it and they need
+    different answers from it: the coordinates to drive to, and the ROAD NODE
+    with those coordinates. Deriving the queue position twice is how the two
+    would eventually disagree about which slot a robot owns.
+
+    Returns (None, None) for a robot on no leg.
+    """
+    segment = ROBOT_SEGMENT.get(robot_name)
+    if segment is None:
+        return None, None
+    peers = sorted(n for n, s in ROBOT_SEGMENT.items() if s == segment)
+    return segment, peers.index(robot_name)
 
 
 def segment_of(robot_name):

@@ -358,20 +358,24 @@ def generate_launch_description():
             arguments=['--robots', str(count),
                        '--battery-scale',
                        LaunchConfiguration('battery_scale'),
-                       # Always passed; an EMPTY value means "leave the CSM's
-                       # own default alone". A launch argument's value is not
-                       # known while the description is being built, so it
-                       # cannot be omitted conditionally — the empty string is
-                       # the substitute for omitting it, and sim_node reads it
-                       # that way.
-                       '--low-battery',
-                       LaunchConfiguration('low_battery'),
-                       '--charge-to',
-                       LaunchConfiguration('charge_to'),
-                       '--critical-battery',
-                       LaunchConfiguration('critical_battery'),
-                       '--start-battery',
-                       LaunchConfiguration('start_battery')],
+                       # `--flag=value`, JOINED, not two tokens.
+                       #
+                       # An empty value means "leave the CSM's own default
+                       # alone" — a launch argument's value is not known while
+                       # the description is being built, so a flag cannot be
+                       # omitted conditionally. But launch DROPS an empty
+                       # argument, so the two-token form arrived as a bare
+                       # `--low-battery --charge-to ...` with every value
+                       # eaten by the next flag. Joined, the token is
+                       # `--low-battery=` and can never be empty.
+                       ['--low-battery=',
+                        LaunchConfiguration('low_battery')],
+                       ['--charge-to=',
+                        LaunchConfiguration('charge_to')],
+                       ['--critical-battery=',
+                        LaunchConfiguration('critical_battery')],
+                       ['--start-battery=',
+                        LaunchConfiguration('start_battery')]],
             condition=IfCondition(LaunchConfiguration('mes')),
         )],
     )

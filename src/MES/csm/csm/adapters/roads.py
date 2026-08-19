@@ -180,6 +180,23 @@ class Roads:
         return [self.nodes[n] for n in chain]
 
 
+def park_node(robot_name):
+    """The graph node for this robot's OWN parking slot, or None.
+
+    The NAME is built here because `build()` builds it — slot 0 keeps the
+    historic `park_A` and later slots take `park_A2`, `park_A3`. A caller
+    spelling that rule out for itself is a caller that will eventually spell it
+    differently, and the failure is a route to a node that does not exist.
+
+    Which slot a robot owns comes from `plant.parking_index`, so the node and
+    the coordinates `plant.parking_for` returns cannot drift apart.
+    """
+    segment, index = plant.parking_index(robot_name)
+    if segment is None or index >= len(plant.PARKING_SLOTS[segment]):
+        return None
+    return f"park_{segment}" + ("" if index == 0 else str(index + 1))
+
+
 def build():
     """The checked lane network for the plant. Raises UnsafeLane if obstructed."""
     obstacles = {n: (pos, MACHINE_RADIUS) for n, pos in plant.OBSTACLES.items()}
