@@ -214,3 +214,68 @@ def test_two_requests_in_one_cycle_arrive_as_two():
             await client.disconnect()
             await machine.stop()
     run(go())
+
+
+# -- the server is allowed to say no -----------------------------------------
+
+@pytest.mark.timeout(60)
+def test_the_server_reports_what_queue_size_it_actually_granted():
+    """QueueSize is a REQUEST. The server returns a RevisedQueueSize.
+
+    asyncua does not surface it — create_monitored_items reads it off the
+    response and keeps only the item id, storing the REQUESTED size in its own
+    bookkeeping. So the library will happily let us believe we are protected.
+    """
+    async def go():
+        machine, client = await _connected()
+        try:
+            await _settle()
+            assert client.revised_queue_sizes, "nothing was read back"
+            assert client.coalescing_protected is True
+            assert all(v > 1 for v in client.revised_queue_sizes.values())
+        finally:
+            await client.disconnect()
+            await machine.stop()
+    run(go())
+
+
+@pytest.mark.timeout(60)
+def test_a_server_that_caps_the_queue_is_detected_not_believed():
+    """The failure this guards against is silent, so the detection must not be.
+
+    Many PLC OPC-UA servers cap QueueSize at 1. If ours does, change
+    notifications coalesce exactly as polling does — the same bug one layer
+    down, and harder to find because the code says QUEUE_SIZE = 10 and looks
+    correct.
+    """
+    async def go():
+        machine, client = await _connected()
+        try:
+            await _settle()
+
+            # Stand in for a server that will only ever grant one slot.
+            real = client._client.uaclient.modify_monitored_items
+
+            async def capped(params):
+                results = await real(params)
+                for r in results:
+                    r.RevisedQueueSize = 1
+                return results
+
+            client._client.uaclient.modify_monitored_items = capped
+            await client.verify_queueing()
+
+            assert client.coalescing_protected is False
+            assert set(client.revised_queue_sizes.values()) == {1}
+        finally:
+            await client.disconnect()
+            await machine.stop()
+    run(go())
+
+
+@pytest.mark.timeout(60)
+def test_protection_is_unknown_before_we_have_asked():
+    """None, not True. Not having checked is not the same as being safe."""
+    client = OpcUaEquipmentClient(ENDPOINT, {STATION: OBJECT},
+                                  axis=DockingAxis.UNWIND_A)
+    assert client.coalescing_protected is None

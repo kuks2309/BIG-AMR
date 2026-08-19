@@ -119,6 +119,11 @@ class OpcUaEquipmentClient(EquipmentAdapter):
     nothing above it learns that OPC-UA exists.
     """
 
+    #: Set False when the server refuses to queue changes — see
+    #: `verify_queueing`. Public because it changes what this adapter can
+    #: promise, and a caller that cares should be able to ask.
+    coalescing_protected = None
+
     def __init__(self, endpoint, stations, axis=None, namespace_uri=None):
         """
         :param endpoint:  e.g. "opc.tcp://192.168.1.10:4840"
@@ -136,6 +141,8 @@ class OpcUaEquipmentClient(EquipmentAdapter):
         self._handles = []
         self._cache = _SignalCache()
         self._acknowledged = []
+        #: What the server actually granted, per subscribed variable.
+        self.revised_queue_sizes = {}
 
     # -- connection ------------------------------------------------------
 
@@ -164,6 +171,84 @@ class OpcUaEquipmentClient(EquipmentAdapter):
                     node, queuesize=QUEUE_SIZE,
                     sampling_interval=SAMPLING_MS)
                 self._handles.append((handle, station_id, signal, node))
+
+        await self.verify_queueing()
+
+    async def verify_queueing(self):
+        """Ask the server what it ACTUALLY granted, and believe that instead.
+
+        THE SERVER IS ALLOWED TO SAY NO. `QueueSize` is a request, not a
+        setting: the server returns a RevisedQueueSize and may revise it down.
+        Plenty of PLC OPC-UA servers cap it at 1.
+
+        If it does, this adapter's whole advantage over polling is gone —
+        two rapid transitions coalesce into one exactly as they would on a
+        timer, with no error and nothing in the log. The same bug, one layer
+        further down, and harder to find because the code says QUEUE_SIZE = 10
+        and looks correct.
+
+        ⚠ asyncua does not expose the revised value: `create_monitored_items`
+        reads it off the response and keeps only the item id, storing the
+        REQUESTED size in its own bookkeeping. So the library will let us
+        believe we are protected. This asks again via ModifyMonitoredItems,
+        whose response carries the same field, and requests the parameters we
+        already have — so it changes nothing and only reads back.
+        """
+        from asyncua import ua
+
+        if self._subscription is None or not self._handles:
+            return
+        items = []
+        ordered = []
+        # `subscribe_data_change` hands back the SERVER handle, while
+        # asyncua keys its own bookkeeping by the CLIENT handle. Looking the
+        # first up in the second finds nothing and this check quietly did
+        # nothing at all — which is the exact failure mode it exists to
+        # prevent, so it is worth naming rather than fixing silently.
+        by_server_handle = {
+            data.server_handle: client_handle
+            for client_handle, data in self._subscription._monitored_items.items()
+            if getattr(data, "server_handle", None) is not None
+        }
+        for handle, station_id, signal, node in self._handles:
+            client_handle = by_server_handle.get(handle)
+            if client_handle is None:
+                continue
+            request = ua.MonitoredItemModifyRequest()
+            request.MonitoredItemId = handle
+            request.RequestedParameters = ua.MonitoringParameters(
+                ClientHandle=client_handle,
+                SamplingInterval=SAMPLING_MS,
+                QueueSize=QUEUE_SIZE,
+                DiscardOldest=False,
+            )
+            items.append(request)
+            ordered.append((station_id, signal))
+
+        if not items:
+            return
+        params = ua.ModifyMonitoredItemsParameters()
+        params.SubscriptionId = self._subscription.subscription_id
+        params.ItemsToModify = items
+        params.TimestampsToReturn = ua.TimestampsToReturn.Both
+        results = await self._client.uaclient.modify_monitored_items(params)
+
+        smallest = QUEUE_SIZE
+        for (station_id, signal), result in zip(ordered, results):
+            granted = int(result.RevisedQueueSize)
+            self.revised_queue_sizes[
+                (station_id, variable_name(signal, self.axis))] = granted
+            smallest = min(smallest, granted)
+
+        self.coalescing_protected = smallest > 1
+        if not self.coalescing_protected:
+            # Loud, because the failure it reintroduces is silent.
+            print(f"OPC-UA WARNING: server revised QueueSize to {smallest}. "
+                  f"Change notifications will COALESCE, so two transport "
+                  f"requests raised close together arrive as one and the "
+                  f"second job is never created. This adapter is no better "
+                  f"than polling until the server allows queueing.")
+        return self.coalescing_protected
 
     async def disconnect(self):
         if self._subscription is not None:
