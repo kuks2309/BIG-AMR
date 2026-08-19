@@ -84,7 +84,10 @@ class Assigned(State):
 
         ctx.log(f"submitted to ACS -> {result.value}")
         if result is TransportResult.REJECTED:
-            ctx.fail("ACS rejected the job")
+            # REJECTED means the job itself is wrong — an unknown
+            # station, or a route that is not a leg of the flow.
+            # Raising it again would produce the same answer.
+            ctx.fail("ACS rejected the job", retryable=False)
 
 
 class Running(State):

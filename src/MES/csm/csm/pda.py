@@ -208,6 +208,9 @@ class Pda:
             if record.job.job_id == job_id:
                 self.store.acs.cancel_job(job_id)
                 record.job.failure_reason = "cancelled from the PDA"
+                # A person stopped this on purpose. Raising it again
+                # would be arguing with them.
+                record.job.retryable = False
                 self.store.logger(f"[{job_id}] cancelled from the PDA")
                 return True
         return False

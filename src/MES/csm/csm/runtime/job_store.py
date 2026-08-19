@@ -29,6 +29,14 @@ JobRecord = namedtuple("JobRecord", "job ctx fsm")
 #: States a job never leaves.
 TERMINAL = ("DONE", "FAILED")
 
+#: How many times work may be raised before CSM gives up on it.
+#:
+#: Specification assumption A7: unknown failures are "retried a bounded number
+#: of times, then failed". Bounded is the important word — a job that cannot
+#: succeed must eventually stop consuming a robot, and an unbounded retry turns
+#: one broken station into a fleet that never does anything else.
+MAX_ATTEMPTS = 3
+
 
 class JobStore:
 
@@ -59,13 +67,17 @@ class JobStore:
         self.active = []            # [JobRecord]
         self.finished = []          # [Job] that reached DONE or FAILED
         self.station_busy = set()   # stations with a job still in flight
+        #: Work raised again after a failure. Worth counting apart from jobs
+        #: created: a rising number here is a line that is struggling, not a
+        #: line that is busy.
+        self.retried = 0
         self._job_seq = 0
 
     # ---------------------------------------------------------------- jobs
 
     def create(self, from_station, to_station, priority=0, task_type=None,
                carries=Carried.ROLL, call_id=None, reason="",
-               material_ref=None):
+               material_ref=None, attempt=1, retry_of=None):
         self._job_seq += 1
         now = self.clock()
         job = Job(
@@ -85,6 +97,8 @@ class JobStore:
             #: which therefore answers no call.
             call_id=call_id,
             material_ref=material_ref,
+            attempt=attempt,
+            retry_of=retry_of,
         )
         # What the equipment asked for: load, unload, or swap. Carried so the
         # adapter can issue the right operation without re-deriving it.
@@ -113,6 +127,50 @@ class JobStore:
         self.logger(f"[{job.job_id}] created: {from_station} -> {to_station}"
                     f" ({carries.value})")
         return record
+
+    def _raise_again(self, failed):
+        """Re-raise the work a failed job was carrying, within the ceiling.
+
+        THE WORK OUTLIVES THE JOB. A transport that failed does not mean the
+        material stopped needing to move — but nothing raised it again, so it
+        was simply lost: the ACS order cancelled, the job retired, and the
+        machine's call already acknowledged, so the equipment had stopped
+        asking and no one was coming. Nothing reported it, because from every
+        component's point of view its own part had finished.
+
+        Not every failure comes back. An invalid job and one a person cancelled
+        are answers, not accidents, and repeating them argues with the answer.
+        The ceiling is specification A7's "bounded number of times".
+        """
+        if not failed.retryable:
+            self.logger(f"[{failed.job_id}] not retried: "
+                        f"{failed.failure_reason or 'terminal failure'}")
+            return None
+        if failed.attempt >= MAX_ATTEMPTS:
+            # Loud, because this is where work is genuinely abandoned and
+            # somebody has to know the material is still standing there.
+            self.logger(f"[{failed.job_id}] GIVING UP after "
+                        f"{failed.attempt} attempts: "
+                        f"{failed.from_station} -> {failed.to_station} "
+                        f"({failed.failure_reason})")
+            return None
+
+        replacement = self.create(
+            failed.from_station, failed.to_station,
+            priority=failed.priority,
+            task_type=getattr(failed, "task_type", None),
+            carries=failed.carries,
+            call_id=failed.call_id,
+            material_ref=failed.material_ref,
+            attempt=failed.attempt + 1,
+            retry_of=failed.job_id,
+            reason=f"attempt {failed.attempt + 1} of {MAX_ATTEMPTS} after "
+                   f"{failed.job_id} failed: {failed.failure_reason}",
+        )
+        self.retried += 1
+        self.logger(f"[{replacement.job.job_id}] raised again for "
+                    f"{failed.job_id} (attempt {failed.attempt + 1})")
+        return replacement
 
     def _on_change(self, ctx, transition):
         """Mirror the FSM's state onto the job record.
@@ -191,8 +249,11 @@ class JobStore:
             else:
                 still_active.append(record)
 
+        replacements = []
         for record in retired:
             self.finished.append(record.job)
+            if record.fsm.current.name == "FAILED":
+                replacements.append(record.job)
             # Free BOTH ends, whether the job succeeded or failed.
             #
             # Which end was claimed changed on 2026-08-04: the old model claimed
@@ -210,6 +271,12 @@ class JobStore:
                         f"{record.fsm.current.name}")
 
         self.active = still_active
+
+        # RAISE THE WORK AGAIN — after `self.active` has been rebuilt, because
+        # `create` appends to it and doing this inside the loop above would
+        # have the new jobs wiped by the reassignment.
+        for job in replacements:
+            self._raise_again(job)
         return retired
 
     # --------------------------------------------------------------- queries

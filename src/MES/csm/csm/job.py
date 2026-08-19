@@ -51,6 +51,18 @@ class Job:
     #: Set when the job ends badly, so an operator sees *why* and not just that.
     failure_reason: str = ""
 
+    #: WHICH ATTEMPT THIS IS, from 1. The work outlives the job: a failed
+    #: transport does not mean the material stopped needing to move.
+    attempt: int = 1
+
+    #: May this work be raised again if it fails? False for failures that
+    #: repeating cannot fix — an invalid job, or one a person cancelled on
+    #: purpose. Retrying either would be arguing with the answer.
+    retryable: bool = True
+
+    #: The job this one replaces, so a chain of attempts is followable.
+    retry_of: str = None
+
     # -- the rest of specification section 7's job record --------------------
 
     #: The call this job answers, or None for the one job type CSM originates
@@ -158,9 +170,14 @@ class JobContext:
         return (self.submit_attempts == 0
                 or self.time_in_state() >= self.retry_backoff_s)
 
-    def fail(self, reason):
-        """Record why a job is failing. Call before the transition fires."""
+    def fail(self, reason, retryable=True):
+        """Record why a job is failing. Call before the transition fires.
+
+        :param retryable: whether raising this work again could succeed. False
+            for a job that is invalid, or one a person cancelled deliberately.
+        """
         self.job.failure_reason = reason
+        self.job.retryable = retryable
 
     def log(self, message):
         if self.logger:
