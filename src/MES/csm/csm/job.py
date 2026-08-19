@@ -63,6 +63,17 @@ class Job:
     from_instance: int = None
     to_instance: int = None
 
+    #: WHICH material this job is moving, by LOT id.
+    #:
+    #: Beyond specification section 7's job record, which names only the OBJECT
+    #: (roll or bobbin). The scope slide's location management needs the
+    #: individual thing tracked, not just its kind — "이 롤이 어디 있었나" cannot
+    #: be answered from a job that only knows it carried "a roll".
+    #:
+    #: None while the material is not identified, which is most of the line
+    #: today: only the WIP racks name what they hold.
+    material_ref: str = None
+
     #: The ACS's id for the order we submitted. We use the job id as the order
     #: id, so these are equal today — but they are separate fields because that
     #: is our choice and not the ACS's rule, and a server that assigns its own

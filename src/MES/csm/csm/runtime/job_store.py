@@ -64,7 +64,8 @@ class JobStore:
     # ---------------------------------------------------------------- jobs
 
     def create(self, from_station, to_station, priority=0, task_type=None,
-               carries=Carried.ROLL, call_id=None, reason=""):
+               carries=Carried.ROLL, call_id=None, reason="",
+               material_ref=None):
         self._job_seq += 1
         now = self.clock()
         job = Job(
@@ -83,6 +84,7 @@ class JobStore:
             #: None for the WIP diversion, which CSM originates itself and
             #: which therefore answers no call.
             call_id=call_id,
+            material_ref=material_ref,
         )
         # What the equipment asked for: load, unload, or swap. Carried so the
         # adapter can issue the right operation without re-deriving it.
@@ -123,6 +125,18 @@ class JobStore:
         job.state_name = transition.target.name
         job.state_since = ctx.now()
         job.history.append((ctx.now(), transition.name, transition.target.name))
+
+        # AND WHERE THE MATERIAL NOW IS. Done here rather than in the Done
+        # state because this is the one place that sees every transition and
+        # also holds the records; the FSM's context deliberately does not.
+        #
+        # Only on success. A failed job did not move anything, and recording a
+        # movement that did not happen is worse than recording none — the whole
+        # point of the history is that it can be trusted.
+        if job.material_ref and transition.target.name == "DONE":
+            self.records.move_material(job.material_ref, job.to_station,
+                                       at=ctx.now(), job_id=job.job_id,
+                                       note=f"{job.carries.value} delivered")
 
     # ------------------------------------------------------------- stations
 

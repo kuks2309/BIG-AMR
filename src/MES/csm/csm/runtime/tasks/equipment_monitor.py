@@ -292,13 +292,23 @@ class EquipmentMonitorTask(FsmTask):
                     continue
                 # THE ONE JOB WITH NO CALLER, so no call_id — which is
                 # exactly what makes it identifiable later.
+                # THE MATERIAL GETS AN IDENTITY HERE, because this is where
+                # it stops being "whatever the machine had" and starts being a
+                # thing sitting on a rack that somebody will later ask for by
+                # name. The rack is also where the customer's own system keeps
+                # carrier identity — it vanishes at an equipment station and
+                # persists at the buffer.
+                now = self.store.clock()
+                material = self.store.records.register_material(
+                    kind="roll", at=now, location=source)
                 job = self.store.create(
                     source, port,
                     reason=f"every destination of segment {seg['name']} was "
-                           f"full")
-                self.store.records.park(port, material_ref=job.job.job_id,
-                                        job_id=job.job.job_id,
-                                        at=self.store.clock())
+                           f"full",
+                    material_ref=material.material_ref)
+                self.store.records.park(port,
+                                        material_ref=material.material_ref,
+                                        job_id=job.job.job_id, at=now)
                 self.diverted += 1
                 self.store.logger(
                     f"[{source}] all destinations full — diverted to {port}")

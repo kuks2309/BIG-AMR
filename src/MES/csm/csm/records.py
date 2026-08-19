@@ -35,6 +35,7 @@ and it remains one.
 
 import itertools
 import re
+from datetime import datetime, timedelta
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -154,6 +155,66 @@ class StationMap:
     customer_port_id: str = None
 
 
+#: THE CUSTOMER'S LOT ID FORMAT: yyyymmddhhmmssfff, to the millisecond.
+#:
+#: Theirs, not ours — the CSM scope slide states it exactly. It is a TIMESTAMP
+#: used as an identifier, which has one consequence worth knowing: there is no
+#: room in it for a counter, so two materials registered in the same
+#: millisecond would collide. `InMemoryRecords` steps the timestamp forward
+#: rather than allowing that; see `_next_lot_id`.
+LOT_ID_FORMAT = "%Y%m%d%H%M%S"
+
+
+def lot_id_for(moment):
+    """Format one datetime as a LOT id."""
+    return f"{moment.strftime(LOT_ID_FORMAT)}{moment.microsecond // 1000:03d}"
+
+
+@dataclass
+class Material:
+    """A roll or a bobbin, as far as CSM needs to know it.
+
+    THE IDENTIFIER AND ALMOST NOTHING ELSE. Width, weight, grade and coating
+    spec belong to the customer's systems; section 7 is explicit that keeping a
+    second copy is how mismatches arise. What is here is what CSM decides with:
+    where the thing is, when it may be used, and how it got there.
+    """
+
+    material_ref: str
+    lot_id: str
+    kind: str = "roll"                 # roll | bobbin
+    created_at: float = 0.0
+    location: str = None
+
+    #: When resting finishes and this may be fed into a machine. None means WE
+    #: DO NOT KNOW — not "ready now". Which of those it turns out to be is
+    #: customer open decision #6, "who owns curing elapsed time".
+    ready_at: float = None
+
+    #: When it expires, for FEFO. None means unknown, and unknown is not
+    #: "never expires".
+    expires_at: float = None
+
+
+@dataclass
+class MaterialMove:
+    """One movement of one material. Section 7's traceability, in a row.
+
+    `job_history` records what a JOB did. This records what a MATERIAL did, and
+    they are not the same question: "where has this roll been" cannot be
+    answered by reading job records, because a roll outlives the jobs that
+    carried it.
+    """
+
+    material_ref: str
+    seq: int
+    at: float
+    from_location: str = None
+    to_location: str = None
+    job_id: str = None
+    note: str = ""
+
+
 class Records(ABC):
     """The port. Storage is deliberately not decided here — see the module note."""
 
@@ -190,6 +251,23 @@ class Records(ABC):
         """Every slot on a rack, in order."""
 
     @abstractmethod
+    def register_material(self, kind="roll", at=0.0, location=None):
+        """Give a new roll or bobbin a LOT id. Returns the `Material`."""
+
+    @abstractmethod
+    def move_material(self, material_ref, to_location, at, job_id=None,
+                      note=""):
+        """Record that a material moved. Returns the `MaterialMove`."""
+
+    @abstractmethod
+    def locate(self, material_ref):
+        """Where is it now, or None if we have never been told."""
+
+    @abstractmethod
+    def history_of(self, material_ref):
+        """Every movement of this material, oldest first."""
+
+    @abstractmethod
     def map_station(self, our_name, customer_port_id):
         """Bind our name for a port to the customer's."""
 
@@ -205,17 +283,28 @@ class InMemoryRecords(Records):
     module note on why the engine is not chosen yet.
     """
 
-    def __init__(self, rack_sizes=None):
+    def __init__(self, rack_sizes=None, wall_clock=None):
         """
         :param rack_sizes: {rack name: how many slots}. The specification's
             capacities are WIPGP 2, WIPCTR 13, WIPSLT 30 and WIPCAL 28 — real
             numbers, and the reason a rack is slot-counted rather than a flag.
+        :param wall_clock: callable() -> datetime, for LOT ids. Separate from
+            the simulation clock ON PURPOSE: the sim clock is a monotonic float
+            that starts near zero, and a LOT id is a real calendar timestamp
+            the customer will read. A test injects a fixed one.
         """
+        self._materials = {}
+        self._moves = []
+        self._issued_lots = set()
+        self._wall_clock = wall_clock or datetime.now
         self._calls = {}
         self._decisions = []
         self._racks = {}
         self._stations = {}
         self._call_seq = itertools.count(1)
+        #: How many times a material was accepted without knowing whether it
+        #: had rested. See `is_ready`.
+        self.unrested_decisions = 0
         for rack, size in (rack_sizes or {}).items():
             self.define_rack(rack, size)
 
@@ -299,6 +388,120 @@ class InMemoryRecords(Records):
 
     def is_full(self, rack):
         return rack in self._racks and not self.free_slots(rack)
+
+    # -- materials, LOT ids and where things are -------------------------
+
+    def _next_lot_id(self):
+        """A LOT id nobody else has.
+
+        The customer's format is a millisecond timestamp with no counter in it,
+        so two registrations inside one millisecond would produce the same id.
+        Rather than allow a duplicate — a LOT id is how their systems will
+        refer to this material — the timestamp is stepped forward until it is
+        free. The id stays the right shape and stays unique; the cost is that
+        it can be up to a few milliseconds later than the true moment.
+        """
+        moment = self._wall_clock()
+        candidate = lot_id_for(moment)
+        while candidate in self._issued_lots:
+            moment = moment + timedelta(milliseconds=1)
+            candidate = lot_id_for(moment)
+        self._issued_lots.add(candidate)
+        return candidate
+
+    def register_material(self, kind="roll", at=0.0, location=None):
+        lot = self._next_lot_id()
+        material = Material(material_ref=lot, lot_id=lot, kind=kind,
+                            created_at=at, location=location)
+        self._materials[lot] = material
+        if location is not None:
+            self._record_move(lot, None, location, at, note="registered")
+        return material
+
+    def material(self, material_ref):
+        return self._materials.get(material_ref)
+
+    def _record_move(self, material_ref, frm, to, at, job_id=None, note=""):
+        move = MaterialMove(
+            material_ref=material_ref,
+            seq=len(self.history_of(material_ref)) + 1,
+            at=at, from_location=frm, to_location=to,
+            job_id=job_id, note=note)
+        self._moves.append(move)
+        return move
+
+    def move_material(self, material_ref, to_location, at, job_id=None,
+                      note=""):
+        material = self._materials.get(material_ref)
+        if material is None:
+            return None
+        move = self._record_move(material_ref, material.location, to_location,
+                                 at, job_id, note)
+        material.location = to_location
+        return move
+
+    def locate(self, material_ref):
+        material = self._materials.get(material_ref)
+        return material.location if material else None
+
+    def history_of(self, material_ref):
+        return [m for m in self._moves if m.material_ref == material_ref]
+
+    def materials_at(self, location):
+        return [m for m in self._materials.values() if m.location == location]
+
+    # -- resting, and being honest about not knowing ---------------------
+
+    def set_ready_at(self, material_ref, when):
+        """Record when this material finishes resting, if we are told."""
+        material = self._materials.get(material_ref)
+        if material is not None:
+            material.ready_at = when
+        return material
+
+    def is_ready(self, material_ref, now):
+        """May this be fed into a machine yet?
+
+        ⚠ UNKNOWN COUNTS AS READY, and that is a decision, not an oversight.
+
+        The specification selects "the oldest matching material that has
+        finished resting" (A2) while section 7 says resting state is not
+        retained — so unless somebody tells us, we cannot apply the rule. The
+        two available answers are both wrong in different ways: refusing
+        material we know nothing about stops the line, and accepting it may
+        feed a machine something that has not cured.
+
+        Accepting is chosen because the line stopping is the louder failure and
+        because nothing today tells us otherwise — and `unrested_decisions`
+        counts how often we did it blind, so the size of the exposure is
+        visible rather than assumed. Customer open decision #6 settles it.
+        """
+        material = self._materials.get(material_ref)
+        if material is None:
+            return False
+        if material.ready_at is None:
+            self.unrested_decisions += 1
+            return True
+        return now >= material.ready_at
+
+    def ready_materials(self, location, now):
+        """What is at this place and may be used, oldest first — FIFO."""
+        here = [m for m in self.materials_at(location)
+                if self.is_ready(m.material_ref, now)]
+        return sorted(here, key=lambda m: m.created_at)
+
+    def expiring_first(self, location, now):
+        """FEFO: earliest expiry first, then oldest.
+
+        ⚠ Materials with no expiry sort LAST, not first. We are not told
+        expiries by anything today, so in practice this degrades to FIFO — and
+        it should, rather than inventing an order out of missing data.
+        """
+        here = [m for m in self.materials_at(location)
+                if self.is_ready(m.material_ref, now)]
+        return sorted(here, key=lambda m: (m.expires_at is None,
+                                           m.expires_at or 0.0,
+                                           m.created_at))
 
     # -- station map -----------------------------------------------------
 
