@@ -133,9 +133,143 @@ class Roads:
                 return name
         return order[0]
 
+    #: How much further than the NEAREST on-ramp we will walk to avoid one
+    #: that points the wrong way.
+    #:
+    #: THE FIRST HOP IS THE ONLY LEG NO LANE COVERS, so it must stay short.
+    #: This is the distance between two junctions on one corner — enough to
+    #: swap `join_ASRS` for `join_parkA`, which is the flip that produced the
+    #: loop — and no more.
+    #:
+    #: It was 5.0 for one draft and that was worse than the bug. From
+    #: (-19.6, +1.8) it chose an on-ramp 5.3 m away diagonally across the
+    #: aisle, over one 0.5 m away, because the far one saved a few metres of
+    #: lane. Trading lane metres for off-lane metres one-for-one is exactly
+    #: what this module exists to refuse: a clear straight line is clear of
+    #: MACHINES, not of other robots, and lanes are where the traffic rules
+    #: apply.
+    ENTRY_DETOUR = 1.5
+
+
+
+    def entry_node_for(self, pos, goal):
+        """The on-ramp that minimises the WHOLE trip, not just the first hop.
+
+        `entry_node` answers "what is nearest", which is the right question
+        when there is no destination yet and the WRONG one when there is.
+        Nearest is not continuous in position: a robot that moves a metre can
+        find a different node nearest, and if that node lies BEHIND it the new
+        route begins by going back the way it came.
+
+        Observed 2026-08-19. amr2, delivering to CTR1_LD, at (-18.1, +1.9):
+
+            join_ASRS   (-17.0, +3.0)   1.56 m away, 10 hops — back north-east
+            join_parkA  (-20.0, +1.5)   1.94 m away,  8 hops — onward, south
+
+        Nearest chose `join_ASRS`, so the route reversed. The robot drove back
+        up to the corner, re-planned, came south again, and repeated: a closed
+        circuit, west along y≈2.8 and east along y≈1.9, indefinitely. Nothing
+        was broken — no fault, no stall, no collision — it simply never
+        arrived, which is the hardest kind of failure to see.
+
+        Total cost is continuous in position, so it cannot flip like that: an
+        on-ramp only wins by saving more than the walk to it costs.
+        """
+        reach = self._distances_to(goal)
+        if not reach:
+            return self.entry_node(pos)
+
+        candidates = sorted(
+            (n for n in self.nodes if not n.startswith(self.TERMINAL)),
+            key=lambda n: math.hypot(self.nodes[n][0] - pos[0],
+                                     self.nodes[n][1] - pos[1]))
+        nearest = None
+        best, best_cost = None, float("inf")
+        for name in candidates:
+            hop = math.hypot(self.nodes[name][0] - pos[0],
+                             self.nodes[name][1] - pos[1])
+            if nearest is not None and hop > nearest + self.ENTRY_DETOUR:
+                break                    # sorted, so nothing later is closer
+            if name not in reach:
+                continue                 # cannot get to the goal from there
+            if not self.is_clear(pos, self.nodes[name]):
+                continue                 # the one leg no lane covers
+            if nearest is None:
+                nearest = hop
+            cost = hop + reach[name]
+            if cost < best_cost:
+                best, best_cost = name, cost
+        # Falling back to `entry_node` rather than to nothing: it applies the
+        # same clearance and exclusion rules and is never worse than refusing
+        # to plan at all.
+        return best if best is not None else self.entry_node(pos)
+
+    def _distances_to(self, goal):
+        """Shortest path cost from every node to `goal`.
+
+        One Dijkstra instead of one per candidate on-ramp. The lane graph is
+        undirected — `build()` adds each lane once and `adjacency` carries both
+        directions — so distances measured FROM the goal are the distances TO
+        it.
+        """
+        if goal not in self.nodes:
+            return {}
+        dist = {goal: 0.0}
+        unvisited = set(self.nodes)
+        while unvisited:
+            here = min((n for n in unvisited if n in dist),
+                       key=lambda n: dist[n], default=None)
+            if here is None:
+                break
+            unvisited.discard(here)
+            hx, hy = self.nodes[here]
+            for nxt in self.adjacency[here]:
+                if nxt not in unvisited:
+                    continue
+                nx, ny = self.nodes[nxt]
+                cost = dist[here] + math.hypot(nx - hx, ny - hy)
+                if cost < dist.get(nxt, float("inf")):
+                    dist[nxt] = cost
+        return dist
+
     def route_from(self, pos, to_station):
         """Waypoints from an arbitrary point to a station's dock."""
-        return self._route_nodes(self.entry_node(pos), f"dock_{to_station}")
+        goal = f"dock_{to_station}"
+        return self._forward_of(
+            pos, self._route_nodes(self.entry_node_for(pos, goal), goal))
+
+    def _forward_of(self, pos, route):
+        """Drop leading waypoints the robot has already gone past.
+
+        The driver pops a reached waypoint and never sees it again. A re-plan
+        has no such memory: it recomputes from the current position and can
+        hand back the junction just passed as the next thing to drive to. The
+        robot turns round for a corner it has already turned, crosses back, and
+        gets the same answer — a perfect oscillation either side of the node.
+        Observed 0.5 m each way around `join_parkA`.
+
+        DISTANCE CANNOT DECIDE THIS. "Half a metre from the junction" is true
+        just before it and just after, and the two need opposite answers. So
+        the test is not how far away the waypoint is, but whether it is on the
+        way: **going via it must not be a detour**. If the robot is already at
+        least as close to the NEXT waypoint as this one is, then this one is
+        behind, and steering at it means going backwards.
+
+        Scale-free, so there is no tolerance to tune and nothing to keep in
+        step with the driver's own. Fixed here rather than in the driver so
+        every caller gets a route that is safe to re-plan, instead of each one
+        having to remember.
+
+        The goal itself is never dropped: arriving is the driver's decision.
+        """
+        while len(route) > 1:
+            here, nxt = route[0], route[1]
+            to_next = math.hypot(nxt[0] - pos[0], nxt[1] - pos[1])
+            via_next = math.hypot(nxt[0] - here[0], nxt[1] - here[1])
+            if to_next > via_next:
+                break                    # the waypoint is genuinely ahead
+            route = route[1:]
+        return route
 
     def route_to_node(self, pos, node):
         """Waypoints from an arbitrary point to any named node.
@@ -145,7 +279,8 @@ class Roads:
         put an idle robot on no road at all, where no traffic rule could apply
         to it. Homing is an ordinary trip and takes ordinary roads.
         """
-        return self._route_nodes(self.entry_node(pos), node)
+        return self._forward_of(
+            pos, self._route_nodes(self.entry_node_for(pos, node), node))
 
     def route(self, from_station, to_station):
         return self._route_nodes(f"dock_{from_station}", f"dock_{to_station}")

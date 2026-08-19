@@ -464,6 +464,9 @@ class SimRobot:
         self._battery_stamp = None
         #: Set while the robot is on a charger and told to charge.
         self._charging_to = None
+        #: So the not-charging warning is logged once per charge order, not
+        #: every control cycle.
+        self._noted_not_charging = False
         #: A charge accepted while this robot was working, applied when the
         #: job ends. See `_charge_order`.
         self._charge_pending = None
@@ -948,6 +951,32 @@ class SimRobot:
         """
         return self._charging_to is not None
 
+    def _on_own_charger(self):
+        """Am I at MY charger, by the SAME tolerance I use to decide I arrived?
+
+        THESE WERE TWO DIFFERENT NUMBERS AND THE GAP BETWEEN THEM WAS A TRAP.
+        Homing stops within `HOME_TOL` (0.8 m, deliberately loose — creeping the
+        last few centimetres wastes the time the trip was meant to save), while
+        `plant.is_charger` answered within 0.3 m. A robot that stopped anywhere
+        between the two was parked, idle, reporting `charging_to 90`, and
+        drawing nothing.
+
+        Observed 2026-08-19: amr1 stopped at (-21.9, +1.6) with its charger at
+        (-22.5, +1.5) — 0.6 m, inside the parking tolerance and outside the
+        charging one. It sat there discharging while every screen said it was
+        charging, and would have reached zero that way. The state was
+        indistinguishable from charging everywhere except the battery.
+
+        Asking about MY charger rather than ANY charger is the second half:
+        a charger is one robot's own slot, so being near somebody else's is not
+        being on one.
+        """
+        mine = plant.charger_for(self.name)
+        if mine is None or self.pose is None:
+            return False
+        return math.hypot(mine[0] - self.pose[0],
+                          mine[1] - self.pose[1]) <= self.HOME_TOL
+
     def _step_battery(self, moving):
         """Drain or charge, once per control cycle.
 
@@ -961,7 +990,7 @@ class SimRobot:
         elapsed = max(0.0, now - self._battery_stamp)
         self._battery_stamp = now
 
-        on_charger = self.pose is not None and plant.is_charger(self.pose[:2])
+        on_charger = self._on_own_charger()
         if self._charging_to is not None and on_charger:
             self.battery = min(
                 self._charging_to,
@@ -971,6 +1000,18 @@ class SimRobot:
                 self.node.get_logger().info(
                     f"{self._tag()}charged to {self.battery:.0f}%")
             return
+
+        if self._charging_to is not None and not moving and not self._noted_not_charging:
+            # TOLD TO CHARGE, STANDING STILL, NOT ON THE CHARGER. Whatever the
+            # reason — it could not reach the slot, or stopped short of it —
+            # this is a robot going flat while every reader believes it is
+            # filling up. Said once, because silence here looks exactly like
+            # success.
+            self._noted_not_charging = True
+            self.node.get_logger().warn(
+                f"{self._tag()}told to charge to {self._charging_to:.0f}% but "
+                f"it is not on its charger and is not moving — battery "
+                f"{self.battery:.0f}% and falling")
         rate = self.DRAIN_MOVING if moving else self.DRAIN_IDLE
         self.battery = max(0.0, self.battery - rate * self.battery_scale * elapsed)
 
@@ -982,6 +1023,9 @@ class SimRobot:
         enough.
         """
         self._charging_to = to_level
+        # A new charge order gets a fresh warning. Otherwise a robot that
+        # failed to reach its charger once would fail silently ever after.
+        self._noted_not_charging = False
 
     #: Beyond this, two robots are not meeting. Generous — well past the
     #: distance at which either could affect the other — because ending an
