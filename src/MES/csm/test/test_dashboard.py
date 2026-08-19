@@ -174,3 +174,34 @@ def test_the_script_balances_even_without_an_engine():
         script = _script_of(page)
         assert script.count("{") == script.count("}"), "unbalanced braces"
         assert script.count("(") == script.count(")"), "unbalanced brackets"
+
+
+# ------------------------------------------------------------ one clock only
+
+def test_the_ageing_check_uses_the_stores_own_clock():
+    """TWO CLOCKS IS NOT A SMALL ERROR.
+
+    The store stamps jobs with `time.monotonic()` — seconds since boot — and
+    the ROS clock reads wall time. Comparing one to the other gives about 1.7
+    billion seconds, so every job reads as older than twenty minutes and the
+    ageing check reports ACTION permanently. Always-on reads as noise, which
+    is worse than off.
+    """
+    source = (pathlib.Path(__file__).resolve().parents[1]
+              / "csm" / "ui" / "server.py").read_text()
+    body = source.split("def _clock")[1].split("\ndef ")[0]
+
+    assert "store.clock()" in body, "the ageing check must use the store's clock"
+    assert "get_clock().now()" not in body, "the ROS clock is a different clock"
+
+
+def test_monotonic_stamps_against_wall_time_would_be_caught():
+    """The exact numbers from the run. A guard nobody has seen fire is a guard
+    nobody should trust."""
+    snap = snapshot(jobs={"active": [{"job_id": "job_0003", "state": "RUNNING",
+                                      "state_since": 32748.76, "from": "A",
+                                      "to": "B"}], "finished": []})
+    # Same clock: a job seconds old is fine.
+    assert dashboard.report(snap, now=32750.0)["verdict"] != ALARM
+    # Mixed clocks: it screams, which is what we saw.
+    assert dashboard.report(snap, now=1787128426.6)["verdict"] == ALARM

@@ -39,13 +39,23 @@ def _store(node):
 
 
 def _clock(node):
-    """The node's own clock, or None if it cannot be read.
+    """THE STORE'S OWN CLOCK, not the node's. None if it cannot be read.
 
-    None is honest: the ageing checks need a clock, and without one they say
-    so rather than reporting everything as fine.
+    These are not the same clock and the difference is not small. The store
+    stamps every job with `time.monotonic()` — seconds since the machine
+    booted — while the ROS clock reads wall time. Asking one how old a stamp
+    from the other is gives about 1.7 billion seconds, so every job looked
+    older than twenty minutes and the ageing check reported ACTION for ever.
+
+    Measured 2026-08-19: `state_since=32748.8` against `now=1787128426.6`.
+    The check that matters most on the page was the one that broke, and it
+    broke by being always-on, which reads as noise rather than as a fault.
+
+    None is honest: without a clock the ageing checks say so rather than
+    reporting everything as fine.
     """
     try:
-        return node.get_clock().now().nanoseconds * 1e-9
+        return node.app.store.clock()
     except Exception:
         return None
 
