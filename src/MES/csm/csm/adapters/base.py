@@ -860,6 +860,17 @@ class AcsAdapter(ABC):
         """
         raise NotImplementedError
 
+    def fleet_status(self):
+        """What each robot is doing, for the PDA's AGV 상태 확인 screen.
+
+        Read through, never retained: section 7 puts robot position and battery
+        on the "not retained" list, and a copy here would be a second version
+        of a fact the ACS already owns.
+
+        Empty by default — an adapter that cannot say must not invent a fleet.
+        """
+        return []
+
     def order_state(self, order_id) -> TransportResult:
         """Where an order has got to.
 

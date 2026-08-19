@@ -2097,6 +2097,23 @@ class SimAcs(AcsAdapter):
         robot.accept(job)
         return TransportResult.ACCEPTED
 
+    def fleet_status(self):
+        """One row per robot, for the PDA. Read live, not remembered."""
+        out = []
+        for r in self.robots:
+            out.append({
+                "name": r.name,
+                "leg": plant.ROBOT_SEGMENT.get(r.name),
+                "busy": bool(r.busy),
+                "job_id": r._active_job,
+                "position": r.pose[:2] if r.pose else None,
+                # Whether it is able to move at all, which is the thing an
+                # operator most wants to know when a leg has gone quiet.
+                "responsive": r.can_move,
+                "halted_because": r._halt_reason,
+            })
+        return out
+
     def get_job_result(self, job_id):
         return self._results.get(job_id, TransportResult.UNKNOWN)
 
