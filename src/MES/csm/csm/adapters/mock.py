@@ -19,8 +19,11 @@ told to fail on demand, because the failure paths are the ones worth testing.
 
 import itertools
 
-from .base import (AcsAdapter, EquipmentAdapter, StationStatus, TaskType,
-                   TransportCall, TransportResult)
+from .base import (AcsAdapter, DockingAxis, EquipmentAdapter,
+                   MachineNumber, MaterialPresence, StationStatus,
+                   TaskProcessing, TaskType, TransportCall,
+                   TransportResult)
+from .handshake import DockingHandshake
 
 
 class MockEquipment(EquipmentAdapter):
@@ -196,6 +199,177 @@ class MockEquipment(EquipmentAdapter):
         self._status[station_id] = StationStatus.BUSY
         self._busy_until[station_id] = self._clock() + (
             self._process_seconds if seconds is None else seconds)
+
+
+class OpcUaEquipment(MockEquipment):
+    """A machine that speaks the customer's protocol — and misbehaves on demand.
+
+    `MockEquipment` is a believable factory. This is a HOSTILE one, and that is
+    the point: the equipment interface has no acknowledgement, its requests are
+    edge-triggered, and its entry permission is a duration rather than a flag.
+    Every one of those is a way for a correct-looking CSM to lose work
+    silently, and none of them can be provoked by a mock that only behaves.
+
+    So this one can:
+
+      * report the three PRESENCE booleans independently, including the
+        combination that means nothing (a real machine mid-transition can);
+      * raise a request and CLEAR IT AGAIN after a set time, which is what
+        makes a poll interval a safety margin rather than a preference;
+      * accept a command, return success, and DO NOTHING — because the real
+        protocol is shared memory and `send_station_command() -> bool` cannot
+        tell the difference;
+      * withdraw entry permission part way through a dock;
+      * stop its heartbeat;
+      * report any of the nine task-processing codes.
+
+    Stations are identified by `MC_Num` (`1A01`), not by our invented names.
+    """
+
+    def __init__(self, station_ids, clock, process_seconds=5.0,
+                 comm_alarm_seconds=2.0):
+        super().__init__(station_ids, clock, process_seconds)
+        self.comm_alarm_seconds = comm_alarm_seconds
+
+        #: our name -> MC_Num. This IS the specification's `station_map`
+        #: record; the customer's identity for a port, beside ours.
+        self._mc_num = {}
+
+        #: station -> (Rolling_Full, Roll_Null, Roll_IN). Three independent
+        #: booleans, never a single status, so INCONSISTENT is reachable.
+        self._presence = {sid: (False, True, False) for sid in station_ids}
+
+        #: station -> TaskProcessing the AGV last reported there.
+        self._processing = {}
+
+        #: station -> when a held request clears itself. The machine stops
+        #: asking once it believes it was heard, so a request that appears and
+        #: clears between two polls is LOST while the machine thinks it landed.
+        self._call_expiry = {}
+
+        #: Stations whose next command will be accepted and ignored.
+        self._swallow = set()
+
+        #: station -> DockingHandshake, the mutual watchdog for its door.
+        self._handshake = {}
+        self._enter_permitted = {sid: False for sid in station_ids}
+        self._heartbeat_on = {sid: True for sid in station_ids}
+
+    # -- identity: MC_Num, not our invented names ------------------------
+
+    def set_machine_number(self, station_id, mc_num):
+        """Bind our name for a port to the customer's."""
+        self._mc_num[station_id] = MachineNumber.parse(mc_num)
+
+    def machine_number(self, station_id):
+        return self._mc_num.get(station_id)
+
+    def station_map(self):
+        """The specification's station_map record: our name, their port id."""
+        return {name: str(mc) for name, mc in self._mc_num.items()}
+
+    # -- presence: three booleans, not a status --------------------------
+
+    def set_presence(self, station_id, rolling_full=False, roll_null=False,
+                     roll_in=False):
+        """Set MC_Rolling_Full / MC_Roll_Null / MC_Roll_IN independently.
+
+        Independently on purpose. A machine part way through an exchange can
+        assert a combination that means nothing, and a CSM that rounds it to
+        the nearest sensible state hides a fault.
+        """
+        self._presence[station_id] = (bool(rolling_full), bool(roll_null),
+                                      bool(roll_in))
+
+    def presence(self, station_id):
+        return MaterialPresence.from_signals(
+            *self._presence.get(station_id, (False, False, False)))
+
+    # -- the nine status codes -------------------------------------------
+
+    def set_task_processing(self, station_id, code):
+        self._processing[station_id] = TaskProcessing(code)
+
+    def task_processing(self, station_id):
+        return self._processing.get(station_id)
+
+    # -- edge-triggered requests, and losing them ------------------------
+
+    def raise_call_for(self, station_id, seconds, task_type=TaskType.LOAD,
+                       source="machine"):
+        """Ask for a robot, then STOP ASKING after `seconds`.
+
+        This is the trap the poll interval exists to survive. The request is a
+        transition, and the machine clears it once it believes it was heard —
+        so a CSM polling more slowly than `seconds` never sees it, while the
+        machine believes the call succeeded. Nobody comes, and nothing errors.
+
+        The equipment's real minimum hold time is unknown (debt-033), which is
+        why this is a parameter with no default rather than a constant.
+        """
+        self.raise_call(station_id, task_type, source)
+        self._call_expiry[station_id] = self._clock() + seconds
+
+    def poll_calls(self):
+        """Outstanding requests — minus any the machine has given up on."""
+        now = self._clock()
+        expired = [sid for sid, t in self._call_expiry.items() if now >= t]
+        for sid in expired:
+            del self._call_expiry[sid]
+            self._calls = [c for c in self._calls if c.station_id != sid]
+        return super().poll_calls()
+
+    # -- no acknowledgement: a command may simply not happen -------------
+
+    def swallow_next_command(self, station_id):
+        """The next command to this station is accepted and ignored.
+
+        Not a fault injection so much as an honest one. There is no
+        acknowledgement in this protocol — it is shared memory, not a
+        transaction — so `send_station_command() -> bool` returning True is a
+        statement about the SEND, never about the effect. A CSM that trusts it
+        is trusting something the wire cannot tell it. See debt-034.
+        """
+        self._swallow.add(station_id)
+
+    def send_station_command(self, station_id, command):
+        if station_id in self._swallow:
+            self._swallow.discard(station_id)
+            self.commands.append((station_id, command, "swallowed"))
+            return True                 # the lie the real protocol also tells
+        return super().send_station_command(station_id, command)
+
+    # -- the door: entry permission and the mutual watchdog --------------
+
+    def handshake(self, station_id):
+        if station_id not in self._handshake:
+            self._handshake[station_id] = DockingHandshake(
+                comm_alarm_seconds=self.comm_alarm_seconds)
+        return self._handshake[station_id]
+
+    def set_enter_permitted(self, station_id, permitted):
+        """MC_Enter_Permitted. Withdrawing it mid-dock is the case that matters."""
+        self._enter_permitted[station_id] = bool(permitted)
+
+    def stop_heartbeat(self, station_id):
+        self._heartbeat_on[station_id] = False
+
+    def start_heartbeat(self, station_id):
+        self._heartbeat_on[station_id] = True
+
+    def observe(self, station_id, agv_entering=False):
+        """One poll of this station's door. Returns its DockingHandshake.
+
+        The caller reads `may_enter` and `may_machine_move` from it. Both are
+        duration rules, so this has to be called every cycle — asking once
+        cannot answer either of them.
+        """
+        hs = self.handshake(station_id)
+        hs.observe(self._clock(),
+                   enter_permitted=self._enter_permitted.get(station_id, False),
+                   agv_entering=agv_entering,
+                   machine_heartbeat=self._heartbeat_on.get(station_id, True))
+        return hs
 
 
 class MockAcs(AcsAdapter):
