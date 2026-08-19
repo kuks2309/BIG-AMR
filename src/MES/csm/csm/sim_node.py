@@ -39,6 +39,7 @@ from rclpy.node import Node
 from .adapters.base import StationStatus
 from .adapters.mock import OpcUaEquipment
 from . import plant, records
+from .ui.server import UiServer
 from .adapters.sim_acs import SimAcs
 from .runtime import FsmTask, build_mes
 
@@ -141,6 +142,34 @@ def _machine_number_for(station):
     return f"2{letter}{instance or 1:02d}"
 
 
+#: WIP RACK CAPACITY, from the specification's naming table:
+#: WIPGP 2, WIPCTR 13, WIPSLT 30 (and WIPCAL 28 on the anode side, which the
+#: simulator does not model). These are the customer's numbers, not ours.
+RACK_CAPACITY = {"WIP_GRV": 2, "WIP_CTR": 13, "WIP_SLT": 30}
+
+
+def _rack_sizes():
+    """Slots per rack PORT, split from the documented family capacity.
+
+    ⚠ THE SPLIT IS OURS. The specification gives a capacity per rack family —
+    "WIPCTR (coater, 13)" — while the plant model has two access ports per
+    family. Nothing tells us how the slots are divided between them, so they
+    are split as evenly as possible and the odd one goes to the first port.
+
+    The TOTAL is the customer's number, which is what "the destination is full"
+    depends on; only the division between ports is assumed.
+    """
+    sizes = {}
+    for family, total in RACK_CAPACITY.items():
+        ports = sorted(p for p in plant.DOCKS if p.startswith(family))
+        if not ports:
+            continue
+        base, extra = divmod(total, len(ports))
+        for i, port in enumerate(ports):
+            sizes[port] = base + (1 if i < extra else 0)
+    return sizes
+
+
 class MesSimNode(Node):
 
     def __init__(self, batch_seconds, job_timeout, process_seconds,
@@ -199,6 +228,12 @@ class MesSimNode(Node):
         self.acs = SimAcs(self, robot_names=robot_names,
                           equipment=self.equipment)
 
+        # The racks, at the customer's documented capacities. Without these
+        # the rack records exist and hold nothing, so "the destination is
+        # full" could never become true and the diversion jobs could never
+        # fire — which is exactly what the live view showed.
+        self._records = records.InMemoryRecords(_rack_sizes())
+
         self.app = build_mes(
             self.equipment, self.acs,
             source_for=lambda sid: FEEDS.get(sid, "ASRS"),
@@ -210,6 +245,7 @@ class MesSimNode(Node):
             # Every hop in this plant is an exchange, so without this the line
             # moves rolls forward and never sends an empty core back.
             return_for=plant.bobbin_return_for,
+            records=self._records,
         )
 
         # The fake factory. A ROS timer is fine — RosSpinTask fires it.
@@ -305,6 +341,8 @@ def main():
     # See docs/adr/2026-08-07-job-timeout-and-idle-parking.md
     parser.add_argument("--job-timeout", type=float, default=600.0,
                         help="seconds a job may spend in one state before t5")
+    parser.add_argument("--ui-port", type=int, default=8080,
+                        help="live view in a browser; 0 turns it off")
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
@@ -313,11 +351,23 @@ def main():
     names = [f"amr{i + 1}" for i in range(args.robots)] if args.robots else None
     node = MesSimNode(args.batch_seconds, args.job_timeout,
                       args.process_seconds, robot_names=names)
+
+    # The live view. Started AFTER the node, so it always has something to
+    # show, and never allowed to stop the simulation: a port already in use is
+    # an inconvenience, not a reason not to run a factory.
+    ui = None
+    if args.ui_port:
+        ui = UiServer(node, port=args.ui_port,
+                      logger=lambda m: node.get_logger().info(m))
+        ui.start()
+
     try:
         asyncio.run(_run(node))
     except KeyboardInterrupt:
         pass
     finally:
+        if ui is not None:
+            ui.stop()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

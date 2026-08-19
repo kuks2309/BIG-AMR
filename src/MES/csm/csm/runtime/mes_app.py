@@ -78,7 +78,7 @@ class MesApp:
 
 def build_mes(equipment, acs, source_for, clock=time.monotonic, logger=print,
               job_timeout_s=600.0, poll_seconds=None, install_supervisor=True,
-              return_for=None):
+              return_for=None, records=None):
     """Assemble the CSM.
 
     :param equipment: EquipmentAdapter — mock, or the CATL one when it exists
@@ -103,7 +103,8 @@ def build_mes(equipment, acs, source_for, clock=time.monotonic, logger=print,
     MainCycle, which is ungated and lets each job ask for itself.
     """
     store = JobStore(equipment, acs, clock, logger=logger,
-                     job_timeout_s=job_timeout_s, dispatch_gated=True)
+                     job_timeout_s=job_timeout_s, dispatch_gated=True,
+                     records=records)
 
     periods = poll_seconds or {}
     monitor = EquipmentMonitorTask(store, source_for=source_for,
