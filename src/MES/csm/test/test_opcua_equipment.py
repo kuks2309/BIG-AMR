@@ -70,12 +70,18 @@ def test_a_request_held_briefly_is_seen_by_a_fast_enough_poll():
     assert [c.station_id for c in eq.poll_calls()] == ["GRV1_LD"]
 
 
-def test_a_request_is_LOST_if_the_poll_is_slower_than_the_hold():
-    """The whole reason the poll interval is a safety margin.
+def test_a_withdrawn_request_is_gone_when_we_next_look():
+    """A request that goes away for a reason OTHER than being served.
 
-    The machine stops asking once it believes it was heard. Poll more slowly
-    than it holds the signal and the request vanishes — no error anywhere, and
-    the machine believing a robot is coming. This is debt-033.
+    ⚠ Corrected 2026-08-18. This used to claim it was what an ordinary
+    unanswered call does. It is not: the machine stops calling when it sees
+    `AGV_Task_Recive = 1`, our acknowledgement, and not on a timer — so a slow
+    poll costs latency, not the request.
+
+    What this models is an operator cancelling at the panel, or a machine
+    alarming out. Then the request really is gone, and a CSM that had not yet
+    acknowledged it simply never sees it — which is correct behaviour, not a
+    fault.
     """
     clock, eq = build()
     eq.raise_call_for("GRV1_LD", seconds=1.0)

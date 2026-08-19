@@ -56,25 +56,43 @@ def test_the_call_is_acknowledged_only_once_it_is_a_job():
 
 # -- the exposures ----------------------------------------------------------
 
-@pytest.mark.xfail(reason="debt-033: the poll interval is unjustified and the "
-                          "equipment's minimum hold time is unknown. A request "
-                          "shorter than the poll period is lost with no error.",
+@pytest.mark.xfail(reason="debt-033: dispatch is edge-triggered, so two "
+                          "requests of the same type raised between two polls "
+                          "coalesce into one and the second job is never "
+                          "created. Needs the machine's minimum re-raise "
+                          "interval (customer Q17) or a push path.",
                    strict=False)
-def test_a_request_shorter_than_the_poll_period_is_not_lost():
-    """The machine believes it was heard. Nobody comes. Nothing errors.
+def test_two_requests_in_one_poll_period_are_not_coalesced():
+    """The real edge-trigger hole, and it is narrower than it first looked.
 
-    This is the failure that has no symptom: no exception, no error code, no
-    log line — just a machine waiting for a robot that was never dispatched.
+    CORRECTION 2026-08-18. This test previously claimed a request shorter than
+    the poll period was lost outright. That was wrong, and the protocol says
+    so plainly: the machine stops calling only when it sees
+    `AGV_Task_Recive = 1` — OUR acknowledgement — not on a timer of its own.
+    A slow poll therefore costs latency, not the request, and the CSM already
+    withholds the acknowledgement until a job exists.
 
-    The fix is not a faster poll. It is either a push path (OPC-UA
-    subscriptions) or a minimum hold time from the equipment vendor that the
-    poll period can be derived from. Until one of those exists, this fails.
+    What edge-triggering really risks is two requests looking like one. A
+    station that finishes a job and raises another of the same type before our
+    next poll shows an unchanged level, and the second job is never created.
+
+    That needs the machine's minimum re-raise interval to size the poll period
+    against — customer Q17 — or a push path so levels stop being how we find
+    out.
     """
     clock, equipment, store, monitor = build()
-    equipment.raise_call_for("GRV1_LD", seconds=0.5)
-    clock.advance(1.0)                      # one poll period, as configured
+
+    equipment.raise_call("GRV1_LD", TaskType.LOAD)
     step(monitor)
-    assert len(store.active) == 1, "the request was dropped in silence"
+    assert len(store.active) == 1, "first request served"
+
+    # The machine raises a second request of the same type before we look
+    # again. Nothing about the LEVEL has changed.
+    equipment.raise_call("GRV1_LD", TaskType.LOAD)
+    clock.advance(1.0)
+    step(monitor)
+
+    assert len(store.active) == 2, "the second request was folded into the first"
 
 
 def test_a_command_that_was_ignored_is_noticed():

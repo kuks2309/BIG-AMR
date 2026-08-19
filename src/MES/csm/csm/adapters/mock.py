@@ -306,13 +306,15 @@ class OpcUaEquipment(MockEquipment):
                        source="machine"):
         """Ask for a robot, then STOP ASKING after `seconds`.
 
-        This is the trap the poll interval exists to survive. The request is a
-        transition, and the machine clears it once it believes it was heard —
-        so a CSM polling more slowly than `seconds` never sees it, while the
-        machine believes the call succeeded. Nobody comes, and nothing errors.
+        ⚠ NOT THE NORMAL PROTOCOL. Corrected 2026-08-18: the machine clears its
+        request when it sees `AGV_Task_Recive = 1` — our acknowledgement — and
+        NOT on a timer. A slow poll therefore costs latency, not the request.
 
-        The equipment's real minimum hold time is unknown (debt-033), which is
-        why this is a parameter with no default rather than a constant.
+        This models the cases where a request goes away for some OTHER reason:
+        an operator cancelling at the panel, or the machine alarming out. Those
+        are real and worth being able to provoke, but they are not what an
+        ordinary unanswered call does, and a test using this should say which
+        it means.
         """
         self.raise_call(station_id, task_type, source)
         self._call_expiry[station_id] = self._clock() + seconds
