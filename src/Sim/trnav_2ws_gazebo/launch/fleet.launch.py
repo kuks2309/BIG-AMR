@@ -275,6 +275,9 @@ def generate_launch_description():
         DeclareLaunchArgument('critical_battery', default_value='',
                               description='percent at which a robot goes even '
                                           'mid-job (CSM default 12)'),
+        DeclareLaunchArgument('db', default_value='',
+                              description='SQLite file to keep the CSM records '
+                                          'in; empty keeps them in memory'),
         DeclareLaunchArgument('start_battery', default_value='',
                               description='start robots at this percent '
                                           'instead of 100, so a charge cycle '
@@ -375,7 +378,8 @@ def generate_launch_description():
                        ['--critical-battery=',
                         LaunchConfiguration('critical_battery')],
                        ['--start-battery=',
-                        LaunchConfiguration('start_battery')]],
+                        LaunchConfiguration('start_battery')],
+                       ['--db=', LaunchConfiguration('db')]],
             condition=IfCondition(LaunchConfiguration('mes')),
         )],
     )

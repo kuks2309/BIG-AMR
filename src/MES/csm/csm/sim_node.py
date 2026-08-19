@@ -38,7 +38,7 @@ from rclpy.node import Node
 
 from .adapters.base import StationStatus
 from .adapters.mock import OpcUaEquipment
-from . import plant, records
+from . import plant, records, records_sqlite
 from .ui.server import UiServer
 from .adapters.sim_acs import SimAcs
 from .runtime import FsmTask, build_mes
@@ -174,7 +174,8 @@ class MesSimNode(Node):
 
     def __init__(self, batch_seconds, job_timeout, process_seconds,
                  robot_names=None, battery_scale=1.0,
-                 charging_thresholds=None, start_battery=None):
+                 charging_thresholds=None, start_battery=None,
+                 db_path=None):
         super().__init__("csm")
 
         # Every station the equipment layer knows about, INCLUDING the outbound
@@ -243,7 +244,21 @@ class MesSimNode(Node):
         # the rack records exist and hold nothing, so "the destination is
         # full" could never become true and the diversion jobs could never
         # fire — which is exactly what the live view showed.
-        self._records = records.InMemoryRecords(_rack_sizes())
+        # WHERE SECTION 7's RECORDS LIVE.
+        #
+        # In memory unless a path is given, which keeps a throwaway run
+        # throwaway. Persistence is opt-in rather than default because a
+        # simulator that silently reloads yesterday's rack contents is
+        # confusing in a way a real plant is not — there, yesterday's pallets
+        # really are still on the racks.
+        if db_path:
+            self._records = records_sqlite.SqliteRecords(
+                db_path, rack_sizes=_rack_sizes())
+            self.get_logger().info(f"records: SQLite at {db_path}")
+        else:
+            self._records = records.InMemoryRecords(_rack_sizes())
+            self.get_logger().info("records: in memory — lost on exit "
+                                   "(pass --db to keep them)")
 
         self.app = build_mes(
             self.equipment, self.acs,
@@ -419,6 +434,9 @@ def main():
     parser.add_argument("--critical-battery", type=_percent, default=None,
                         help="percent below which a robot goes even while "
                              "holding a job (default 12)")
+    parser.add_argument("--db", default="",
+                        help="keep the records in this SQLite file so they "
+                             "survive a restart; empty means in memory")
     parser.add_argument("--start-battery", type=_start_levels, default=None,
                         help="start robots below full, so a charge cycle "
                              "happens without waiting: one number for the "
@@ -439,7 +457,8 @@ def main():
                       args.process_seconds, robot_names=names,
                       battery_scale=args.battery_scale,
                       charging_thresholds=thresholds,
-                      start_battery=args.start_battery)
+                      start_battery=args.start_battery,
+                      db_path=args.db.strip() or None)
 
     # The live view. Started AFTER the node, so it always has something to
     # show, and never allowed to stop the simulation: a port already in use is

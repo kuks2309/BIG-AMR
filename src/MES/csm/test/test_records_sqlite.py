@@ -256,3 +256,48 @@ def test_it_answers_the_same_as_the_in_memory_store():
             records.is_full("WIP_SLT"),
         ))
     assert answers[0] == answers[1]
+
+
+# ------------------------------------------------- wired into the running node
+
+def test_the_sim_node_can_be_told_where_to_keep_them():
+    """A store nothing constructs is a store nothing uses. This was built and
+    left unwired for a day — the tests passed and nothing persisted."""
+    source = (pathlib.Path(__file__).resolve().parents[1]
+              / "csm" / "sim_node.py").read_text()
+    assert "records_sqlite.SqliteRecords" in source
+    assert '"--db"' in source
+
+
+def test_in_memory_stays_the_default():
+    """A throwaway run stays throwaway. Silently reloading yesterday's rack
+    contents is confusing in a simulator in a way it is not in a real plant,
+    where yesterday's pallets really are still on the racks."""
+    source = (pathlib.Path(__file__).resolve().parents[1]
+              / "csm" / "sim_node.py").read_text()
+    assert "records.InMemoryRecords(_rack_sizes())" in source, \
+        "the no-database path must still exist"
+
+
+def test_a_run_hands_its_records_to_the_next_one(db):
+    """End to end, the way a restart actually works: build a store the way the
+    node does, use it, close it, and build it again."""
+    racks = {"WIP_CTR": 13, "WIP_SLT": 30}
+    first = SqliteRecords(db, rack_sizes=racks)
+    call = first.add_call("GRV1_LD", TaskType.LOAD, "machine", 5.0)
+    first.acknowledge_call(call.call_id, at=6.0, job_id="job_0001")
+    material = first.register_material(kind="roll", at=5.0, location="ASRS")
+    first.move_material(material.material_ref, "GRV1_LD", at=7.0,
+                        job_id="job_0001")
+    first.park("WIP_CTR", material.material_ref, "job_0001", at=8.0)
+    first.map_station("GRV1_LD", "2A01")
+    first.close()
+
+    second = SqliteRecords(db, rack_sizes=racks)
+    assert second.call(call.call_id).job_id == "job_0001"
+    assert second.locate(material.material_ref) == "GRV1_LD"
+    assert len(second.history_of(material.material_ref)) == 2
+    assert [s.material_ref for s in second.slots("WIP_CTR") if s.occupied] == \
+        [material.material_ref]
+    assert second.customer_id("GRV1_LD") == "2A01"
+    assert len(second.slots("WIP_SLT")) == 30, "rack sizes survive too"
