@@ -230,12 +230,14 @@ class MesSimNode(Node):
                           equipment=self.equipment)
         for robot in self.acs.robots:
             robot.battery_scale = battery_scale
-            if start_battery is not None:
-                # NOT a model of anything — robots really do start a shift
-                # charged. This exists so a charge cycle can be watched in a
-                # minute instead of the hour the drain rate implies, which is
-                # the only honest way to check the charging path works.
-                robot.battery = float(start_battery)
+            # NOT a model of anything — robots really do start a shift
+            # charged. This exists so a charge cycle can be watched in a
+            # minute instead of the hour the drain rate implies, which is
+            # the only honest way to check the charging path works.
+            level = (start_battery.get(robot.name)
+                     if isinstance(start_battery, dict) else start_battery)
+            if level is not None:
+                robot.battery = float(level)
 
         # The racks, at the customer's documented capacities. Without these
         # the rack records exist and hold nothing, so "the destination is
@@ -263,6 +265,13 @@ class MesSimNode(Node):
         self._next_station = 0
         #: Stations fed a roll and not yet asked for their empty core back.
         self._fed = []
+
+        if start_battery is not None:
+            # Said out loud because a mistyped robot name silently leaves that
+            # robot full, which reads as the charging rule failing to fire.
+            levels = ", ".join(f"{r.name} {r.battery:.0f}%"
+                               for r in self.acs.robots)
+            self.get_logger().info(f"starting battery — {levels}")
 
         chain = " -> ".join(s["name"] + ": " + s["from"][0] + " -> "
                              + s["to"][0].split("_")[0] + "_LD"
@@ -334,6 +343,35 @@ async def _run(node):
     node.get_logger().info(f"jobs: {node.app.health()}")
 
 
+def _start_levels(text):
+    """Starting battery: one number for the whole fleet, or one per robot.
+
+        20                     every robot starts at 20%
+        amr1=35,amr2=36        amr1 and amr2 named, the rest start full
+
+    Per robot because a fleet that all starts at the same level all crosses the
+    low mark at the same moment, and three robots queueing for chargers at once
+    is not the case worth watching — they should reach it one at a time.
+
+    Returns a float, a {name: float} dict, or None for "leave them full".
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+    if "=" not in text:
+        return float(text)
+    levels = {}
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        name, _, value = part.partition("=")
+        # Named robots only. A typo here would otherwise start a robot full
+        # and look like the charging rule failing to fire.
+        levels[name.strip()] = float(value)
+    return levels
+
+
 def _percent(text):
     """A battery threshold, or None for "leave the CSM's default alone".
 
@@ -381,9 +419,11 @@ def main():
     parser.add_argument("--critical-battery", type=_percent, default=None,
                         help="percent below which a robot goes even while "
                              "holding a job (default 12)")
-    parser.add_argument("--start-battery", type=_percent, default=None,
-                        help="start every robot at this percent instead of "
-                             "100, so a charge cycle happens straight away")
+    parser.add_argument("--start-battery", type=_start_levels, default=None,
+                        help="start robots below full, so a charge cycle "
+                             "happens without waiting: one number for the "
+                             "whole fleet (20), or per robot "
+                             "(amr1=35,amr2=36,amr3=40)")
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)

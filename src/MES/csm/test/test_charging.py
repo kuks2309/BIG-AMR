@@ -15,6 +15,7 @@ from csm.adapters.mock import ManualClock, MockAcs, MockEquipment
 from csm.runtime.job_store import JobStore
 from csm.runtime.tasks.charging import (CHARGE_TO, CRITICAL_BATTERY,
                                         LOW_BATTERY, ChargingTask)
+from csm.sim_node import _start_levels
 
 
 class ReportingAcs(MockAcs):
@@ -250,3 +251,29 @@ def test_critical_above_low_is_refused():
     it is holding — the whole fleet would drop its work at once."""
     with pytest.raises(ValueError):
         task_for([], low_battery=30.0, critical_battery=40.0)
+
+
+# ---------------------------------------------------- starting a run part-charged
+
+def test_one_number_starts_the_whole_fleet_there():
+    assert _start_levels("20") == 20.0
+
+
+def test_robots_can_be_started_at_different_levels():
+    """A fleet that all starts at the same level all crosses the low mark at
+    the same moment, which is not the case worth watching."""
+    assert _start_levels("amr1=35,amr2=36,amr3=40") == \
+        {"amr1": 35.0, "amr2": 36.0, "amr3": 40.0}
+
+
+def test_spacing_does_not_matter():
+    assert _start_levels(" amr1 = 35 , amr2=36 ") == {"amr1": 35.0, "amr2": 36.0}
+
+
+def test_naming_only_some_robots_leaves_the_rest_alone():
+    assert "amr3" not in _start_levels("amr1=35")
+
+
+def test_nothing_given_means_leave_them_full():
+    assert _start_levels("") is None
+    assert _start_levels(None) is None
