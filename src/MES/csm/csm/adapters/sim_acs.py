@@ -439,6 +439,13 @@ class SimRobot:
         #: Measured steering joint angles — settle-then-drive needs to know
         #: where the wheels ACTUALLY are, not where they were commanded.
         self._steer_actual = [0.0, 0.0]
+        #: When joint_states last arrived. None means the control chain has
+        #: never spoken — see `can_move`.
+        self._joints_stamp = None
+        #: So the "cannot move" warning is logged once per outage, not per poll.
+        self._noted_immobile = False
+        #: Which rule last published a zero velocity. See `_stop`.
+        self._halt_reason = None
         #: Set while reversing out of a bay after finishing.
         self._exit_goal = None
         self._exit_station = None
@@ -494,11 +501,43 @@ class SimRobot:
         self.pose = new_pose
 
     def _on_joints(self, msg):
+        # The stamp matters as much as the angles: this topic only publishes
+        # while the controller chain is up, which makes it our liveness signal.
+        self._joints_stamp = self._now()
         for name, position in zip(msg.name, msg.position):
             if name == "w1_steer_joint":
                 self._steer_actual[0] = position
             elif name == "w2_steer_joint":
                 self._steer_actual[1] = position
+
+    #: How long joint_states may be silent before this robot is treated as
+    #: unable to move. The broadcaster publishes continuously once controllers
+    #: are up, so a gap this long means the chain is not running.
+    CONTROLLERS_TIMEOUT_S = 3.0
+
+    @property
+    def can_move(self):
+        """Has this robot's control chain actually come up, and is it still up?
+
+        POSE CANNOT ANSWER THIS. A pose comes from Gazebo ground truth, which
+        exists the moment the model is spawned — before its controllers, and
+        even if they never start at all. So a spawned shell with no controllers
+        is indistinguishable from a working robot by pose alone.
+
+        That is not hypothetical. On 2026-08-18 amr3's spawn_entity hung, its
+        controllers and wheel bridge never started, and it sat immobile in its
+        bay. It had a valid pose, so it was dispatched a job, and amr2
+        manoeuvred into it. The launch timing that triggered that has been
+        widened, but timing only makes the race rarer — this is what makes the
+        state observable.
+
+        joint_states is the signal that can answer it: published by the
+        joint_state_broadcaster, which runs only once the controller chain is
+        up, and stops if that chain dies.
+        """
+        if self._joints_stamp is None:
+            return False
+        return (self._now() - self._joints_stamp) < self.CONTROLLERS_TIMEOUT_S
 
     def _on_front(self, msg):
         self._front = msg
@@ -672,7 +711,7 @@ class SimRobot:
         self._dock = None
         self._docking = False
         self._noted_square = False
-        self._stop()
+        self._stop("docking finished")
 
     #: How square is square enough. A degree of tilt costs about 14 mm of
     #: reach, so 2 deg spends 28 mm of the 229 mm gap — comfortable.
@@ -736,7 +775,7 @@ class SimRobot:
             if self._homing:
                 self._homing = False
                 self._home_waypoints = []
-                self._stop()
+                self._stop("homing: robot ahead")
             # A PARKED ROBOT HOLDS NO JUNCTION.
             #
             # Homing returns from drive() before _junction_control, so an idle
@@ -788,7 +827,7 @@ class SimRobot:
         ex, ey = goal[0] - x, goal[1] - y
         distance = math.hypot(ex, ey)
         if self._robot_ahead(x, y, ex, ey) is not None:
-            self._stop()
+            self._stop("robot ahead on the road")
             return
         ax, ay = _to_body(ex, ey, yaw)
         n = math.hypot(ax, ay) or 1.0
@@ -871,7 +910,7 @@ class SimRobot:
                 self.node.get_logger().info(
                     f"{self._tag()}holding at {node} — "
                     f"{self.fleet.junction_holder(node).name} has it")
-            self._stop()
+            self._stop("junction held by another robot")
             return True
         self._junction = node
         self._junction_wait = None
@@ -882,7 +921,7 @@ class SimRobot:
                                JUNCTIONS[node][1] - y) > 1.0
                 and not self._road_clear(node)):
             self._reset_stall()
-            self._stop()
+            self._stop("pulling out: road not clear")
             return True
         return False
 
@@ -1029,14 +1068,14 @@ class SimRobot:
                 # partner, whose encounter this manoeuvre exists to resolve.
                 # Excluding only that one keeps a THIRD robot able to stop us.
                 if self._threat(exclude=self.fleet.partner_of(self)) is not None:
-                    self._stop()
+                    self._stop("standing aside: threat")
                     return True
                 self._drive_toward(self._standoff, x, y, yaw)
                 return True
             if not self._stood_aside:
                 self._stood_aside = True
                 self.node.get_logger().info(f"{self._tag()}clear — you may pass")
-            self._stop()
+            self._stop("stood aside, waiting to be passed")
             return True
 
         partner = self.fleet.partner_of(self)
@@ -1044,7 +1083,7 @@ class SimRobot:
             # I am the passer. Wait for the explicit all-clear, not for the gap.
             if not partner._stood_aside:
                 self._reset_stall()
-                self._stop()
+                self._stop("passer: waiting for the yielder to stand aside")
                 return True
             # PAST IT means BEHIND ME, not merely far away.
             #
@@ -1137,7 +1176,7 @@ class SimRobot:
         # who moves is the job of the rules above it, not of this one.
         if self._threat() is not None:
             self._reset_stall()
-            self._stop()
+            self._stop("layer 1: on course to touch another robot")
             return
 
         # ======================= WORK — WHAT IS IT DOING? ===================
@@ -1192,7 +1231,7 @@ class SimRobot:
                     self.node.get_logger().info(
                         f"{self._tag()}holding outside {target} — occupied")
                 self._reset_stall()
-                self._stop()
+                self._stop("entry refused: bay occupied")
                 return
             self._noted_hold = False
 
@@ -1200,7 +1239,7 @@ class SimRobot:
         # during a dwell is not a stall, so this is checked before _check_stall.
         if self._dwell_until is not None:
             if self._now() < self._dwell_until:
-                self._stop()
+                self._stop("dwelling at the port")
                 return
             self._dwell_until = None
             self._begin_delivery()
@@ -1594,7 +1633,7 @@ class SimRobot:
         self._exit_goal = None
         self._exit_station = None
         self._reset_stall()
-        self._stop()
+        self._stop("exit complete")
 
     def _exit_stalled(self, x, y):
         """_check_stall for the exit leg.
@@ -1618,7 +1657,7 @@ class SimRobot:
 
     def _on_arrival(self, distance):
         """Reached the current leg's goal."""
-        self._stop()
+        self._stop("arrived")
         if self._leg == "collect":
             self.node.get_logger().info(
                 f"{self._active_job}: at {self._from} ({distance:.2f} m) — "
@@ -1721,9 +1760,22 @@ class SimRobot:
             self.fleet.release_junction(self)
         self._junction = None
         if self._exit_goal is None:
-            self._stop()
+            self._stop("no exit goal")
 
-    def _stop(self):
+    def _stop(self, why="unspecified"):
+        """Publish zero velocity, and REMEMBER WHY.
+
+        A stopped robot is the hardest thing to diagnose in this system: every
+        layer can stop one, the layers are deliberately independent, and the
+        published Twist looks identical whichever said so. On 2026-08-18 two
+        robots sat frozen for four minutes and the logs could not say which
+        rule was holding either of them — the reason had to be reconstructed by
+        reading the code, and that reconstruction was wrong twice.
+
+        The reason costs one string assignment per cycle and turns "it is
+        stuck" into "it is stuck because".
+        """
+        self._halt_reason = why
         self.pub_cmd.publish(Twist())
 
 
@@ -1829,9 +1881,25 @@ class SimAcs(AcsAdapter):
         # entered from where the robot IS. It is a real state, not an error:
         # the node can be offered work in the moment between starting and its
         # first /gazebo/model_states message.
+        # A robot that cannot MOVE is not a candidate, however free it looks.
+        # `can_move` explains why pose is not enough on its own.
+        for r in self.robots:
+            if plant.ROBOT_SEGMENT.get(r.name) != segment["name"]:
+                continue
+            if r.pose is not None and not r.can_move:
+                if not r._noted_immobile:
+                    r._noted_immobile = True
+                    self.node.get_logger().warn(
+                        f"{r.name}: no joint_states — control chain is not "
+                        f"running, so it will not be given work")
+            elif r.can_move and r._noted_immobile:
+                r._noted_immobile = False
+                self.node.get_logger().info(f"{r.name}: control chain back")
+
         free = [r for r in self.robots
                 if not r.busy
                 and r.pose is not None
+                and r.can_move
                 and plant.ROBOT_SEGMENT.get(r.name) == segment["name"]]
         if not free:
             # BUSY, not REJECTED. The job is perfectly valid; the robot class
@@ -1900,11 +1968,15 @@ class SimAcs(AcsAdapter):
                 parts.append(f"{r.name}({x:+.1f},{y:+.1f}) idle")
                 continue
             gx, gy = r._goal if r._goal else (x, y)
+            speed = moved / period
+            # A robot with a job that is not moving is the thing worth
+            # explaining, so say WHY rather than only that it is at v=0.00.
+            why = f" [{r._halt_reason}]" if speed < 0.02 and r._halt_reason else ""
             parts.append(
                 f"{r.name}({x:+.1f},{y:+.1f})"
                 f"->{r._to if r._leg == 'deliver' else r._from}"
                 f" d={math.hypot(gx - x, gy - y):.1f}"
-                f" v={moved / period:.2f}"
+                f" v={speed:.2f}{why}"
                 + (" HELD" if r._noted_hold else ""))
         self.node.get_logger().info("STATE " + " | ".join(parts))
 

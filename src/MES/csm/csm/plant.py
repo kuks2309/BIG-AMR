@@ -76,7 +76,12 @@ import math
 
 # ---------------------------------------------------------------- geometry
 
-HALL_W, HALL_E = -23.0, 26.0     # hall extent in x (assumption A1)
+HALL_W, HALL_E = -25.0, 26.0     # hall extent in x (assumption A1)
+#: West edge moved out from -23.0 on 2026-08-18 for the same reason the east
+#: edge moved on 5745612: the parking spur has to be longer than a robot, and
+#: at -23.0 there was 2.90 m between the west aisle and the wall face when a
+#: bay needs 3.00 m. The west bay never deadlocked only because leg A has one
+#: robot and nothing drives past its spur — the geometry was equally wrong.
 #: Extended east from 20.0 on 2026-08-18 to make room for leg C's WIP rack.
 #: Segment C had `buffer: []` — no rack at all — so two of its four job types
 #: (fetch-from-rack and divert-to-rack) could not run. The south row between
@@ -108,7 +113,33 @@ AISLE_N_Y = 3.0                        # north aisle
 AISLE_S_Y = -3.0                       # south aisle
 AISLE_W_X = -20.0                      # west cross aisle
 AISLE_E_X = 22.0                       # east cross aisle
-PARK_X = [-21.5, 23.5]                 # parking spurs, off the cross aisles
+#: THE ROBOT ITSELF, because the layout has to be big enough for it.
+#: 1.6 x 0.9 m is the simulated chassis. (The deck gives 1.3 x 1.9 m for the
+#: 1.5T and 1.6 x 2.0 m for the 3.5T; the sim models one body for all three,
+#: and this is that body. If the sim ever carries three, take the largest.)
+ROBOT_L, ROBOT_W = 1.6, 0.9
+
+#: HOW FAR A PARKING BAY SITS OFF ITS CROSS AISLE.
+#:
+#: DERIVED, NOT CHOSEN — and it must exceed the robot's own length. It was
+#: 1.5 m against a 1.6 m robot, so a robot parked correctly in its own bay
+#: still had its tail 0.70 m from the aisle centreline. It was not in the way
+#: by accident; parked properly it COULD NOT be out of the way.
+#:
+#: What that cost, measured 2026-08-18: amr2 drove its own lane west, turned
+#: south down the east aisle toward the coater row as its job required, and
+#: came within 1.8 m of amr3 sitting in the neighbouring bay. Layer 1 stopped
+#: it — correctly, since continuing would have closed the gap below STOP_GAP.
+#: amr3 could not move aside because it was already parked. Layer 1 "only ever
+#: says stop: it cannot say who goes", so both sat frozen for four minutes with
+#: seven jobs queued behind them. Twice, and once they touched.
+#:
+#: The clearance below is the gap between a PASSING robot's flank and a PARKED
+#: robot's tail, both bodies included — not centre to centre.
+PARK_CLEARANCE = 1.25
+PARK_SPUR = ROBOT_L / 2.0 + ROBOT_W / 2.0 + PARK_CLEARANCE      # 2.5 m
+
+PARK_X = [AISLE_W_X - PARK_SPUR, AISLE_E_X + PARK_SPUR]
 
 #: Machine face y (the side the robot approaches from).
 _FACE_N = ROW_N_Y - MACHINE_D / 2.0
