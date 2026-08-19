@@ -118,7 +118,7 @@ def _description(xacro_file, ns):
     return urdf
 
 
-def _one_robot(name, pose, xacro_file, steer_lag, delay=0.0):
+def _one_robot(name, pose, xacro_file, steer_lag, after=None):
     """Everything one robot needs. Independent of every other robot."""
     x, y, yaw = pose
     urdf = _description(xacro_file, name)
@@ -187,16 +187,42 @@ def _one_robot(name, pose, xacro_file, steer_lag, delay=0.0):
         RegisterEventHandler(OnProcessExit(target_action=drive,
                                            on_exit=[bridge, odometry])),
     ]
-    # STAGGERED. Three robots starting together race: each brings up its own
+    # ONE ROBOT AT A TIME, CHAINED — not staggered on a timer.
+    #
+    # Three robots starting together race: each brings up its own
     # gazebo_ros2_control plugin, and they contend on the shared
     # robot_state_publisher service and on Gazebo's model insertion. Observed
-    # with no delay: amr2 loaded all three controllers, amr1 loaded none, amr3
-    # loaded one — while the launch log claimed all three had activated.
+    # with no delay at all: amr2 loaded all three controllers, amr1 loaded
+    # none, amr3 loaded one — while the launch log claimed all three had
+    # activated.
     #
-    # The delay is per robot, so the fleet still comes up in seconds.
-    if delay:
-        return [TimerAction(period=delay, actions=[rsp, spawn] + ordering)]
-    return [rsp, spawn] + ordering
+    # That was mitigated with an 8 s stagger, and the mitigation was not
+    # enough. Measured 2026-08-18 across two runs of the same build:
+    #
+    #   run A  amr1's controller_manager answered immediately
+    #   run B  amr1's controller_manager took OVER 10 s — its first spawner
+    #          logged "Failed getting a result ... in 10.0 (Attempt 1 of 3)"
+    #
+    # 10 s is longer than the 8 s stagger, so in run B amr2 began spawning
+    # while amr1's manager was still coming up. amr1's broadcaster activated
+    # and then stopped publishing; the CSM correctly refused to give it work,
+    # and that leg completed zero jobs for the whole run.
+    #
+    # A LONGER TIMER WOULD ONLY MAKE IT RARER. What removes the race is not
+    # starting the next robot until the previous one's controllers are
+    # actually up — which is exactly what the per-robot chain below already
+    # proves, so the fleet is chained the same way.
+    #
+    # Cost is a slower start: serial rather than overlapped, about 40 s for
+    # three robots against about 30 s before. Ten seconds once, for a fleet
+    # that comes up the same way every time.
+    actions = [rsp, spawn] + ordering
+    if after is not None:
+        actions = [RegisterEventHandler(
+            OnProcessExit(target_action=after, on_exit=actions))]
+    #: The last spawner in this robot's chain. The NEXT robot starts when this
+    #: exits, which is the point at which this robot's controllers are up.
+    return actions, drive
 
 
 def _robot_count():
@@ -277,10 +303,12 @@ def generate_launch_description():
     count = max(1, min(count, len(START_POSES)))
 
     robots = []
+    previous = None
     for i in range(count):
-        robots += _one_robot(f'amr{i + 1}', START_POSES[i],
-                             xacro_file, LaunchConfiguration('steer_lag'),
-                             delay=i * 8.0)
+        actions, previous = _one_robot(
+            f'amr{i + 1}', START_POSES[i], xacro_file,
+            LaunchConfiguration('steer_lag'), after=previous)
+        robots += actions
 
     # The MES. Without it the fleet spawns, activates every controller, and
     # then stands still for ever — nothing publishes /amrN/cmd_vel, which reads
@@ -308,7 +336,10 @@ def generate_launch_description():
     # manoeuvring nearby drove into it. Starting the MES after the fleet is
     # fully up costs 15 s once and removes that whole class of failure.
     mes = TimerAction(
-        period=(count - 1) * 8.0 + 30.0,
+        # Robots are chained now, so this is no longer a stagger plus a guess:
+        # it is how long a serial fleet bring-up takes. ~14 s per robot from
+        # the measurements above, plus margin.
+        period=count * 14.0 + 10.0,
         actions=[Node(
             package='csm', executable='sim_node', output='screen',
             arguments=['--robots', str(count)],
