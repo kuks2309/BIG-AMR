@@ -200,9 +200,11 @@ class Pda:
     def cancel_transport(self, job_id):
         """Withdraw a job a person raised. True if it was cancelled.
 
-        Only reaches the CSM's own job and the ACS order behind it. The
-        equipment-side cancellation is a four-step handshake ending in a
-        machine alarm that an operator must reset — that is C9 and is not this.
+        Stops the CSM job and the ACS order behind it. If the job was
+        answering a machine's call, the store then hands that call back through
+        the four-step cancellation, which ends in an alarm an operator resets —
+        marking the job unretryable is what starts it. A job the PDA raised
+        itself answers no call, so nothing is handed back.
         """
         for record in self.store.active:
             if record.job.job_id == job_id:

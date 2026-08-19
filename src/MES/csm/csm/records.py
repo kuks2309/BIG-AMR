@@ -76,6 +76,12 @@ class CallStatus(Enum):
     #: Went away before we could serve it — an operator cancelling at the
     #: panel, or the machine alarming out.
     WITHDRAWN = "withdrawn"
+    #: WE gave it back. Distinct from WITHDRAWN, which is the machine changing
+    #: its mind: this is CSM having acknowledged a call, failed to serve it,
+    #: and handed it back through the four-step cancellation. The two look the
+    #: same in a count of unserved calls and mean opposite things about who
+    #: failed.
+    CANCELLED = "cancelled"
 
 
 @dataclass
@@ -94,6 +100,10 @@ class Call:
     source: str                       # "equipment" or "PDA"
     raised_at: float
     acknowledged_at: float = None
+    #: When CSM gave the call back, having acknowledged it and failed to serve
+    #: it. Kept beside `acknowledged_at` because the pair is the whole story:
+    #: we promised at one time and withdrew the promise at another.
+    cancelled_at: float = None
     job_id: str = None
     status: CallStatus = CallStatus.RAISED
 
@@ -231,6 +241,10 @@ class Records(ABC):
         """Calls raised and not yet acknowledged."""
 
     @abstractmethod
+    def cancel_call(self, call_id, at):
+        """Give an acknowledged call back. Distinct from it being withdrawn."""
+
+    @abstractmethod
     def add_decision(self, decision):
         """Record why a job went where it did."""
 
@@ -338,6 +352,15 @@ class InMemoryRecords(Records):
     def open_calls(self):
         return [c for c in self._calls.values()
                 if c.status is CallStatus.RAISED]
+
+    def cancel_call(self, call_id, at):
+        """We acknowledged this call and could not serve it. Section 7's C9."""
+        call = self._calls.get(call_id)
+        if call is None:
+            return None
+        call.status = CallStatus.CANCELLED
+        call.cancelled_at = at
+        return call
 
     def call(self, call_id):
         return self._calls.get(call_id)

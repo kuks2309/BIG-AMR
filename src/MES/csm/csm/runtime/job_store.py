@@ -71,6 +71,10 @@ class JobStore:
         #: created: a rising number here is a line that is struggling, not a
         #: line that is busy.
         self.retried = 0
+        #: Calls given back to the machine after CSM ran out of attempts.
+        #: Every one of these ends in an alarm and a person, so this number is
+        #: the count of times the line needed a human.
+        self.abandoned = 0
         self._job_seq = 0
 
     # ---------------------------------------------------------------- jobs
@@ -145,6 +149,7 @@ class JobStore:
         if not failed.retryable:
             self.logger(f"[{failed.job_id}] not retried: "
                         f"{failed.failure_reason or 'terminal failure'}")
+            self._hand_back(failed)
             return None
         if failed.attempt >= MAX_ATTEMPTS:
             # Loud, because this is where work is genuinely abandoned and
@@ -153,6 +158,7 @@ class JobStore:
                         f"{failed.attempt} attempts: "
                         f"{failed.from_station} -> {failed.to_station} "
                         f"({failed.failure_reason})")
+            self._hand_back(failed)
             return None
 
         replacement = self.create(
@@ -171,6 +177,43 @@ class JobStore:
         self.logger(f"[{replacement.job.job_id}] raised again for "
                     f"{failed.job_id} (attempt {failed.attempt + 1})")
         return replacement
+
+    def _hand_back(self, failed):
+        """Tell the machine we are not coming. Specification C9.
+
+        THE ACKNOWLEDGEMENT WAS A PROMISE. A machine stops calling the moment
+        it sees `AGV_Task_Recive = 1`, so every call CSM answers leaves a
+        machine silent and waiting. Retiring the job without this leaves it
+        waiting for ever — and the failure is invisible, because the call
+        succeeded, the job finished, and only the material knows.
+
+        Run when the work is ABANDONED, not when it is retried. A retry is
+        still us coming; there is nothing to tell the machine and telling it
+        anyway would alarm a station over a job that is about to be served.
+
+        Deliberately NOT part of the job FSM. The job is already retired; this
+        is a conversation between CSM and the machine about the CALL, and it
+        outlives the job that answered it.
+        """
+        if failed.call_id is None:
+            # CSM's own work — the WIP diversion answers no call, so there is
+            # nobody waiting to be told.
+            return None
+        call = self.records.call(failed.call_id)
+        if call is None:
+            self.logger(f"[{failed.job_id}] abandoned, but call "
+                        f"{failed.call_id} is not on record — the machine "
+                        f"cannot be told")
+            return None
+
+        now = self.clock()
+        self.records.cancel_call(failed.call_id, at=now)
+        cancel = self.equipment.cancel_task(
+            call.station, failed.job_id, now, call_id=failed.call_id)
+        self.abandoned += 1
+        self.logger(f"[{failed.job_id}] handing {failed.call_id} back to "
+                    f"{call.station} — AGV_Task_Processing = 9")
+        return cancel
 
     def _on_change(self, ctx, transition):
         """Mirror the FSM's state onto the job record.

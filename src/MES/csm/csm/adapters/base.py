@@ -34,6 +34,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 
+from .cancellation import CancelState, TaskCancellation, TASK_CANCELLED
+
 
 class StationStatus(Enum):
     """What a production machine reports about itself.
@@ -245,6 +247,105 @@ class EquipmentAdapter(ABC):
         missing code must never be read as a code of zero.
         """
         return None
+
+    # -- giving a call back: the four-step cancellation ------------------
+
+    #: How long to wait for the machine at each step of the cancellation.
+    #:
+    #: NOT A MEASURED NUMBER. The protocol says the host deletes the task and
+    #: answers; it does not say how quickly. This stands in until the equipment
+    #: vendor gives one, the same gap as `COMMAND_TIMEOUT_S` and `debt-033`.
+    #: Running out of it never clears our side of the handshake — see
+    #: `cancellation.py` — so getting it wrong costs a false alarm, not a lost
+    #: cancellation.
+    CANCEL_REPLY_TIMEOUT_S = 10.0
+
+    def task_delete_requested(self, station_id):
+        """`MC_Task_Delete` at this station, or None if it cannot be read.
+
+        None is the honest answer for a link that does not carry the signal,
+        and it is NOT False. False says the machine has not deleted the task;
+        None says we cannot tell, which is what makes the whole four-step
+        handshake unverifiable rather than merely unfinished.
+        """
+        return None
+
+    def cancel_task(self, station_id, job_id, now, call_id=None):
+        """Step 1: tell the machine we are not coming. Returns the handshake.
+
+        THE ACKNOWLEDGEMENT WAS A PROMISE. `AGV_Task_Recive = 1` makes the
+        machine stop asking, so from the moment CSM answers a call the machine
+        is silent and waiting. Abandoning the job without this leaves it
+        waiting for ever, and every component involved believes it finished its
+        own part correctly.
+
+        The returned object is resolved later by `resolve_cancellations`, the
+        same shape as `send_and_confirm`, because the remaining three steps are
+        the machine's and ours in turn and none of them can happen now.
+        """
+        pending = TaskCancellation(
+            station=station_id, job_id=job_id, call_id=call_id,
+            started_at=now, reply_timeout_s=self.CANCEL_REPLY_TIMEOUT_S,
+        )
+        # Assert `AGV_Task_Processing = 9` where the adapter can carry it.
+        # Adapters that cannot say so are caught by the None check below, not
+        # by this being absent.
+        self.write_task_processing(station_id, TASK_CANCELLED)
+        if self.task_delete_requested(station_id) is None:
+            pending.state = CancelState.UNVERIFIABLE
+        self._pending_cancellations.append(pending)
+        return pending
+
+    def write_task_processing(self, station_id, code):
+        """Put `AGV_Task_Processing` on the wire. `code` of None clears it.
+
+        Separate from `set_task_processing`, which is how a TEST states what a
+        robot reported. This is CSM writing the signal itself, and it is the
+        only reason step 4 ever reaches the machine: the handshake object
+        deciding it may drop the 9 changes nothing until somebody writes it.
+        Left as a no-op on adapters with nowhere to put it.
+        """
+        setter = getattr(self, "set_task_processing", None)
+        clearer = getattr(self, "clear_task_processing", None)
+        if code is None:
+            if clearer is not None:
+                clearer(station_id)
+        elif setter is not None:
+            setter(station_id, code)
+
+    @property
+    def _pending_cancellations(self):
+        if not hasattr(self, "_cancellation_list"):
+            self._cancellation_list = []
+        return self._cancellation_list
+
+    def resolve_cancellations(self, now):
+        """Advance every cancellation in flight. Returns (finished, stranded).
+
+        `finished` are the ones that completed all four steps — the machine has
+        alarmed and a person owns the work now. `stranded` are the ones where
+        the machine has still not acknowledged: those keep asserting 9 and are
+        returned EVERY tick, because a station whose material nobody is coming
+        for should not stop being reported after one line of log.
+        """
+        finished, stranded, still_pending = [], [], []
+        for pending in self._pending_cancellations:
+            state = pending.observe(now, self.task_delete_requested(pending.station))
+            # STEP 4 IS A WRITE, not a decision. `agv_task_processing` goes to
+            # None the moment `MC_Task_Delete = 1` is seen, and until that None
+            # is written the machine still sees a 9 and waits for ever.
+            self.write_task_processing(pending.station,
+                                       pending.agv_task_processing)
+            if state is CancelState.COMPLETE:
+                finished.append(pending)
+            elif state is CancelState.UNVERIFIABLE:
+                finished.append(pending)
+            else:
+                if pending.stranded:
+                    stranded.append(pending)
+                still_pending.append(pending)
+        self._cancellation_list = still_pending
+        return finished, stranded
 
     def can_accept(self, station_id) -> bool:
         """Is this station free to RECEIVE something right now?

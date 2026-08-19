@@ -141,6 +141,8 @@ class OpcUaEquipmentClient(EquipmentAdapter):
         self._handles = []
         self._cache = _SignalCache()
         self._acknowledged = []
+        #: (station, code) pairs for `AGV_Task_Processing`.
+        self._task_processing_writes = []
         #: What the server actually granted, per subscribed variable.
         self.revised_queue_sizes = {}
 
@@ -295,11 +297,22 @@ class OpcUaEquipmentClient(EquipmentAdapter):
 
     async def flush(self):
         """Perform the writes queued by the synchronous interface."""
+        from asyncua import ua
+
         pending, self._acknowledged = self._acknowledged, []
         for call in pending:
             node = await self._node(call.station_id, "AGV_Task_Recive")
             if node is not None:
                 await node.write_value(True)
+
+        writes, self._task_processing_writes = self._task_processing_writes, []
+        for station_id, code in writes:
+            node = await self._node(station_id, "AGV_Task_Processing")
+            if node is not None:
+                # Int32 explicitly: asyncua will not infer the server's type
+                # from a bare Python int and the write fails BadTypeMismatch.
+                await node.write_value(ua.Variant(int(code),
+                                                  ua.VariantType.Int32))
 
     def get_station_status(self, station_id):
         """Our five-value view, derived from the machine's real signals."""
@@ -327,6 +340,28 @@ class OpcUaEquipmentClient(EquipmentAdapter):
         value = self._cache.get(
             station_id, variable_name("AGV_Task_Processing", self.axis))
         return TaskProcessing(value) if value else None
+
+    def task_delete_requested(self, station_id):
+        """`MC_Task_Delete`. None until the server has reported it once.
+
+        None is not False here either. Before the first notification we have no
+        value, and reading that as "the machine has not deleted the task" would
+        make a cancellation look merely unfinished when in truth we are not yet
+        listening.
+        """
+        return self._cache.get(
+            station_id, variable_name("MC_Task_Delete", self.axis))
+
+    def write_task_processing(self, station_id, code):
+        """Queue `AGV_Task_Processing`. `code` of None writes 0, not nothing.
+
+        Steps 1 and 4 of the cancellation are both this write. Queued rather
+        than awaited for the same reason as `acknowledge_call`: the adapter
+        interface is synchronous and the client is not.
+        """
+        if station_id not in self.stations:
+            return
+        self._task_processing_writes.append((station_id, code or 0))
 
     def machine_number(self, station_id):
         raw = self._cache.get(station_id, "MC_Num")

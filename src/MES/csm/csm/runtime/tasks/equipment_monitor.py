@@ -79,6 +79,11 @@ class EquipmentMonitorTask(FsmTask):
         #: ONLY way a lost command is visible — nothing errors. See debt-034.
         self.commands_lost = 0
 
+        #: Calls handed back and fully acknowledged by the machine. Each one
+        #: is a station now alarmed and waiting for a person, so this is not a
+        #: number that should grow quietly.
+        self.cancellations_done = 0
+
         self.created = 0
         #: Jobs created with no caller, to clear stranded material.
         self.diverted = 0
@@ -167,7 +172,34 @@ class EquipmentMonitorTask(FsmTask):
 
         self._divert_stranded()
         self._resolve_commands()
+        self._resolve_cancellations()
         self._sync_station_map()
+
+    def _resolve_cancellations(self):
+        """Advance the four-step cancellation for every call we gave back.
+
+        Steps 2, 3 and 5 belong to the machine and arrive whenever it gets to
+        them, so this has to run every tick — the handshake cannot be finished
+        by the code that started it.
+
+        A stranded cancellation is logged EVERY tick on purpose. It means we
+        told a machine we were not coming and it has not heard us, so material
+        is standing at a station that still expects a robot. That is not a
+        thing to mention once.
+        """
+        equipment = self.store.equipment
+        if not hasattr(equipment, "resolve_cancellations"):
+            return
+        finished, stranded = equipment.resolve_cancellations(self.store.clock())
+        for cancel in finished:
+            self.cancellations_done += 1
+            self.store.logger(
+                f"[{cancel.station}] cancellation complete for "
+                f"{cancel.job_id} — the machine has the task back")
+        for cancel in stranded:
+            self.store.logger(
+                f"[{cancel.station}] cancellation NOT acknowledged for "
+                f"{cancel.job_id} — the machine still expects a robot")
 
     def _sync_station_map(self):
         """Learn the customer's id for each port, as the machines report it.

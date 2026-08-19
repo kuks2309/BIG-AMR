@@ -238,9 +238,11 @@ class OpcUaEquipment(MockEquipment):
     """
 
     def __init__(self, station_ids, clock, process_seconds=5.0,
-                 comm_alarm_seconds=2.0):
+                 comm_alarm_seconds=2.0, cancel_response_seconds=1.0):
         super().__init__(station_ids, clock, process_seconds)
         self.comm_alarm_seconds = comm_alarm_seconds
+        self.cancel_response_seconds = cancel_response_seconds
+        self._station_ids = list(station_ids)
 
         #: our name -> MC_Num. This IS the specification's `station_map`
         #: record; the customer's identity for a port, beside ours.
@@ -265,6 +267,20 @@ class OpcUaEquipment(MockEquipment):
 
         #: Stations whose next command will be accepted and ignored.
         self._swallow = set()
+
+        #: station -> MC_Task_Delete. The host's half of the cancellation.
+        self._task_delete = {}
+        #: station -> when we first saw `AGV_Task_Processing = 9` there.
+        self._cancel_seen = {}
+        #: Machines that will never answer a cancellation at all.
+        self._deaf_to_cancel = set()
+        #: Stations alarmed by a cancellation, awaiting an operator.
+        self.alarms = set()
+        #: What each alarmed station will ask for again once reset.
+        self._alarm_task_type = {}
+        #: The last task type each station called for, so a re-dispatch after
+        #: an operator reset asks for the same thing rather than a guess.
+        self._last_task_type = {}
 
         #: station -> DockingHandshake, the mutual watchdog for its door.
         self._handshake = {}
@@ -336,8 +352,81 @@ class OpcUaEquipment(MockEquipment):
     def set_task_processing(self, station_id, code):
         self._processing[station_id] = TaskProcessing(code)
 
+    def clear_task_processing(self, station_id):
+        self._processing.pop(station_id, None)
+
     def task_processing(self, station_id):
         return self._processing.get(station_id)
+
+    # -- the four-step cancellation, from the machine's side --------------
+
+    def task_delete_requested(self, station_id):
+        """`MC_Task_Delete`. Driven on read, like everything else here."""
+        self._settle_cancellations()
+        return self._task_delete.get(station_id, False)
+
+    def ignore_cancellation(self, station_id):
+        """This machine will never answer a cancellation.
+
+        The case that matters most. We assert `AGV_Task_Processing = 9` and
+        nothing comes back, so the material is stranded and the machine still
+        believes a robot is on its way. A CSM that clears 9 on a timer would
+        look like it had completed the handshake.
+        """
+        self._deaf_to_cancel.add(station_id)
+
+    def _settle_cancellations(self):
+        """The host's half: delete the task, flag it, clear it, then alarm."""
+        now = self._clock()
+        for station_id in list(self._station_ids):
+            if station_id in self._deaf_to_cancel:
+                continue
+            cancelling = (self._processing.get(station_id)
+                          is TaskProcessing.TASK_CANCELLED)
+            flagged = self._task_delete.get(station_id, False)
+
+            if cancelling and not flagged:
+                # Steps 2 and 3: the host deletes the task and says so. Not
+                # instant — a real host takes a scan or two, and a CSM that
+                # only works when the reply is immediate is not tested.
+                since = self._cancel_seen.setdefault(station_id, now)
+                if now - since >= self.cancel_response_seconds:
+                    self._task_delete[station_id] = True
+            elif not cancelling and flagged:
+                # Step 4 was ours and we did it. Step 5: clear the flag and
+                # RAISE THE ALARM. The work now belongs to an operator.
+                self._task_delete[station_id] = False
+                self._cancel_seen.pop(station_id, None)
+                self.alarms.add(station_id)
+                self._alarm_task_type[station_id] = self._last_task_type.get(
+                    station_id, TaskType.LOAD)
+            elif not cancelling:
+                self._cancel_seen.pop(station_id, None)
+
+    def alarm_at(self, station_id):
+        """Has this machine alarmed after a cancellation?
+
+        The specification's last step, and the reason the whole dance is worth
+        running: the work does not silently return to CSM, it goes to a person.
+        """
+        self._settle_cancellations()
+        return station_id in self.alarms
+
+    def reset_alarm(self, station_id):
+        """An operator clears the alarm — and the machine dispatches again.
+
+        Both halves, because they are one action on the shop floor. Resetting
+        without re-dispatching would leave the material standing there with
+        nobody having asked for it, which is the state the alarm exists to end.
+        """
+        if station_id not in self.alarms:
+            return False
+        self.alarms.discard(station_id)
+        self._processing.pop(station_id, None)
+        self.raise_call(station_id,
+                        self._alarm_task_type.pop(station_id, TaskType.LOAD),
+                        source="machine")
+        return True
 
     # -- edge-triggered requests, and losing them ------------------------
 
@@ -357,6 +446,11 @@ class OpcUaEquipment(MockEquipment):
         """
         self.raise_call(station_id, task_type, source)
         self._call_expiry[station_id] = self._clock() + seconds
+
+    def raise_call(self, station_id, task_type=TaskType.LOAD, source="machine"):
+        """Remember what was asked for, so a re-dispatch asks for it again."""
+        self._last_task_type[station_id] = task_type
+        return super().raise_call(station_id, task_type, source)
 
     def poll_calls(self):
         """Outstanding requests — minus any the machine has given up on."""
