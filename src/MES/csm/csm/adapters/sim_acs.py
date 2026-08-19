@@ -35,7 +35,8 @@ from sensor_msgs.msg import JointState, LaserScan
 
 from . import docking, roads
 from .. import plant
-from .base import AcsAdapter, TransportResult
+from .base import (AcsAdapter, SimpleResponse, TaskKind, TransportResult,
+                   build_order, classify_error_code)
 
 #: THE PLANT. Positions, ports and material flow all come from plant.py, which
 #: is built from the customer documents — see its header for the source list.
@@ -1782,6 +1783,56 @@ class SimRobot:
 
 
 
+#: ERROR CODES THIS SIMULATED ACS RETURNS.
+#:
+#: ⚠ INVENTED. The real server returns one integer per mutation and its code
+#: table is not in the schema — our analysis calls it "the single most important
+#: thing still owed to us". These stand in so the simulator can exercise the
+#: same SHAPE the real one uses; the VALUES are ours and will be wrong.
+#:
+#: They are decoded only by `classify_error_code`, so replacing them with the
+#: vendor's table is a change in one place. Nothing here should be read as a
+#: claim about what the real ACS returns.
+ERR_BUSY = 1            # no robot free on this leg yet — retry
+ERR_UNKNOWN_STATION = 2
+ERR_NO_TASKS = 3
+
+_RESULT_TO_CODE = {
+    TransportResult.ACCEPTED: 0,
+    TransportResult.BUSY: ERR_BUSY,
+    TransportResult.REJECTED: ERR_UNKNOWN_STATION,
+}
+
+#: The other direction, for `classify_error_code`. We know THIS server's codes
+#: because we wrote them; that is exactly what the real one is missing. Without
+#: this an unknown station would come back as BUSY and be retried for ever
+#: instead of failed.
+SIM_ERROR_CODES = {
+    0: TransportResult.ACCEPTED,
+    ERR_BUSY: TransportResult.BUSY,
+    ERR_UNKNOWN_STATION: TransportResult.REJECTED,
+    ERR_NO_TASKS: TransportResult.REJECTED,
+}
+
+
+class _Assignment:
+    """What the robot layer needs in order to carry one order.
+
+    An order is a task list; a robot is driven by two journeys, collect then
+    deliver. This is the small translation between them, and it exists so the
+    robot code keeps reading `job.from_station` unchanged while the interface
+    above it has become orders and tasks.
+    """
+
+    __slots__ = ("job_id", "from_station", "to_station", "priority")
+
+    def __init__(self, job_id, from_station, to_station, priority=0):
+        self.job_id = job_id
+        self.from_station = from_station
+        self.to_station = to_station
+        self.priority = priority
+
+
 class SimAcs(AcsAdapter):
     """The fleet controller — one or more robots, and the choice between them.
 
@@ -1828,7 +1879,73 @@ class SimAcs(AcsAdapter):
 
     # -------------------------------------------------------- AcsAdapter
 
+    # ------------------------------------------------------- the order API
+    #
+    # ADR 2026-08-18-acs-order-task-interface. `create_order` is what the real
+    # ACS exposes, so it is what the simulator must expose too — otherwise what
+    # is verified here has a different shape from what runs at deployment,
+    # which is the one thing specification section 9 asks us not to do.
+    #
+    # `submit_job` is kept and now goes THROUGH the order path, so the four
+    # existing call sites are already exercising orders and task lists without
+    # having been touched.
+
+    def create_order(self, order):
+        """Take an order — an id and an ORDERED LIST OF TASKS.
+
+        The task list is authoritative. Where the robot has to go is read from
+        it rather than passed alongside it:
+
+            LOAD   target -> where material is collected
+            UNLOAD target -> where it is delivered
+
+        which for a plain delivery (MOVE, LOAD, MOVE, UNLOAD) gives the two
+        ends, and for a deliver-and-collect at one port (MOVE, UNLOAD, STAGE,
+        LOAD) gives the same station twice — one visit, which is the case that
+        made an order a list in the first place.
+
+        Returns a `SimpleResponse`, as every real ACS mutation does. The
+        integer is the only channel the real server has, and
+        `classify_error_code` is the only place allowed to interpret one.
+        """
+        if not order.tasks:
+            return SimpleResponse(ERR_NO_TASKS, "order carries no tasks")
+
+        frm = next((t.target for t in order.tasks
+                    if t.kind is TaskKind.LOAD), None)
+        to = next((t.target for t in reversed(order.tasks)
+                   if t.kind is TaskKind.UNLOAD), None)
+        if frm is None or to is None:
+            return SimpleResponse(
+                ERR_NO_TASKS,
+                "an order must carry at least one LOAD and one UNLOAD")
+
+        result = self._dispatch(order.id, frm, to, order.priority or 0)
+        return SimpleResponse(_RESULT_TO_CODE.get(result, ERR_BUSY),
+                              result.value)
+
+    def order_state(self, order_id):
+        return self._results.get(order_id, TransportResult.UNKNOWN)
+
+    def cancel_order(self, order_id):
+        return SimpleResponse(0 if self.cancel_job(order_id) else ERR_BUSY)
+
+    def abort_order(self, order_id):
+        """Stop a running order. Takes NO drop-off location — the ACS decides."""
+        return self.cancel_order(order_id)
+
     def submit_job(self, job):
+        """The older shape, now a thin wrapper over the order path.
+
+        Kept so the four call sites migrate one at a time rather than all at
+        once — but they are already going through `create_order` from here, so
+        the order path is what the simulator actually runs.
+        """
+        response = self.create_order(build_order(job))
+        return classify_error_code(response.errorCode, SIM_ERROR_CODES)
+
+    def _dispatch(self, job_id, from_station, to_station, priority=0):
+        job = _Assignment(job_id, from_station, to_station, priority)
         if job.from_station not in self.stations:
             self.node.get_logger().warn(f"unknown source {job.from_station}")
             return TransportResult.REJECTED

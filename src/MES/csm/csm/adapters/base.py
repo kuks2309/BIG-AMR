@@ -523,8 +523,12 @@ PROVISIONAL_ERROR_CODES = {
 }
 
 
-def classify_error_code(code):
+def classify_error_code(code, table=None):
     """Turn an ACS `errorCode` into a TransportResult. THE ONLY PLACE THAT MAY.
+
+    :param table: the code table of the server being talked to. An adapter that
+        KNOWS its own codes — the simulator invented its own, so it does —
+        passes them here. Without one, only zero is understood.
 
     ⚠ THE VENDOR'S ERROR-CODE TABLE DOES NOT EXIST IN THE SCHEMA. Our own
     analysis calls it "the single most important thing still owed to us", and
@@ -542,8 +546,9 @@ def classify_error_code(code):
     failing a job that would have run loses material movement silently. The job
     FSM's own retry ceiling stops the first from running away.
     """
-    if code in PROVISIONAL_ERROR_CODES:
-        return PROVISIONAL_ERROR_CODES[code]
+    table = PROVISIONAL_ERROR_CODES if table is None else table
+    if code in table:
+        return table[code]
     return TransportResult.BUSY
 
 
