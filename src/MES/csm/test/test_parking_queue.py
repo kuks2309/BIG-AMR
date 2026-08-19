@@ -32,8 +32,16 @@ def test_no_two_robots_share_a_slot():
 
 
 def test_a_robot_with_no_leg_gets_no_slot():
-    """None, not a default. A default means two robots at one point."""
-    assert plant.parking_for("amr9") is None
+    """None, not a default. A default means two robots at one point.
+
+    The name has to be one the fleet table really does not contain. It used to
+    be `amr9`, which stopped being unknown the moment the table was generated
+    for the deck's full ten — a test that passes because of a coincidence stops
+    testing anything the day the coincidence ends.
+    """
+    assert "amr99" not in plant.ROBOT_SEGMENT, "pick a name that is not a robot"
+    assert plant.parking_for("amr99") is None
+    assert plant.parking_for("forklift") is None
 
 
 def test_slot_assignment_is_stable_when_the_fleet_grows():

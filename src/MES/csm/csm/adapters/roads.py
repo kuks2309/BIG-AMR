@@ -332,6 +332,22 @@ def park_node(robot_name):
     return f"park_{segment}" + ("" if index == 0 else str(index + 1))
 
 
+def park_node_at(position, tolerance=0.05):
+    """The `park_*` node standing at these coordinates, or None.
+
+    A charger IS a parking slot, so a robot sent to charge is sent to some
+    slot's node — usually not its own. `park_node` answers "where does THIS
+    robot live"; this answers "what is the node at that place", which is the
+    question once the two stop being the same.
+    """
+    for segment, slots in plant.PARKING_SLOTS.items():
+        for i, slot in enumerate(slots):
+            if (abs(slot[0] - position[0]) <= tolerance
+                    and abs(slot[1] - position[1]) <= tolerance):
+                return f"park_{segment}" + ("" if i == 0 else str(i + 1))
+    return None
+
+
 def build():
     """The checked lane network for the plant. Raises UnsafeLane if obstructed."""
     obstacles = {n: (pos, MACHINE_RADIUS) for n, pos in plant.OBSTACLES.items()}

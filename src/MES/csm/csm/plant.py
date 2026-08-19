@@ -73,6 +73,7 @@ aisles with perpendicular docking spurs, not a loop around an open floor.
 """
 
 import math
+import re
 
 # ---------------------------------------------------------------- geometry
 
@@ -492,21 +493,7 @@ PORT_LINKS += [(f"CTR{i}_LD", f"CTR{i}_ULD") for i in range(1, 5)]
 #: Which segment each robot serves. Three robots, three segments — the real line
 #: runs 2 + 2 + 6 [S16], so this is one of each rather than the full fleet.
 #:
-#: THIS DICT IS THE WHOLE BINDING. A robot is tied to one leg of the material
-#: flow by naming a segment here; the segment names its pickup and delivery
-#: ports above, and those ports name the markers, the roads and the parking bay.
-#: Nothing else in the system knows one robot from another — driving, docking,
-#: traffic and the job FSM all key off station ids.
-#:
-#: So amr3 is amr2 with a different string, and that is the design working
-#: rather than a coincidence. If a robot ever needs code the others do not, the
-#: leg abstraction has leaked and the fix belongs here, not in a special case.
-#:
-#: A leg with no robot is legal: SimAcs.submit_job answers BUSY, not REJECTED,
-#: so its jobs queue until somebody can serve them. That is what let amr3 be
-#: removed and rewritten without touching anything else — measured over an hour
-#: with segment C unserved, in docs/verification/2026-08-10-two-robot-one-hour-soak.md
-ROBOT_SEGMENT = {"amr1": "A", "amr2": "B", "amr3": "C"}
+
 
 
 def parking_for(robot_name):
@@ -541,7 +528,11 @@ def parking_index(robot_name):
     segment = ROBOT_SEGMENT.get(robot_name)
     if segment is None:
         return None, None
-    peers = sorted(n for n, s in ROBOT_SEGMENT.items() if s == segment)
+    # Numerically, not alphabetically — see `robot_number`.
+    peers = sorted((n for n, s in ROBOT_SEGMENT.items() if s == segment),
+                   key=lambda n: (robot_number(n) is None, robot_number(n), n))
+    if robot_name not in peers:
+        return None, None
     return segment, peers.index(robot_name)
 
 
@@ -661,24 +652,109 @@ CHARGERS = {seg: [PARKING_SLOTS[seg][i] for i in charging_slots(seg)]
             for seg in _PARK_SIDE}
 
 
-def charger_for(robot_name):
-    """Where this robot goes to charge, or None if its leg has no charger.
+def robot_number(robot_name):
+    """The digits in `amr7`, or None.
 
-    Its OWN leg's charger, because a robot is bound to one leg and driving it
+    Needed because robots must sort NUMERICALLY. Plain string order puts
+    `amr10` before `amr3`, which would hand leg C's first parking slot to the
+    tenth robot and quietly shuffle everyone else's — a fault that cannot
+    appear below ten robots and is invisible above it until two robots drive to
+    one bay.
+    """
+    found = re.search(r"\d+", robot_name or "")
+    return int(found.group()) if found else None
+
+
+def assign_legs(count, fleet=None):
+    """Hand `count` robots to legs in the deck's own proportions.
+
+    THE RULE: each robot goes to the leg that is furthest from its full
+    complement, measured as a FRACTION of that complement, with ties broken in
+    deck order. Fractions rather than absolute shortfall, so a leg entitled to
+    six does not swallow the first four robots before the two-robot legs get
+    one each.
+
+    It lands on the sensible answer at every size we actually run:
+
+        3 robots -> A 1, B 1, C 1     one per leg, which is what we have today
+        5 robots -> A 1, B 1, C 3     leg C is the busy one, so it gets the spare
+       10 robots -> A 2, B 2, C 6     exactly the deck's fleet [S6]
+
+    Stops at the deck's total: there are only that many parking slots and that
+    many chargers, and a robot with nowhere to park is not a robot.
+    """
+    fleet = FLEET if fleet is None else fleet
+    legs = list(fleet)
+    taken = {leg: 0 for leg in legs}
+    out = {}
+    for i in range(1, count + 1):
+        # Full legs are not candidates. When every leg is full we stop rather
+        # than overflow: the shortage is real and hiding it would put two
+        # robots in one bay.
+        free = [leg for leg in legs if taken[leg] < fleet[leg]]
+        if not free:
+            break
+        leg = min(free, key=lambda l: (taken[l] / fleet[l], legs.index(l)))
+        taken[leg] += 1
+        out[f"amr{i}"] = leg
+    return out
+
+
+#: THIS DICT IS THE WHOLE BINDING. A robot is tied to one leg of the material
+#: flow by naming a segment here; the segment names its pickup and delivery
+#: ports above, and those ports name the markers, the roads and the parking bay.
+#: Nothing else in the system knows one robot from another — driving, docking,
+#: traffic and the job FSM all key off station ids.
+#:
+#: So amr3 is amr2 with a different string, and that is the design working
+#: rather than a coincidence. If a robot ever needs code the others do not, the
+#: leg abstraction has leaked and the fix belongs here, not in a special case.
+#:
+#: A leg with no robot is legal: SimAcs.submit_job answers BUSY, not REJECTED,
+#: so its jobs queue until somebody can serve them. That is what let amr3 be
+#: removed and rewritten without touching anything else — measured over an hour
+#: with segment C unserved, in docs/verification/2026-08-10-two-robot-one-hour-soak.md
+#:
+#: Generated for the DECK'S FULL FLEET, not for however many happen to be
+#: running. A three-robot run is amr1..amr3 of the same table, so a robot's leg
+#: and parking slot do not move when the fleet grows — and it has to be stable,
+#: because a robot drives home to its slot.
+ROBOT_SEGMENT = assign_legs(sum(FLEET.values()))
+
+
+def chargers_for(robot_name):
+    """Every charger this robot may use, nearest to its own slot first.
+
+    A LIST, not one place. The deck gives 5 chargers to 10 robots and
+    `CHARGER_EVERY` says so: two robots share each one. `charger_for` naming a
+    single slot was true only while every leg had one robot, and it stopped
+    being true the moment leg C had three — two of them would be sent to the
+    same plug with nothing arbitrating it, and neither the code nor any test
+    would have noticed.
+
+    Its OWN leg's chargers, because a robot is bound to one leg and driving it
     across the plant to another leg's charger would cross every lane it is
     meant to stay out of.
-
-    The nearest charging slot to the robot's own parking slot, so a robot that
-    is already parked usually has nowhere to go.
     """
     segment = ROBOT_SEGMENT.get(robot_name)
     if segment is None or not CHARGERS.get(segment):
-        return None
+        return []
     home = parking_for(robot_name)
     if home is None:
-        return CHARGERS[segment][0]
-    return min(CHARGERS[segment],
-               key=lambda c: (c[0] - home[0]) ** 2 + (c[1] - home[1]) ** 2)
+        return list(CHARGERS[segment])
+    return sorted(CHARGERS[segment],
+                  key=lambda c: (c[0] - home[0]) ** 2 + (c[1] - home[1]) ** 2)
+
+
+def charger_for(robot_name):
+    """The charger this robot would prefer, or None if its leg has none.
+
+    ⚠ PREFERENCE, NOT A RESERVATION. Another robot may be on it. Anything that
+    actually sends a robot to charge must ask the fleet for a free one — see
+    `SimAcs.claim_charger` — and this is only the first choice.
+    """
+    chargers = chargers_for(robot_name)
+    return chargers[0] if chargers else None
 
 
 def is_charger(position, tolerance=0.3):

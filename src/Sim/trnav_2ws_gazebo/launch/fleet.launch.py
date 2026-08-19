@@ -67,7 +67,11 @@ from launch_ros.substitutions import FindPackageShare
 #: Spawn each robot in ITS OWN queue slot, by name, exactly where the CSM will
 #: later send it home to. Taking the leg's slot instead put every robot of a
 #: class on one point — fine with one robot per class, a collision with two.
-_FLEET_ORDER = ('amr1', 'amr2', 'amr3')
+#: Every robot the deck's fleet contains, in name order. Generated rather than
+#: listed, so raising `robots:=` is the only change needed to run more of them
+#: — a hand-written tuple was the thing that capped the fleet at three.
+_FLEET_ORDER = tuple(
+    sorted(plant.ROBOT_SEGMENT, key=lambda n: plant.robot_number(n) or 0))
 START_POSES = [plant.parking_for(n) + (0.0,) for n in _FLEET_ORDER]
 #: One pose per robot, and the count is clamped to len(START_POSES) — so this
 #: list, not FLEET_ROBOTS, is the ceiling on fleet size. Each pose must match
@@ -323,7 +327,8 @@ def generate_launch_description():
 
     robots = []
     for i in range(count):
-        robots += _one_robot(f'amr{i + 1}', START_POSES[i], xacro_file,
+        # Name and pose from the SAME list, so they cannot drift apart.
+        robots += _one_robot(_FLEET_ORDER[i], START_POSES[i], xacro_file,
                              LaunchConfiguration('steer_lag'),
                              delay=i * 15.0)
 

@@ -792,6 +792,23 @@ class SimRobot:
     #: the time the trip was meant to save.
     HOME_TOL = 0.8
 
+    def _home_target(self):
+        """Where "home" is for this robot right now: (position, node name).
+
+        Its own parking slot, unless it is charging — then it is the plug it
+        has been given, which for most of the fleet is SOMEBODY ELSE'S SLOT.
+        Five chargers serve ten robots, so "its charger is its parking slot"
+        was true only while every leg had one robot. amr4 parks at (24.5,
+        -3.65) and its nearest charger is at (24.5, -1.5); sending it home
+        would have parked it beside a plug it never reached, discharging while
+        reporting that it was charging.
+        """
+        if self._charging_to is not None and self.fleet is not None:
+            spot = self.fleet.claim_charger(self)
+            if spot is not None:
+                return spot, roads.park_node_at(spot)
+        return plant.parking_for(self.name), roads.park_node(self.name)
+
     def _go_home(self):
         """Drive an idle robot back to its parking bay, ON THE LANES.
 
@@ -803,7 +820,7 @@ class SimRobot:
         # This robot's OWN slot. Using the leg's slot sent every robot of a
         # class to one point, which is only survivable while a class has one
         # robot.
-        bay = plant.parking_for(self.name)
+        bay, home_node = self._home_target()
         if bay is None or self.pose is None:
             return
         x, y, yaw = self.pose
@@ -836,10 +853,9 @@ class SimRobot:
             # the drive FSM. It survived unseen because homing is only reached
             # by a robot that is idle AND away from its bay, which the fleet
             # rarely was until charging started sending robots out.
-            node = roads.park_node(self.name)
             self._home_waypoints = list(
-                ROADS.route_to_node(self.pose[:2], node) if node else []
-            ) or [bay]
+                ROADS.route_to_node(self.pose[:2], home_node)
+                if home_node else []) or [bay]
             self.node.get_logger().info(
                 f"{self._tag()}no work — returning to park via "
                 f"{len(self._home_waypoints)} waypoints")
@@ -971,7 +987,8 @@ class SimRobot:
         a charger is one robot's own slot, so being near somebody else's is not
         being on one.
         """
-        mine = plant.charger_for(self.name)
+        mine = (self.fleet.claim_charger(self) if self.fleet is not None
+                else plant.charger_for(self.name))
         if mine is None or self.pose is None:
             return False
         return math.hypot(mine[0] - self.pose[0],
@@ -1211,7 +1228,10 @@ class SimRobot:
             return False
         if self._in_a_bay():
             return True
-        bay = plant.parking_for(self.name)
+        # Wherever home currently is — its slot, or the plug it is charging
+        # on. Asking `parking_for` here would call a charging robot "not
+        # parked" while it stands on somebody else's slot.
+        bay, _node = self._home_target()
         if bay is None:
             return False
         return math.hypot(bay[0] - self.pose[0],
@@ -2170,6 +2190,9 @@ class SimAcs(AcsAdapter):
         self._results = {}
         #: station_id -> robot holding it. One robot per bay.
         self._occupied = {}
+        #: robot name -> the charging slot it holds. Five plugs, ten robots,
+        #: so this is a reservation and not a lookup.
+        self._chargers = {}
         #: pair of robot names -> the one that must give way.
         self._giving_way = {}
         #: junction node -> the robot holding it (the red light).
@@ -2289,12 +2312,27 @@ class SimAcs(AcsAdapter):
                 f"after this job")
             return SimpleResponse(0, "queued until the current job ends")
 
+        # EVERY PLUG ON THIS LEG MAY BE TAKEN. Five serve ten, so this is a
+        # real and ordinary state, not a fault — BUSY, so the CSM asks again
+        # rather than treating the robot as unchargeable.
+        spot = self.claim_charger(robot)
+        if spot is None:
+            held = ", ".join(sorted(
+                f"{n}" for n, s in self._chargers.items()
+                if s in plant.chargers_for(robot.name)))
+            self.node.get_logger().info(
+                f"{robot.name}: every charger on its leg is taken "
+                f"({held}) — waiting")
+            return SimpleResponse(ERR_BUSY, "no free charger on this leg")
+
         robot.start_charging(to_level=float(charge.chargeTo or 90))
-        # Its charger IS its parking slot, so going home is going to charge.
+        # Home is the plug it now holds — which for most of the fleet is not
+        # its own parking slot. See `_home_target`.
         robot._go_home()
         self._results[order.id] = TransportResult.IN_PROGRESS
         self.node.get_logger().info(
-            f"{robot.name}: charging to {charge.chargeTo}% at its slot")
+            f"{robot.name}: charging to {charge.chargeTo}% "
+            f"at ({spot[0]:.1f}, {spot[1]:.1f})")
         return SimpleResponse(0, "charging")
 
     def order_state(self, order_id):
@@ -2663,11 +2701,50 @@ class SimAcs(AcsAdapter):
             self.node.get_logger().info(
                 f"{station_id}: {robot_name} clear — bay free")
 
+    # -- chargers: five plugs, ten robots ---------------------------------
+
+    def claim_charger(self, robot):
+        """Reserve a free charger on this robot's leg. Returns it, or None.
+
+        THE DECK GIVES 5 CHARGERS TO 10 ROBOTS and `CHARGER_EVERY` says two
+        share each one, so "this robot's charger" was only ever true while
+        every leg had a single robot. With three on leg C, `charger_for` hands
+        the same plug to two of them — and nothing would have complained: both
+        would drive to the same slot, one would arrive, the other would sit
+        beside it discharging while reporting that it was charging.
+
+        A robot that already holds one keeps it, so asking twice is safe.
+        Nearest first, so a robot walks past a free plug only when it is taken.
+        """
+        held = self._chargers.get(robot.name)
+        if held is not None:
+            return held
+        taken = set(self._chargers.values())
+        for spot in plant.chargers_for(robot.name):
+            if spot not in taken:
+                self._chargers[robot.name] = spot
+                return spot
+        return None
+
+    def release_charger(self, robot):
+        """Give the plug back. Silent — this runs on every job start."""
+        self._chargers.pop(robot.name, None)
+
+    def charger_held_by(self, spot):
+        for name, held in self._chargers.items():
+            if held == spot:
+                return name
+        return None
+
     def release_all(self, _job_id=None):
         """Free every bay held by a robot that no longer has a job."""
         # A robot backing out still holds its bay, even though its job is done.
         busy = {r.name for r in self.robots
                 if r.busy or r._exit_goal is not None}
+        # A robot that has finished charging is not holding its plug any more.
+        for robot in self.robots:
+            if robot._charging_to is None:
+                self.release_charger(robot)
         for st in [k for k, v in self._occupied.items() if v not in busy]:
             self.node.get_logger().info(f"{st}: bay released")
             del self._occupied[st]

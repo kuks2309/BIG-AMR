@@ -161,7 +161,9 @@ def test_an_acs_with_no_fleet_report_does_nothing():
 def test_a_leg_with_no_charger_is_reported_once():
     logged = []
     clock = ManualClock()
-    acs = ReportingAcs(clock, [robot(name="amr9", battery=5.0)])
+    # A name with no leg, and therefore no charger. Not `amr9` — that became a
+    # real robot when the fleet table grew to the deck's ten.
+    acs = ReportingAcs(clock, [robot(name="amr99", battery=5.0)])
     store = JobStore(MockEquipment(["ASRS"], clock), acs, clock,
                      logger=logged.append, dispatch_gated=True)
     task = ChargingTask(store)
