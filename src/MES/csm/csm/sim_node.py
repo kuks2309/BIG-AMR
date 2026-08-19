@@ -194,7 +194,10 @@ class MesSimNode(Node):
         # that — 16 coater and slitter calls raised, zero jobs created.
         for _load, _unload in plant.PORT_LINKS:
             self.equipment.link_ports(_load, _unload)
-        self.acs = SimAcs(self, robot_names=robot_names)
+        # The equipment goes to the ACS as well, so a robot can ask a
+        # machine whether it may enter — MC_Enter_Permitted, condition 7.
+        self.acs = SimAcs(self, robot_names=robot_names,
+                          equipment=self.equipment)
 
         self.app = build_mes(
             self.equipment, self.acs,

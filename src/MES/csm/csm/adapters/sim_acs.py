@@ -445,6 +445,8 @@ class SimRobot:
         self._joints_stamp = None
         #: So the "cannot move" warning is logged once per outage, not per poll.
         self._noted_immobile = False
+        #: Same, for waiting on a machine's entry permission.
+        self._noted_permission = False
         #: Which rule last published a zero velocity. See `_stop`.
         self._halt_reason = None
         #: Set while reversing out of a bay after finishing.
@@ -887,6 +889,30 @@ class SimRobot:
                 return False
         return True
 
+    def _machine_permits(self, station):
+        """May we cross this machine's door? False means we have stopped.
+
+        Returns True when the equipment cannot be asked — an adapter with no
+        handshake is not a machine refusing us, and treating "cannot ask" as
+        "refused" would stop a line that has no equipment layer at all.
+        """
+        machine = getattr(self.fleet, "equipment", None)
+        if machine is None or not hasattr(machine, "observe"):
+            return True
+
+        handshake = machine.observe(station, agv_entering=self._docking)
+        if handshake.may_enter:
+            self._noted_permission = False
+            return True
+
+        if not self._noted_permission:
+            self._noted_permission = True
+            self.node.get_logger().info(
+                f"{self._tag()}waiting for {station} to permit entry")
+        self._reset_stall()
+        self._stop("machine has not granted entry")
+        return False
+
     def _junction_control(self, x, y, ex, ey):
         """Red light. True if this robot must hold still.
 
@@ -1237,6 +1263,25 @@ class SimRobot:
                 self._stop("entry refused: bay occupied")
                 return
             self._noted_hold = False
+
+            # AND THE MACHINE'S OWN PERMISSION, which is a different question.
+            #
+            # `request_entry` above is the FLEET's interlock: one robot per bay,
+            # arbitrated between robots. This is the MACHINE saying whether it
+            # is safe to come in at all — MC_Enter_Permitted — and it is not a
+            # flag. Condition 7: entry is permitted only once the signal has
+            # been received CONTINUOUSLY for longer than the comm-alarm time.
+            # A signal that flickers satisfies a boolean check and violates the
+            # rule, so the answer has to be asked every cycle and the duration
+            # accumulated. `handshake.py` holds that; here it is consulted.
+            #
+            # AGV_Entering is asserted from the moment we are docking, and
+            # keeps being asserted until we are out. Rule 2: the machine may
+            # not move while it is set, and rule 3 says the machine only
+            # believes we have left after PROLONGED SILENCE — so it must not
+            # lapse merely because we stopped looking.
+            if not self._machine_permits(target):
+                return
 
         # Loading and unloading take real time on a real line. Standing still
         # during a dwell is not a stall, so this is checked before _check_stall.
@@ -1852,7 +1897,16 @@ class SimAcs(AcsAdapter):
         code that conflated the two.
     """
 
-    def __init__(self, node, robot_names=None, **robot_kwargs):
+    def __init__(self, node, robot_names=None, equipment=None,
+                 **robot_kwargs):
+        """
+        :param equipment: the machines, so a robot can ask one whether it may
+            come in. Optional: without it the docking watchdog is simply not
+            consulted, which is the behaviour every caller had before. It is
+            NOT defaulted to a permissive stand-in — a missing equipment layer
+            and a machine that has granted permission are different things.
+        """
+        self.equipment = equipment
         """
         :param robot_names: namespaces, e.g. ["amr1", "amr2"]. The default is a
             single unnamed robot on the global topics, which is what a
