@@ -25,9 +25,17 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .page import PAGE
-from . import dashboard
+from .page import page as live_page
+from . import dashboard, tables
 from .state import collect
+
+
+def _store(node):
+    """The job store, or None. Never the thing that breaks a page."""
+    try:
+        return node.app.store
+    except Exception:
+        return None
 
 
 def _clock(node):
@@ -54,10 +62,14 @@ class _Handler(BaseHTTPRequestHandler):
             # and neither should slow the other down.
             return self._json(dashboard.report(collect(self.node),
                                                now=_clock(self.node)))
+        if self.path.startswith("/tables.json"):
+            return self._json(tables.collect(_store(self.node)))
         if self.path.rstrip("/") in ("/dashboard", "/status"):
             return self._html(dashboard.page())
+        if self.path.rstrip("/") in ("/tables", "/records"):
+            return self._html(tables.page())
         if self.path in ("/", "/index.html"):
-            return self._html(PAGE)
+            return self._html(live_page())
         self.send_error(404)
 
     def _json(self, payload):

@@ -14,7 +14,7 @@ carries the rule it applies and where that rule came from, so nobody has to
 take a number on trust.
 """
 
-from . import health
+from . import health, nav
 
 STATUS_TEXT = {health.OK: "OK", health.WARN: "CHECK",
                health.ALARM: "ACTION", health.UNKNOWN: "NO DATA"}
@@ -81,12 +81,14 @@ PAGE = """<!DOCTYPE html>
  footer { color:var(--dim); font-size:12px; padding:0 28px 30px;
           max-width:1180px; }
  a { color:#7fb2ff; }
+__NAVCSS__
 </style></head>
 <body>
 <header>
   <h1>CSM — line status</h1>
+  __NAV__
   <span id="verdict" class="verdict">…</span>
-  <span class="stamp">refreshes every 2 s · <a href="/">live view</a></span>
+  <span class="stamp">refreshes every 2 s</span>
 </header>
 <main>
   <h2>Material in the line</h2>
@@ -178,4 +180,5 @@ def report(snapshot, now=None):
 
 
 def page():
-    return PAGE
+    return (PAGE.replace("__NAV__", nav.bar("/dashboard"))
+                .replace("__NAVCSS__", nav.CSS))

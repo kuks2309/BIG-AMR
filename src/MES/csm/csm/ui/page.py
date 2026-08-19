@@ -4,12 +4,15 @@ Embedded as a string rather than shipped as a data file so that colcon has
 nothing to package and the view cannot go missing from an install.
 """
 
+from . import nav
+
 PAGE = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <title>CSM — live</title>
 <style>
+__NAVCSS__
   :root {
     --bg:#0e1116; --panel:#161b22; --line:#242c38; --ink:#d6deeb;
     --dim:#7d8799; --accent:#4c9aff; --ok:#3fb950; --warn:#d29922;
@@ -62,6 +65,7 @@ PAGE = r"""<!doctype html>
 <body>
 <header>
   <h1>CSM live</h1>
+  __NAV__
   <span class="stat">jobs <b id="c-active">0</b> active / <b id="c-done">0</b> done</span>
   <span class="stat">created <b id="c-created">0</b></span>
   <span class="stat">bobbins <b id="c-bobbin">0</b></span>
@@ -311,3 +315,13 @@ tick(); setInterval(tick, 500);
 </body>
 </html>
 """
+
+
+def page():
+    """The live view, with the shared navigation filled in.
+
+    A function rather than a constant so the nav lives in one place. Every page
+    does this the same way — a fourth view must appear on all of them or none.
+    """
+    return (PAGE.replace("__NAV__", nav.bar("/"))
+                .replace("__NAVCSS__", nav.CSS))
