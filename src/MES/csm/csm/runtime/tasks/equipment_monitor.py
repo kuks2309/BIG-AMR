@@ -167,6 +167,26 @@ class EquipmentMonitorTask(FsmTask):
 
         self._divert_stranded()
         self._resolve_commands()
+        self._sync_station_map()
+
+    def _sync_station_map(self):
+        """Learn the customer's id for each port, as the machines report it.
+
+        Done every tick rather than once at startup, because `MC_Num` arrives
+        over a subscription like everything else: at startup we have not been
+        told it yet, and a station that comes back after a restart reports it
+        again. Writing only on change keeps that cheap.
+
+        Adapters that cannot report one are skipped rather than recorded as
+        None — an absent mapping and a mapping to nothing are different, and
+        only the first is normal.
+        """
+        equipment = self.store.equipment
+        if not hasattr(equipment, "station_map"):
+            return
+        for our_name, customer_id in equipment.station_map().items():
+            if customer_id and self.store.records.customer_id(our_name) != customer_id:
+                self.store.records.map_station(our_name, customer_id)
 
     def _resolve_commands(self):
         """Read back every command we sent and have not yet seen take effect.

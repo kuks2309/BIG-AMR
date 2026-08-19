@@ -167,6 +167,10 @@ class MockEquipment(EquipmentAdapter):
         """
         self._outlet[load_id] = unload_id
 
+    def always_supplied(self, station_id):
+        """`mark_store` is what makes a station a warehouse."""
+        return station_id in self._store_ids
+
     def can_accept(self, station_id):
         """A warehouse always has room for a returned bobbin.
 
@@ -246,6 +250,11 @@ class OpcUaEquipment(MockEquipment):
         #: booleans, never a single status, so INCONSISTENT is reachable.
         self._presence = {sid: (False, True, False) for sid in station_ids}
 
+        #: Stations whose presence a test has set explicitly. Those stop
+        #: following the lifecycle, which is what keeps INCONSISTENT and the
+        #: empty-bobbin states reachable.
+        self._presence_pinned = set()
+
         #: station -> TaskProcessing the AGV last reported there.
         self._processing = {}
 
@@ -277,6 +286,16 @@ class OpcUaEquipment(MockEquipment):
 
     # -- presence: three booleans, not a status --------------------------
 
+    #: How the lifecycle this class already models reads as presence.
+    #: MockEquipment's own definitions: IDLE is "nothing loaded, nothing to
+    #: collect", BUSY is "processing — HOLDS material", FINISHED is "material
+    #: available for collection".
+    _PRESENCE_FROM_STATUS = {
+        StationStatus.IDLE: (False, True, False),       # nothing
+        StationStatus.BUSY: (True, False, False),       # holding a roll
+        StationStatus.FINISHED: (True, False, False),   # a roll to give
+    }
+
     def set_presence(self, station_id, rolling_full=False, roll_null=False,
                      roll_in=False):
         """Set MC_Rolling_Full / MC_Roll_Null / MC_Roll_IN independently.
@@ -287,10 +306,30 @@ class OpcUaEquipment(MockEquipment):
         """
         self._presence[station_id] = (bool(rolling_full), bool(roll_null),
                                       bool(roll_in))
+        self._presence_pinned.add(station_id)
 
     def presence(self, station_id):
-        return MaterialPresence.from_signals(
-            *self._presence.get(station_id, (False, False, False)))
+        """The three booleans — following the lifecycle unless pinned.
+
+        PRESENCE AND STATUS DESCRIBE THE SAME MACHINE. They were separate
+        dictionaries, and only `set_presence` ever wrote the booleans, so a
+        station that took delivery moved its status to BUSY while its presence
+        still said NOTHING. The command read-back then declared every
+        'delivered' notification lost — five of them in one Gazebo run, all
+        false, because the stand-in was contradicting itself rather than
+        because anything went wrong.
+
+        A test that sets presence explicitly PINS it, so the deliberately
+        impossible combinations stay reachable.
+        """
+        if station_id in self._presence_pinned:
+            return MaterialPresence.from_signals(
+                *self._presence.get(station_id, (False, False, False)))
+        signals = self._PRESENCE_FROM_STATUS.get(
+            self.get_station_status(station_id))
+        if signals is None:
+            return None                  # FAULT or UNKNOWN — cannot say
+        return MaterialPresence.from_signals(*signals)
 
     # -- the nine status codes -------------------------------------------
 

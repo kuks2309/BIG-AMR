@@ -198,3 +198,43 @@ def test_it_behaves_like_the_plain_mock_by_default():
     assert eq.get_station_status("GRV1_LD") is StationStatus.IDLE
     eq.raise_call("GRV1_LD", TaskType.LOAD)
     assert len(eq.poll_calls()) == 1
+
+
+# -- presence and status must describe the same machine ----------------------
+
+def test_presence_follows_the_lifecycle_by_default():
+    """They were separate dictionaries, and the read-back paid for it.
+
+    A station that took delivery moved to BUSY while its presence still said
+    NOTHING, so every 'delivered' notification was declared lost — five in one
+    Gazebo run, all false. The stand-in was contradicting itself.
+    """
+    _, eq = build()
+    assert eq.presence("GRV1_LD") is MaterialPresence.NOTHING
+
+    eq.send_station_command("GRV1_LD", "delivered")
+    assert eq.get_station_status("GRV1_LD") is StationStatus.BUSY
+    assert eq.presence("GRV1_LD") is MaterialPresence.FULL_ROLL, \
+        "it is holding the roll it was just given"
+
+
+def test_collecting_leaves_the_machine_empty():
+    _, eq = build()
+    eq.send_station_command("GRV1_LD", "delivered")
+    eq.send_station_command("GRV1_LD", "collected")
+    assert eq.presence("GRV1_LD") is MaterialPresence.NOTHING
+
+
+def test_an_explicitly_set_presence_stops_following_the_lifecycle():
+    """Otherwise the impossible combinations become unreachable."""
+    _, eq = build()
+    eq.set_presence("GRV1_LD", rolling_full=True, roll_in=True)
+    eq.send_station_command("GRV1_LD", "collected")     # would say NOTHING
+    assert eq.presence("GRV1_LD") is MaterialPresence.INCONSISTENT
+
+
+def test_a_faulted_machine_cannot_say_what_it_holds():
+    """None, not NOTHING. Not knowing is not the same as being empty."""
+    _, eq = build()
+    eq.force_status("GRV1_LD", StationStatus.FAULT)
+    assert eq.presence("GRV1_LD") is None

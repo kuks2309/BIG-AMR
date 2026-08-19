@@ -141,3 +141,33 @@ def test_the_loss_is_logged_where_a_person_will_see_it():
     step(monitor)
 
     assert any("never took effect" in m for m in logged), logged
+
+
+def test_collecting_from_a_warehouse_is_unverifiable_not_lost():
+    """A store that hands material over still has material.
+
+    Found by this mechanism in Gazebo: the ASRS was convicted of ignoring
+    every 'collected' notification, twice per run, purely because a warehouse
+    never stops being full. The command was fine; the expectation was wrong
+    for this kind of station.
+    """
+    clock, equipment, store, monitor = build()
+    equipment.mark_store("ASRS")
+
+    pending = equipment.send_and_confirm("ASRS", "collected", clock())
+    assert pending.state is ConfirmState.UNVERIFIABLE
+
+    clock.advance(equipment.COMMAND_TIMEOUT_S * 3)
+    step(monitor)
+    assert monitor.commands_lost == 0
+
+
+def test_a_real_machine_is_still_held_to_the_read_back():
+    """The exemption must not leak to stations that DO empty."""
+    clock, equipment, store, monitor = build()
+    equipment.set_presence("GRV1_LD", rolling_full=True)   # pinned: stays full
+
+    equipment.send_and_confirm("GRV1_LD", "collected", clock())
+    clock.advance(equipment.COMMAND_TIMEOUT_S)
+    step(monitor)
+    assert monitor.commands_lost == 1

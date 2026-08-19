@@ -298,3 +298,32 @@ def test_a_diverted_roll_occupies_a_rack_slot():
     occupied = [s for s in store.records.slots(rack) if s.occupied]
     assert len(occupied) == 1
     assert occupied[0].parked_by_job == store.active[0].job.job_id
+
+
+def test_the_station_map_is_learned_from_the_machines():
+    """MC_Num arrives over a subscription, so it is read every tick, not once."""
+    from csm.adapters.mock import OpcUaEquipment
+
+    clock = ManualClock()
+    equipment = OpcUaEquipment(["GRV1_LD", "CTR1_LD"], clock)
+    store = JobStore(equipment, MockAcs(clock), clock, logger=lambda m: None,
+                     dispatch_gated=True, records=InMemoryRecords())
+    monitor = EquipmentMonitorTask(store, source_for=lambda s: "GRV1_LD")
+
+    asyncio.run(monitor.step())
+    assert store.records.customer_id("GRV1_LD") is None, "not told yet"
+
+    equipment.set_machine_number("GRV1_LD", "2A01")
+    equipment.set_machine_number("CTR1_LD", "2T01")
+    asyncio.run(monitor.step())
+
+    assert store.records.customer_id("GRV1_LD") == "2A01"
+    assert store.records.customer_id("CTR1_LD") == "2T01"
+
+
+def test_an_adapter_that_cannot_report_an_id_is_skipped_not_nulled():
+    """An absent mapping and a mapping to nothing are different things."""
+    clock, equipment, store, monitor = wired()
+    asyncio.run(monitor.step())
+    assert store.records.customer_id("GRV1_LD") is None
+    assert "GRV1_LD" not in store.records.station_map()

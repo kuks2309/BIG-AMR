@@ -160,6 +160,16 @@ class EquipmentAdapter(ABC):
     #: equipment vendor gives one, the same gap as `debt-033`.
     COMMAND_TIMEOUT_S = 5.0
 
+    def always_supplied(self, station_id) -> bool:
+        """Is this a WAREHOUSE rather than a machine?
+
+        A store that hands material over still has material — that is what
+        makes it a store. So its state does not change when it is collected
+        from, and a read-back can never confirm the collection. See
+        `send_and_confirm`.
+        """
+        return False
+
     def presence(self, station_id):
         """What is physically on this station, or None if it cannot say.
 
@@ -191,6 +201,15 @@ class EquipmentAdapter(ABC):
             pending.state = ConfirmState.LOST
         elif not pending.expect:
             # A command with nothing to read back. Say so rather than assume.
+            pending.state = ConfirmState.UNVERIFIABLE
+        elif command == "collected" and self.always_supplied(station_id):
+            # A WAREHOUSE DOES NOT EMPTY. Collecting from a store leaves it
+            # looking exactly as it did, so presence cannot confirm or deny it.
+            #
+            # Found by this mechanism in a Gazebo run: the ASRS was convicted
+            # of ignoring every 'collected' notification, twice per run, purely
+            # because a store never stops being full. The command was fine; the
+            # expectation was wrong for this kind of station.
             pending.state = ConfirmState.UNVERIFIABLE
         self._pending_commands.append(pending)
         return pending

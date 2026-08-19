@@ -37,8 +37,8 @@ import rclpy
 from rclpy.node import Node
 
 from .adapters.base import StationStatus
-from .adapters.mock import MockEquipment
-from . import plant
+from .adapters.mock import OpcUaEquipment
+from . import plant, records
 from .adapters.sim_acs import SimAcs
 from .runtime import FsmTask, build_mes
 
@@ -115,6 +115,32 @@ class DriveTask(FsmTask):
 BOBBIN_DELAY_BATCHES = 2
 
 
+def _machine_number_for(station):
+    """Our station name -> the customer's `MC_Num`, e.g. `2A01`.
+
+    Cathode (2) throughout, because that is the line the simulator models.
+    Returns None for ports the scheme does not cover — the ASRS and the WIP
+    racks are not machines and have no machine number, and inventing one for
+    them would put a fiction into the station_map record.
+    """
+    family = station.split("_")[0]
+    letter = None
+    if family.startswith("GRV"):
+        letter = "A"                    # gravure
+    elif family.startswith("CTR"):
+        letter = "T"                    # coating
+    elif family.startswith("SLT") or station.startswith("SLT"):
+        # ⚠ OURS, NOT THEIRS. The documented letters are A, T and L (cold
+        # press); the slitter is not among them. L is borrowed so the record
+        # has something consistent, and it is wrong the moment the customer
+        # tells us their real letter.
+        letter = "L"
+    if letter is None:
+        return None
+    instance = records.instance_of(station)
+    return f"2{letter}{instance or 1:02d}"
+
+
 class MesSimNode(Node):
 
     def __init__(self, batch_seconds, job_timeout, process_seconds,
@@ -130,8 +156,34 @@ class MesSimNode(Node):
         #: it is a warehouse, it only supplies.
         self._callers = list(FEEDS)
 
-        self.equipment = MockEquipment(all_stations, time.monotonic,
-                                       process_seconds=process_seconds)
+        # THE PROTOCOL-FAITHFUL STAND-IN, not the plain mock.
+        #
+        # OpcUaEquipment is MockEquipment plus the things the real machines
+        # actually have: an MC_Num identity, the three presence booleans, the
+        # nine task-processing codes, a heartbeat, and — the reason for the
+        # switch — MC_Enter_Permitted, which is what the docking watchdog
+        # reads. A mock without those cannot exercise them, so they stayed
+        # proven in unit tests and unproven in the running system.
+        self.equipment = OpcUaEquipment(all_stations, time.monotonic,
+                                        process_seconds=process_seconds)
+
+        # MC_Num, so the station_map record fills in from the machines rather
+        # than being configured. Polarity 2 = cathode; the simulator models the
+        # cathode line. Type letters are the customer's: A gravure, T coating,
+        # L cold press. The slitter has no letter of its own in the documented
+        # set, so it takes L — flagged rather than invented silently, and it is
+        # question Q14-adjacent whenever the customer confirms their scheme.
+        for station in all_stations:
+            mc = _machine_number_for(station)
+            if mc is not None:
+                self.equipment.set_machine_number(station, mc)
+
+        # Entry is PERMITTED by default, and held. The watchdog needs the
+        # signal present continuously to allow a dock at all, so withholding it
+        # here would stop the line rather than test anything. A test that wants
+        # to prove the watchdog withdraws it deliberately.
+        for station in all_stations:
+            self.equipment.set_enter_permitted(station, True)
         # The store is a warehouse: always supplied, never processing. It is
         # the only thing that starts with something to give.
         self.equipment.mark_store("ASRS")
