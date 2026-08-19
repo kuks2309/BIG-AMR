@@ -69,6 +69,7 @@ PAGE = r"""<!doctype html>
   <span class="stat">deferred <b id="c-defer">0</b></span>
   <span class="stat" id="s-lost">cmds lost <b id="c-lost">0</b></span>
   <span class="stat" id="s-unrested">unrested <b id="c-unrested">0</b></span>
+  <span class="stat">updated <b id="c-age">–</b></span>
   <span id="stale">— not updating —</span>
 </header>
 
@@ -141,7 +142,7 @@ function battery(r) {
                                    + r.charging_to + '</span>' : '';
   return `<span class="${c}">${v.toFixed(0)}%</span>${charging}`;
 }
-const cls = (v, good) = '<span class="' + (v === good ? 'ok' : 'bad') + '">' + v + '</span>';
+const cls = (v, good) => '<span class="' + (v === good ? 'ok' : 'bad') + '">' + v + '</span>';
 
 /* ---- the map ------------------------------------------------------- */
 function drawPlant(p) {
@@ -204,15 +205,36 @@ function drawRobots(fleet) {
 }
 
 /* ---- refresh ------------------------------------------------------- */
+let lastOk = 0;
+
+/* A rendering error used to reject silently: polling continued, the page
+   froze, and it looked exactly like a live view of a stopped factory. Now the
+   banner says which it is. */
 async function tick() {
-  let d;
-  try {
-    d = await (await fetch('/state', {cache:'no-store'})).json();
-    failures = 0; $('stale').style.display = 'none';
-  } catch (e) {
-    if (++failures > 2) $('stale').style.display = 'inline';
+  try { await refresh(); }
+  catch (e) {
+    if (++failures > 2) {
+      const el = $('stale');
+      el.textContent = '— view error: ' + (e && e.message ? e.message : e) + ' —';
+      el.style.display = 'inline';
+    }
     return;
   }
+}
+
+function age() {
+  if (!lastOk) return;
+  const secs = (Date.now() - lastOk) / 1000;
+  $('c-age').textContent = secs < 2 ? 'now' : secs.toFixed(0) + 's ago';
+  // Data older than five seconds is not live, whatever the page looks like.
+  $('c-age').className = secs > 5 ? 'bad' : '';
+}
+setInterval(age, 500);
+
+async function refresh() {
+  const d = await (await fetch('/state', {cache:'no-store'})).json();
+  failures = 0; lastOk = Date.now();
+  $('stale').style.display = 'none';
   if (!PLANT) { PLANT = d.plant; drawPlant(PLANT);
     $('m-note').textContent =
       `${PLANT.machines.length} machines · ${PLANT.docks.length} docks · `

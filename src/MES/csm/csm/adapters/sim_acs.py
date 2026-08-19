@@ -469,6 +469,10 @@ class SimRobot:
         self._charge_pending = None
         #: So the flat-battery warning is logged once, not every cycle.
         self._noted_flat = False
+        #: Which robot layer 1 keeps stopping us for, and since when. See
+        #: `_note_blocked_by`.
+        self._blocked_by = None
+        self._blocked_since = 0.0
         #: Which rule last published a zero velocity. See `_stop`.
         self._halt_reason = None
         #: Set while reversing out of a bay after finishing.
@@ -956,6 +960,59 @@ class SimRobot:
         """
         self._charging_to = to_level
 
+    #: Beyond this, two robots are not meeting. Generous — well past the
+    #: distance at which either could affect the other — because ending an
+    #: encounter early is what the "past it means behind me" note below warns
+    #: against, and this is only meant to catch bookkeeping that has outlived
+    #: the situation it described.
+    ENCOUNTER_RANGE = 8.0
+
+    #: How long two robots may sit stopped by each other before the deadlock
+    #: is treated as one. Long enough that a robot briefly waiting for another
+    #: to pass is not mistaken for a standoff, short enough that a jam does not
+    #: outlive anybody's patience.
+    DEADLOCK_AFTER_S = 4.0
+
+    def _note_blocked_by(self, other):
+        """Layer 1 stopped us for `other`. Decide if this has become a deadlock.
+
+        THE GAP THIS FILLS. Give-way is triggered only by a HEAD-ON meeting,
+        and that is right for what it was written for — a robot merely catching
+        up with another should wait, not perform a lay-by. But two robots
+        CROSSING each other's path are neither head-on nor following, so
+        nothing above layer 1 ever decided between them: both stopped, and both
+        stayed stopped.
+
+        Measured 2026-08-18: amr2 heading north to a gravure ULD and amr3
+        heading south to a slitter LD came within 2.02 m near the south aisle
+        and sat there for two minutes, each reporting "on course to touch
+        another robot", with no give-way decision ever taken.
+
+        So the trigger is widened — not to every stop, but to a stop that has
+        LASTED while the other robot is also stationary. That is the definition
+        of a deadlock rather than of traffic, and it is a condition layer 1
+        alone can never resolve.
+        """
+        if self.fleet is None:
+            return
+        now = self._now()
+        if self._blocked_by is not other:
+            self._blocked_by = other
+            self._blocked_since = now
+            return
+        if now - self._blocked_since < self.DEADLOCK_AFTER_S:
+            return
+        # Both stopped, for long enough. If the other is still moving this is
+        # ordinary traffic and it will clear itself.
+        if math.hypot(*other.vel) >= MOVING_MIN:
+            return
+        if self.fleet.partner_of(self) is not None:
+            return                      # an encounter is already being handled
+        self.node.get_logger().info(
+            f"{self._tag()}deadlocked with {other.name} — asking who yields")
+        self.fleet.who_yields(self, other)
+        self._blocked_since = now       # do not re-ask every cycle
+
     def _machine_permits(self, station):
         """May we cross this machine's door? False means we have stopped.
 
@@ -1176,6 +1233,28 @@ class SimRobot:
 
         partner = self.fleet.partner_of(self)
         if partner is not None:
+            # NOTHING TO NEGOTIATE AT THIS RANGE.
+            #
+            # The yielder has an escape from a stuck handshake — YIELD_LIMIT,
+            # "gave way and nobody passed". The passer had none, and the
+            # "we are past each other" test below only runs AFTER the yielder
+            # reports clear. So a passer waiting for a yielder that never
+            # reports waits for ever, at any distance.
+            #
+            # Measured 2026-08-18: amr1 sat halted with "waiting for the
+            # yielder to stand aside" while its partner was THIRTEEN METRES
+            # away. Two robots that far apart are not in an encounter, whatever
+            # the bookkeeping says.
+            if partner.pose is not None and self.pose is not None:
+                apart = math.hypot(partner.pose[0] - self.pose[0],
+                                   partner.pose[1] - self.pose[1])
+                if apart > self.ENCOUNTER_RANGE:
+                    self.node.get_logger().info(
+                        f"{self._tag()}{partner.name} is {apart:.1f} m away — "
+                        f"encounter over")
+                    self.fleet.encounter_over(self)
+                    return False
+
             # I am the passer. Wait for the explicit all-clear, not for the gap.
             if not partner._stood_aside:
                 self._reset_stall()
@@ -1286,10 +1365,15 @@ class SimRobot:
         # correct failure for this layer: "layer 1 only ever says stop: it
         # cannot say who goes" (see the junction control note above). Deciding
         # who moves is the job of the rules above it, not of this one.
-        if self._threat() is not None:
+        blocker = self._threat()
+        if blocker is not None:
             self._reset_stall()
+            # LAYER 1 CANNOT SAY WHO GOES — so if it has been saying STOP about
+            # the same robot for long enough, ask the layer above to decide.
+            self._note_blocked_by(blocker)
             self._stop("layer 1: on course to touch another robot")
             return
+        self._blocked_by = None
 
         # ======================= WORK — WHAT IS IT DOING? ===================
         #
@@ -1972,6 +2056,10 @@ class _Assignment:
         self.priority = priority
 
 
+def _name_of(robot):
+    return robot.name if robot is not None else None
+
+
 class SimAcs(AcsAdapter):
     """The fleet controller — one or more robots, and the choice between them.
 
@@ -2261,6 +2349,13 @@ class SimAcs(AcsAdapter):
         robot.accept(job)
         return TransportResult.ACCEPTED
 
+    def fleet_partner(self, robot):
+        """The robot this one is in a give-way encounter with, if any."""
+        try:
+            return self.partner_of(robot)
+        except Exception:
+            return None
+
     def fleet_status(self):
         """One row per robot, for the PDA. Read live, not remembered."""
         out = []
@@ -2277,6 +2372,10 @@ class SimAcs(AcsAdapter):
                 "halted_because": r._halt_reason,
                 "battery": round(r.battery, 1),
                 "charging_to": r._charging_to,
+                # Who it is negotiating with, and which side it is on. Absent
+                # from the view, a stuck handshake looks like a stuck robot.
+                "giving_way_to": _name_of(self.fleet_partner(r)),
+                "stood_aside": bool(r._stood_aside),
             })
         return out
 

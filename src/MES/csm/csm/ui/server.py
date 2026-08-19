@@ -54,6 +54,13 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        # NO-STORE ON THE PAGE TOO, not only on the data.
+        #
+        # It was set on /state and forgotten here, so a browser could keep
+        # serving a page from an earlier run while the data underneath it had
+        # moved on. The symptom is the worst kind: a view that looks alive and
+        # is showing something else.
+        self.send_header("Cache-Control", "no-store, must-revalidate")
         self.end_headers()
         self.wfile.write(body)
 
