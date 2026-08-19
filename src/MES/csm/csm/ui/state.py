@@ -226,4 +226,9 @@ def _counters(node, store):
         "unrested_decisions": _safe(lambda: records.unrested_decisions, 0),
         "active_jobs": _safe(lambda: len(store.active), 0),
         "finished_jobs": _safe(lambda: len(store.finished), 0),
+        # Work raised again after a failure, and work finally given up on.
+        # Apart from each other on purpose: a retry is the system coping, an
+        # abandonment is a machine alarmed and a person needed.
+        "retried": _safe(lambda: store.retried, 0),
+        "abandoned": _safe(lambda: store.abandoned, 0),
     }

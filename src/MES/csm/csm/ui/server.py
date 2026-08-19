@@ -26,7 +26,20 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .page import PAGE
+from . import dashboard
 from .state import collect
+
+
+def _clock(node):
+    """The node's own clock, or None if it cannot be read.
+
+    None is honest: the ageing checks need a clock, and without one they say
+    so rather than reporting everything as fine.
+    """
+    try:
+        return node.get_clock().now().nanoseconds * 1e-9
+    except Exception:
+        return None
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -35,6 +48,14 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/state"):
             return self._json(collect(self.node))
+        if self.path.startswith("/health"):
+            # The management view's data. A separate snapshot rather than a
+            # field on /state, because the two pages ask different questions
+            # and neither should slow the other down.
+            return self._json(dashboard.report(collect(self.node),
+                                               now=_clock(self.node)))
+        if self.path.rstrip("/") in ("/dashboard", "/status"):
+            return self._html(dashboard.page())
         if self.path in ("/", "/index.html"):
             return self._html(PAGE)
         self.send_error(404)
