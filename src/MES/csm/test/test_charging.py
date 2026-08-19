@@ -190,3 +190,63 @@ def test_a_merely_low_order_does_not_preempt():
     _, acs, task = build([robot(battery=LOW_BATTERY - 1, busy=False)])
     step(task)
     assert acs.orders[0].priority < 100
+
+
+# ------------------------------------------------ the thresholds are parameters
+
+def task_for(fleet, **thresholds):
+    clock = ManualClock()
+    acs = ReportingAcs(clock, fleet)
+    store = JobStore(MockEquipment(["ASRS"], clock), acs, clock,
+                     logger=lambda m: None, dispatch_gated=True)
+    return acs, ChargingTask(store, **thresholds)
+
+
+def test_the_thresholds_can_be_set_per_run():
+    """None of the three is a measured number. Their own comments say they are
+    parameters, and this is what makes that true."""
+    _, task = task_for([], low_battery=80.0, charge_to=95.0,
+                       critical_battery=50.0)
+    assert (task.low_battery, task.charge_to, task.critical_battery) == \
+        (80.0, 95.0, 50.0)
+
+
+def test_unset_thresholds_keep_the_documented_defaults():
+    _, task = task_for([])
+    assert task.low_battery == LOW_BATTERY
+    assert task.charge_to == CHARGE_TO
+    assert task.critical_battery == CRITICAL_BATTERY
+
+
+def test_a_lower_threshold_actually_changes_who_is_sent():
+    """Not just stored — used."""
+    _, quiet = task_for([robot(battery=75.0)])
+    step(quiet)
+    assert quiet.charge_orders == 0, "75% is not low by the default rule"
+
+    _, eager = task_for([robot(battery=75.0)], low_battery=80.0, charge_to=95.0)
+    step(eager)
+    assert eager.charge_orders == 1
+
+
+def test_the_charge_target_reaches_the_order():
+    acs, task = task_for([robot(battery=10.0)], charge_to=55.0)
+    step(task)
+
+    charge = [t for t in acs.orders[0].tasks if t.kind is TaskKind.CHARGE]
+    assert charge[0].chargeTo == 55
+
+
+def test_charging_to_at_or_below_the_trigger_is_refused():
+    """The robot would leave the charger still low and turn straight back."""
+    with pytest.raises(ValueError):
+        task_for([], low_battery=30.0, charge_to=30.0)
+    with pytest.raises(ValueError):
+        task_for([], low_battery=30.0, charge_to=20.0)
+
+
+def test_critical_above_low_is_refused():
+    """Every low robot would be critical, and a critical robot PREEMPTS the job
+    it is holding — the whole fleet would drop its work at once."""
+    with pytest.raises(ValueError):
+        task_for([], low_battery=30.0, critical_battery=40.0)

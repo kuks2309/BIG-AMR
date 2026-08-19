@@ -262,6 +262,23 @@ def generate_launch_description():
         DeclareLaunchArgument('battery_scale', default_value='1.0',
                               description='speed up battery drain and charge, '
                                           'for watching a charge cycle'),
+        # The three charging thresholds. Empty means "leave the CSM's own
+        # default alone" — passing a number here would put the defaults in two
+        # places, and the one in charging.py is the one with the reasoning
+        # beside it.
+        DeclareLaunchArgument('low_battery', default_value='',
+                              description='percent at which an idle robot is '
+                                          'sent to charge (CSM default 30)'),
+        DeclareLaunchArgument('charge_to', default_value='',
+                              description='percent to charge to; lower '
+                                          'finishes sooner (CSM default 90)'),
+        DeclareLaunchArgument('critical_battery', default_value='',
+                              description='percent at which a robot goes even '
+                                          'mid-job (CSM default 12)'),
+        DeclareLaunchArgument('start_battery', default_value='',
+                              description='start robots at this percent '
+                                          'instead of 100, so a charge cycle '
+                                          'happens straight away'),
         DeclareLaunchArgument('mes', default_value='true',
                               description='also start the MES that gives the '
                                           'robots work; false leaves them '
@@ -340,7 +357,21 @@ def generate_launch_description():
             package='csm', executable='sim_node', output='screen',
             arguments=['--robots', str(count),
                        '--battery-scale',
-                       LaunchConfiguration('battery_scale')],
+                       LaunchConfiguration('battery_scale'),
+                       # Always passed; an EMPTY value means "leave the CSM's
+                       # own default alone". A launch argument's value is not
+                       # known while the description is being built, so it
+                       # cannot be omitted conditionally — the empty string is
+                       # the substitute for omitting it, and sim_node reads it
+                       # that way.
+                       '--low-battery',
+                       LaunchConfiguration('low_battery'),
+                       '--charge-to',
+                       LaunchConfiguration('charge_to'),
+                       '--critical-battery',
+                       LaunchConfiguration('critical_battery'),
+                       '--start-battery',
+                       LaunchConfiguration('start_battery')],
             condition=IfCondition(LaunchConfiguration('mes')),
         )],
     )

@@ -48,8 +48,35 @@ class ChargingTask(FsmTask):
 
     name = "charging"
 
-    def __init__(self, store, wakes=None, name=None, period=None):
+    def __init__(self, store, wakes=None, name=None, period=None,
+                 low_battery=None, charge_to=None, critical_battery=None):
+        """
+        The three thresholds are INSTANCE attributes, not the module constants
+        they default to. None of the three is a measured number — we have not
+        been given the fleet's capacity, consumption or charge curve — and the
+        module comments already say they are parameters for that reason. This
+        is what makes them actually adjustable: a simulator watching a charge
+        cycle, or a site whose robots turn out to behave differently, changes
+        them here rather than editing a constant and rebuilding.
+        """
         super().__init__(name=name, period=period or DEFAULT_PERIOD_S)
+        self.low_battery = LOW_BATTERY if low_battery is None else float(low_battery)
+        self.charge_to = CHARGE_TO if charge_to is None else float(charge_to)
+        self.critical_battery = (CRITICAL_BATTERY if critical_battery is None
+                                 else float(critical_battery))
+        if self.critical_battery > self.low_battery:
+            # Critical above low would make every low robot critical, and a
+            # critical robot PREEMPTS the job it is holding. The whole fleet
+            # would abandon its work at the first sign of a flat battery.
+            raise ValueError(
+                f"critical_battery ({self.critical_battery}) must not be above "
+                f"low_battery ({self.low_battery})")
+        if self.charge_to <= self.low_battery:
+            # Charging to at or below the level that sent it would have the
+            # robot leave the charger still low and turn straight back round.
+            raise ValueError(
+                f"charge_to ({self.charge_to}) must be above "
+                f"low_battery ({self.low_battery})")
         self.store = store
         self.wakes = list(wakes or [])
         self.charge_orders = 0
@@ -81,8 +108,8 @@ class ChargingTask(FsmTask):
         if not robot.get("responsive", True):
             return
 
-        critical = battery <= CRITICAL_BATTERY
-        if battery > LOW_BATTERY:
+        critical = battery <= self.critical_battery
+        if battery > self.low_battery:
             return
         if robot.get("busy") and not critical:
             return                      # finish the job first
@@ -105,7 +132,7 @@ class ChargingTask(FsmTask):
             id=f"charge_{name}_{int(battery)}",
             tasks=[
                 AcsTask(kind=TaskKind.MOVE, target=f"charger:{name}"),
-                AcsTask(kind=TaskKind.CHARGE, chargeTo=int(CHARGE_TO)),
+                AcsTask(kind=TaskKind.CHARGE, chargeTo=int(self.charge_to)),
             ],
             # A robot about to stop in an aisle outranks material movement.
             priority=100 if critical else 1,

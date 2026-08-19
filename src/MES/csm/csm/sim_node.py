@@ -173,7 +173,8 @@ def _rack_sizes():
 class MesSimNode(Node):
 
     def __init__(self, batch_seconds, job_timeout, process_seconds,
-                 robot_names=None, battery_scale=1.0):
+                 robot_names=None, battery_scale=1.0,
+                 charging_thresholds=None, start_battery=None):
         super().__init__("csm")
 
         # Every station the equipment layer knows about, INCLUDING the outbound
@@ -229,6 +230,12 @@ class MesSimNode(Node):
                           equipment=self.equipment)
         for robot in self.acs.robots:
             robot.battery_scale = battery_scale
+            if start_battery is not None:
+                # NOT a model of anything — robots really do start a shift
+                # charged. This exists so a charge cycle can be watched in a
+                # minute instead of the hour the drain rate implies, which is
+                # the only honest way to check the charging path works.
+                robot.battery = float(start_battery)
 
         # The racks, at the customer's documented capacities. Without these
         # the rack records exist and hold nothing, so "the destination is
@@ -248,6 +255,7 @@ class MesSimNode(Node):
             # moves rolls forward and never sends an empty core back.
             return_for=plant.bobbin_return_for,
             records=self._records,
+            charging_thresholds=charging_thresholds,
         )
 
         # The fake factory. A ROS timer is fine — RosSpinTask fires it.
@@ -326,6 +334,18 @@ async def _run(node):
     node.get_logger().info(f"jobs: {node.app.health()}")
 
 
+def _percent(text):
+    """A battery threshold, or None for "leave the CSM's default alone".
+
+    Empty means unset because a launch file cannot omit an argument
+    conditionally — the value is not known while the launch description is
+    being built — so an unset threshold arrives as an empty string rather than
+    not arriving.
+    """
+    text = (text or "").strip()
+    return float(text) if text else None
+
+
 def main():
     parser = argparse.ArgumentParser(description="CSM against Gazebo")
     parser.add_argument("--batch-seconds", type=float, default=25.0,
@@ -348,15 +368,38 @@ def main():
     parser.add_argument("--battery-scale", type=float, default=1.0,
                         help="speed up battery drain and charge, for watching "
                              "a charge cycle without waiting an hour")
+    # The three charging thresholds. None of them is a measured number — see
+    # runtime/tasks/charging.py — so they are arguments rather than constants,
+    # and a run that wants to WATCH charging rather than avoid it turns them
+    # up and down from here.
+    parser.add_argument("--low-battery", type=_percent, default=None,
+                        help="percent below which an idle robot is sent to "
+                             "charge (default 30)")
+    parser.add_argument("--charge-to", type=_percent, default=None,
+                        help="percent to charge to before returning to work. "
+                             "Lower finishes sooner (default 90)")
+    parser.add_argument("--critical-battery", type=_percent, default=None,
+                        help="percent below which a robot goes even while "
+                             "holding a job (default 12)")
+    parser.add_argument("--start-battery", type=_percent, default=None,
+                        help="start every robot at this percent instead of "
+                             "100, so a charge cycle happens straight away")
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
     # Fleet names must match the Gazebo model names, which fleet.launch.py
     # sets with -entity. None means the single-robot world.
     names = [f"amr{i + 1}" for i in range(args.robots)] if args.robots else None
+    thresholds = {k: v for k, v in (
+        ("low_battery", args.low_battery),
+        ("charge_to", args.charge_to),
+        ("critical_battery", args.critical_battery),
+    ) if v is not None}
     node = MesSimNode(args.batch_seconds, args.job_timeout,
                       args.process_seconds, robot_names=names,
-                      battery_scale=args.battery_scale)
+                      battery_scale=args.battery_scale,
+                      charging_thresholds=thresholds,
+                      start_battery=args.start_battery)
 
     # The live view. Started AFTER the node, so it always has something to
     # show, and never allowed to stop the simulation: a port already in use is

@@ -84,7 +84,7 @@ class MesApp:
 
 def build_mes(equipment, acs, source_for, clock=time.monotonic, logger=print,
               job_timeout_s=600.0, poll_seconds=None, install_supervisor=True,
-              return_for=None, records=None):
+              return_for=None, records=None, charging_thresholds=None):
     """Assemble the CSM.
 
     :param equipment: EquipmentAdapter — mock, or the CATL one when it exists
@@ -103,6 +103,10 @@ def build_mes(equipment, acs, source_for, clock=time.monotonic, logger=print,
         with a good reason — a simulation running faster than real time, say.
     :param install_supervisor: False builds the tasks without one, for a host
         that drives tick_all() from its own loop.
+    :param charging_thresholds: optional {low_battery, charge_to,
+        critical_battery} overrides. None of the three is a measured number, so
+        a host that knows better than the defaults — or a simulator that wants
+        to watch a whole charge cycle without waiting an hour — says so here.
 
     The store is created **gated**: a job may not submit itself, because a
     DispatcherTask is present to decide the order. That is the difference from
@@ -118,7 +122,8 @@ def build_mes(equipment, acs, source_for, clock=time.monotonic, logger=print,
     monitor.return_for = return_for
     dispatcher = DispatcherTask(store, period=periods.get("dispatcher"))
     tracker = JobTrackerTask(store, period=periods.get("job_tracker"))
-    charging = ChargingTask(store, period=periods.get("charging"))
+    charging = ChargingTask(store, period=periods.get("charging"),
+                            **(charging_thresholds or {}))
 
     # The graph. Appended after construction because it has a cycle — the
     # tracker tells the dispatcher that capacity came back, and the dispatcher
