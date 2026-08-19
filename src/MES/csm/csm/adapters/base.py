@@ -155,6 +155,70 @@ class EquipmentAdapter(ABC):
         so the capability can be revoked in one place.
         """
 
+    #: How long to wait for a command to show up in the machine's own state
+    #: before calling it lost. Not a measured number — it stands in until the
+    #: equipment vendor gives one, the same gap as `debt-033`.
+    COMMAND_TIMEOUT_S = 5.0
+
+    def presence(self, station_id):
+        """What is physically on this station, or None if it cannot say.
+
+        None is a real answer and must not be read as "nothing". An adapter
+        that cannot report presence cannot confirm a command either, which is
+        what `ConfirmState.UNVERIFIABLE` exists to say out loud.
+        """
+        return None
+
+    def send_and_confirm(self, station_id, command, now, timeout=None):
+        """Send a command and return the CONFIRMATION, not a boolean.
+
+        The boolean from `send_station_command` is kept — some adapters can
+        refuse outright, and that is worth knowing immediately — but it is not
+        treated as evidence of effect. The returned object is resolved later by
+        `resolve_confirmations`, once the machine has had time to act.
+        """
+        accepted = self.send_station_command(station_id, command)
+        pending = CommandConfirmation(
+            station_id=station_id,
+            command=command,
+            expect=EXPECTED_AFTER.get(command, frozenset()),
+            sent_at=now,
+            timeout=self.COMMAND_TIMEOUT_S if timeout is None else timeout,
+        )
+        if not accepted:
+            # It said no. That IS evidence, and the only kind this protocol
+            # ever gives directly.
+            pending.state = ConfirmState.LOST
+        elif not pending.expect:
+            # A command with nothing to read back. Say so rather than assume.
+            pending.state = ConfirmState.UNVERIFIABLE
+        self._pending_commands.append(pending)
+        return pending
+
+    @property
+    def _pending_commands(self):
+        if not hasattr(self, "_pending_command_list"):
+            self._pending_command_list = []
+        return self._pending_command_list
+
+    def resolve_confirmations(self, now):
+        """Read back every outstanding command. Returns the ones that were LOST.
+
+        Called every tick by whoever owns the poll loop. Lost commands are
+        returned rather than logged here, so the caller decides what a lost
+        notification means for the job it belonged to.
+        """
+        lost = []
+        still_pending = []
+        for pending in self._pending_commands:
+            state = pending.poll(self.presence(pending.station_id), now)
+            if state is ConfirmState.PENDING:
+                still_pending.append(pending)
+            elif state is ConfirmState.LOST:
+                lost.append(pending)
+        self._pending_command_list = still_pending
+        return lost
+
     def task_processing(self, station_id):
         """The last `AGV_Task_Processing` code reported at this station.
 
@@ -356,6 +420,66 @@ class TaskProcessing(Enum):
     GOING_TO_CHARGE = 7
     AGV_FAULT = 8
     TASK_CANCELLED = 9
+
+
+class ConfirmState(Enum):
+    """How a sent command turned out — which is NOT what the send returned."""
+
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    #: The timeout passed and the expected state never appeared. The command
+    #: was accepted and did nothing.
+    LOST = "lost"
+    #: We cannot tell. The adapter reports no presence, so there is nothing to
+    #: read back. Deliberately NOT "confirmed" — an unverifiable command must
+    #: not be recorded as a successful one.
+    UNVERIFIABLE = "unverifiable"
+
+
+#: What each command should leave behind, read back from the presence booleans.
+#:
+#: "collected" means the material is gone, which is either an empty machine or
+#: one holding the empty core. "delivered" means a full roll is now there.
+EXPECTED_AFTER = {
+    "collected": frozenset({MaterialPresence.NOTHING,
+                            MaterialPresence.EMPTY_BOBBIN}),
+    "delivered": frozenset({MaterialPresence.FULL_ROLL}),
+}
+
+
+@dataclass
+class CommandConfirmation:
+    """A command that was sent, and has not yet been shown to have happened.
+
+    THE SEND IS NOT THE EFFECT. The equipment link is shared memory, not a
+    transaction: there is no acknowledgement, so `send_station_command()`
+    returning True says a value was written and nothing whatever about whether
+    the machine acted on it. A CSM that treats the return as proof has believed
+    something the wire never told it — `debt-034`.
+
+    The only evidence available is the machine's own state afterwards. So a
+    command is held here until either the expected state appears, or the
+    timeout passes and it is declared lost.
+    """
+
+    station_id: str
+    command: str
+    expect: frozenset
+    sent_at: float
+    timeout: float
+    state: ConfirmState = ConfirmState.PENDING
+
+    def poll(self, presence, now):
+        """Read the machine back. `presence` is None if it cannot report one."""
+        if self.state is not ConfirmState.PENDING:
+            return self.state
+        if presence is None:
+            self.state = ConfirmState.UNVERIFIABLE
+        elif presence in self.expect:
+            self.state = ConfirmState.CONFIRMED
+        elif now - self.sent_at >= self.timeout:
+            self.state = ConfirmState.LOST
+        return self.state
 
 
 class TransportResult(Enum):

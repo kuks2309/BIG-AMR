@@ -77,25 +77,29 @@ def test_a_request_shorter_than_the_poll_period_is_not_lost():
     assert len(store.active) == 1, "the request was dropped in silence"
 
 
-@pytest.mark.xfail(reason="debt-034: send_station_command() -> bool reports the "
-                          "SEND, not the effect. The protocol is shared memory "
-                          "and has no acknowledgement, so the CSM cannot yet "
-                          "tell a command that worked from one that did not.",
-                   strict=False)
 def test_a_command_that_was_ignored_is_noticed():
-    """Confirmation must come from reading the state back, not from the return.
+    """debt-034, now CLOSED for the paths that use send_and_confirm.
 
-    The real interface cannot say no. A CSM that believes the return value has
-    believed something the wire never told it.
+    This was xfail: the CSM had no way to tell a command that worked from one
+    that did not, because the protocol cannot say no. It is confirmed by
+    reading the machine's state back instead — see test_command_readback.py.
+
+    What is closed is the mechanism and the two notifications in job_fsm's Done
+    state. An adapter that cannot report presence still cannot confirm anything,
+    and says UNVERIFIABLE rather than pretending.
     """
-    _, equipment, store, monitor = build()
-    equipment.swallow_next_command("GRV1_LD")
-    accepted = equipment.send_station_command("GRV1_LD", "load")
+    clock, equipment, store, monitor = build()
+    equipment.set_presence("GRV1_LD", roll_null=True)
 
-    # It said True. The state says otherwise, and only the state is evidence.
-    assert accepted is True
-    assert equipment.presence("GRV1_LD").name != "NOTHING", \
-        "the CSM should have read back and seen the command did nothing"
+    equipment.swallow_next_command("GRV1_LD")
+    pending = equipment.send_and_confirm("GRV1_LD", "delivered", clock())
+    assert pending.state.value == "pending", "the send itself looked fine"
+
+    clock.advance(equipment.COMMAND_TIMEOUT_S)
+    step(monitor)
+
+    assert monitor.commands_lost == 1, \
+        "a command accepted and ignored must not look like success"
 
 
 # -- what the CSM does do correctly today -----------------------------------

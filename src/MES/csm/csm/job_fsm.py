@@ -25,7 +25,7 @@ that both completed and timed out on the same tick is recorded as the failure it
 actually was.
 """
 
-from .adapters.base import TransportResult
+from .adapters.base import ConfirmState, TransportResult
 from .fsm.machine import StateMachine
 from .fsm.state import State
 from .fsm.transition import Transition
@@ -127,15 +127,28 @@ class Done(State):
         return value would let an unknown or unreachable station look exactly
         like a clean completion.
         """
-        if not ctx.equipment.send_station_command(ctx.job.from_station,
-                                                  "collected"):
-            ctx.log(f"WARNING: source {ctx.job.from_station} did not accept "
-                    f"the 'collected' notification — it may stay blocked")
-
-        if not ctx.equipment.send_station_command(ctx.job.to_station,
-                                                  "delivered"):
-            ctx.log(f"WARNING: destination {ctx.job.to_station} did not accept "
-                    f"the 'delivered' notification")
+        # SENT, NOT CONFIRMED. The equipment link is shared memory with no
+        # acknowledgement, so the old `if not send(...)` guard here could never
+        # fire on a real machine: the call cannot return False, whatever
+        # happened at the other end. A notification that was accepted and
+        # ignored looked exactly like one that worked, and the machine it was
+        # meant to unblock stayed blocked in silence. debt-034.
+        #
+        # `send_and_confirm` records what the machine's state should become.
+        # EquipmentMonitorTask reads it back on later ticks and reports the
+        # ones that never took effect — which cannot be done from here, since
+        # this runs once and the effect is not instantaneous.
+        now = ctx.clock()
+        for station, command in ((ctx.job.from_station, "collected"),
+                                 (ctx.job.to_station, "delivered")):
+            pending = ctx.equipment.send_and_confirm(station, command, now)
+            # An outright refusal is the ONE case this protocol reports at
+            # once — an unknown or unreachable station. Worth saying
+            # immediately rather than waiting for a read-back that will never
+            # find the state it is looking for.
+            if pending.state is ConfirmState.LOST:
+                ctx.log(f"WARNING: {station} did not accept the "
+                        f"'{command}' notification")
 
         ctx.log("job complete")
 

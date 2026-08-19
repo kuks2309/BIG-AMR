@@ -74,6 +74,11 @@ class EquipmentMonitorTask(FsmTask):
         #: cores, and the two numbers diverging is how you see it.
         self.returned = 0
 
+        #: Commands that were accepted and then never showed up in the
+        #: machine's own state. Counted because on this protocol that is the
+        #: ONLY way a lost command is visible — nothing errors. See debt-034.
+        self.commands_lost = 0
+
         self.created = 0
         #: Jobs created with no caller, to clear stranded material.
         self.diverted = 0
@@ -145,6 +150,27 @@ class EquipmentMonitorTask(FsmTask):
                 task.notify()
 
         self._divert_stranded()
+        self._resolve_commands()
+
+    def _resolve_commands(self):
+        """Read back every command we sent and have not yet seen take effect.
+
+        This is the other half of `send_and_confirm`. The equipment link has no
+        acknowledgement, so a command that was accepted and ignored looks
+        exactly like one that worked — until the machine's own state fails to
+        change. Nothing else in the system will ever notice it.
+
+        Owned here because this task already holds the poll loop; the reading
+        has to happen every tick, and a one-shot caller cannot do it.
+        """
+        equipment = self.store.equipment
+        if not hasattr(equipment, "resolve_confirmations"):
+            return
+        for lost in equipment.resolve_confirmations(self.store.clock()):
+            self.commands_lost += 1
+            self.store.logger(
+                f"[{lost.station_id}] '{lost.command}' was accepted and never "
+                f"took effect — the machine may still be blocked")
 
     def _return_bobbin(self, call):
         """Send this station's empty bobbin back up the process route.
