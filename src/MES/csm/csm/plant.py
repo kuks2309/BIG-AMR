@@ -87,7 +87,13 @@ HALL_W, HALL_E = -25.0, 26.0     # hall extent in x (assumption A1)
 #: (fetch-from-rack and divert-to-rack) could not run. The south row between
 #: the west aisle and WIP_CTR is fully occupied: the slitter's four LD ports
 #: reach x -13.3 and CTR1_LD sits at -11.2, leaving no 3 m gap anywhere.
-HALL_S, HALL_N = -13.0, 13.0     # hall extent in y
+HALL_S, HALL_N = -15.0, 13.0     # hall extent in y
+#: South edge moved out from -13.0 on 2026-08-18. Leg C has six 3.5T robots
+#: (specification fleet table) and its queue runs south from the east cross
+#: aisle; the sixth slot landed 0.25 m inside the wall's robot-radius pad. The
+#: alternative was to shave the clearance between slots until six fitted, which
+#: is fitting the robot to the drawing rather than the drawing to the robot.
+#: North is unchanged: leg B has two robots and needs 3.65 m.
 WALL_T = 0.2
 
 MACHINE_W, MACHINE_D = 3.0, 2.0        # A5
@@ -503,6 +509,27 @@ PORT_LINKS += [(f"CTR{i}_LD", f"CTR{i}_ULD") for i in range(1, 5)]
 ROBOT_SEGMENT = {"amr1": "A", "amr2": "B", "amr3": "C"}
 
 
+def parking_for(robot_name):
+    """The slot THIS robot parks in — its own, not its leg's.
+
+    A leg's slots are handed out in name order, so the assignment is stable
+    across restarts: amr1 always gets leg A's first slot whether or not amr4
+    exists. It has to be stable, because a robot drives home to it.
+
+    Returns None for a robot with no leg, and None for a robot whose leg has
+    more robots than slots. Both are real states and neither should be papered
+    over with a default — a default would mean sending two robots to the same
+    coordinates, which is what this replaced.
+    """
+    segment = ROBOT_SEGMENT.get(robot_name)
+    if segment is None:
+        return None
+    peers = sorted(n for n, s in ROBOT_SEGMENT.items() if s == segment)
+    index = peers.index(robot_name)
+    slots = PARKING_SLOTS[segment]
+    return slots[index] if index < len(slots) else None
+
+
 def segment_of(robot_name):
     return next((s for s in SEGMENTS
                  if s["name"] == ROBOT_SEGMENT.get(robot_name)), None)
@@ -532,14 +559,61 @@ def segment_for_job(from_station, to_station):
 #: Where idle robots park — on a spur OFF a cross aisle, never on the aisle
 #: itself. An idle robot standing on a lane is a road block, which is exactly
 #: what stranded the fleet before this rewrite.
-PARKING = {
-    "A": (PARK_X[0], 1.5),          # west end, north side  — segment A's end
-    "B": (PARK_X[1], 1.5),          # east end, north side
-    "C": (PARK_X[1], -1.5),         # east end, south side
-}
+#: HOW MANY ROBOTS EACH LEG HAS, from the specification's fleet table
+#: (cathode). Legs A and B carry two 1.5T robots each; leg C carries six 3.5T.
+#: The simulator usually runs one per leg, which is why one bay per leg was
+#: enough until now — and why it stopped being enough the moment anyone asked
+#: what a second robot would do.
+FLEET = {"A": 2, "B": 2, "C": 6}
+
+#: SPACING BETWEEN QUEUE SLOTS, measured across the robots, not centre to
+#: centre. Slots sit side by side along the cross aisle, so what has to clear
+#: is the robot's WIDTH.
+PARK_PITCH = ROBOT_W + PARK_CLEARANCE
+
+#: Which end of the plant each leg parks at, and which way its queue grows.
+#: Away from y=0 in both cases, so the two east legs open out rather than
+#: growing into one another.
+_PARK_SIDE = {"A": (0, +1), "B": (1, +1), "C": (1, -1)}
+
+
+def parking_slots(segment):
+    """Every queue slot for this leg, the one nearest the aisle first.
+
+    A QUEUE, NOT A BAY PER ROBOT. The customer's own layout works this way —
+    the surveyed drawing has a dock column and a separate queue column 3.6 m
+    behind it, with 51 positions in the cell area, not one reserved bay per
+    vehicle. Robots take the next free slot.
+
+    This replaces one bay per LEG, which silently assumed one robot per leg.
+    With two, both were sent home to identical coordinates: two robots aiming
+    at the same point, which is the collision this file spent 2026-08-18
+    designing out at the bays.
+
+    Slots grow outward from the aisle centre. Each one hangs off the cross
+    aisle on its own short spur, which is why `roads` needs no new lane type —
+    it already chains everything sitting on an aisle in order, so a spur
+    further out simply extends that aisle.
+    """
+    which, direction = _PARK_SIDE[segment]
+    x = PARK_X[which]
+    y0 = 1.5 * direction
+    return [(x, y0 + i * PARK_PITCH * direction) for i in range(FLEET[segment])]
+
+
+def parking_join_slots(segment):
+    """Where each of this leg's queue slots meets its cross aisle."""
+    which, _ = _PARK_SIDE[segment]
+    aisle = AISLE_W_X if which == 0 else AISLE_E_X
+    return [(aisle, y) for _, y in parking_slots(segment)]
+
+
+#: Every slot, per leg. Index 0 is the one nearest the aisle.
+PARKING_SLOTS = {seg: parking_slots(seg) for seg in _PARK_SIDE}
+PARKING_JOIN_SLOTS = {seg: parking_join_slots(seg) for seg in _PARK_SIDE}
+
+#: The leg's FIRST slot, under the name callers have always used. Keeping this
+#: means nothing that only ever needed "where does leg B park" has to change.
+PARKING = {seg: slots[0] for seg, slots in PARKING_SLOTS.items()}
 #: Where each parking spur meets its cross aisle.
-PARKING_JOIN = {
-    "A": (AISLE_W_X, 1.5),
-    "B": (AISLE_E_X, 1.5),
-    "C": (AISLE_E_X, -1.5),
-}
+PARKING_JOIN = {seg: joins[0] for seg, joins in PARKING_JOIN_SLOTS.items()}

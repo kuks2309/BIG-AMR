@@ -64,8 +64,11 @@ from launch_ros.substitutions import FindPackageShare
 #:   A = 1.5T AGV A, west end   (ASRS -> Gravure LD)
 #:   B = 1.5T AGV B, east end   (Gravure ULD -> Coater LD)
 #:   C = 3.5T AGV,   east end   (Coater ULD -> Slitter LD)
-_PARK_ORDER = ('A', 'B', 'C')
-START_POSES = [plant.PARKING[k] + (0.0,) for k in _PARK_ORDER]
+#: Spawn each robot in ITS OWN queue slot, by name, exactly where the CSM will
+#: later send it home to. Taking the leg's slot instead put every robot of a
+#: class on one point — fine with one robot per class, a collision with two.
+_FLEET_ORDER = ('amr1', 'amr2', 'amr3')
+START_POSES = [plant.parking_for(n) + (0.0,) for n in _FLEET_ORDER]
 #: One pose per robot, and the count is clamped to len(START_POSES) — so this
 #: list, not FLEET_ROBOTS, is the ceiling on fleet size. Each pose must match
 #: the parking bay its robot's segment owns in csm/plant.py PARKING, because a

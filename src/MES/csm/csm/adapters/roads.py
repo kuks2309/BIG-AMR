@@ -208,12 +208,25 @@ def build():
         dock_owner[jn] = None
 
     # Parking spurs hang off the cross aisles, never on them.
-    for seg, pos in plant.PARKING.items():
-        jn, pn = f"join_park{seg}", f"park_{seg}"
-        nodes[jn] = plant.PARKING_JOIN[seg]
-        nodes[pn] = pos
-        lanes.append((jn, pn))
-        joins["W" if pos[0] < 0 else "E"].append(jn)
+    #
+    # ONE SPUR PER QUEUE SLOT, not one per leg. A leg has as many slots as it
+    # has robots (plant.FLEET), because a bay shared by two robots means two
+    # robots sent to identical coordinates.
+    #
+    # No new lane type is needed: `_chain` below links everything sitting on an
+    # aisle in order along it, so a spur further out simply EXTENDS that aisle.
+    # That is what lets the queue grow past the aisle corners.
+    #
+    # Slot 0 keeps the historic names `join_parkA` / `park_A`, so anything that
+    # only ever knew about one bay per leg still resolves.
+    for seg, slots in plant.PARKING_SLOTS.items():
+        for i, pos in enumerate(slots):
+            suffix = "" if i == 0 else str(i + 1)
+            jn, pn = f"join_park{seg}{suffix}", f"park_{seg}{suffix}"
+            nodes[jn] = plant.PARKING_JOIN_SLOTS[seg][i]
+            nodes[pn] = pos
+            lanes.append((jn, pn))
+            joins["W" if pos[0] < 0 else "E"].append(jn)
 
     # Chain each aisle through every node that sits on it, in order, so the
     # graph is connected at every junction instead of only at the corners.

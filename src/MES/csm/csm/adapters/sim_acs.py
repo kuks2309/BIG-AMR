@@ -766,8 +766,10 @@ class SimRobot:
         somewhere no traffic rule could apply to it, cutting across the hall and
         stopping wherever it happened to arrive.
         """
-        segment = plant.ROBOT_SEGMENT.get(self.name)
-        bay = plant.PARKING.get(segment)
+        # This robot's OWN slot. Using the leg's slot sent every robot of a
+        # class to one point, which is only survivable while a class has one
+        # robot.
+        bay = plant.parking_for(self.name)
         if bay is None or self.pose is None:
             return
         x, y, yaw = self.pose
@@ -991,7 +993,7 @@ class SimRobot:
             return False
         if self._in_a_bay():
             return True
-        bay = plant.PARKING.get(plant.ROBOT_SEGMENT.get(self.name))
+        bay = plant.parking_for(self.name)
         if bay is None:
             return False
         return math.hypot(bay[0] - self.pose[0],
