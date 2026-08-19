@@ -136,11 +136,27 @@ class EquipmentMonitorTask(FsmTask):
             if not self.store.claim_station(call.station_id):
                 continue
 
-            self.store.create(source, call.station_id,
-                              task_type=call.task_type)
+            # RECORD THE CALL BEFORE SERVING IT. Section 7 keeps calls and
+            # jobs apart because they are not the same thing and do not always
+            # both exist: a call nothing can serve yet has no job, and the WIP
+            # diversion is a job with no call.
+            recorded = self.store.records.add_call(
+                station=call.station_id,
+                task_type=call.task_type,
+                source=call.source,
+                raised_at=self.store.clock(),
+            )
+            job = self.store.create(source, call.station_id,
+                                    task_type=call.task_type,
+                                    call_id=recorded.call_id,
+                                    reason=f"nearest source that could supply "
+                                           f"{call.station_id}")
             self.created += 1
 
             # Heard. The machine stops calling now, and only now.
+            self.store.records.acknowledge_call(
+                recorded.call_id, at=self.store.clock(),
+                job_id=job.job.job_id)
             self.store.equipment.acknowledge_call(call)
             self.store.logger(
                 f"[{call.station_id}] call heard via {call.source} "
@@ -197,11 +213,21 @@ class EquipmentMonitorTask(FsmTask):
         if not self.store.claim_station(call.station_id):
             return False
 
-        self.store.create(call.station_id, destination,
-                          task_type=call.task_type,
-                          carries=Carried.BOBBIN)
+        recorded = self.store.records.add_call(
+            station=call.station_id,
+            task_type=call.task_type,
+            source=call.source,
+            raised_at=self.store.clock(),
+        )
+        job = self.store.create(call.station_id, destination,
+                                task_type=call.task_type,
+                                carries=Carried.BOBBIN,
+                                call_id=recorded.call_id,
+                                reason="bobbin returns one process upstream")
         self.created += 1
         self.returned += 1
+        self.store.records.acknowledge_call(
+            recorded.call_id, at=self.store.clock(), job_id=job.job.job_id)
         self.store.equipment.acknowledge_call(call)
         self.store.logger(
             f"[{call.station_id}] bobbin return via {call.source} "
@@ -244,7 +270,15 @@ class EquipmentMonitorTask(FsmTask):
                     continue                      # rack full too — nothing to do
                 if not self.store.claim_station(port):
                     continue
-                self.store.create(source, port)
+                # THE ONE JOB WITH NO CALLER, so no call_id — which is
+                # exactly what makes it identifiable later.
+                job = self.store.create(
+                    source, port,
+                    reason=f"every destination of segment {seg['name']} was "
+                           f"full")
+                self.store.records.park(port, material_ref=job.job.job_id,
+                                        job_id=job.job.job_id,
+                                        at=self.store.clock())
                 self.diverted += 1
                 self.store.logger(
                     f"[{source}] all destinations full — diverted to {port}")

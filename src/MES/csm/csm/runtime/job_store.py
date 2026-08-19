@@ -16,6 +16,7 @@ the other broken.
 from collections import namedtuple
 
 from ..job import Job, JobContext, Carried
+from ..records import Decision, InMemoryRecords, instance_of
 from ..job_fsm import build_job_fsm
 
 #: One job and everything needed to run it.
@@ -32,8 +33,12 @@ TERMINAL = ("DONE", "FAILED")
 class JobStore:
 
     def __init__(self, equipment, acs, clock, logger=print,
-                 job_timeout_s=600.0, dispatch_gated=False):
+                 job_timeout_s=600.0, dispatch_gated=False, records=None):
         """
+        :param records: where specification section 7's records are kept. An
+            in-memory one by default, because the storage engine cannot be
+            chosen yet — see `records.py` for the four customer answers that
+            block it. Anything implementing `Records` substitutes here.
         :param dispatch_gated: when True, a new job may **not** submit itself to
             the ACS — it waits for a DispatcherTask to grant permission. Used by
             the concurrent runtime, where a separate FSM decides submission
@@ -47,6 +52,10 @@ class JobStore:
         self.job_timeout_s = job_timeout_s
         self.dispatch_gated = dispatch_gated
 
+        #: Section 7's records. Held on the store because it is what every
+        #: task already has a handle on.
+        self.records = records if records is not None else InMemoryRecords()
+
         self.active = []            # [JobRecord]
         self.finished = []          # [Job] that reached DONE or FAILED
         self.station_busy = set()   # stations with a job still in flight
@@ -55,7 +64,7 @@ class JobStore:
     # ---------------------------------------------------------------- jobs
 
     def create(self, from_station, to_station, priority=0, task_type=None,
-               carries=Carried.ROLL):
+               carries=Carried.ROLL, call_id=None, reason=""):
         self._job_seq += 1
         now = self.clock()
         job = Job(
@@ -66,6 +75,14 @@ class JobStore:
             created_at=now,
             state_since=now,
             carries=carries,
+            # Which of the four machines each end is. Derived here rather than
+            # asked of the caller: every caller already passes station names,
+            # and one place deriving it cannot disagree with another.
+            from_instance=instance_of(from_station),
+            to_instance=instance_of(to_station),
+            #: None for the WIP diversion, which CSM originates itself and
+            #: which therefore answers no call.
+            call_id=call_id,
         )
         # What the equipment asked for: load, unload, or swap. Carried so the
         # adapter can issue the right operation without re-deriving it.
@@ -76,6 +93,18 @@ class JobStore:
         # ungated one lets each job ask for itself, as it always has.
         ctx.dispatch_gated = self.dispatch_gated
         ctx.dispatch_permit = not self.dispatch_gated
+
+        # WHY this job went where it did. Recorded at creation because that
+        # is when the choice is made and the reasons are still in hand; a log
+        # line answers it only until the log rotates.
+        self.records.add_decision(Decision(
+            job_id=job.job_id,
+            decided_at=now,
+            chosen_source=from_station,
+            chosen_dest=to_station,
+            priority_given=priority,
+            reason=reason or "",
+        ))
 
         record = JobRecord(job, ctx, build_job_fsm(on_change=self._on_change))
         self.active.append(record)

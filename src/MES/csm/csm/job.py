@@ -51,6 +51,24 @@ class Job:
     #: Set when the job ends badly, so an operator sees *why* and not just that.
     failure_reason: str = ""
 
+    # -- the rest of specification section 7's job record --------------------
+
+    #: The call this job answers, or None for the one job type CSM originates
+    #: itself — the WIP diversion, which has no caller.
+    call_id: str = None
+
+    #: WHICH of the four machines, 1-4. The job NAME stays generic
+    #: (assumption A3), so without these two fields two coaters asking for
+    #: material produce jobs that cannot be told apart.
+    from_instance: int = None
+    to_instance: int = None
+
+    #: The ACS's id for the order we submitted. We use the job id as the order
+    #: id, so these are equal today — but they are separate fields because that
+    #: is our choice and not the ACS's rule, and a server that assigns its own
+    #: ids would break the assumption silently.
+    acs_order_id: str = None
+
     history: list = field(default_factory=list)
 
     def __str__(self):
