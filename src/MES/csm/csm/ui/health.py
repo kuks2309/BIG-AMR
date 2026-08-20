@@ -290,16 +290,40 @@ def _charging_stuck(snapshot):
 
 
 def _supply(snapshot):
-    """Their §4.3: calls we heard but could not serve for want of material."""
-    deferred = snapshot.get("counters", {}).get("calls_deferred", 0)
-    created = snapshot.get("counters", {}).get("jobs_created", 0)
-    if deferred and created and deferred > created:
+    """Their §4.3: calls we heard but could not serve for want of material.
+
+    JUDGE ON THE GAUGE, NOT THE TOTAL. `calls_deferred` is cumulative over the
+    whole run, so on a long shift it exceeds any instantaneous number and says
+    nothing about now. `calls_deferred_now` is how many calls cannot be served
+    at this moment, which is the question the daily check actually asks.
+
+    The previous version compared the cumulative count against jobs created and
+    warned whenever it was larger. That was doubly wrong: the counter then
+    incremented once per POLL rather than once per call, so it grew at roughly
+    1/s per unservable call and crossed the threshold on every run of any
+    length. Both halves fixed together — see ADR 2026-08-20.
+    """
+    counters = snapshot.get("counters", {})
+    now = counters.get("calls_deferred_now", 0)
+    total = counters.get("calls_deferred", 0)
+    at_ceiling = counters.get("calls_at_ceiling", 0)
+    created = counters.get("jobs_created", 0)
+
+    if now:
+        # A leg at its ceiling is not a supply problem — it is this line being
+        # full, which is the ceiling doing its job. Name the two separately so
+        # the reader knows which way to look.
+        cause = ("this line is full" if at_ceiling
+                 else "nothing upstream can supply them")
         return Check("Supply keeps up", WARN,
-                     f"{deferred} calls deferred against {created} served — "
-                     f"a supply problem upstream, not a fault here",
-                     "CCS manual §4.3 inventory statistics")
+                     f"{now} call(s) waiting right now — {cause}",
+                     "CCS manual §4.3 inventory statistics",
+                     [f"{total} deferred in total this run",
+                      f"{created} jobs created",
+                      f"{at_ceiling} refused at a leg ceiling (§2.15)"])
     return Check("Supply keeps up", OK,
-                 f"{created} served, {deferred} deferred",
+                 f"{created} served, nothing waiting "
+                 f"({total} deferred at some point)",
                  "CCS manual §4.3 inventory statistics")
 
 

@@ -87,12 +87,103 @@ class EquipmentMonitorTask(FsmTask):
         self.created = 0
         #: Jobs created with no caller, to clear stranded material.
         self.diverted = 0
-        #: Calls heard but not turned into jobs, because the source had nothing
-        #: to give. Worth counting separately: a rising number here is a supply
-        #: problem upstream, not a fault in this layer.
+        #: DISTINCT calls heard but not turned into jobs — because the source
+        #: had nothing to give, or the destination leg is at its ceiling.
+        #:
+        #: COUNTED ONCE PER CALL, NOT ONCE PER POLL. `poll_calls()` returns the
+        #: latched outstanding calls, so the same call comes back every pass
+        #: until it is acknowledged. Incrementing per pass made this a rate
+        #: integrated over wall-clock — measured at ~1/s per unservable call,
+        #: reaching 759 in six minutes — which `ui/health.py` then compared
+        #: against a cumulative job count. See ADR 2026-08-20.
         self.deferred = 0
+        #: Calls that cannot be served RIGHT NOW. A gauge, not a total: this is
+        #: the number that says whether the line is behind at this instant.
+        self.deferred_now = 0
+        #: Keys of the calls deferred on the previous pass, so a call already
+        #: counted is not counted again while it stays outstanding.
+        self._deferred_keys = set()
+
+        #: LineCapacity, or None. None disables the ceiling entirely, so every
+        #: existing caller behaves exactly as before — the same opt-in shape as
+        #: `divert_for` and `return_for` above.
+        self.capacity = None
+        #: callable(station_id) -> leg name, needed only when `capacity` is set.
+        self.leg_of = None
+        #: Calls deferred specifically because their leg was at its ceiling,
+        #: counted apart from "nothing to supply". The two have opposite cures:
+        #: one is a supply problem upstream, the other is this line being full.
+        self.at_ceiling = 0
+
+    def _claim_material(self, location, kind, at):
+        """The material being collected from `location` — found, or minted.
+
+        CLAIM BEFORE MINTING. Registering unconditionally would hand a roll a
+        new LOT id at every hop, so one roll making three hops would be three
+        unrelated records and "where has this roll been" — the traceability
+        B4 exists for — could not be answered at all.
+
+        `ready_materials` is FIFO by `created_at`, which IS specification A2
+        and manual §3.1's rule ("the oldest matching material that has finished
+        resting"). It has existed since location management landed and the
+        running system has never called it, because nothing ever claimed
+        material. Same for `unrested_decisions`, which counts how often we
+        accepted material whose resting state we do not know: it read 0 not
+        because we never guessed, but because we never chose.
+
+        TWO THINGS DISQUALIFY A CANDIDATE, and a live run on 2026-08-20 found
+        both by handing one LOT id to three different jobs:
+
+        * **The wrong KIND.** `ready_materials` answers "what is here", not
+          "what is here that I can carry". A bobbin-return job at a gravure
+          claimed the roll that had just been delivered to it, so an empty core
+          travelled back upstream wearing the roll's identity.
+        * **Already spoken for.** Two jobs collecting from the same place both
+          claimed the same material, because nothing recorded that the first
+          one had taken it. Only one robot can carry it.
+
+        Returns None only when there is nothing and nothing may be minted —
+        never a reason to refuse the job. See ADR 2026-08-20, D5.
+        """
+        records = self.store.records
+        taken = {r.job.material_ref for r in self.store.active
+                 if r.job.material_ref}
+        for material in records.ready_materials(location, at):
+            if material.kind != kind:
+                continue
+            if material.material_ref in taken:
+                continue
+            return material.material_ref
+        material = records.register_material(kind=kind, at=at,
+                                             location=location)
+        return material.material_ref
+
+    def _call_key(self, call):
+        """Identity of a call across polls.
+
+        A station has at most one outstanding call per task type — the store's
+        station latch guarantees it — so this pair is stable and unique for as
+        long as the call is latched.
+        """
+        return (call.station_id, call.task_type)
+
+    def _leg_in_flight(self):
+        """Committed work per leg: active jobs plus material on its racks.
+
+        The manual's second term — material at turntable entrances — has no
+        analogue in our model and is deliberately not approximated. See
+        `debt-114`.
+        """
+        counts = {}
+        for record in self.store.active:
+            leg = self.leg_of(record.job.to_station)
+            if leg is not None:
+                counts[leg] = counts.get(leg, 0) + 1
+        return counts
 
     async def step(self):
+        deferred_now = set()
+
         for call in self.store.equipment.poll_calls():
             # AN UNLOAD CALL INVERTS THE QUESTION THIS TASK NORMALLY ASKS.
             #
@@ -107,7 +198,7 @@ class EquipmentMonitorTask(FsmTask):
             # every step below — ranking sources, checking they can supply —
             # asks a question that does not apply here.
             if call.task_type is TaskType.UNLOAD and self.return_for is not None:
-                if self._return_bobbin(call):
+                if self._return_bobbin(call, deferred_into=deferred_now):
                     for task in self.wakes:
                         task.notify()
                 continue
@@ -132,8 +223,25 @@ class EquipmentMonitorTask(FsmTask):
             # heard and then drop the request, which is the silent failure this
             # layer must not have.
             if source is None:
-                self.deferred += 1
+                deferred_now.add(self._call_key(call))
                 continue
+
+            # THE LINE IS FULL. CCS manual §2.15: stop posting to a line whose
+            # committed work has reached its ceiling. The call is left
+            # outstanding and NOT acknowledged, exactly as an unservable one is
+            # — the machine keeps asking, and the work resumes the moment the
+            # leg drains. Acknowledging here would be the silent drop this
+            # layer exists to prevent.
+            if self.capacity is not None and self.leg_of is not None:
+                leg = self.leg_of(call.station_id)
+                if leg is not None:
+                    committed = self._leg_in_flight().get(leg, 0)
+                    if not self.capacity.has_room(leg, committed):
+                        key = self._call_key(call)
+                        if key not in self._deferred_keys:
+                            self.at_ceiling += 1
+                        deferred_now.add(key)
+                        continue
 
             # One job per station at a time. The station latch is the store's,
             # and it is what stops a machine that keeps calling from spawning a
@@ -151,9 +259,15 @@ class EquipmentMonitorTask(FsmTask):
                 source=call.source,
                 raised_at=self.store.clock(),
             )
+            # THE JOB NAMES WHAT IT IS CARRYING. Without this the material
+            # moving through the plant has no identity, so B1-B4 answer
+            # nothing and `move_material` on DONE never fires.
+            material_ref = self._claim_material(source, "roll",
+                                                self.store.clock())
             job = self.store.create(source, call.station_id,
                                     task_type=call.task_type,
                                     call_id=recorded.call_id,
+                                    material_ref=material_ref,
                                     reason=f"nearest source that could supply "
                                            f"{call.station_id}")
             self.created += 1
@@ -169,6 +283,12 @@ class EquipmentMonitorTask(FsmTask):
 
             for task in self.wakes:
                 task.notify()
+
+        # COUNT THE NEWLY DEFERRED, NOT THE STILL-DEFERRED. A call that has
+        # been outstanding for a minute is one deferred call, not sixty.
+        self.deferred += len(deferred_now - self._deferred_keys)
+        self._deferred_keys = deferred_now
+        self.deferred_now = len(deferred_now)
 
         self._divert_stranded()
         self._resolve_commands()
@@ -240,26 +360,36 @@ class EquipmentMonitorTask(FsmTask):
                 f"[{lost.station_id}] '{lost.command}' was accepted and never "
                 f"took effect — the machine may still be blocked")
 
-    def _return_bobbin(self, call):
+    def _return_bobbin(self, call, deferred_into=None):
         """Send this station's empty bobbin back up the process route.
 
         Returns True if a job was created. A False here leaves the call
         OUTSTANDING and unacknowledged on purpose: telling the machine it was
         heard and then not moving the bobbin is the silent failure this layer
         exists to avoid, and the machine will keep asking until it is served.
+
+        :param deferred_into: set to record this call's key in when it could
+            not be served. Passed in rather than counted here so that a call
+            outstanding across many polls is counted once — see `step`.
+
+        A REFUSED STATION CLAIM IS NOT A DEFERRAL. It means a job for this
+        station is already under way, which is the latch working, not the line
+        falling behind.
         """
         destination = self.return_for(call.station_id)
         if destination is None:
             # Not a station that hands bobbins back — the ASRS and the racks do
             # not. A call here means our route table and the machine disagree,
             # which is worth seeing rather than swallowing.
-            self.deferred += 1
+            if deferred_into is not None:
+                deferred_into.add(self._call_key(call))
             self.store.logger(
                 f"[{call.station_id}] unload call, but no bobbin return route")
             return False
 
         if not self._can_accept(destination):
-            self.deferred += 1
+            if deferred_into is not None:
+                deferred_into.add(self._call_key(call))
             return False
 
         if not self.store.claim_station(call.station_id):
@@ -271,10 +401,16 @@ class EquipmentMonitorTask(FsmTask):
             source=call.source,
             raised_at=self.store.clock(),
         )
+        # An empty core is a tracked object in their model too — the return
+        # flow is specified in pallets carrying DOUBLE empty bobbins (§1.2.2)
+        # and `TrayStatus` tells them apart from material.
+        material_ref = self._claim_material(call.station_id, "bobbin",
+                                            self.store.clock())
         job = self.store.create(call.station_id, destination,
                                 task_type=call.task_type,
                                 carries=Carried.BOBBIN,
                                 call_id=recorded.call_id,
+                                material_ref=material_ref,
                                 reason="bobbin returns one process upstream")
         self.created += 1
         self.returned += 1
@@ -331,15 +467,17 @@ class EquipmentMonitorTask(FsmTask):
                 # carrier identity — it vanishes at an equipment station and
                 # persists at the buffer.
                 now = self.store.clock()
-                material = self.store.records.register_material(
-                    kind="roll", at=now, location=source)
+                # Through the same helper as every other path: a stranded roll
+                # that was already known keeps its identity instead of
+                # acquiring a second one.
+                material_ref = self._claim_material(source, "roll", now)
                 job = self.store.create(
                     source, port,
                     reason=f"every destination of segment {seg['name']} was "
                            f"full",
-                    material_ref=material.material_ref)
+                    material_ref=material_ref)
                 self.store.records.park(port,
-                                        material_ref=material.material_ref,
+                                        material_ref=material_ref,
                                         job_id=job.job.job_id, at=now)
                 self.diverted += 1
                 self.store.logger(

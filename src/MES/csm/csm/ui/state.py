@@ -217,7 +217,15 @@ def _counters(node, store):
         "jobs_created": _safe(lambda: monitor.created, 0),
         "bobbins_returned": _safe(lambda: monitor.returned, 0),
         "diverted_to_rack": _safe(lambda: monitor.diverted, 0),
+        # Cumulative, one per CALL — not one per poll. The gauge beside it is
+        # what says whether the line is behind right now; the total only says
+        # it happened at some point during the run.
         "calls_deferred": _safe(lambda: monitor.deferred, 0),
+        "calls_deferred_now": _safe(lambda: monitor.deferred_now, 0),
+        # Calls refused because their leg had reached its §2.15 ceiling. Apart
+        # from the rest because the cure is opposite: this line is full, rather
+        # than nothing upstream having anything to give.
+        "calls_at_ceiling": _safe(lambda: monitor.at_ceiling, 0),
         # Commands accepted and never seen to take effect. On this protocol
         # that is the only way a lost command is visible at all.
         "commands_lost": _safe(lambda: monitor.commands_lost, 0),

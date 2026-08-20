@@ -48,6 +48,7 @@ the base class and fails if one is missed, because a human reviewer will not.
 import sqlite3
 
 from .adapters.base import TaskType
+from .material import MaterialAttribute, MaterialState
 from .records import (Call, CallStatus, Decision, InMemoryRecords, Material,
                       MaterialMove, RackSlot, StationMap)
 
@@ -93,7 +94,11 @@ CREATE TABLE IF NOT EXISTS materials (
     created_at   REAL,
     location     TEXT,
     ready_at     REAL,
-    expires_at   REAL
+    expires_at   REAL,
+    attribute     TEXT,
+    drum_type     INTEGER,
+    material_type INTEGER,
+    state         TEXT
 );
 CREATE TABLE IF NOT EXISTS material_moves (
     material_ref  TEXT NOT NULL,
@@ -137,6 +142,55 @@ def _task_type(name):
         return name
 
 
+#: Columns added after the first release, per table. `CREATE TABLE IF NOT
+#: EXISTS` does nothing to a table that already exists, so a database written
+#: by an earlier version keeps its old shape and every new field is silently
+#: dropped on save and comes back None on load — the exact quiet data loss this
+#: store exists to prevent.
+#:
+#: Additive only. SQLite can ADD COLUMN cheaply and cannot drop or retype one,
+#: so anything beyond an addition is a real migration and does not belong here.
+LATE_COLUMNS = {
+    "materials": (
+        ("attribute", "TEXT"),          # MaterialAttribute, by NAME
+        ("drum_type", "INTEGER"),
+        ("material_type", "INTEGER"),
+        ("state", "TEXT"),              # MaterialState, by NAME
+    ),
+}
+
+
+def _add_missing_columns(db):
+    """Bring an existing database up to the current schema. Idempotent."""
+    for table, columns in LATE_COLUMNS.items():
+        have = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+        for name, sql_type in columns:
+            if name not in have:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
+
+
+def _enum_by_name(enum_class, name):
+    """Stored name back to a member, or the raw value if we do not know it.
+
+    Same contract and same reasoning as `_task_type`: a row written by a newer
+    version must not stop this one from starting, and storing the NAME means
+    renumbering our enum cannot silently reinterpret old rows. For the material
+    attribute the numbers are the customer's and fixed, but the convention is
+    worth more than the exception.
+    """
+    if name is None:
+        return None
+    try:
+        return enum_class[name]
+    except KeyError:
+        return name
+
+
+def _enum_name(value):
+    """A member's name for storage; passes through anything else."""
+    return value.name if hasattr(value, "name") else value
+
+
 class SqliteRecords(InMemoryRecords):
     """Section 7's records, surviving a restart.
 
@@ -149,6 +203,7 @@ class SqliteRecords(InMemoryRecords):
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        _add_missing_columns(self.db)
         # WAL so a reader — the director's view — never blocks the CSM writing.
         # Refused on :memory: and on some network filesystems, and a refusal is
         # not a reason to fail to start.
@@ -214,7 +269,11 @@ class SqliteRecords(InMemoryRecords):
                 material_ref=row["material_ref"], lot_id=row["lot_id"],
                 kind=row["kind"], created_at=row["created_at"],
                 location=row["location"], ready_at=row["ready_at"],
-                expires_at=row["expires_at"])
+                expires_at=row["expires_at"],
+                attribute=_enum_by_name(MaterialAttribute, row["attribute"]),
+                drum_type=row["drum_type"],
+                material_type=row["material_type"],
+                state=_enum_by_name(MaterialState, row["state"]))
             # Every LOT id ever issued, so a restart inside the same
             # millisecond cannot hand out one that already exists.
             self._issued_lots.add(row["lot_id"])
@@ -318,11 +377,14 @@ class SqliteRecords(InMemoryRecords):
     def _save_material(self, material):
         self._write(
             "INSERT OR REPLACE INTO materials (material_ref, lot_id, kind, "
-            "created_at, location, ready_at, expires_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "created_at, location, ready_at, expires_at, attribute, "
+            "drum_type, material_type, state) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (material.material_ref, material.lot_id, material.kind,
              material.created_at, material.location, material.ready_at,
-             material.expires_at))
+             material.expires_at, _enum_name(material.attribute),
+             material.drum_type, material.material_type,
+             _enum_name(material.state)))
         return material
 
     def _save_move(self, move):
@@ -334,8 +396,12 @@ class SqliteRecords(InMemoryRecords):
              move.to_location, move.job_id, move.note))
         return move
 
-    def register_material(self, kind="roll", at=0.0, location=None):
-        material = super().register_material(kind, at, location)
+    def register_material(self, kind="roll", at=0.0, location=None,
+                          attribute=None, drum_type=None, material_type=None,
+                          state=None):
+        material = super().register_material(
+            kind, at, location, attribute=attribute, drum_type=drum_type,
+            material_type=material_type, state=state)
         self._save_material(material)
         # `register_material` records a move of its own when a location is
         # given, and that move is in the working set but not yet on disk.

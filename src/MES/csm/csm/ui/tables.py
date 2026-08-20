@@ -120,11 +120,17 @@ def _from_memory(records, limit):
                [[i, d.job_id, _cell(d.decided_at), d.chosen_source,
                  d.chosen_dest, d.priority_given, d.reason]
                 for i, d in enumerate(decisions, start=1)], limit),
+        # The four routing fields sit at the end, in the order the SQLite
+        # schema declares them — the two backends must present the same table
+        # or moving from memory to a database looks like the data changed.
         _table("materials",
                ["material_ref", "lot_id", "kind", "created_at", "location",
-                "ready_at", "expires_at"],
+                "ready_at", "expires_at", "attribute", "drum_type",
+                "material_type", "state"],
                [[m.material_ref, m.lot_id, m.kind, _cell(m.created_at),
-                 m.location, _cell(m.ready_at), _cell(m.expires_at)]
+                 m.location, _cell(m.ready_at), _cell(m.expires_at),
+                 getattr(m.attribute, "name", m.attribute), m.drum_type,
+                 m.material_type, getattr(m.state, "name", m.state)]
                 for m in materials], limit),
         _table("material_moves",
                ["material_ref", "seq", "at", "from_location", "to_location",

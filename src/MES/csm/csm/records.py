@@ -205,6 +205,33 @@ class Material:
     #: "never expires".
     expires_at: float = None
 
+    # -- what the routing rules read (see `csm/material.py`) ----------------
+    #
+    # NOT master data, which is why they are here despite the docstring above.
+    # Width, weight and grade belong to the customer's systems and copying them
+    # invites mismatch. These three are different: CATL's own dispatcher READS
+    # them on every decision, and two independent sources agree on their values
+    # — manual §4.6.5 and the rack PLC table `Rack_To_PCS[7]`/`[8]`.
+    #
+    # All default to None, and None means WE WERE NOT TOLD. `attribute_matches`
+    # refuses on unknown rather than passing, because feeding a machine the
+    # wrong face costs more than a deferred call.
+
+    #: `material.MaterialAttribute` — bright/dark face x rotation.
+    attribute: object = None
+
+    #: 360 / 430 / 500 / 580. An INT in their table, so an unlisted value is
+    #: possible; `material.pallet_capacity` derives the capacity from it and
+    #: capacity is deliberately NOT stored beside it.
+    drum_type: int = None
+
+    #: Their model code — 302, 228, 125. Carried and never interpreted: we have
+    #: no table for it, so reading meaning into it would be invention.
+    material_type: int = None
+
+    #: `material.MaterialState` — empty / NG / OK.
+    state: object = None
+
 
 @dataclass
 class MaterialMove:
@@ -265,8 +292,20 @@ class Records(ABC):
         """Every slot on a rack, in order."""
 
     @abstractmethod
-    def register_material(self, kind="roll", at=0.0, location=None):
-        """Give a new roll or bobbin a LOT id. Returns the `Material`."""
+    def register_material(self, kind="roll", at=0.0, location=None,
+                          attribute=None, drum_type=None, material_type=None,
+                          state=None):
+        """Give a new roll or bobbin a LOT id. Returns the `Material`.
+
+        THE FOUR OPTIONAL FIELDS ARE THE PDA SUPPLEMENT (§3.4). On the real
+        line a person scans a rack and enters material type, attribute and
+        bobbin type before the roll may be taken inbound — the manual says
+        outright that supplement requires them non-empty and non-zero, because
+        a zero there is what produces the "missing info" rack states.
+
+        They default to None because a caller that does not know is honest;
+        `material.attribute_matches` then refuses rather than guessing.
+        """
 
     @abstractmethod
     def move_material(self, material_ref, to_location, at, job_id=None,
@@ -432,10 +471,14 @@ class InMemoryRecords(Records):
         self._issued_lots.add(candidate)
         return candidate
 
-    def register_material(self, kind="roll", at=0.0, location=None):
+    def register_material(self, kind="roll", at=0.0, location=None,
+                          attribute=None, drum_type=None, material_type=None,
+                          state=None):
         lot = self._next_lot_id()
         material = Material(material_ref=lot, lot_id=lot, kind=kind,
-                            created_at=at, location=location)
+                            created_at=at, location=location,
+                            attribute=attribute, drum_type=drum_type,
+                            material_type=material_type, state=state)
         self._materials[lot] = material
         if location is not None:
             self._record_move(lot, None, location, at, note="registered")
@@ -443,6 +486,14 @@ class InMemoryRecords(Records):
 
     def material(self, material_ref):
         return self._materials.get(material_ref)
+
+    def materials(self):
+        """Every material we hold, in registration order.
+
+        The daily check needs to sweep them — §6 items 5-8 are all "find the
+        ones that look wrong" — and asking by reference cannot answer a
+        question whose whole point is that you do not know which one."""
+        return list(self._materials.values())
 
     def _record_move(self, material_ref, frm, to, at, job_id=None, note=""):
         move = MaterialMove(

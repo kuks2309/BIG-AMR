@@ -42,6 +42,7 @@ from . import plant, records, records_sqlite
 from .ui.server import UiServer
 from .adapters.sim_acs import SimAcs
 from .runtime import FsmTask, build_mes
+from .runtime.capacity import LineCapacity
 
 #: Who feeds whom, built from the documented Big AGV material flow — see
 #: plant.SEGMENTS and the source list at the top of plant.py.
@@ -148,6 +149,18 @@ def _machine_number_for(station):
 RACK_CAPACITY = {"WIP_GRV": 2, "WIP_CTR": 13, "WIP_SLT": 30}
 
 
+def _redundancy(text):
+    """Parse `--line-redundancy=`, tolerating the empty value launch produces.
+
+    The launch file joins flag and value (`--line-redundancy=`) so an empty
+    LaunchConfiguration cannot eat the next token. That means argparse can be
+    handed a bare empty string, which `type=int` rejects with a hard exit — the
+    same trap the charging thresholds document above.
+    """
+    text = (text or "").strip()
+    return int(text) if text else 0
+
+
 def _rack_sizes():
     """Slots per rack PORT, split from the documented family capacity.
 
@@ -170,12 +183,30 @@ def _rack_sizes():
     return sizes
 
 
+def _leg_of(station_id):
+    """The leg NAME a station belongs to, or None.
+
+    `plant.segment_of_station` returns the segment DICT. The capacity layer
+    keys its counts by leg, and a dict is unhashable — so unwrapping happens
+    here, once, rather than being assumed at every call site.
+
+    Getting this wrong on 2026-08-20 threw `TypeError: unhashable type: 'dict'`
+    out of every EquipmentMonitorTask step. Nothing crashed and nothing moved:
+    the Supervisor caught the exception, logged it, and kept the other five
+    FSMs running, so the fleet sat idle looking like a navigation problem. That
+    is the supervisor behaving exactly as designed, and it is also why a silent
+    per-step failure needs to be loud somewhere else.
+    """
+    segment = plant.segment_of_station(station_id)
+    return segment["name"] if segment else None
+
+
 class MesSimNode(Node):
 
     def __init__(self, batch_seconds, job_timeout, process_seconds,
                  robot_names=None, battery_scale=1.0,
                  charging_thresholds=None, start_battery=None,
-                 db_path=None):
+                 db_path=None, line_redundancy=0):
         super().__init__("csm")
 
         # Every station the equipment layer knows about, INCLUDING the outbound
@@ -273,6 +304,23 @@ class MesSimNode(Node):
             return_for=plant.bobbin_return_for,
             records=self._records,
             charging_thresholds=charging_thresholds,
+            # The CCS manual §2.15 ceiling. Without it a machine that keeps
+            # calling produces an unbounded queue: a six-minute run on
+            # 2026-08-20 created 14 jobs, finished 5, and grew its open-call
+            # list for the whole run with nothing anywhere saying so.
+            capacity=LineCapacity(plant.SEGMENTS, _rack_sizes().get,
+                                  redundancy=line_redundancy),
+            leg_of=_leg_of,
+            # The one job type CSM originates itself: a source holding finished
+            # material with every destination occupied, parked on the WIP rack
+            # so the upstream machine does not block.
+            #
+            # Shipped opt-in and never opted into here, so it fired only in
+            # tests. Measured 2026-08-20 across four runs: diverted_to_rack 0,
+            # all 45 rack slots empty, every time. It also kept the §2.15
+            # ceiling loose, because material on a leg's racks is one of the
+            # four terms that ceiling counts and ours was always zero.
+            divert_for=plant.SEGMENTS,
         )
 
         # The fake factory. A ROS timer is fine — RosSpinTask fires it.
@@ -434,6 +482,13 @@ def main():
     parser.add_argument("--critical-battery", type=_percent, default=None,
                         help="percent below which a robot goes even while "
                              "holding a job (default 12)")
+    # CCS manual §2.15's tuning knob, and a number nobody has given us — see
+    # debt-113. 0 means the ceiling is exactly ports + rack slots. NEGATIVE is
+    # legitimate and the manual says so: it keeps a line deliberately short,
+    # which is how a three-robot cell can exercise the ceiling at all.
+    parser.add_argument("--line-redundancy", type=_redundancy, default=0,
+                        help="shift every leg's task ceiling (CCS §2.15); "
+                             "may be negative to make the ceiling bind sooner")
     parser.add_argument("--db", default="",
                         help="keep the records in this SQLite file so they "
                              "survive a restart; empty means in memory")
@@ -458,7 +513,8 @@ def main():
                       battery_scale=args.battery_scale,
                       charging_thresholds=thresholds,
                       start_battery=args.start_battery,
-                      db_path=args.db.strip() or None)
+                      db_path=args.db.strip() or None,
+                      line_redundancy=args.line_redundancy)
 
     # The live view. Started AFTER the node, so it always has something to
     # show, and never allowed to stop the simulation: a port already in use is

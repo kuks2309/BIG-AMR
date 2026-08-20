@@ -144,7 +144,14 @@ def test_an_unservable_call_is_kept_not_acknowledged():
         step(monitor)
 
     assert monitor.created == 0
-    assert monitor.deferred == 5
+    # ONE CALL DEFERRED FIVE TIMES IS ONE DEFERRED CALL, NOT FIVE.
+    #
+    # This assertion used to read `== 5`, which encoded the defect rather than
+    # the requirement: `poll_calls()` re-returns the latched call every pass, so
+    # the counter was really counting polls. At 1 Hz that made it a rate, and
+    # the dashboard compared it against a job count — see ADR 2026-08-20.
+    assert monitor.deferred == 1
+    assert monitor.deferred_now == 1, "still outstanding, so still deferred now"
     assert equipment.acknowledged == [], "acknowledged a call it did not serve"
     assert len(equipment.poll_calls()) == 1, "the call must still be outstanding"
 

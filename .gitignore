@@ -41,6 +41,14 @@ src/**/log/
 meeting_files/
 References/local/
 
+# The same rule, for three files that landed at the repository ROOT rather than
+# in either protected directory (found 2026-08-20). They are customer material —
+# a CMS development specification, an AGV job description, and a CCS mapping —
+# and nothing but their location kept them out of the two paths above.
+F Project CMS  개발 사양서.pptx
+F_Project_SMALL_AGV_JOB_Description.pptx
+Single arm to CCS.xlsx
+
 # The CSM's own records database, written at runtime by `--db`. Generated
 # data, not source — and it carries production material identifiers.
 csm_records.db

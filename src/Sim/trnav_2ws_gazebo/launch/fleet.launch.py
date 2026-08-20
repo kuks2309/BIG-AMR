@@ -279,6 +279,11 @@ def generate_launch_description():
         DeclareLaunchArgument('critical_battery', default_value='',
                               description='percent at which a robot goes even '
                                           'mid-job (CSM default 12)'),
+        DeclareLaunchArgument('line_redundancy', default_value='0',
+                              description='shift every leg task ceiling '
+                                          '(CCS manual 2.15). Negative makes '
+                                          'the ceiling bind sooner, which is '
+                                          'how a 3-robot fleet exercises it'),
         DeclareLaunchArgument('db', default_value='',
                               description='SQLite file to keep the CSM records '
                                           'in; empty keeps them in memory'),
@@ -384,7 +389,9 @@ def generate_launch_description():
                         LaunchConfiguration('critical_battery')],
                        ['--start-battery=',
                         LaunchConfiguration('start_battery')],
-                       ['--db=', LaunchConfiguration('db')]],
+                       ['--db=', LaunchConfiguration('db')],
+                       ['--line-redundancy=',
+                        LaunchConfiguration('line_redundancy')]],
             condition=IfCondition(LaunchConfiguration('mes')),
         )],
     )

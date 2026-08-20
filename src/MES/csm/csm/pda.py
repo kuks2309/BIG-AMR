@@ -29,6 +29,25 @@ press and a robot's destination.
 from dataclasses import dataclass
 
 from .adapters.base import TaskType
+from .material import MaterialAttribute
+
+
+@dataclass
+class Inbound:
+    """The answer to "take this material inbound".
+
+    TWO ORDINARY REFUSALS, TOLD APART. A worker who is turned away needs to
+    know which of two different things to go and do: find another rack, or go
+    and read the label. Returning None for both would collapse them into one
+    unhelpful answer.
+
+    The module's existing argument still holds — a full rack is an ordinary
+    answer, not a fault — this is that argument with a second such answer.
+    """
+
+    ok: bool
+    slot: object = None
+    reason: str = ""
 
 
 @dataclass
@@ -68,30 +87,104 @@ class Pda:
 
     # -- D1  생산 정보 등록 ------------------------------------------------
 
-    def register_material(self, kind="roll", location=None):
+    def register_material(self, kind="roll", location=None, attribute=None,
+                          drum_type=None, material_type=None):
         """Scan a new roll or bobbin into the system. Returns the `Material`.
 
         The LOT id is generated here, in the customer's format. A worker
         scanning material is usually the FIRST moment anything in our system
         knows the material exists.
+
+        The three routing fields are optional HERE and required at inbound. On
+        the real line scanning and describing are two moments: material is
+        scanned when it appears, and supplemented once somebody has read the
+        label. A scanner that already knows them may pass them straight in.
         """
         return self.store.records.register_material(
-            kind=kind, at=self.store.clock(), location=location)
+            kind=kind, at=self.store.clock(), location=location,
+            attribute=attribute, drum_type=drum_type,
+            material_type=material_type)
+
+    def supplement(self, material_ref, attribute=None, drum_type=None,
+                   material_type=None):
+        """보록 — fill in what a worker read off the label. Returns the Material.
+
+        §3.4's supplement, and the manual is explicit that all three must be
+        **non-empty and non-zero**, "because a zero here is what produces the
+        missing-info rack states".
+
+        ZERO IS NOT A VALUE, IT IS THE MISSING STATE. `drum_type=0` would
+        otherwise reach `pallet_capacity(0)` and come back as a dual pallet — a
+        confident wrong answer derived from a field nobody filled in.
+
+        Raises ValueError on a zero or an unknown material, because unlike a
+        full rack these are not ordinary answers: they mean the screen sent
+        something it should never send.
+        """
+        material = self.store.records.material(material_ref)
+        if material is None:
+            raise ValueError(f"no such material: {material_ref}")
+
+        if attribute is not None:
+            if not isinstance(attribute, MaterialAttribute):
+                attribute = MaterialAttribute(attribute)
+            material.attribute = attribute
+        for name, value in (("drum_type", drum_type),
+                            ("material_type", material_type)):
+            if value is None:
+                continue
+            if value == 0:
+                raise ValueError(f"{name} may not be zero — a zero here is the "
+                                 f"missing-info state, not a value")
+            setattr(material, name, value)
+
+        self._save(material)
+        return material
+
+    def is_supplemented(self, material_ref):
+        """Are all three routing fields present? The inbound condition."""
+        material = self.store.records.material(material_ref)
+        if material is None:
+            return False
+        return (material.attribute is not None
+                and material.drum_type
+                and material.material_type)
+
+    def _save(self, material):
+        """Persist an edited material, when the store is a durable one.
+
+        `InMemoryRecords` hands out the live object, so mutating it is enough.
+        A durable store needs telling. Reached through the store's own saver
+        rather than SQL here, because a PDA does not know about databases.
+        """
+        saver = getattr(self.store.records, "_save_material", None)
+        if saver is not None:
+            saver(material)
 
     def bind_to_rack(self, material_ref, rack):
-        """Put scanned material into a rack slot — the binding screens.
+        """입고 — take supplemented material inbound onto a rack. -> `Inbound`.
 
-        Returns the slot, or None if the rack is full. None rather than an
-        exception because a full rack is an ordinary answer a worker needs to
-        see, not a fault.
+        REFUSES MATERIAL NOBODY HAS DESCRIBED. The customer's rule (§3, §3.4),
+        and the reason is their §5.1: a rack holding material whose information
+        was never completed cannot be routed, and clearing those up is a
+        standing daily task (§6 item 5).
+
+        This gates the HUMAN inbound only. The WIP diversion parks through
+        `records.park` directly, so a robot stranding a roll is unaffected —
+        which is where the customer puts the gate too.
         """
+        if not self.is_supplemented(material_ref):
+            return Inbound(ok=False, reason="not supplemented — material type, "
+                                            "attribute and bobbin type are "
+                                            "required before inbound")
         now = self.store.clock()
         slot = self.store.records.park(rack, material_ref=material_ref,
                                        job_id=None, at=now)
-        if slot is not None:
-            self.store.records.move_material(material_ref, rack, at=now,
-                                             note="bound by PDA")
-        return slot
+        if slot is None:
+            return Inbound(ok=False, reason=f"{rack} is full")
+        self.store.records.move_material(material_ref, rack, at=now,
+                                         note="bound by PDA")
+        return Inbound(ok=True, slot=slot)
 
     # -- D2  자재 위치 조회 ------------------------------------------------
 

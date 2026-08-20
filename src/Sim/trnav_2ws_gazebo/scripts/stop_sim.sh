@@ -68,10 +68,19 @@ ros2 daemon stop >/dev/null 2>&1
 
 sleep 2
 
-left=$(pgrep --older 1 -f 'gzserver|gzclient|trnav_2ws_gazebo/wheel_|lib/csm/sim_node' | wc -l)
+# VERIFY WHAT STEP 3 CLAIMS TO HAVE KILLED. `robot_state_publisher` was killed
+# above but never checked here, so the script could report "정리 완료" with
+# publishers from an earlier run still alive — which is exactly what happened
+# on 2026-08-20: two survivors from 50 minutes earlier, in namespaces /amr4 and
+# /amr5, still publishing amr3_base_footprint into a fresh three-robot run.
+#
+# It is not enough to kill a thing; a teardown that does not check is a
+# teardown you cannot trust before a measurement.
+LEFTOVERS='gzserver|gzclient|trnav_2ws_gazebo/wheel_|lib/csm/sim_node|robot_state_publisher'
+left=$(pgrep --older 1 -f "$LEFTOVERS" | wc -l)
 if [ "$left" -eq 0 ]; then
     echo "[stop_sim] 정리 완료 — 잔여 프로세스 없음"
 else
     echo "[stop_sim] ⚠ 잔여 프로세스 $left 개:"
-    pgrep -af --older 1 'gzserver|gzclient|trnav_2ws_gazebo/wheel_|lib/csm/sim_node'
+    pgrep -af --older 1 "$LEFTOVERS"
 fi
