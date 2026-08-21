@@ -918,7 +918,9 @@ def build_order(job, requester="CSM"):
         priority=job.priority,
         requester=requester,
         # What the job moves, carried through so the ACS and any later reader
-        # can tell a roll job from a bobbin job without asking us.
+        # can tell a roll job from a bobbin job without asking us. The order id
+        # itself now says this too — see `naming.py` — but the id is one string
+        # and this is a field, and a field is what a query can filter on.
         comment=job.carries.value,
     )
 
@@ -926,9 +928,26 @@ def build_order(job, requester="CSM"):
 class AcsAdapter(ABC):
     """The fleet controller: picks a robot and a route, then drives it there."""
 
-    @abstractmethod
     def submit_job(self, job) -> TransportResult:
-        """Hand a transport job over. Returns ACCEPTED or REJECTED."""
+        """Hand a transport job over. Returns ACCEPTED, BUSY or REJECTED.
+
+        THE DEFAULT THE COMMENT BLOCK ABOVE PROMISES, now actually here. Until
+        2026-08-20 this was `@abstractmethod` with a docstring and no body while
+        the block above stated that "`submit_job` has a default implementation
+        here that builds an order and calls `create_order`, so an adapter only
+        has to implement one of the two paths". An adapter written to that
+        promise returned None from every submission, and None is not a
+        TransportResult — every job would have read as an unrecognised answer.
+
+        So an adapter implements EITHER path now, as intended: override this, or
+        implement `create_order` and inherit this.
+
+        `build_order` is the specification's job-to-task-list mapping (rev01
+        §5), and it belongs here rather than in each adapter so that the
+        deliver-and-collect single visit is expressed the same way everywhere.
+        """
+        response = self.create_order(build_order(job))
+        return classify_error_code(response.errorCode)
 
     @abstractmethod
     def get_job_result(self, job_id) -> TransportResult:
@@ -955,11 +974,22 @@ class AcsAdapter(ABC):
     def create_order(self, order) -> SimpleResponse:
         """Submit an `AcsOrder` — an id and an ORDERED LIST OF TASKS.
 
-        This is the schema's `createOrder`. An implementation that does not
-        override it falls back to the old single-move path, so existing
-        adapters keep working unchanged.
+        This is the schema's `createOrder`.
+
+        ⚠ THERE IS NO FALLBACK HERE, and there cannot be one. This docstring
+        used to claim it "falls back to the old single-move path, so existing
+        adapters keep working unchanged" while the body raised — corrected
+        2026-08-20. The claim was never implementable: `submit_job` takes a
+        `Job`, this takes an `AcsOrder`, and an order cannot be turned back into
+        the job that raised it. The fallback runs the other way round, and
+        `submit_job` is where it lives.
+
+        An adapter must therefore implement THIS or override `submit_job`.
+        Implementing neither raises here rather than silently doing nothing.
         """
-        raise NotImplementedError
+        raise NotImplementedError(
+            f"{type(self).__name__} implements neither create_order nor "
+            "submit_job; one of the two paths is required")
 
     def fleet_status(self):
         """What each robot is doing, for the PDA's AGV 상태 확인 screen.

@@ -15,6 +15,7 @@ the other broken.
 
 from collections import namedtuple
 
+from .. import naming, plant
 from ..job import Job, JobContext, Carried
 from ..records import Decision, InMemoryRecords, instance_of
 from ..job_fsm import build_job_fsm
@@ -81,11 +82,27 @@ class JobStore:
 
     def create(self, from_station, to_station, priority=0, task_type=None,
                carries=Carried.ROLL, call_id=None, reason="",
-               material_ref=None, attempt=1, retry_of=None):
+               material_ref=None, attempt=1, retry_of=None,
+               requester=None):
         self._job_seq += 1
         now = self.clock()
+        # THE ID IS THE WORKSHOP DECK'S NAME PLUS A COUNTER, so it explains
+        # itself wherever it appears — our records, the fleet controller's own
+        # logs, an error message — with no lookup. Built here, once, because
+        # the id must be fixed at creation and never change afterwards: it is
+        # what every later ACS operation names the order by.
+        #
+        # The requester is the station that RAISED THE CALL, which is not
+        # always the source. A machine calling for material names itself while
+        # the material comes from somewhere else.
+        segment = plant.segment_of_station(from_station) \
+            or plant.segment_of_station(to_station)
+        leg = segment["name"] if isinstance(segment, dict) else segment
+        _sketch = Job(job_id="", from_station=from_station,
+                      to_station=to_station, carries=carries)
         job = Job(
-            job_id=f"job_{self._job_seq:04d}",
+            job_id=naming.job_id(_sketch, leg, self._job_seq,
+                                 requester=requester),
             from_station=from_station,
             to_station=to_station,
             priority=priority,
@@ -125,6 +142,11 @@ class JobStore:
             priority_given=priority,
             reason=reason or "",
         ))
+
+        # PERSIST IT NOW, not when it finishes. A job written only at the end
+        # is a job that never existed if the process dies mid-flight, which is
+        # exactly the case the record is for.
+        self.records.save_job(job, at=now)
 
         record = JobRecord(job, ctx, build_job_fsm(on_change=self._on_change))
         self.active.append(record)
@@ -238,6 +260,15 @@ class JobStore:
             self.records.move_material(job.material_ref, job.to_station,
                                        at=ctx.now(), job_id=job.job_id,
                                        note=f"{job.carries.value} delivered")
+
+        # AND THE JOB ITSELF. On transitions only — the tracker steps every job
+        # four times a second, and writing that often would be all I/O and no
+        # information. `finished` is passed rather than inferred: which states
+        # are terminal is the FSM's knowledge, and it should not be restated in
+        # the records layer where it could drift.
+        self.records.save_job(
+            job, at=ctx.now(),
+            finished=transition.target.name in ("DONE", "FAILED"))
 
     # ------------------------------------------------------------- stations
 

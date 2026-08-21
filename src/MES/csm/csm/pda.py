@@ -50,25 +50,9 @@ class Inbound:
     reason: str = ""
 
 
-@dataclass
-class Abnormal:
-    """A problem a person reported. Not in specification section 7.
-
-    It comes from the scope slide (비정상 상황 보고) rather than the record list,
-    and it is kept because a report that is only logged is a report nobody can
-    count, chase or close.
-    """
-
-    report_id: str
-    station: str
-    description: str
-    reported_at: float
-    reported_by: str = "PDA"
-    acknowledged_at: float = None
-
-    @property
-    def open(self):
-        return self.acknowledged_at is None
+# `Abnormal` now lives in `records.py` with every other stored record — moved
+# 2026-08-21 when reports stopped being memory-only. Import it from there;
+# a second definition here would be a second truth about the same row.
 
 
 class Pda:
@@ -82,8 +66,6 @@ class Pda:
         """
         self.store = store
         self.position_codes = dict(position_codes or {})
-        self._abnormal = {}
-        self._report_seq = 0
 
     # -- D1  생산 정보 등록 ------------------------------------------------
 
@@ -225,27 +207,28 @@ class Pda:
     # -- D4  비정상 상황 보고 ----------------------------------------------
 
     def report_abnormal(self, station, description, reported_by="PDA"):
-        self._report_seq += 1
-        report = Abnormal(
-            report_id=f"abn_{self._report_seq:04d}",
-            station=station,
-            description=description,
-            reported_at=self.store.clock(),
-            reported_by=reported_by,
-        )
-        self._abnormal[report.report_id] = report
+        """File a problem. STORED, not just logged.
+
+        Until 2026-08-21 these lived in a dict on this object and were written
+        nowhere, so a report vanished when the process restarted. That defeats
+        the reason for keeping them at all, stated at the top of this module:
+        a report that is only logged is a report nobody can count, chase or
+        close. They go to the records store now, like everything else that has
+        to outlive a run.
+        """
+        report = self.store.records.add_abnormal(
+            station=station, description=description,
+            reported_by=reported_by, at=self.store.clock())
         self.store.logger(f"[{station}] ABNORMAL reported via "
                           f"{reported_by}: {description}")
         return report
 
     def open_reports(self):
-        return [r for r in self._abnormal.values() if r.open]
+        return self.store.records.open_reports()
 
     def acknowledge_report(self, report_id):
-        report = self._abnormal.get(report_id)
-        if report is not None:
-            report.acknowledged_at = self.store.clock()
-        return report
+        return self.store.records.acknowledge_report(
+            report_id, at=self.store.clock())
 
     # -- D5  AGV 수동 호출 및 취소 ------------------------------------------
 
@@ -301,7 +284,13 @@ class Pda:
         """
         for record in self.store.active:
             if record.job.job_id == job_id:
-                self.store.acs.cancel_job(job_id)
+                # `cancel_order` — ADR 2026-08-18. The response is deliberately
+                # not read: against the real ACS this mutation only acknowledges
+                # that the REQUEST was taken, and whether the order actually
+                # stopped arrives later on the order itself. Returning True here
+                # because the CSM job was withdrawn, which is what the person
+                # pressing the button asked for and is true either way.
+                self.store.acs.cancel_order(job_id)
                 record.job.failure_reason = "cancelled from the PDA"
                 # A person stopped this on purpose. Raising it again
                 # would be arguing with them.

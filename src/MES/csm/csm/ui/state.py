@@ -38,6 +38,7 @@ def collect(node):
         "racks": _racks(store),
         "equipment": _equipment(node, store),
         "decisions": _decisions(store),
+        "pda": _pda(node, store),
         "counters": _counters(node, store),
     }
 
@@ -194,6 +195,50 @@ def _equipment(node, store):
             "heartbeat": _safe(lambda: equipment._heartbeat_on.get(s)),
         })
     return out
+
+
+def _pda(node, store):
+    """The handheld's side of things: what a person has raised.
+
+    TWO DIFFERENT THINGS, and they are kept apart on purpose. An abnormal
+    report is a person saying something is wrong and is not in specification
+    section 7 at all; a manual call is ordinary work that happens to have been
+    raised by hand. Merging them would hide the first inside the volume of the
+    second.
+
+    Reports are counted whether open or closed, because "none open" and "none
+    ever" are different states and only one of them is good news.
+    """
+    pda = getattr(node, "pda", None)
+    if pda is None:
+        return {"available": False, "reports": [], "open_reports": 0,
+                "manual_calls": 0, "position_codes": 0}
+
+    # From the RECORDS STORE, not from the PDA object. Reports moved there on
+    # 2026-08-21 so they survive a restart; reading the old private dict here
+    # silently showed zero after the move, which is exactly the kind of stale
+    # read a panel cannot report on itself.
+    records = getattr(store, "records", None)
+    reports = _safe(lambda: records.reports(), []) or []
+    calls = _safe(lambda: list(records._calls.values()), []) or []
+    return {
+        "available": True,
+        # Empty until customer question Q18 is answered; shown so the gap is
+        # visible on the page rather than only in a document.
+        "position_codes": len(getattr(pda, "position_codes", {}) or {}),
+        "open_reports": sum(1 for r in reports if r.open),
+        "total_reports": len(reports),
+        "manual_calls": sum(1 for c in calls
+                            if _safe(lambda: c.source) == "PDA"),
+        "reports": [{
+            "report_id": r.report_id,
+            "station": r.station,
+            "description": r.description,
+            "reported_by": r.reported_by,
+            "reported_at": r.reported_at,
+            "open": r.open,
+        } for r in reports[-20:]],
+    }
 
 
 def _decisions(store):

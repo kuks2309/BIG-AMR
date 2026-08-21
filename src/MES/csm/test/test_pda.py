@@ -12,7 +12,10 @@ import pytest
 from csm.adapters.base import StationStatus, TaskType
 from csm.material import MaterialAttribute, pallet_capacity
 from csm.adapters.mock import ManualClock, MockAcs, MockEquipment
-from csm.pda import Abnormal, Pda
+from csm.pda import Pda                                  # noqa: E402
+# `Abnormal` moved to records.py on 2026-08-21, when reports stopped being
+# memory-only and became a stored record like everything else.
+from csm.records import Abnormal
 from csm.records import InMemoryRecords
 from csm.runtime.job_store import JobStore
 

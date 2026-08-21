@@ -82,6 +82,47 @@ class _Handler(BaseHTTPRequestHandler):
             return self._html(live_page())
         self.send_error(404)
 
+    def do_POST(self):
+        """The PDA's one write path.
+
+        WHY THERE IS A WRITE PATH AT ALL. `pda.py` is CSM's fourth
+        responsibility and its logic was fully tested and completely
+        unreachable in a running system: nothing could file a report, so the
+        panel read "nothing yet" for ever and the feature could not be
+        demonstrated or used. A real handheld posts to something; this is that
+        something, kept to the smallest surface that makes the responsibility
+        real.
+
+        DELIBERATELY ONLY REPORTS. Cancelling or raising a job from an
+        unauthenticated POST is a different question — it can stop a robot —
+        and it stays closed until somebody decides who may do it. See customer
+        question Q18 and the PDA priority question from the 2026-08-21 review.
+        """
+        if self.path.rstrip("/") != "/pda/report":
+            return self.send_error(404)
+
+        pda = getattr(self.node, "pda", None)
+        if pda is None:
+            return self.send_error(503, "no PDA in this run")
+
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+            station = str(body["station"])
+            description = str(body["description"])
+        except (ValueError, KeyError, TypeError):
+            # Say what was wanted rather than just refusing — the caller here
+            # is a person with a handheld, not a machine that can read a spec.
+            return self.send_error(
+                400, "expected JSON with 'station' and 'description'")
+
+        report = pda.report_abnormal(
+            station, description,
+            reported_by=str(body.get("reported_by") or "PDA"))
+        return self._json({"report_id": report.report_id,
+                           "station": report.station,
+                           "open": report.open})
+
     def _json(self, payload):
         body = json.dumps(payload, default=str).encode("utf-8")
         self.send_response(200)

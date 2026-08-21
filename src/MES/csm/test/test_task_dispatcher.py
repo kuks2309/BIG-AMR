@@ -11,7 +11,7 @@ import pathlib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from csm.adapters.base import TransportResult                # noqa: E402
+from csm.adapters.base import AcsAdapter, TransportResult                # noqa: E402
 from csm.adapters.mock import ManualClock, MockAcs, MockEquipment  # noqa: E402
 from csm.runtime.job_store import JobStore                   # noqa: E402
 from csm.runtime.tasks import DispatcherTask, JobTrackerTask  # noqa: E402
@@ -109,7 +109,7 @@ def test_a_bounced_job_keeps_its_place_in_the_queue():
     to the back of the queue every time it is refused."""
     clock, store, dispatcher, tracker = build()
 
-    class AlwaysBusy:
+    class AlwaysBusy(AcsAdapter):
         def submit_job(self, job):
             return TransportResult.BUSY
 
@@ -142,7 +142,7 @@ def test_a_job_still_inside_its_backoff_is_not_granted():
     cannot move stalls the whole queue until the next period."""
     clock, store, dispatcher, tracker = build()
 
-    class AlwaysBusy:
+    class AlwaysBusy(AcsAdapter):
         def submit_job(self, job):
             return TransportResult.BUSY
 

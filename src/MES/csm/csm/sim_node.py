@@ -41,6 +41,7 @@ from .adapters.mock import OpcUaEquipment
 from . import plant, records, records_sqlite
 from .ui.server import UiServer
 from .adapters.sim_acs import SimAcs
+from .pda import Pda
 from .runtime import FsmTask, build_mes
 from .runtime.capacity import LineCapacity
 
@@ -206,7 +207,8 @@ class MesSimNode(Node):
     def __init__(self, batch_seconds, job_timeout, process_seconds,
                  robot_names=None, battery_scale=1.0,
                  charging_thresholds=None, start_battery=None,
-                 db_path=None, line_redundancy=0):
+                 db_path=None, line_redundancy=0, acs_loopback=False,
+                 acs_endpoint=None):
         super().__init__("csm")
 
         # Every station the equipment layer knows about, INCLUDING the outbound
@@ -291,8 +293,61 @@ class MesSimNode(Node):
             self.get_logger().info("records: in memory — lost on exit "
                                    "(pass --db to keep them)")
 
+        # THE ACS THE CSM ACTUALLY TALKS TO.
+        #
+        # Normally `self.acs` itself — a direct Python call. With
+        # --acs-loopback the real GraphQL client goes in the middle:
+        #
+        #     CSM --(GraphQL over a socket)--> LoopbackAcsServer --> SimAcs
+        #
+        # Same fleet, same Gazebo, but every order and every outcome crosses a
+        # real socket through the client that will one day talk to the
+        # customer's ACS. It is the only way to exercise that client under real
+        # timers before we can reach their network — see acs_server.py.
+        #
+        # `self.acs` stays SimAcs regardless, because the drive loop below
+        # steps it directly and that is not an ACS operation.
+        self._acs_server = self._acs_client = None
+        mes_acs = self.acs
+        if acs_endpoint:
+            # A REAL FLEET CONTROLLER. The client is the same one the loopback
+            # exercises; only the address differs.
+            #
+            # ⚠ NO RESULT VOCABULARY IS PASSED. Against their server we do not
+            # know the words an order's `result` can contain — customer
+            # question A6 — so every outcome reads UNKNOWN and jobs run to
+            # their timeout rather than completing. That is the honest
+            # behaviour and it is why the log line below says so out loud: a
+            # fleet that appears to work while every job times out is the
+            # worst way to discover a missing table.
+            from .adapters.acs_client import AcsGraphQLClient
+            self._acs_client = AcsGraphQLClient(acs_endpoint)
+            self._acs_client.start()
+            mes_acs = self._acs_client
+            self.get_logger().info(f"ACS: real endpoint {acs_endpoint}")
+            self.get_logger().warning(
+                "no result vocabulary for this ACS (customer question A6) — "
+                "orders will be sent and their outcomes will read UNKNOWN")
+        elif acs_loopback:
+            from .adapters.acs_client import AcsGraphQLClient
+            from .adapters.acs_server import (LOOPBACK_RESULT_STATES,
+                                              LoopbackAcsServer)
+            self._acs_server = LoopbackAcsServer(self.acs).start()
+            self._acs_client = AcsGraphQLClient(
+                self._acs_server.endpoint,
+                result_states=LOOPBACK_RESULT_STATES)
+            self._acs_client.start()
+            mes_acs = self._acs_client
+            self.get_logger().info(
+                f"ACS loopback: CSM -> {self._acs_server.endpoint} -> SimAcs")
+
+        # EVERY PLACE MATERIAL CAN BE, declared into the records store so a
+        # location reference resolves. The plant is the source of truth; this
+        # copies its index in, the same way rack sizes are passed in above.
+        plant.declare_locations(self._records)
+
         self.app = build_mes(
-            self.equipment, self.acs,
+            self.equipment, mes_acs,
             source_for=lambda sid: FEEDS.get(sid, "ASRS"),
             clock=time.monotonic,
             logger=lambda m: self.get_logger().info(m),
@@ -322,6 +377,20 @@ class MesSimNode(Node):
             # four terms that ceiling counts and ours was always zero.
             divert_for=plant.SEGMENTS,
         )
+
+        # THE HANDHELD, so its state is visible rather than only testable.
+        #
+        # `Pda` is CSM's fourth responsibility and it had no instance in the
+        # running system at all — the logic was proven by tests and then
+        # nothing held it, so an abnormal report had nowhere to live and the
+        # live view had nothing to show. One here gives the UI something real
+        # to read, and gives a person somewhere to file a report.
+        #
+        # POSITION CODES STAY EMPTY. The 001-100 / 101-199 / 200-299 / 300-399
+        # ranges have never been mapped to our station names (customer question
+        # Q18), and `resolve_position` refuses what it cannot resolve rather
+        # than inventing a destination for a worker's button press.
+        self.pda = Pda(self.app.store)
 
         # The fake factory. A ROS timer is fine — RosSpinTask fires it.
         self.create_timer(batch_seconds + 2.0, self._produce_batch)
@@ -404,6 +473,12 @@ async def _run(node):
     health = await supervisor.run()
     node.get_logger().info(f"final health: {health}")
     node.get_logger().info(f"jobs: {node.app.health()}")
+
+
+def _truthy(value):
+    """A launch-supplied flag. Empty means off, which is what an omitted
+    launch argument arrives as."""
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
 def _start_levels(text):
@@ -497,6 +572,20 @@ def main():
                              "happens without waiting: one number for the "
                              "whole fleet (20), or per robot "
                              "(amr1=35,amr2=36,amr3=40)")
+    # A VALUE, not store_true. The launch file can only pass a flag in the
+    # joined `--flag=value` form — it drops an empty argument, and a bare
+    # `--acs-loopback` would swallow the next token — so the flag has to be
+    # able to arrive as `--acs-loopback=` and mean off. See the note beside
+    # `--low-battery` in fleet.launch.py.
+    parser.add_argument("--acs-endpoint", default="",
+                        help="GraphQL endpoint of a REAL ACS, e.g. "
+                             "http://10.0.0.5:8080/graphql. Empty means drive "
+                             "the simulated fleet instead. Overrides "
+                             "--acs-loopback.")
+    parser.add_argument("--acs-loopback", type=_truthy, default=False,
+                        help="put the real GraphQL client between the CSM and "
+                             "SimAcs, so the ACS link is exercised over a real "
+                             "socket instead of a direct call")
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
@@ -514,7 +603,9 @@ def main():
                       charging_thresholds=thresholds,
                       start_battery=args.start_battery,
                       db_path=args.db.strip() or None,
-                      line_redundancy=args.line_redundancy)
+                      line_redundancy=args.line_redundancy,
+                      acs_loopback=args.acs_loopback,
+                      acs_endpoint=args.acs_endpoint.strip() or None)
 
     # The live view. Started AFTER the node, so it always has something to
     # show, and never allowed to stop the simulation: a port already in use is
@@ -532,6 +623,12 @@ def main():
     finally:
         if ui is not None:
             ui.stop()
+        # Before destroy_node: the client's subscription thread reads the node's
+        # ACS, and a socket left open outlives the process it belongs to.
+        if getattr(node, "_acs_client", None) is not None:
+            node._acs_client.stop()
+        if getattr(node, "_acs_server", None) is not None:
+            node._acs_server.stop()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

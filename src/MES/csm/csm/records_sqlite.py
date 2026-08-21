@@ -49,7 +49,8 @@ import sqlite3
 
 from .adapters.base import TaskType
 from .material import MaterialAttribute, MaterialState
-from .records import (Call, CallStatus, Decision, InMemoryRecords, Material,
+from .records import (Abnormal, Call, CallStatus, Decision, InMemoryRecords,
+                      JobRecord, Location, LocationKind, Material,
                       MaterialMove, RackSlot, StationMap)
 
 SCHEMA = """
@@ -115,6 +116,40 @@ CREATE TABLE IF NOT EXISTS stations (
     instance         INTEGER,
     customer_port_id TEXT
 );
+CREATE TABLE IF NOT EXISTS jobs (
+    job_id         TEXT PRIMARY KEY,
+    from_station   TEXT,
+    to_station     TEXT,
+    from_instance  INTEGER,
+    to_instance    INTEGER,
+    carries        TEXT,
+    material_ref   TEXT,
+    call_id        TEXT,
+    acs_order_id   TEXT,
+    state          TEXT,
+    priority       INTEGER,
+    attempt        INTEGER,
+    retry_of       TEXT,
+    failure_reason TEXT,
+    created_at     REAL,
+    finished_at    REAL
+);
+CREATE TABLE IF NOT EXISTS locations (
+    location TEXT PRIMARY KEY,
+    kind     TEXT NOT NULL,
+    segment  TEXT
+);
+CREATE TABLE IF NOT EXISTS abnormal_reports (
+    report_id       TEXT PRIMARY KEY,
+    station         TEXT,
+    description     TEXT NOT NULL,
+    reported_by     TEXT,
+    reported_at     REAL,
+    acknowledged_at REAL
+);
+CREATE INDEX IF NOT EXISTS ix_reports_open ON abnormal_reports (acknowledged_at);
+CREATE INDEX IF NOT EXISTS ix_jobs_state    ON jobs (state);
+CREATE INDEX IF NOT EXISTS ix_jobs_retry    ON jobs (retry_of);
 CREATE INDEX IF NOT EXISTS ix_decisions_job ON decisions (job_id);
 CREATE INDEX IF NOT EXISTS ix_moves_ref     ON material_moves (material_ref);
 CREATE INDEX IF NOT EXISTS ix_calls_station ON calls (station);
@@ -286,6 +321,46 @@ class SqliteRecords(InMemoryRecords):
                 to_location=row["to_location"], job_id=row["job_id"],
                 note=row["note"] or ""))
 
+        # Jobs, oldest first so the dict keeps insertion order and `jobs()`
+        # can simply reverse it. THIS IS THE WHOLE POINT OF THE TABLE: after a
+        # restart the calls, decisions and movements can resolve the job id
+        # they carry, instead of pointing at something nothing can explain.
+        for row in self.db.execute(
+                "SELECT * FROM jobs ORDER BY rowid"):
+            self._jobs[row["job_id"]] = JobRecord(
+                job_id=row["job_id"],
+                from_station=row["from_station"],
+                to_station=row["to_station"],
+                from_instance=row["from_instance"],
+                to_instance=row["to_instance"],
+                carries=row["carries"],
+                material_ref=row["material_ref"],
+                call_id=row["call_id"],
+                acs_order_id=row["acs_order_id"],
+                state=row["state"],
+                priority=row["priority"] or 0,
+                attempt=row["attempt"] or 1,
+                retry_of=row["retry_of"],
+                failure_reason=row["failure_reason"] or "",
+                created_at=row["created_at"] or 0.0,
+                finished_at=row["finished_at"])
+
+        for row in self.db.execute("SELECT * FROM locations"):
+            self._locations[row["location"]] = Location(
+                location=row["location"], kind=LocationKind(row["kind"]),
+                segment=row["segment"])
+
+        # Reports, oldest first so insertion order is preserved and the
+        # sequence can be resumed past them.
+        for row in self.db.execute(
+                "SELECT * FROM abnormal_reports ORDER BY rowid"):
+            self._reports[row["report_id"]] = Abnormal(
+                report_id=row["report_id"], station=row["station"],
+                description=row["description"], reported_by=row["reported_by"],
+                reported_at=row["reported_at"],
+                acknowledged_at=row["acknowledged_at"])
+        self._resume_report_numbering()
+
         for row in self.db.execute("SELECT * FROM stations"):
             self._stations[row["our_name"]] = StationMap(
                 our_name=row["our_name"], instance=row["instance"],
@@ -301,6 +376,21 @@ class SqliteRecords(InMemoryRecords):
             if digits.isdigit():
                 highest = max(highest, int(digits))
         self._call_seq = itertools.count(highest + 1)
+
+    def _resume_report_numbering(self):
+        """Continue the abn_NNNN sequence past everything already stored.
+
+        Same reason as calls: without it a restart reuses `abn_0001` and
+        overwrites the report that already had that id.
+        """
+        import itertools
+
+        highest = 0
+        for report_id in self._reports:
+            _, _, digits = report_id.partition("_")
+            if digits.isdigit():
+                highest = max(highest, int(digits))
+        self._report_seq = itertools.count(highest + 1)
 
     # ------------------------------------------------------------- writing
 
@@ -426,6 +516,48 @@ class SqliteRecords(InMemoryRecords):
         return self._save_material(material) if material else None
 
     # -- station map ------------------------------------------------------
+
+    def define_location(self, location, kind, segment=None):
+        entry = super().define_location(location, kind, segment)
+        self._write(
+            "INSERT OR REPLACE INTO locations (location, kind, segment) "
+            "VALUES (?, ?, ?)",
+            (entry.location, entry.kind.value, entry.segment))
+        return entry
+
+    def add_abnormal(self, station, description, reported_by="PDA", at=0.0):
+        report = super().add_abnormal(station, description, reported_by, at)
+        self._save_report(report)
+        return report
+
+    def acknowledge_report(self, report_id, at):
+        report = super().acknowledge_report(report_id, at)
+        if report is not None:
+            self._save_report(report)
+        return report
+
+    def _save_report(self, report):
+        self._write(
+            "INSERT OR REPLACE INTO abnormal_reports (report_id, station, "
+            "description, reported_by, reported_at, acknowledged_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (report.report_id, report.station, report.description,
+             report.reported_by, report.reported_at, report.acknowledged_at))
+
+    def save_job(self, job, at=None, finished=False):
+        record = super().save_job(job, at=at, finished=finished)
+        self._write(
+            "INSERT OR REPLACE INTO jobs (job_id, from_station, to_station, "
+            "from_instance, to_instance, carries, material_ref, call_id, "
+            "acs_order_id, state, priority, attempt, retry_of, "
+            "failure_reason, created_at, finished_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (record.job_id, record.from_station, record.to_station,
+             record.from_instance, record.to_instance, record.carries,
+             record.material_ref, record.call_id, record.acs_order_id,
+             record.state, record.priority, record.attempt, record.retry_of,
+             record.failure_reason, record.created_at, record.finished_at))
+        return record
 
     def map_station(self, our_name, customer_port_id):
         entry = super().map_station(our_name, customer_port_id)

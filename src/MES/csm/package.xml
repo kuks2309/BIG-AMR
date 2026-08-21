@@ -20,10 +20,24 @@
        and its tests skip when it is absent. The simulator and every
        stand-in run without it. Install with: pip install asyncua -->
   <exec_depend>python3-asyncua-pip</exec_depend>
+  <!-- The real ACS link (adapters/acs_client.py), over GraphQL.
+       OPTIONAL on the same terms as asyncua above: both imports sit inside the
+       methods that need them, so every stand-in and the whole simulator run
+       without either. Install with: pip install httpx websockets -->
+  <exec_depend>python3-httpx-pip</exec_depend>
+  <exec_depend>python3-websockets-pip</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>python3-pytest</test_depend>
+  <!-- test/test_acs_client.py serves a REAL GraphQL schema over HTTP and
+       WebSocket on a real port, the way test_opcua_client.py runs a real
+       OPC-UA server. Test-only — no product code imports these, and the tests
+       skip when they are absent. Install with:
+           pip install strawberry-graphql uvicorn starlette -->
+  <test_depend>python3-strawberry-graphql-pip</test_depend>
+  <test_depend>python3-uvicorn-pip</test_depend>
+  <test_depend>python3-starlette-pip</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

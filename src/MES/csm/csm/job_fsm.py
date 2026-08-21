@@ -97,13 +97,21 @@ class Running(State):
         ctx.log("robot is moving")
 
     def execute(self, ctx):
-        """Poll the ACS once per tick and cache the answer.
+        """Ask the ACS once per tick and cache the answer.
 
         Cached deliberately: t3, t4 and t5 all need to know the outcome, and
         three guards each calling the adapter would triple the traffic and could
         see three different answers within one tick.
+
+        `order_state`, not `get_job_result` — the order interface, ADR
+        2026-08-18. For an adapter that only knows the old path this is the same
+        call, because `AcsAdapter.order_state` falls back to it. For one that
+        speaks the real ACS it is a read of a cache a subscription keeps
+        current, so this tick stops being a network round trip. That is the
+        point: the poll here is 4 Hz, and a level read at 4 Hz cannot see a
+        state entered and left between two ticks.
         """
-        ctx.last_acs_result = ctx.acs.get_job_result(ctx.job.job_id)
+        ctx.last_acs_result = ctx.acs.order_state(ctx.job.job_id)
 
 
 class Done(State):
@@ -166,7 +174,14 @@ class Failed(State):
         destination nobody is waiting for.
         """
         reason = ctx.job.failure_reason or "unknown"
-        ctx.acs.cancel_job(ctx.job.job_id)
+        # `cancel_order`, not `cancel_job` — ADR 2026-08-18. Cancel is the
+        # gentle one of the schema's two operations; abort is for an order a
+        # robot is already carrying out. Which of the two belongs here depends
+        # on whether the ACS has assigned a vehicle yet, and the order's own
+        # `assignedVehicleId` is what answers that — but only an adapter that
+        # actually reads orders can see it, so the choice stays cancel until
+        # one does.
+        ctx.acs.cancel_order(ctx.job.job_id)
         ctx.log(f"FAILED: {reason}")
 
 

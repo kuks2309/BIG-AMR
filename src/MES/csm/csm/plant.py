@@ -764,3 +764,33 @@ def is_charger(position, tolerance=0.3):
             if abs(x - position[0]) <= tolerance and abs(y - position[1]) <= tolerance:
                 return True
     return False
+
+
+def declare_locations(records):
+    """Tell a records store every place material can legitimately be.
+
+    THE PLANT IS THE SOURCE OF TRUTH, THE TABLE IS ONLY THE INDEX. `records.py`
+    deliberately knows nothing about this plant — it is a generic store — so
+    the knowledge flows one way, from here into it, the same way rack sizes do.
+
+    Why the table exists at all: `materials.location` is a free string that may
+    name a machine port, a buffer rack or the store, and before 2026-08-21 only
+    the first had a table behind it. A reader joining materials to stations
+    lost every roll sitting in the ASRS and was not told.
+    """
+    from .records import LocationKind
+
+    for dock in DOCKS:
+        segment = segment_of_station(dock)
+        records.define_location(
+            dock,
+            LocationKind.STORE if dock == "ASRS" else LocationKind.PORT,
+            segment=segment["name"] if isinstance(segment, dict) else segment)
+
+    for name, station in STATIONS.items():
+        if station.get("kind") == "BUFFER":
+            segment = segment_of_station(name)
+            records.define_location(
+                name, LocationKind.RACK,
+                segment=segment["name"] if isinstance(segment, dict)
+                else segment)

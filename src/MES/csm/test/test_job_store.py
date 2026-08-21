@@ -42,7 +42,12 @@ def test_job_record_unpacks_positionally_and_by_name():
 def test_job_ids_are_sequential_and_unique():
     _, _, _, store = build()
     ids = [store.create("station_3", "station_9").job.job_id for _ in range(3)]
-    assert ids == ["job_0001", "job_0002", "job_0003"]
+    # THE ID IS THE DECK'S NAME PLUS A COUNTER (2026-08-21), not a bare
+    # sequence. What this test cares about is that ids are unique and that the
+    # counter advances, not the prefix — so it asserts the shape, not a literal.
+    assert len(set(ids)) == 3, ids
+    assert [i.rsplit("_", 1)[1] for i in ids] == ["0001", "0002", "0003"]
+    assert all(i.startswith("JB_CELL_") for i in ids), ids
 
 
 # ------------------------------------------------------------ the station latch

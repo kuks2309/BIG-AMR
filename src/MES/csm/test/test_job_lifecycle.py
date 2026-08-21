@@ -9,7 +9,7 @@ import pathlib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from csm.adapters.base import StationStatus, TaskType, TransportResult  # noqa: E402
+from csm.adapters.base import AcsAdapter, StationStatus, TaskType, TransportResult  # noqa: E402
 from csm.adapters.mock import ManualClock, MockAcs, MockEquipment  # noqa: E402
 from csm.main_cycle import MainCycle                            # noqa: E402
 
@@ -128,11 +128,11 @@ def test_busy_fleet_queues_the_job_instead_of_failing_it():
     job created while another was travelling was destroyed on the spot — the
     line produced work and the MES threw it away.
     """
-    from csm.adapters.base import TransportResult
+    from csm.adapters.base import AcsAdapter, TransportResult
 
     clock, equipment, acs, cycle = build()
 
-    class BusyThenFree:
+    class BusyThenFree(AcsAdapter):
         """Busy for the first two submissions, then accepts."""
         def __init__(self):
             self.calls = 0
@@ -173,11 +173,11 @@ def test_busy_fleet_queues_the_job_instead_of_failing_it():
 
 def test_busy_retry_is_rate_limited():
     """Retries must be spaced, not attempted on every tick."""
-    from csm.adapters.base import TransportResult
+    from csm.adapters.base import AcsAdapter, TransportResult
 
     clock, equipment, acs, cycle = build()
 
-    class AlwaysBusy:
+    class AlwaysBusy(AcsAdapter):
         def __init__(self):
             self.calls = 0
 

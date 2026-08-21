@@ -24,8 +24,10 @@ LIMIT = 20
 
 #: The order a person reads them in: what was asked for, what we decided, what
 #: it moved, and where things are.
-ORDER = ("calls", "decisions", "materials", "material_moves", "rack_slots",
-         "stations", "racks")
+#: `jobs` leads, because every other table references one — reading it first
+#: is what makes the rest resolvable.
+ORDER = ("jobs", "calls", "abnormal_reports", "decisions", "materials",
+         "material_moves", "rack_slots", "locations", "stations", "racks")
 
 
 def collect(store, limit=LIMIT):
@@ -86,7 +88,7 @@ def _ordered(names):
 # --------------------------------------------------------------- from memory
 
 def _from_memory(records, limit):
-    """The same six collections, under the same column names.
+    """The same collections as SQL, under the same column names.
 
     Deliberately mirrors the SQL schema rather than exposing whatever the
     dataclasses happen to hold: the two must look the same, or moving from one
@@ -99,8 +101,32 @@ def _from_memory(records, limit):
     stations = list(getattr(records, "_stations", {}).values())
     slots = [s for rack in getattr(records, "_racks", {}).values()
              for s in rack]
+    jobs = list(getattr(records, "_jobs", {}).values())
+    locations = list(getattr(records, "_locations", {}).values())
+    reports = list(getattr(records, "_reports", {}).values())
 
     return [
+        # Jobs first, matching ORDER above and the SQLite column order.
+        _table("jobs",
+               ["job_id", "from_station", "to_station", "from_instance",
+                "to_instance", "carries", "material_ref", "call_id",
+                "acs_order_id", "state", "priority", "attempt", "retry_of",
+                "failure_reason", "created_at", "finished_at"],
+               [[j.job_id, j.from_station, j.to_station, j.from_instance,
+                 j.to_instance, j.carries, j.material_ref, j.call_id,
+                 j.acs_order_id, j.state, j.priority, j.attempt, j.retry_of,
+                 j.failure_reason, _cell(j.created_at), _cell(j.finished_at)]
+                for j in reversed(jobs)], limit),
+        _table("abnormal_reports",
+               ["report_id", "station", "description", "reported_by",
+                "reported_at", "acknowledged_at"],
+               [[r.report_id, r.station, r.description, r.reported_by,
+                 _cell(r.reported_at), _cell(r.acknowledged_at)]
+                for r in reversed(reports)], limit),
+        _table("locations",
+               ["location", "kind", "segment"],
+               [[l.location, getattr(l.kind, "value", l.kind), l.segment]
+                for l in locations], limit),
         _table("calls",
                ["call_id", "station", "instance", "task_type", "source",
                 "raised_at", "acknowledged_at", "cancelled_at", "job_id",

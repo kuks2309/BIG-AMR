@@ -73,6 +73,7 @@ __NAVCSS__
   <span class="stat">deferred <b id="c-defer">0</b></span>
   <span class="stat" id="s-lost">cmds lost <b id="c-lost">0</b></span>
   <span class="stat" id="s-unrested">unrested <b id="c-unrested">0</b></span>
+  <span class="stat" id="s-pda">PDA open <b id="c-pdaopen">0</b></span>
   <span class="stat">updated <b id="c-age">–</b></span>
   <span id="stale">— not updating —</span>
 </header>
@@ -116,6 +117,12 @@ __NAVCSS__
   <section>
     <h2>calls <span id="n-calls"></span></h2>
     <div class="scroll"><table id="t-calls"></table></div>
+  </section>
+
+  <section>
+    <h2>PDA — reported by a person <span id="n-pda"></span></h2>
+    <div class="scroll"><table id="t-pda"></table></div>
+    <p class="muted" id="pda-note"></p>
   </section>
 
   <section>
@@ -256,6 +263,25 @@ async function refresh() {
   $('c-unrested').textContent = c.unrested_decisions;
   $('s-lost').className = 'stat' + (c.commands_lost ? ' bad' : '');
   $('s-unrested').className = 'stat' + (c.unrested_decisions ? ' warn' : '');
+
+  const pda = d.pda || {available:false, reports:[], open_reports:0};
+  $('c-pdaopen').textContent = pda.open_reports || 0;
+  $('s-pda').className = 'stat' + (pda.open_reports ? ' bad' : '');
+  $('n-pda').textContent = pda.available
+    ? `${pda.open_reports} open of ${pda.total_reports||0}` : 'not running';
+  table($('t-pda'), ['report','station','what','raised by','state'],
+    (pda.reports||[]).slice().reverse(),
+    r => [r.report_id, r.station, r.description, r.reported_by,
+          r.open ? 'OPEN' : 'closed']);
+  // The position-code gap is a fact about the system, so it belongs on the
+  // page rather than only in a document. Zero codes means a worker's manual
+  // call cannot be resolved to a station at all - customer question Q18.
+  $('pda-note').textContent = pda.available
+    ? `${pda.manual_calls||0} call(s) raised by hand · `
+      + (pda.position_codes
+         ? `${pda.position_codes} position codes mapped`
+         : 'no position codes mapped yet — manual calls cannot resolve a station (Q18)')
+    : 'no PDA in this run';
 
   $('n-fleet').textContent = d.fleet.length;
   table($('t-fleet'), ['robot','leg','battery','busy','job','going to','at','responsive','halted because'],

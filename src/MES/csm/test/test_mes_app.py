@@ -16,7 +16,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from csm.adapters.base import StationStatus, TaskType, TransportResult  # noqa: E402
+from csm.adapters.base import AcsAdapter, StationStatus, TaskType, TransportResult  # noqa: E402
 from csm.adapters.mock import ManualClock, MockAcs, MockEquipment  # noqa: E402
 from csm.main_cycle import MainCycle                          # noqa: E402
 from csm.runtime import build_mes                             # noqa: E402
@@ -57,7 +57,7 @@ def tick(app, n=1):
         asyncio.run(app.tick_all())
 
 
-class OneRobotAcs:
+class OneRobotAcs(AcsAdapter):
     """A fleet of exactly one. Everything after the first job gets BUSY.
 
     This is the condition that made queueing worth building: the real SimAcs

@@ -291,6 +291,15 @@ def generate_launch_description():
                               description='start robots at this percent '
                                           'instead of 100, so a charge cycle '
                                           'happens straight away'),
+        DeclareLaunchArgument('acs_endpoint', default_value='',
+                              description='GraphQL endpoint of a REAL ACS. '
+                                          'Empty drives the simulated fleet. '
+                                          'Overrides acs_loopback.'),
+        DeclareLaunchArgument('acs_loopback', default_value='false',
+                              description='route the CSM to the fleet through '
+                                          'the real GraphQL client and a '
+                                          'loopback ACS server, so the link is '
+                                          'exercised over a real socket'),
         DeclareLaunchArgument('mes', default_value='true',
                               description='also start the MES that gives the '
                                           'robots work; false leaves them '
@@ -391,7 +400,11 @@ def generate_launch_description():
                         LaunchConfiguration('start_battery')],
                        ['--db=', LaunchConfiguration('db')],
                        ['--line-redundancy=',
-                        LaunchConfiguration('line_redundancy')]],
+                        LaunchConfiguration('line_redundancy')],
+                       ['--acs-loopback=',
+                        LaunchConfiguration('acs_loopback')],
+                       ['--acs-endpoint=',
+                        LaunchConfiguration('acs_endpoint')]],
             condition=IfCondition(LaunchConfiguration('mes')),
         )],
     )

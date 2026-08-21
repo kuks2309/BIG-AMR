@@ -234,6 +234,107 @@ class Material:
 
 
 @dataclass
+class JobRecord:
+    """One transport job, retained after it has finished.
+
+    ⚠ NOT one of section 7's six records, and deliberately not a copy of the
+    fleet controller's order history — section 7 puts that on the "not
+    retained" list and it is theirs. Their record is about a VEHICLE CARRYING
+    OUT AN ORDER. This one is about **why the work existed and whether it
+    succeeded**: the call it answered, the material it moved, and the retry
+    chain behind it. That is CSM's own knowledge and exists nowhere else.
+
+    Added 2026-08-21. Before it, four tables carried a `job_id` and nothing
+    could resolve one — a call, a decision and a movement all survived a
+    restart while the job that connected them did not.
+
+    `retry_of` is the field that earns its place. "Was this the third attempt?"
+    was unanswerable after a restart, and it is exactly the question asked when
+    a line under-performs.
+    """
+
+    job_id: str
+    from_station: str = None
+    to_station: str = None
+    #: WHICH MACHINE of the four, at each end. The job id cannot say — the
+    #: workshop deck's codes are per process, so GRV1_LD and GRV4_LD both read
+    #: GRVPRTLD. These columns are where that is not lost.
+    from_instance: int = None
+    to_instance: int = None
+    carries: str = None
+    material_ref: str = None
+    call_id: str = None
+    #: The fleet controller's own reference. Equal to `job_id` today; kept
+    #: separate because that is our choice, not their requirement.
+    acs_order_id: str = None
+    state: str = None
+    priority: int = 0
+    attempt: int = 1
+    retry_of: str = None
+    failure_reason: str = ""
+    created_at: float = 0.0
+    #: Set when the job reaches DONE or FAILED. None while it is still running,
+    #: which is how an unfinished job is told from a finished one after a crash.
+    finished_at: float = None
+
+
+class LocationKind(Enum):
+    """What sort of place a location is.
+
+    `materials.location` was a free string that might name a machine port, a
+    buffer rack or the store, and only the first had a table behind it. A
+    reader joining materials to stations lost every roll in the ASRS without
+    being told. This enum is what makes the three tellable apart.
+    """
+
+    PORT = "port"       # an LD or ULD station on a machine
+    RACK = "rack"       # a WIP buffer shelf
+    STORE = "store"     # the ASRS
+
+
+@dataclass
+class Location:
+    """One place material can be. The dimension table the schema was missing.
+
+    Added 2026-08-21. Deliberately thin: three columns, and no capacity or
+    geometry. Where a location IS belongs to `plant.py`, which is the single
+    source of truth for the plant; this table exists so that a location
+    REFERENCE resolves, not to become a second plant model.
+    """
+
+    location: str
+    kind: LocationKind
+    #: Which leg works it — A, B or C. None for anything not on a leg.
+    segment: str = None
+
+
+@dataclass
+class Abnormal:
+    """A problem a person reported from the handheld.
+
+    ⚠ NOT one of section 7's six records. It comes from the CSM scope slide
+    (비정상 상황 보고), and it is kept because the PDA module's own note gives
+    the reason: *a report that is only logged is a report nobody can count,
+    chase or close.*
+
+    Until 2026-08-21 it lived on the `Pda` object and was written nowhere, so
+    a report did not survive a restart — which is the one thing a report has
+    to do.
+    """
+
+    report_id: str
+    station: str
+    description: str
+    reported_at: float
+    reported_by: str = "PDA"
+    acknowledged_at: float = None
+
+    @property
+    def open(self):
+        return self.acknowledged_at is None
+
+
+@dataclass
 class MaterialMove:
     """One movement of one material. Section 7's traceability, in a row.
 
@@ -321,6 +422,51 @@ class Records(ABC):
         """Every movement of this material, oldest first."""
 
     @abstractmethod
+    def define_location(self, location, kind, segment=None):
+        """Declare a place material can be. Idempotent."""
+
+    @abstractmethod
+    def location_kind(self, location):
+        """`LocationKind` for a place, or None if it was never declared."""
+
+    @abstractmethod
+    def locations(self):
+        """Every declared location."""
+
+    @abstractmethod
+    def add_abnormal(self, station, description, reported_by="PDA", at=0.0):
+        """Record a problem a person reported. Returns the `Abnormal`."""
+
+    @abstractmethod
+    def open_reports(self):
+        """Reports nobody has acknowledged yet."""
+
+    @abstractmethod
+    def acknowledge_report(self, report_id, at):
+        """Close a report. Returns it, or None if there is no such report."""
+
+    @abstractmethod
+    def reports(self, limit=None):
+        """Every report, newest first."""
+
+    @abstractmethod
+    def save_job(self, job, at=None, finished=False):
+        """Record a job, or update the one already recorded.
+
+        An UPSERT keyed on `job_id`, called at creation and on every state
+        change. Not called per tick: the job tracker steps every job four times
+        a second and writing that often would be all I/O and no information.
+        """
+
+    @abstractmethod
+    def job(self, job_id):
+        """One job by id, or None."""
+
+    @abstractmethod
+    def jobs(self, limit=None):
+        """Jobs, newest first."""
+
+    @abstractmethod
     def map_station(self, our_name, customer_port_id):
         """Bind our name for a port to the customer's."""
 
@@ -354,6 +500,17 @@ class InMemoryRecords(Records):
         self._decisions = []
         self._racks = {}
         self._stations = {}
+        #: location name -> Location. Declared, not discovered: a location
+        #: exists because somebody said so, which is what makes an undeclared
+        #: one detectable.
+        self._locations = {}
+        #: report_id -> Abnormal, insertion ordered.
+        self._reports = {}
+        self._report_seq = itertools.count(1)
+        #: job_id -> JobRecord. Insertion-ordered, so `jobs()` reverses it
+        #: rather than sorting on a timestamp that is only monotonic within
+        #: one run.
+        self._jobs = {}
         self._call_seq = itertools.count(1)
         #: How many times a material was accepted without knowing whether it
         #: had rested. See `is_ready`.
@@ -576,6 +733,92 @@ class InMemoryRecords(Records):
         return sorted(here, key=lambda m: (m.expires_at is None,
                                            m.expires_at or 0.0,
                                            m.created_at))
+
+    # -- locations --------------------------------------------------------
+
+    def define_location(self, location, kind, segment=None):
+        entry = Location(location=location,
+                         kind=kind if isinstance(kind, LocationKind)
+                         else LocationKind(kind),
+                         segment=segment)
+        self._locations[location] = entry
+        return entry
+
+    def location_kind(self, location):
+        entry = self._locations.get(location)
+        return entry.kind if entry else None
+
+    def locations(self):
+        return list(self._locations.values())
+
+    # -- abnormal reports --------------------------------------------------
+
+    def add_abnormal(self, station, description, reported_by="PDA", at=0.0):
+        report = Abnormal(
+            report_id=f"abn_{next(self._report_seq):04d}",
+            station=station,
+            description=description,
+            reported_at=at,
+            reported_by=reported_by,
+        )
+        self._reports[report.report_id] = report
+        return report
+
+    def open_reports(self):
+        return [r for r in self._reports.values() if r.open]
+
+    def acknowledge_report(self, report_id, at):
+        report = self._reports.get(report_id)
+        if report is not None:
+            report.acknowledged_at = at
+        return report
+
+    def reports(self, limit=None):
+        out = list(reversed(self._reports.values()))
+        return out[:limit] if limit else out
+
+    # -- jobs -------------------------------------------------------------
+
+    def save_job(self, job, at=None, finished=False):
+        """Upsert. `finished` stamps `finished_at`; it is not inferred here.
+
+        Inferring it from the state name would put knowledge of which states
+        are terminal in two places — the FSM already owns that, and the caller
+        knows.
+        """
+        record = JobRecord(
+            job_id=job.job_id,
+            from_station=job.from_station,
+            to_station=job.to_station,
+            from_instance=getattr(job, "from_instance", None),
+            to_instance=getattr(job, "to_instance", None),
+            carries=getattr(getattr(job, "carries", None), "value", None),
+            material_ref=getattr(job, "material_ref", None),
+            call_id=getattr(job, "call_id", None),
+            acs_order_id=getattr(job, "acs_order_id", None) or job.job_id,
+            state=getattr(job, "state_name", None),
+            priority=getattr(job, "priority", 0) or 0,
+            attempt=getattr(job, "attempt", 1) or 1,
+            retry_of=getattr(job, "retry_of", None),
+            failure_reason=getattr(job, "failure_reason", "") or "",
+            created_at=getattr(job, "created_at", 0.0) or 0.0,
+        )
+        # Keep a finish time already recorded: a later update must not erase
+        # when the job ended.
+        previous = self._jobs.get(job.job_id)
+        if finished:
+            record.finished_at = at
+        elif previous is not None:
+            record.finished_at = previous.finished_at
+        self._jobs[job.job_id] = record
+        return record
+
+    def job(self, job_id):
+        return self._jobs.get(job_id)
+
+    def jobs(self, limit=None):
+        out = list(reversed(self._jobs.values()))
+        return out[:limit] if limit else out
 
     # -- station map -----------------------------------------------------
 
