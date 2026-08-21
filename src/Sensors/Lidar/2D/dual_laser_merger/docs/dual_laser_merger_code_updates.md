@@ -1,5 +1,19 @@
 # dual_laser_merger Code Updates
 
+## 2026-08-20 / (pending commit) - 캘리브 패키지 하드 의존 제거: 없으면 우회
+
+- **증상**: `lidar_calibration_2d` 가 설치되지 않은 기체에서 `dual_sick_merger.launch.py` 가
+  `PackageNotFoundError` 로 **launch 전체를 죽였다**. 그 위에 얹힌 상위 진입점
+  (`mcl2d_ros2/bringup.launch.py` 의 `lidar:=true` 계층)까지 같이 실패한다.
+  실측: LGIT MOMA 기체(lgit-c6-4)에서 bringup 이 이 예외로 중단, 라이다·측위 모두 미기동.
+- **원인**: `generate_launch_description()` 첫 줄에서 캘리브 결과 경로를 **무조건** 만들었다
+  (`get_package_share_directory('lidar_calibration_2d')`). 캘리브 결과는 구동 필수물이 아니고
+  (merger 는 빈 값이면 TF 경로로 동작), 캘리브레이션 자체도 상시 수행 대상이 아니다.
+- **조치**: 그 조회를 `try/except PackageNotFoundError` 로 감싸 **없으면 `calibration_file=''`**.
+  캘리브 패키지가 있는 기체(Big-AMR)는 거동 불변 - 같은 파일을 그대로 넘긴다.
+- **파일**: `launch/dual_sick_merger.launch.py` (import 1줄 + 조회 블록)
+- **검증**: 구문 검사 통과. 캘리브 있는 이 장비에서 경로 산출값이 종전과 동일함을 확인.
+
 ## 2026-07-25 / (pending commit) — Big-AMR extrinsic/exclusion 을 SEER install_info 로 교정
 
 - **증상**: Big-AMR 에서 merge 구동 시 `/scan_merged` 지오메트리 오류 소지. calibration_result.yaml 이

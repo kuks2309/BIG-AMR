@@ -32,12 +32,12 @@ WHAT WE DO NOT MODEL. The manual's second term — material at turntable
 entrances — has no analogue here, because we have no turntables. We count
 in-flight jobs and material parked on the leg's racks, and we say so rather than
 approximating the missing term with something that looks similar. See
-`debt-114`.
+`debt-119`.
 
 REDUNDANCY IS NOT A NUMBER ANYBODY HAS GIVEN US. It defaults to 0. The manual
 describes it as the tuning knob between lines — positive means extra pallets may
 wait upstream, negative means the line is deliberately kept short — and
-explicitly allows negatives. It is recorded as `debt-113`, not guessed at.
+explicitly allows negatives. It is recorded as `debt-118`, not guessed at.
 """
 
 
@@ -51,7 +51,7 @@ class LineCapacity:
         Injected rather than imported so the ceiling can be built against a
         test plant as easily as the real one.
     :param redundancy: int, or dict of leg name -> int. May be negative;
-        the manual says so. Defaults to 0 — see `debt-113`.
+        the manual says so. Defaults to 0 — see `debt-118`.
     """
 
     def __init__(self, segments, rack_slots, redundancy=0):

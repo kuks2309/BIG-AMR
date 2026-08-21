@@ -172,7 +172,7 @@ class EquipmentMonitorTask(FsmTask):
 
         The manual's second term — material at turntable entrances — has no
         analogue in our model and is deliberately not approximated. See
-        `debt-114`.
+        `debt-119`.
         """
         counts = {}
         for record in self.store.active:

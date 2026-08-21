@@ -17,15 +17,23 @@ import os
 from launch import LaunchDescription
 from launch_ros.actions import ComposableNodeContainer, Node
 from launch_ros.descriptions import ComposableNode
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 
 
 def generate_launch_description():
 
-    calibration_file = os.path.join(
-        get_package_share_directory('lidar_calibration_2d'),
-        'config', 'calibration_result.yaml'
-    )
+    # 캘리브레이션 결과는 **있으면 쓰고 없으면 쓰지 않는다** — merger 는 빈 값이면 TF
+    #   (base_link→scan_*) 경로로 동작한다(dual_laser_merger.cpp:47-59, 202).
+    #   종전에는 이 경로를 무조건 만들어, 캘리브 패키지가 없는 기체에서 PackageNotFoundError 로
+    #   **launch 전체가 죽었다** — 라이다 구동과 무관한 산출물 때문에 구동이 막히는 형태였다.
+    #   캘리브레이션은 상시 수행 대상이 아니므로 하드 의존으로 두지 않는다.
+    try:
+        calibration_file = os.path.join(
+            get_package_share_directory('lidar_calibration_2d'),
+            'config', 'calibration_result.yaml'
+        )
+    except PackageNotFoundError:
+        calibration_file = ''
 
     filter_config_file = os.path.join(
         get_package_share_directory('dual_laser_merger'),

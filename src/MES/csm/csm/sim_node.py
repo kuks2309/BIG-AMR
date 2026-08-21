@@ -558,7 +558,7 @@ def main():
                         help="percent below which a robot goes even while "
                              "holding a job (default 12)")
     # CCS manual §2.15's tuning knob, and a number nobody has given us — see
-    # debt-113. 0 means the ceiling is exactly ports + rack slots. NEGATIVE is
+    # debt-118. 0 means the ceiling is exactly ports + rack slots. NEGATIVE is
     # legitimate and the manual says so: it keeps a line deliberately short,
     # which is how a three-robot cell can exercise the ceiling at all.
     parser.add_argument("--line-redundancy", type=_redundancy, default=0,
