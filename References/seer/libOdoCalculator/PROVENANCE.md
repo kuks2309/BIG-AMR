@@ -17,14 +17,14 @@
 
 | 파일 | 내용 | 상태 |
 | --- | --- | --- |
-| `caldpose.asm` | `MultiSteersOdometer::CaldPose()` `0x14f300`~`0x14fe80` — 휠 변위·조향각 → (dx, dy, dyaw) | **미채취** |
-| `calodocoef.asm` | `MultiSteersOdometer::CalOdoCoef()` `0x14c9f0`~`0x14d690` — 계수행렬 사전 역행렬 | **미채취** |
-| `calspeed.asm` | `MultiSteersOdometer::CalSpeed()` `0x14d690`~`0x14f300` — 속도 산출(`vel_rotate` 의 출처) | **미채취** |
-| `calpose_abstract.asm` | `AbstractOdometer::CalPose()` `0x15d490`~ — 자세 누적(end-point 회전) | **미채취** |
-| `layouts.txt` | `gdb ptype /o` 클래스 레이아웃 5종 | **미채취** |
+| `caldpose.asm` | `MultiSteersOdometer::CaldPose()` `0x14f300`~`0x14fe80` — 휠 변위·조향각 → (dx, dy, dyaw) | 채취 완료(2026-08-23) |
+| `calodocoef.asm` | `MultiSteersOdometer::CalOdoCoef()` `0x14c9f0`~`0x14d690` — 계수행렬 사전 역행렬 | 채취 완료(2026-08-23) |
+| `calspeed.asm` | `MultiSteersOdometer::CalSpeed()` `0x14d690`~`0x14f300` — 속도 산출(`vel_rotate` 의 출처) | 채취 완료(2026-08-23) |
+| `calpose_abstract.asm` | `AbstractOdometer::CalPose()` `0x15d490`~ — 자세 누적(end-point 회전) | 채취 완료(2026-08-23) |
+| `layouts.txt` | `gdb ptype /o` 클래스 레이아웃 5종 | 채취 완료(2026-08-23) |
 
-**미채취 사유**: 원본 장비 `amap-server` 가 오프라인이다(2026-08-23 확인, tailscale
-`offline, last seen 55m ago`). 장비 복귀 후 위 채취 도구를 실행하면 이 표의 상태가 채워진다.
+**채취**: 2026-08-23, `Tools/seer_re/fetch_odocalculator.sh` 1회 실행.
+재채취로 재현 가능하다 — 주소는 위 표에, 대상은 `PROVENANCE` 머리의 원본 위치에 있다.
 
 ## 이 폴더가 있는 이유
 
