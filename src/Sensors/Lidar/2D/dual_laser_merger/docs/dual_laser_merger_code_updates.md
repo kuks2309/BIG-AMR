@@ -1,5 +1,22 @@
 # dual_laser_merger Code Updates
 
+## 2026-08-23 / (pending commit) - launch 전 노드 respawn + merger 를 단독 실행판으로 전환
+
+- **목적**: 노드 사망 시 자동 재기동(운용 회복력). 사용자 지시(2026-08-23 "launch 에 respawn 부터 적용").
+- **변경**: `launch/dual_sick_merger.launch.py` — ① static TF·merger 에 `respawn=True, respawn_delay=2.0`
+  ② merger 를 `ComposableNodeContainer`(merger_container) → 단독 실행판 `dual_laser_merger_node` 로 전환
+  (파라미터 동일, CMake 가 이미 `EXECUTABLE dual_laser_merger_node` 를 생성하고 있어 빌드 변경 없음).
+- **전환 사유**: Humble launch_ros 는 컨테이너 respawn 시 컴포넌트를 재적재하지 않는다
+  (`composable_node_container.py`·`load_composable_nodes.py` 에 respawn 처리 부재를 실기 설치본에서 확인)
+  — respawn 을 걸면 빈 컨테이너만 살아나는 조용한 고장이 된다. 컴포넌트가 merger 1개뿐이라
+  composition(프로세스 내 통신) 이득도 없다.
+- **검증(실기 2026-08-23)**: `kill -9` → launch 가 died 감지·재기동(pid 2420402→2421612),
+  `/scan_merged` 34.06 Hz 회복(스트림 공백 최대 0.094 s 관측), Calibration mode 파라미터 유지.
+- **내구(실기 2026-08-23, 120분)**: 15분 간격 6노드 순환 `kill -9`(merger 포함) 전 건 회복 —
+  merger proc 2.15 s / `/scan_merged` 3.7 s. 전 구간 프로세스 121/121 점검 6/6, merger 자체
+  5 s 통계로 34 pairs/s 연속 확인(공백 0). 마지막 30분 무교란 소크 무결.
+- **함수표 갱신**: `docs/code_review/dual-laser-merger-sync/2026-08-08.md` #21·B-3 (루트+병기 동기).
+
 ## 2026-08-20 / (pending commit) - 캘리브 패키지 하드 의존 제거: 없으면 우회
 
 - **증상**: `lidar_calibration_2d` 가 설치되지 않은 기체에서 `dual_sick_merger.launch.py` 가

@@ -1,5 +1,18 @@
 # mcl2d_ros2 — code updates
 
+2026-08-23 / (pending commit) / **launch 에 respawn — 측위 노드·맵 서버 자동 재기동**
+
+- **수정** `launch/localization.launch.py` — mcl2d 노드에 `respawn=True, respawn_delay=2.0`.
+  autostart 가 노드 main 수행이라 재기동한 프로세스도 스스로 configure→activate 까지 간다.
+- **수정** `launch/bringup.launch.py` — `smap_map_server` 에 동일 respawn(/map latch 는 발행자가
+  살아 있어야 신규 구독자가 받음). `rviz2` 는 사람이 여닫는 창이라 제외.
+- **검증(실기 2026-08-23)**: mcl2d `kill -9` → 재기동(pid 2420406→2423548) 후 lifecycle
+  `active [3]` 자가 복귀, `/mcl_pose` 발행 재개. colcon build 2패키지(mcl2d_ros2,
+  icp_odometry_bringup) PASS 후 bringup 재기동 — 6노드 전부 up, `/scan_merged` 34.1 Hz.
+- **내구(실기 2026-08-23, 120분)**: 15분 간격 6노드 순환 `kill -9` 전 건 회복 — mcl2d proc
+  2.15 s / `/mcl_pose` 3.7 s, map_server proc 2.15 s / `/map` 재latch 4.1 s. 매분 건강 점검
+  121/121 프로세스 6/6, 종료 시 lifecycle active·34.0 Hz. 마지막 30분 무교란 소크 무결.
+
 2026-08-16 / 22:15 - (pending commit) / **bringup 을 loc 스택 단일 진입점으로 — 구동 한 줄 명령 확립**
 
 - **수정** `launch/bringup.launch.py` — `smap_map_server`(같은 map_path 공유, `map_server:=true` 기본)와
