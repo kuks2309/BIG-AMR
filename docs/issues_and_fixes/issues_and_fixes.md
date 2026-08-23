@@ -3726,3 +3726,64 @@ goal 을 그대로 들고 있어 로봇은 목표까지 간다 — 작업자가 
 **「미수정 인수인계」로 넘긴 항목이 그 세션 안에서 나를 물었다.** 감사가 짚은 것 중
 「내가 지금 계속 쓰는 도구의 결함」은 인수인계 대상이 아니라 **즉시 수정 대상**이다.
 비용이 30분이 아니라 5분이었다.
+
+
+## 2026-08-19 — [Fix] Charging never finished, and homing was a NameError
+
+Found together in one live run, by starting the whole fleet at 20% battery to
+check the charging path end to end.
+
+### What was seen
+
+amr2 and amr3 climbed 20% → 90% and stopped. **amr1 climbed to about 30% and
+then started falling again**, while the live view went on reporting
+`charging_to 90` the whole way down. In the same run the supervisor logged
+`[drive] step failed (n): NameError("name 'segment' is not defined")` five
+times in six minutes.
+
+### Cause 1 — a charging robot was not excluded from dispatch
+
+`SimAcs._dispatch` picked candidates with:
+
+    free = [r for r in self.robots
+            if not r.busy and r.pose is not None and r.can_move ...]
+
+A robot standing on a charger passes all three. It is **not busy**, and it
+**can move** — that is precisely the problem. So the dispatcher handed amr1 a
+job, it drove off the charger part-charged, and began draining. Nothing cleared
+`_charging_to`, so every reader still called it charging.
+
+Fixed by adding `not r.charging`, a property that is true while `_charging_to`
+is set. `_step_battery` already clears that on reaching the target, so the
+exclusion lifts itself; nothing has to remember to release the robot.
+
+### Cause 2 — `_go_home` referenced an undefined name
+
+    self._home_waypoints = list(
+        ROADS.route_to_node(self.pose[:2], f"park_{segment}")) or [bay]
+
+`segment` is not defined anywhere in that method. Present since `861b958`
+(2026-08-07) and never seen, because homing is only reached by a robot that is
+idle **and** away from its bay — which this fleet rarely was until charging
+started sending robots out. The charging work is what made an old bug reachable.
+
+The node name now comes from `roads.park_node()`, beside `build()`, which is
+what invents those names (`park_A`, then `park_A2`, `park_A3`). Which slot a
+robot owns comes from the new `plant.parking_index`, shared with
+`plant.parking_for`, so the node and the coordinates cannot drift apart.
+
+### Verification
+
+Re-ran the same 20% start. All three robots reached 90% in 140 s with no
+interruption and no `step failed`. 9 tests added in
+`test_charging_is_not_interrupted.py`, including one asserting the park node
+resolves to a node that actually exists in the graph and matches
+`plant.parking_for` — a name that is merely well-formed still routes nowhere.
+
+### Lesson
+
+**Neither bug had a failing test, and neither would have.** One needed a robot
+to be idle away from its bay; the other needed a robot to be part-charged when
+work arrived. Both are states the unit tests never construct and the running
+system reaches on its own. The charging feature did not introduce either
+fault — it made both reachable.

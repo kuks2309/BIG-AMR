@@ -91,6 +91,10 @@ def generate_launch_description():
         parameters=[{'map_path': LaunchConfiguration('map_path')}],
         output='screen',
         condition=IfCondition(LaunchConfiguration('map_server')),
+        # /map 은 latch — 새로 붙는 구독자(rviz·costmap)는 발행자가 살아 있어야 맵을
+        # 받으므로 respawn 으로 발행자를 유지한다. rviz 는 사람이 여닫는 창이라 respawn 제외.
+        respawn=True,
+        respawn_delay=2.0,
     )
     rviz = Node(
         package='rviz2',

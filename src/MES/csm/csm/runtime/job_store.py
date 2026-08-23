@@ -15,7 +15,9 @@ the other broken.
 
 from collections import namedtuple
 
-from ..job import Job, JobContext
+from .. import naming, plant
+from ..job import Job, JobContext, Carried
+from ..records import Decision, InMemoryRecords, instance_of
 from ..job_fsm import build_job_fsm
 
 #: One job and everything needed to run it.
@@ -28,12 +30,24 @@ JobRecord = namedtuple("JobRecord", "job ctx fsm")
 #: States a job never leaves.
 TERMINAL = ("DONE", "FAILED")
 
+#: How many times work may be raised before CSM gives up on it.
+#:
+#: Specification assumption A7: unknown failures are "retried a bounded number
+#: of times, then failed". Bounded is the important word — a job that cannot
+#: succeed must eventually stop consuming a robot, and an unbounded retry turns
+#: one broken station into a fleet that never does anything else.
+MAX_ATTEMPTS = 3
+
 
 class JobStore:
 
     def __init__(self, equipment, acs, clock, logger=print,
-                 job_timeout_s=600.0, dispatch_gated=False):
+                 job_timeout_s=600.0, dispatch_gated=False, records=None):
         """
+        :param records: where specification section 7's records are kept. An
+            in-memory one by default, because the storage engine cannot be
+            chosen yet — see `records.py` for the four customer answers that
+            block it. Anything implementing `Records` substitutes here.
         :param dispatch_gated: when True, a new job may **not** submit itself to
             the ACS — it waits for a DispatcherTask to grant permission. Used by
             the concurrent runtime, where a separate FSM decides submission
@@ -47,23 +61,65 @@ class JobStore:
         self.job_timeout_s = job_timeout_s
         self.dispatch_gated = dispatch_gated
 
+        #: Section 7's records. Held on the store because it is what every
+        #: task already has a handle on.
+        self.records = records if records is not None else InMemoryRecords()
+
         self.active = []            # [JobRecord]
         self.finished = []          # [Job] that reached DONE or FAILED
         self.station_busy = set()   # stations with a job still in flight
+        #: Work raised again after a failure. Worth counting apart from jobs
+        #: created: a rising number here is a line that is struggling, not a
+        #: line that is busy.
+        self.retried = 0
+        #: Calls given back to the machine after CSM ran out of attempts.
+        #: Every one of these ends in an alarm and a person, so this number is
+        #: the count of times the line needed a human.
+        self.abandoned = 0
         self._job_seq = 0
 
     # ---------------------------------------------------------------- jobs
 
-    def create(self, from_station, to_station, priority=0, task_type=None):
+    def create(self, from_station, to_station, priority=0, task_type=None,
+               carries=Carried.ROLL, call_id=None, reason="",
+               material_ref=None, attempt=1, retry_of=None,
+               requester=None):
         self._job_seq += 1
         now = self.clock()
+        # THE ID IS THE WORKSHOP DECK'S NAME PLUS A COUNTER, so it explains
+        # itself wherever it appears — our records, the fleet controller's own
+        # logs, an error message — with no lookup. Built here, once, because
+        # the id must be fixed at creation and never change afterwards: it is
+        # what every later ACS operation names the order by.
+        #
+        # The requester is the station that RAISED THE CALL, which is not
+        # always the source. A machine calling for material names itself while
+        # the material comes from somewhere else.
+        segment = plant.segment_of_station(from_station) \
+            or plant.segment_of_station(to_station)
+        leg = segment["name"] if isinstance(segment, dict) else segment
+        _sketch = Job(job_id="", from_station=from_station,
+                      to_station=to_station, carries=carries)
         job = Job(
-            job_id=f"job_{self._job_seq:04d}",
+            job_id=naming.job_id(_sketch, leg, self._job_seq,
+                                 requester=requester),
             from_station=from_station,
             to_station=to_station,
             priority=priority,
             created_at=now,
             state_since=now,
+            carries=carries,
+            # Which of the four machines each end is. Derived here rather than
+            # asked of the caller: every caller already passes station names,
+            # and one place deriving it cannot disagree with another.
+            from_instance=instance_of(from_station),
+            to_instance=instance_of(to_station),
+            #: None for the WIP diversion, which CSM originates itself and
+            #: which therefore answers no call.
+            call_id=call_id,
+            material_ref=material_ref,
+            attempt=attempt,
+            retry_of=retry_of,
         )
         # What the equipment asked for: load, unload, or swap. Carried so the
         # adapter can issue the right operation without re-deriving it.
@@ -75,10 +131,111 @@ class JobStore:
         ctx.dispatch_gated = self.dispatch_gated
         ctx.dispatch_permit = not self.dispatch_gated
 
+        # WHY this job went where it did. Recorded at creation because that
+        # is when the choice is made and the reasons are still in hand; a log
+        # line answers it only until the log rotates.
+        self.records.add_decision(Decision(
+            job_id=job.job_id,
+            decided_at=now,
+            chosen_source=from_station,
+            chosen_dest=to_station,
+            priority_given=priority,
+            reason=reason or "",
+        ))
+
+        # PERSIST IT NOW, not when it finishes. A job written only at the end
+        # is a job that never existed if the process dies mid-flight, which is
+        # exactly the case the record is for.
+        self.records.save_job(job, at=now)
+
         record = JobRecord(job, ctx, build_job_fsm(on_change=self._on_change))
         self.active.append(record)
-        self.logger(f"[{job.job_id}] created: {from_station} -> {to_station}")
+        self.logger(f"[{job.job_id}] created: {from_station} -> {to_station}"
+                    f" ({carries.value})")
         return record
+
+    def _raise_again(self, failed):
+        """Re-raise the work a failed job was carrying, within the ceiling.
+
+        THE WORK OUTLIVES THE JOB. A transport that failed does not mean the
+        material stopped needing to move — but nothing raised it again, so it
+        was simply lost: the ACS order cancelled, the job retired, and the
+        machine's call already acknowledged, so the equipment had stopped
+        asking and no one was coming. Nothing reported it, because from every
+        component's point of view its own part had finished.
+
+        Not every failure comes back. An invalid job and one a person cancelled
+        are answers, not accidents, and repeating them argues with the answer.
+        The ceiling is specification A7's "bounded number of times".
+        """
+        if not failed.retryable:
+            self.logger(f"[{failed.job_id}] not retried: "
+                        f"{failed.failure_reason or 'terminal failure'}")
+            self._hand_back(failed)
+            return None
+        if failed.attempt >= MAX_ATTEMPTS:
+            # Loud, because this is where work is genuinely abandoned and
+            # somebody has to know the material is still standing there.
+            self.logger(f"[{failed.job_id}] GIVING UP after "
+                        f"{failed.attempt} attempts: "
+                        f"{failed.from_station} -> {failed.to_station} "
+                        f"({failed.failure_reason})")
+            self._hand_back(failed)
+            return None
+
+        replacement = self.create(
+            failed.from_station, failed.to_station,
+            priority=failed.priority,
+            task_type=getattr(failed, "task_type", None),
+            carries=failed.carries,
+            call_id=failed.call_id,
+            material_ref=failed.material_ref,
+            attempt=failed.attempt + 1,
+            retry_of=failed.job_id,
+            reason=f"attempt {failed.attempt + 1} of {MAX_ATTEMPTS} after "
+                   f"{failed.job_id} failed: {failed.failure_reason}",
+        )
+        self.retried += 1
+        self.logger(f"[{replacement.job.job_id}] raised again for "
+                    f"{failed.job_id} (attempt {failed.attempt + 1})")
+        return replacement
+
+    def _hand_back(self, failed):
+        """Tell the machine we are not coming. Specification C9.
+
+        THE ACKNOWLEDGEMENT WAS A PROMISE. A machine stops calling the moment
+        it sees `AGV_Task_Recive = 1`, so every call CSM answers leaves a
+        machine silent and waiting. Retiring the job without this leaves it
+        waiting for ever — and the failure is invisible, because the call
+        succeeded, the job finished, and only the material knows.
+
+        Run when the work is ABANDONED, not when it is retried. A retry is
+        still us coming; there is nothing to tell the machine and telling it
+        anyway would alarm a station over a job that is about to be served.
+
+        Deliberately NOT part of the job FSM. The job is already retired; this
+        is a conversation between CSM and the machine about the CALL, and it
+        outlives the job that answered it.
+        """
+        if failed.call_id is None:
+            # CSM's own work — the WIP diversion answers no call, so there is
+            # nobody waiting to be told.
+            return None
+        call = self.records.call(failed.call_id)
+        if call is None:
+            self.logger(f"[{failed.job_id}] abandoned, but call "
+                        f"{failed.call_id} is not on record — the machine "
+                        f"cannot be told")
+            return None
+
+        now = self.clock()
+        self.records.cancel_call(failed.call_id, at=now)
+        cancel = self.equipment.cancel_task(
+            call.station, failed.job_id, now, call_id=failed.call_id)
+        self.abandoned += 1
+        self.logger(f"[{failed.job_id}] handing {failed.call_id} back to "
+                    f"{call.station} — AGV_Task_Processing = 9")
+        return cancel
 
     def _on_change(self, ctx, transition):
         """Mirror the FSM's state onto the job record.
@@ -92,6 +249,27 @@ class JobStore:
         job.state_since = ctx.now()
         job.history.append((ctx.now(), transition.name, transition.target.name))
 
+        # AND WHERE THE MATERIAL NOW IS. Done here rather than in the Done
+        # state because this is the one place that sees every transition and
+        # also holds the records; the FSM's context deliberately does not.
+        #
+        # Only on success. A failed job did not move anything, and recording a
+        # movement that did not happen is worse than recording none — the whole
+        # point of the history is that it can be trusted.
+        if job.material_ref and transition.target.name == "DONE":
+            self.records.move_material(job.material_ref, job.to_station,
+                                       at=ctx.now(), job_id=job.job_id,
+                                       note=f"{job.carries.value} delivered")
+
+        # AND THE JOB ITSELF. On transitions only — the tracker steps every job
+        # four times a second, and writing that often would be all I/O and no
+        # information. `finished` is passed rather than inferred: which states
+        # are terminal is the FSM's knowledge, and it should not be restated in
+        # the records layer where it could drift.
+        self.records.save_job(
+            job, at=ctx.now(),
+            finished=transition.target.name in ("DONE", "FAILED"))
+
     # ------------------------------------------------------------- stations
 
     def claim_station(self, station_id):
@@ -100,6 +278,15 @@ class JobStore:
             return False
         self.station_busy.add(station_id)
         return True
+
+    def station_claimed(self, station_id):
+        """Is a job already in flight against this station? Read-only.
+
+        `claim_station` both tests and takes, which is right for the caller that
+        wants the claim. The diversion scan needs to look without taking, or it
+        would claim a source it then decides not to use.
+        """
+        return station_id in self.station_busy
 
     def find_finished_stations(self):
         """Stations with material waiting and no job already covering them.
@@ -136,8 +323,11 @@ class JobStore:
             else:
                 still_active.append(record)
 
+        replacements = []
         for record in retired:
             self.finished.append(record.job)
+            if record.fsm.current.name == "FAILED":
+                replacements.append(record.job)
             # Free BOTH ends, whether the job succeeded or failed.
             #
             # Which end was claimed changed on 2026-08-04: the old model claimed
@@ -155,6 +345,12 @@ class JobStore:
                         f"{record.fsm.current.name}")
 
         self.active = still_active
+
+        # RAISE THE WORK AGAIN — after `self.active` has been rebuilt, because
+        # `create` appends to it and doing this inside the loop above would
+        # have the new jobs wiped by the reassignment.
+        for job in replacements:
+            self._raise_again(job)
         return retired
 
     # --------------------------------------------------------------- queries

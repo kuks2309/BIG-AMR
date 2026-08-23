@@ -19,8 +19,11 @@ told to fail on demand, because the failure paths are the ones worth testing.
 
 import itertools
 
-from .base import (AcsAdapter, EquipmentAdapter, StationStatus, TaskType,
-                   TransportCall, TransportResult)
+from .base import (AcsAdapter, DockingAxis, EquipmentAdapter,
+                   MachineNumber, MaterialPresence, StationStatus,
+                   TaskProcessing, TaskType, TransportCall,
+                   TransportResult)
+from .handshake import DockingHandshake
 
 
 class MockEquipment(EquipmentAdapter):
@@ -164,6 +167,23 @@ class MockEquipment(EquipmentAdapter):
         """
         self._outlet[load_id] = unload_id
 
+    def always_supplied(self, station_id):
+        """`mark_store` is what makes a station a warehouse."""
+        return station_id in self._store_ids
+
+    def can_accept(self, station_id):
+        """A warehouse always has room for a returned bobbin.
+
+        Unless the equipment has said otherwise — `buffer_full` is checked
+        first, because "a store always has room" is our assumption and code 4
+        is the customer's measurement.
+        """
+        if self.buffer_full(station_id):
+            return False
+        if station_id in self._store_ids:
+            return True
+        return super().can_accept(station_id)
+
     def mark_store(self, *station_ids):
         """Declare these to be warehouses: always supplied, never processing."""
         self._store_ids.update(station_ids)
@@ -190,6 +210,308 @@ class MockEquipment(EquipmentAdapter):
         self._status[station_id] = StationStatus.BUSY
         self._busy_until[station_id] = self._clock() + (
             self._process_seconds if seconds is None else seconds)
+
+
+class OpcUaEquipment(MockEquipment):
+    """A machine that speaks the customer's protocol — and misbehaves on demand.
+
+    `MockEquipment` is a believable factory. This is a HOSTILE one, and that is
+    the point: the equipment interface has no acknowledgement, its requests are
+    edge-triggered, and its entry permission is a duration rather than a flag.
+    Every one of those is a way for a correct-looking CSM to lose work
+    silently, and none of them can be provoked by a mock that only behaves.
+
+    So this one can:
+
+      * report the three PRESENCE booleans independently, including the
+        combination that means nothing (a real machine mid-transition can);
+      * raise a request and CLEAR IT AGAIN after a set time, which is what
+        makes a poll interval a safety margin rather than a preference;
+      * accept a command, return success, and DO NOTHING — because the real
+        protocol is shared memory and `send_station_command() -> bool` cannot
+        tell the difference;
+      * withdraw entry permission part way through a dock;
+      * stop its heartbeat;
+      * report any of the nine task-processing codes.
+
+    Stations are identified by `MC_Num` (`1A01`), not by our invented names.
+    """
+
+    def __init__(self, station_ids, clock, process_seconds=5.0,
+                 comm_alarm_seconds=2.0, cancel_response_seconds=1.0):
+        super().__init__(station_ids, clock, process_seconds)
+        self.comm_alarm_seconds = comm_alarm_seconds
+        self.cancel_response_seconds = cancel_response_seconds
+        self._station_ids = list(station_ids)
+
+        #: our name -> MC_Num. This IS the specification's `station_map`
+        #: record; the customer's identity for a port, beside ours.
+        self._mc_num = {}
+
+        #: station -> (Rolling_Full, Roll_Null, Roll_IN). Three independent
+        #: booleans, never a single status, so INCONSISTENT is reachable.
+        self._presence = {sid: (False, True, False) for sid in station_ids}
+
+        #: Stations whose presence a test has set explicitly. Those stop
+        #: following the lifecycle, which is what keeps INCONSISTENT and the
+        #: empty-bobbin states reachable.
+        self._presence_pinned = set()
+
+        #: station -> TaskProcessing the AGV last reported there.
+        self._processing = {}
+
+        #: station -> when a held request clears itself. The machine stops
+        #: asking once it believes it was heard, so a request that appears and
+        #: clears between two polls is LOST while the machine thinks it landed.
+        self._call_expiry = {}
+
+        #: Stations whose next command will be accepted and ignored.
+        self._swallow = set()
+
+        #: station -> MC_Task_Delete. The host's half of the cancellation.
+        self._task_delete = {}
+        #: station -> when we first saw `AGV_Task_Processing = 9` there.
+        self._cancel_seen = {}
+        #: Machines that will never answer a cancellation at all.
+        self._deaf_to_cancel = set()
+        #: Stations alarmed by a cancellation, awaiting an operator.
+        self.alarms = set()
+        #: What each alarmed station will ask for again once reset.
+        self._alarm_task_type = {}
+        #: The last task type each station called for, so a re-dispatch after
+        #: an operator reset asks for the same thing rather than a guess.
+        self._last_task_type = {}
+
+        #: station -> DockingHandshake, the mutual watchdog for its door.
+        self._handshake = {}
+        self._enter_permitted = {sid: False for sid in station_ids}
+        self._heartbeat_on = {sid: True for sid in station_ids}
+
+    # -- identity: MC_Num, not our invented names ------------------------
+
+    def set_machine_number(self, station_id, mc_num):
+        """Bind our name for a port to the customer's."""
+        self._mc_num[station_id] = MachineNumber.parse(mc_num)
+
+    def machine_number(self, station_id):
+        return self._mc_num.get(station_id)
+
+    def station_map(self):
+        """The specification's station_map record: our name, their port id."""
+        return {name: str(mc) for name, mc in self._mc_num.items()}
+
+    # -- presence: three booleans, not a status --------------------------
+
+    #: How the lifecycle this class already models reads as presence.
+    #: MockEquipment's own definitions: IDLE is "nothing loaded, nothing to
+    #: collect", BUSY is "processing — HOLDS material", FINISHED is "material
+    #: available for collection".
+    _PRESENCE_FROM_STATUS = {
+        StationStatus.IDLE: (False, True, False),       # nothing
+        StationStatus.BUSY: (True, False, False),       # holding a roll
+        StationStatus.FINISHED: (True, False, False),   # a roll to give
+    }
+
+    def set_presence(self, station_id, rolling_full=False, roll_null=False,
+                     roll_in=False):
+        """Set MC_Rolling_Full / MC_Roll_Null / MC_Roll_IN independently.
+
+        Independently on purpose. A machine part way through an exchange can
+        assert a combination that means nothing, and a CSM that rounds it to
+        the nearest sensible state hides a fault.
+        """
+        self._presence[station_id] = (bool(rolling_full), bool(roll_null),
+                                      bool(roll_in))
+        self._presence_pinned.add(station_id)
+
+    def presence(self, station_id):
+        """The three booleans — following the lifecycle unless pinned.
+
+        PRESENCE AND STATUS DESCRIBE THE SAME MACHINE. They were separate
+        dictionaries, and only `set_presence` ever wrote the booleans, so a
+        station that took delivery moved its status to BUSY while its presence
+        still said NOTHING. The command read-back then declared every
+        'delivered' notification lost — five of them in one Gazebo run, all
+        false, because the stand-in was contradicting itself rather than
+        because anything went wrong.
+
+        A test that sets presence explicitly PINS it, so the deliberately
+        impossible combinations stay reachable.
+        """
+        if station_id in self._presence_pinned:
+            return MaterialPresence.from_signals(
+                *self._presence.get(station_id, (False, False, False)))
+        signals = self._PRESENCE_FROM_STATUS.get(
+            self.get_station_status(station_id))
+        if signals is None:
+            return None                  # FAULT or UNKNOWN — cannot say
+        return MaterialPresence.from_signals(*signals)
+
+    # -- the nine status codes -------------------------------------------
+
+    def set_task_processing(self, station_id, code):
+        self._processing[station_id] = TaskProcessing(code)
+
+    def clear_task_processing(self, station_id):
+        self._processing.pop(station_id, None)
+
+    def task_processing(self, station_id):
+        return self._processing.get(station_id)
+
+    # -- the four-step cancellation, from the machine's side --------------
+
+    def task_delete_requested(self, station_id):
+        """`MC_Task_Delete`. Driven on read, like everything else here."""
+        self._settle_cancellations()
+        return self._task_delete.get(station_id, False)
+
+    def ignore_cancellation(self, station_id):
+        """This machine will never answer a cancellation.
+
+        The case that matters most. We assert `AGV_Task_Processing = 9` and
+        nothing comes back, so the material is stranded and the machine still
+        believes a robot is on its way. A CSM that clears 9 on a timer would
+        look like it had completed the handshake.
+        """
+        self._deaf_to_cancel.add(station_id)
+
+    def _settle_cancellations(self):
+        """The host's half: delete the task, flag it, clear it, then alarm."""
+        now = self._clock()
+        for station_id in list(self._station_ids):
+            if station_id in self._deaf_to_cancel:
+                continue
+            cancelling = (self._processing.get(station_id)
+                          is TaskProcessing.TASK_CANCELLED)
+            flagged = self._task_delete.get(station_id, False)
+
+            if cancelling and not flagged:
+                # Steps 2 and 3: the host deletes the task and says so. Not
+                # instant — a real host takes a scan or two, and a CSM that
+                # only works when the reply is immediate is not tested.
+                since = self._cancel_seen.setdefault(station_id, now)
+                if now - since >= self.cancel_response_seconds:
+                    self._task_delete[station_id] = True
+            elif not cancelling and flagged:
+                # Step 4 was ours and we did it. Step 5: clear the flag and
+                # RAISE THE ALARM. The work now belongs to an operator.
+                self._task_delete[station_id] = False
+                self._cancel_seen.pop(station_id, None)
+                self.alarms.add(station_id)
+                self._alarm_task_type[station_id] = self._last_task_type.get(
+                    station_id, TaskType.LOAD)
+            elif not cancelling:
+                self._cancel_seen.pop(station_id, None)
+
+    def alarm_at(self, station_id):
+        """Has this machine alarmed after a cancellation?
+
+        The specification's last step, and the reason the whole dance is worth
+        running: the work does not silently return to CSM, it goes to a person.
+        """
+        self._settle_cancellations()
+        return station_id in self.alarms
+
+    def reset_alarm(self, station_id):
+        """An operator clears the alarm — and the machine dispatches again.
+
+        Both halves, because they are one action on the shop floor. Resetting
+        without re-dispatching would leave the material standing there with
+        nobody having asked for it, which is the state the alarm exists to end.
+        """
+        if station_id not in self.alarms:
+            return False
+        self.alarms.discard(station_id)
+        self._processing.pop(station_id, None)
+        self.raise_call(station_id,
+                        self._alarm_task_type.pop(station_id, TaskType.LOAD),
+                        source="machine")
+        return True
+
+    # -- edge-triggered requests, and losing them ------------------------
+
+    def raise_call_for(self, station_id, seconds, task_type=TaskType.LOAD,
+                       source="machine"):
+        """Ask for a robot, then STOP ASKING after `seconds`.
+
+        ⚠ NOT THE NORMAL PROTOCOL. Corrected 2026-08-18: the machine clears its
+        request when it sees `AGV_Task_Recive = 1` — our acknowledgement — and
+        NOT on a timer. A slow poll therefore costs latency, not the request.
+
+        This models the cases where a request goes away for some OTHER reason:
+        an operator cancelling at the panel, or the machine alarming out. Those
+        are real and worth being able to provoke, but they are not what an
+        ordinary unanswered call does, and a test using this should say which
+        it means.
+        """
+        self.raise_call(station_id, task_type, source)
+        self._call_expiry[station_id] = self._clock() + seconds
+
+    def raise_call(self, station_id, task_type=TaskType.LOAD, source="machine"):
+        """Remember what was asked for, so a re-dispatch asks for it again."""
+        self._last_task_type[station_id] = task_type
+        return super().raise_call(station_id, task_type, source)
+
+    def poll_calls(self):
+        """Outstanding requests — minus any the machine has given up on."""
+        now = self._clock()
+        expired = [sid for sid, t in self._call_expiry.items() if now >= t]
+        for sid in expired:
+            del self._call_expiry[sid]
+            self._calls = [c for c in self._calls if c.station_id != sid]
+        return super().poll_calls()
+
+    # -- no acknowledgement: a command may simply not happen -------------
+
+    def swallow_next_command(self, station_id):
+        """The next command to this station is accepted and ignored.
+
+        Not a fault injection so much as an honest one. There is no
+        acknowledgement in this protocol — it is shared memory, not a
+        transaction — so `send_station_command() -> bool` returning True is a
+        statement about the SEND, never about the effect. A CSM that trusts it
+        is trusting something the wire cannot tell it. See debt-034.
+        """
+        self._swallow.add(station_id)
+
+    def send_station_command(self, station_id, command):
+        if station_id in self._swallow:
+            self._swallow.discard(station_id)
+            self.commands.append((station_id, command, "swallowed"))
+            return True                 # the lie the real protocol also tells
+        return super().send_station_command(station_id, command)
+
+    # -- the door: entry permission and the mutual watchdog --------------
+
+    def handshake(self, station_id):
+        if station_id not in self._handshake:
+            self._handshake[station_id] = DockingHandshake(
+                comm_alarm_seconds=self.comm_alarm_seconds)
+        return self._handshake[station_id]
+
+    def set_enter_permitted(self, station_id, permitted):
+        """MC_Enter_Permitted. Withdrawing it mid-dock is the case that matters."""
+        self._enter_permitted[station_id] = bool(permitted)
+
+    def stop_heartbeat(self, station_id):
+        self._heartbeat_on[station_id] = False
+
+    def start_heartbeat(self, station_id):
+        self._heartbeat_on[station_id] = True
+
+    def observe(self, station_id, agv_entering=False):
+        """One poll of this station's door. Returns its DockingHandshake.
+
+        The caller reads `may_enter` and `may_machine_move` from it. Both are
+        duration rules, so this has to be called every cycle — asking once
+        cannot answer either of them.
+        """
+        hs = self.handshake(station_id)
+        hs.observe(self._clock(),
+                   enter_permitted=self._enter_permitted.get(station_id, False),
+                   agv_entering=agv_entering,
+                   machine_heartbeat=self._heartbeat_on.get(station_id, True))
+        return hs
 
 
 class MockAcs(AcsAdapter):

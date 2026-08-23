@@ -35,7 +35,8 @@ from sensor_msgs.msg import JointState, LaserScan
 
 from . import docking, roads
 from .. import plant
-from .base import AcsAdapter, TransportResult
+from .base import (AcsAdapter, SimpleResponse, TaskKind, TransportResult,
+                   build_order, classify_error_code)
 
 #: THE PLANT. Positions, ports and material flow all come from plant.py, which
 #: is built from the customer documents — see its header for the source list.
@@ -439,6 +440,44 @@ class SimRobot:
         #: Measured steering joint angles — settle-then-drive needs to know
         #: where the wheels ACTUALLY are, not where they were commanded.
         self._steer_actual = [0.0, 0.0]
+        #: When joint_states last arrived. None means the control chain has
+        #: never spoken — see `can_move`.
+        self._joints_stamp = None
+        #: So the "cannot move" warning is logged once per outage, not per poll.
+        self._noted_immobile = False
+        #: Same, for waiting on a machine's entry permission.
+        self._noted_permission = False
+
+        #: BATTERY, percent. Simulated, and deliberately crude — what matters
+        #: for the CSM is that the number falls while working and rises on a
+        #: charger, not that the curve is right. A real cell's behaviour is
+        #: the robot's own business and section 7 does not retain it.
+        self.battery = 100.0
+        #: Multiplies both drain and charge, for DEMONSTRATION only.
+        #:
+        #: At 1.0 a working robot takes about an hour to reach the charge
+        #: threshold, which is the right order for a real AGV and far too slow
+        #: to watch. Raising it does not make the model more or less correct —
+        #: it only compresses the clock — so it is a knob rather than a
+        #: different rate, and it is never used to claim a real duration.
+        self.battery_scale = 1.0
+        self._battery_stamp = None
+        #: Set while the robot is on a charger and told to charge.
+        self._charging_to = None
+        #: So the not-charging warning is logged once per charge order, not
+        #: every control cycle.
+        self._noted_not_charging = False
+        #: A charge accepted while this robot was working, applied when the
+        #: job ends. See `_charge_order`.
+        self._charge_pending = None
+        #: So the flat-battery warning is logged once, not every cycle.
+        self._noted_flat = False
+        #: Which robot layer 1 keeps stopping us for, and since when. See
+        #: `_note_blocked_by`.
+        self._blocked_by = None
+        self._blocked_since = 0.0
+        #: Which rule last published a zero velocity. See `_stop`.
+        self._halt_reason = None
         #: Set while reversing out of a bay after finishing.
         self._exit_goal = None
         self._exit_station = None
@@ -494,11 +533,45 @@ class SimRobot:
         self.pose = new_pose
 
     def _on_joints(self, msg):
+        # The stamp matters as much as the angles: this topic only publishes
+        # while the controller chain is up, which makes it our liveness signal.
+        self._joints_stamp = self._now()
         for name, position in zip(msg.name, msg.position):
             if name == "w1_steer_joint":
                 self._steer_actual[0] = position
             elif name == "w2_steer_joint":
                 self._steer_actual[1] = position
+
+    #: How long joint_states may be silent before this robot is treated as
+    #: unable to move. The broadcaster publishes continuously once controllers
+    #: are up, so a gap this long means the chain is not running.
+    CONTROLLERS_TIMEOUT_S = 3.0
+
+    @property
+    def can_move(self):
+        """Has this robot's control chain actually come up, and is it still up?
+
+        POSE CANNOT ANSWER THIS. A pose comes from Gazebo ground truth, which
+        exists the moment the model is spawned — before its controllers, and
+        even if they never start at all. So a spawned shell with no controllers
+        is indistinguishable from a working robot by pose alone.
+
+        That is not hypothetical. On 2026-08-18 amr3's spawn_entity hung, its
+        controllers and wheel bridge never started, and it sat immobile in its
+        bay. It had a valid pose, so it was dispatched a job, and amr2
+        manoeuvred into it. The launch timing that triggered that has been
+        widened, but timing only makes the race rarer — this is what makes the
+        state observable.
+
+        joint_states is the signal that can answer it: published by the
+        joint_state_broadcaster, which runs only once the controller chain is
+        up, and stops if that chain dies.
+        """
+        if self.battery <= 0.0:
+            return False            # flat: it cannot drive anywhere
+        if self._joints_stamp is None:
+            return False
+        return (self._now() - self._joints_stamp) < self.CONTROLLERS_TIMEOUT_S
 
     def _on_front(self, msg):
         self._front = msg
@@ -672,7 +745,7 @@ class SimRobot:
         self._dock = None
         self._docking = False
         self._noted_square = False
-        self._stop()
+        self._stop("docking finished")
 
     #: How square is square enough. A degree of tilt costs about 14 mm of
     #: reach, so 2 deg spends 28 mm of the 229 mm gap — comfortable.
@@ -719,6 +792,23 @@ class SimRobot:
     #: the time the trip was meant to save.
     HOME_TOL = 0.8
 
+    def _home_target(self):
+        """Where "home" is for this robot right now: (position, node name).
+
+        Its own parking slot, unless it is charging — then it is the plug it
+        has been given, which for most of the fleet is SOMEBODY ELSE'S SLOT.
+        Five chargers serve ten robots, so "its charger is its parking slot"
+        was true only while every leg had one robot. amr4 parks at (24.5,
+        -3.65) and its nearest charger is at (24.5, -1.5); sending it home
+        would have parked it beside a plug it never reached, discharging while
+        reporting that it was charging.
+        """
+        if self._charging_to is not None and self.fleet is not None:
+            spot = self.fleet.claim_charger(self)
+            if spot is not None:
+                return spot, roads.park_node_at(spot)
+        return plant.parking_for(self.name), roads.park_node(self.name)
+
     def _go_home(self):
         """Drive an idle robot back to its parking bay, ON THE LANES.
 
@@ -727,8 +817,10 @@ class SimRobot:
         somewhere no traffic rule could apply to it, cutting across the hall and
         stopping wherever it happened to arrive.
         """
-        segment = plant.ROBOT_SEGMENT.get(self.name)
-        bay = plant.PARKING.get(segment)
+        # This robot's OWN slot. Using the leg's slot sent every robot of a
+        # class to one point, which is only survivable while a class has one
+        # robot.
+        bay, home_node = self._home_target()
         if bay is None or self.pose is None:
             return
         x, y, yaw = self.pose
@@ -736,7 +828,7 @@ class SimRobot:
             if self._homing:
                 self._homing = False
                 self._home_waypoints = []
-                self._stop()
+                self._stop("homing: robot ahead")
             # A PARKED ROBOT HOLDS NO JUNCTION.
             #
             # Homing returns from drive() before _junction_control, so an idle
@@ -756,8 +848,14 @@ class SimRobot:
 
         if not self._homing:
             self._homing = True
+            # `park_{segment}` was a NameError here — `segment` is never
+            # defined in this method — so every attempt to drive home killed
+            # the drive FSM. It survived unseen because homing is only reached
+            # by a robot that is idle AND away from its bay, which the fleet
+            # rarely was until charging started sending robots out.
             self._home_waypoints = list(
-                ROADS.route_to_node(self.pose[:2], f"park_{segment}")) or [bay]
+                ROADS.route_to_node(self.pose[:2], home_node)
+                if home_node else []) or [bay]
             self.node.get_logger().info(
                 f"{self._tag()}no work — returning to park via "
                 f"{len(self._home_waypoints)} waypoints")
@@ -788,7 +886,7 @@ class SimRobot:
         ex, ey = goal[0] - x, goal[1] - y
         distance = math.hypot(ex, ey)
         if self._robot_ahead(x, y, ex, ey) is not None:
-            self._stop()
+            self._stop("robot ahead on the road")
             return
         ax, ay = _to_body(ex, ey, yaw)
         n = math.hypot(ax, ay) or 1.0
@@ -845,6 +943,184 @@ class SimRobot:
                 return False
         return True
 
+    #: Percent per second while driving, and while merely powered. Chosen so
+    #: a robot working continuously needs a charge after roughly an hour,
+    #: which is the order the deck implies (0.5 m/s, shift-length duty). Not a
+    #: measured figure and not claimed to be one.
+    DRAIN_MOVING = 0.020
+    DRAIN_IDLE = 0.002
+    CHARGE_RATE = 0.50
+
+    @property
+    def charging(self):
+        """Has this robot been told to charge and not finished?
+
+        A CHARGING ROBOT IS NOT A FREE ROBOT, even though it is not busy. It
+        was excluded by neither test, so the dispatcher took a robot that was
+        sitting on a charger part-charged, drove it away on a job, and left it
+        draining — while `charging_to` stayed set, so the live view went on
+        reporting it as charging the whole time it was going down. Observed
+        2026-08-19: amr1 rose 20% -> 30%, took a job, and fell again.
+
+        Cleared by `_step_battery` on reaching the target, so the exclusion
+        ends on its own rather than needing anyone to remember to lift it.
+        """
+        return self._charging_to is not None
+
+    def _on_own_charger(self):
+        """Am I at MY charger, by the SAME tolerance I use to decide I arrived?
+
+        THESE WERE TWO DIFFERENT NUMBERS AND THE GAP BETWEEN THEM WAS A TRAP.
+        Homing stops within `HOME_TOL` (0.8 m, deliberately loose — creeping the
+        last few centimetres wastes the time the trip was meant to save), while
+        `plant.is_charger` answered within 0.3 m. A robot that stopped anywhere
+        between the two was parked, idle, reporting `charging_to 90`, and
+        drawing nothing.
+
+        Observed 2026-08-19: amr1 stopped at (-21.9, +1.6) with its charger at
+        (-22.5, +1.5) — 0.6 m, inside the parking tolerance and outside the
+        charging one. It sat there discharging while every screen said it was
+        charging, and would have reached zero that way. The state was
+        indistinguishable from charging everywhere except the battery.
+
+        Asking about MY charger rather than ANY charger is the second half:
+        a charger is one robot's own slot, so being near somebody else's is not
+        being on one.
+        """
+        mine = (self.fleet.claim_charger(self) if self.fleet is not None
+                else plant.charger_for(self.name))
+        if mine is None or self.pose is None:
+            return False
+        return math.hypot(mine[0] - self.pose[0],
+                          mine[1] - self.pose[1]) <= self.HOME_TOL
+
+    def _step_battery(self, moving):
+        """Drain or charge, once per control cycle.
+
+        Driven by ELAPSED TIME rather than counting ticks, so the number means
+        the same thing whatever rate the controller happens to run at.
+        """
+        now = self._now()
+        if self._battery_stamp is None:
+            self._battery_stamp = now
+            return
+        elapsed = max(0.0, now - self._battery_stamp)
+        self._battery_stamp = now
+
+        on_charger = self._on_own_charger()
+        if self._charging_to is not None and on_charger:
+            self.battery = min(
+                self._charging_to,
+                self.battery + self.CHARGE_RATE * self.battery_scale * elapsed)
+            if self.battery >= self._charging_to:
+                self._charging_to = None
+                self.node.get_logger().info(
+                    f"{self._tag()}charged to {self.battery:.0f}%")
+            return
+
+        if self._charging_to is not None and not moving and not self._noted_not_charging:
+            # TOLD TO CHARGE, STANDING STILL, NOT ON THE CHARGER. Whatever the
+            # reason — it could not reach the slot, or stopped short of it —
+            # this is a robot going flat while every reader believes it is
+            # filling up. Said once, because silence here looks exactly like
+            # success.
+            self._noted_not_charging = True
+            self.node.get_logger().warn(
+                f"{self._tag()}told to charge to {self._charging_to:.0f}% but "
+                f"it is not on its charger and is not moving — battery "
+                f"{self.battery:.0f}% and falling")
+        rate = self.DRAIN_MOVING if moving else self.DRAIN_IDLE
+        self.battery = max(0.0, self.battery - rate * self.battery_scale * elapsed)
+
+    def start_charging(self, to_level=90.0):
+        """Told by the ACS to charge. The CSM decides WHEN; this obeys.
+
+        Recorded rather than acted on directly: a robot charges by being on a
+        charger, so this only says what it is doing there and how full is
+        enough.
+        """
+        self._charging_to = to_level
+        # A new charge order gets a fresh warning. Otherwise a robot that
+        # failed to reach its charger once would fail silently ever after.
+        self._noted_not_charging = False
+
+    #: Beyond this, two robots are not meeting. Generous — well past the
+    #: distance at which either could affect the other — because ending an
+    #: encounter early is what the "past it means behind me" note below warns
+    #: against, and this is only meant to catch bookkeeping that has outlived
+    #: the situation it described.
+    ENCOUNTER_RANGE = 8.0
+
+    #: How long two robots may sit stopped by each other before the deadlock
+    #: is treated as one. Long enough that a robot briefly waiting for another
+    #: to pass is not mistaken for a standoff, short enough that a jam does not
+    #: outlive anybody's patience.
+    DEADLOCK_AFTER_S = 4.0
+
+    def _note_blocked_by(self, other):
+        """Layer 1 stopped us for `other`. Decide if this has become a deadlock.
+
+        THE GAP THIS FILLS. Give-way is triggered only by a HEAD-ON meeting,
+        and that is right for what it was written for — a robot merely catching
+        up with another should wait, not perform a lay-by. But two robots
+        CROSSING each other's path are neither head-on nor following, so
+        nothing above layer 1 ever decided between them: both stopped, and both
+        stayed stopped.
+
+        Measured 2026-08-18: amr2 heading north to a gravure ULD and amr3
+        heading south to a slitter LD came within 2.02 m near the south aisle
+        and sat there for two minutes, each reporting "on course to touch
+        another robot", with no give-way decision ever taken.
+
+        So the trigger is widened — not to every stop, but to a stop that has
+        LASTED while the other robot is also stationary. That is the definition
+        of a deadlock rather than of traffic, and it is a condition layer 1
+        alone can never resolve.
+        """
+        if self.fleet is None:
+            return
+        now = self._now()
+        if self._blocked_by is not other:
+            self._blocked_by = other
+            self._blocked_since = now
+            return
+        if now - self._blocked_since < self.DEADLOCK_AFTER_S:
+            return
+        # Both stopped, for long enough. If the other is still moving this is
+        # ordinary traffic and it will clear itself.
+        if math.hypot(*other.vel) >= MOVING_MIN:
+            return
+        if self.fleet.partner_of(self) is not None:
+            return                      # an encounter is already being handled
+        self.node.get_logger().info(
+            f"{self._tag()}deadlocked with {other.name} — asking who yields")
+        self.fleet.who_yields(self, other)
+        self._blocked_since = now       # do not re-ask every cycle
+
+    def _machine_permits(self, station):
+        """May we cross this machine's door? False means we have stopped.
+
+        Returns True when the equipment cannot be asked — an adapter with no
+        handshake is not a machine refusing us, and treating "cannot ask" as
+        "refused" would stop a line that has no equipment layer at all.
+        """
+        machine = getattr(self.fleet, "equipment", None)
+        if machine is None or not hasattr(machine, "observe"):
+            return True
+
+        handshake = machine.observe(station, agv_entering=self._docking)
+        if handshake.may_enter:
+            self._noted_permission = False
+            return True
+
+        if not self._noted_permission:
+            self._noted_permission = True
+            self.node.get_logger().info(
+                f"{self._tag()}waiting for {station} to permit entry")
+        self._reset_stall()
+        self._stop("machine has not granted entry")
+        return False
+
     def _junction_control(self, x, y, ex, ey):
         """Red light. True if this robot must hold still.
 
@@ -871,7 +1147,7 @@ class SimRobot:
                 self.node.get_logger().info(
                     f"{self._tag()}holding at {node} — "
                     f"{self.fleet.junction_holder(node).name} has it")
-            self._stop()
+            self._stop("junction held by another robot")
             return True
         self._junction = node
         self._junction_wait = None
@@ -882,7 +1158,7 @@ class SimRobot:
                                JUNCTIONS[node][1] - y) > 1.0
                 and not self._road_clear(node)):
             self._reset_stall()
-            self._stop()
+            self._stop("pulling out: road not clear")
             return True
         return False
 
@@ -952,7 +1228,10 @@ class SimRobot:
             return False
         if self._in_a_bay():
             return True
-        bay = plant.PARKING.get(plant.ROBOT_SEGMENT.get(self.name))
+        # Wherever home currently is — its slot, or the plug it is charging
+        # on. Asking `parking_for` here would call a charging robot "not
+        # parked" while it stands on somebody else's slot.
+        bay, _node = self._home_target()
         if bay is None:
             return False
         return math.hypot(bay[0] - self.pose[0],
@@ -1029,22 +1308,44 @@ class SimRobot:
                 # partner, whose encounter this manoeuvre exists to resolve.
                 # Excluding only that one keeps a THIRD robot able to stop us.
                 if self._threat(exclude=self.fleet.partner_of(self)) is not None:
-                    self._stop()
+                    self._stop("standing aside: threat")
                     return True
                 self._drive_toward(self._standoff, x, y, yaw)
                 return True
             if not self._stood_aside:
                 self._stood_aside = True
                 self.node.get_logger().info(f"{self._tag()}clear — you may pass")
-            self._stop()
+            self._stop("stood aside, waiting to be passed")
             return True
 
         partner = self.fleet.partner_of(self)
         if partner is not None:
+            # NOTHING TO NEGOTIATE AT THIS RANGE.
+            #
+            # The yielder has an escape from a stuck handshake — YIELD_LIMIT,
+            # "gave way and nobody passed". The passer had none, and the
+            # "we are past each other" test below only runs AFTER the yielder
+            # reports clear. So a passer waiting for a yielder that never
+            # reports waits for ever, at any distance.
+            #
+            # Measured 2026-08-18: amr1 sat halted with "waiting for the
+            # yielder to stand aside" while its partner was THIRTEEN METRES
+            # away. Two robots that far apart are not in an encounter, whatever
+            # the bookkeeping says.
+            if partner.pose is not None and self.pose is not None:
+                apart = math.hypot(partner.pose[0] - self.pose[0],
+                                   partner.pose[1] - self.pose[1])
+                if apart > self.ENCOUNTER_RANGE:
+                    self.node.get_logger().info(
+                        f"{self._tag()}{partner.name} is {apart:.1f} m away — "
+                        f"encounter over")
+                    self.fleet.encounter_over(self)
+                    return False
+
             # I am the passer. Wait for the explicit all-clear, not for the gap.
             if not partner._stood_aside:
                 self._reset_stall()
-                self._stop()
+                self._stop("passer: waiting for the yielder to stand aside")
                 return True
             # PAST IT means BEHIND ME, not merely far away.
             #
@@ -1081,6 +1382,22 @@ class SimRobot:
             return              # no ground truth yet — never command blind
 
         x, y, yaw = self.pose
+        self._step_battery(moving=math.hypot(*self.vel) > MOVING_MIN)
+
+        # A FLAT BATTERY STOPS THE ROBOT, which is the point of modelling one.
+        # Until this existed a robot drove happily at 0% and the feature could
+        # not fail — which meant it could not be trusted either.
+        #
+        # Not a fault to recover from here: something has to come and get it,
+        # exactly as on a real floor. What the CSM must do is never let it
+        # happen, and `can_move` is what stops it being given more work.
+        if self.battery <= 0.0:
+            if not self._noted_flat:
+                self._noted_flat = True
+                self.node.get_logger().warn(
+                    f"{self._tag()}battery flat — stopped where it stands")
+            self._stop("battery flat")
+            return
 
         # ===================== TRAFFIC — EVERY ROBOT ========================
         #
@@ -1135,10 +1452,15 @@ class SimRobot:
         # correct failure for this layer: "layer 1 only ever says stop: it
         # cannot say who goes" (see the junction control note above). Deciding
         # who moves is the job of the rules above it, not of this one.
-        if self._threat() is not None:
+        blocker = self._threat()
+        if blocker is not None:
             self._reset_stall()
-            self._stop()
+            # LAYER 1 CANNOT SAY WHO GOES — so if it has been saying STOP about
+            # the same robot for long enough, ask the layer above to decide.
+            self._note_blocked_by(blocker)
+            self._stop("layer 1: on course to touch another robot")
             return
+        self._blocked_by = None
 
         # ======================= WORK — WHAT IS IT DOING? ===================
         #
@@ -1192,15 +1514,34 @@ class SimRobot:
                     self.node.get_logger().info(
                         f"{self._tag()}holding outside {target} — occupied")
                 self._reset_stall()
-                self._stop()
+                self._stop("entry refused: bay occupied")
                 return
             self._noted_hold = False
+
+            # AND THE MACHINE'S OWN PERMISSION, which is a different question.
+            #
+            # `request_entry` above is the FLEET's interlock: one robot per bay,
+            # arbitrated between robots. This is the MACHINE saying whether it
+            # is safe to come in at all — MC_Enter_Permitted — and it is not a
+            # flag. Condition 7: entry is permitted only once the signal has
+            # been received CONTINUOUSLY for longer than the comm-alarm time.
+            # A signal that flickers satisfies a boolean check and violates the
+            # rule, so the answer has to be asked every cycle and the duration
+            # accumulated. `handshake.py` holds that; here it is consulted.
+            #
+            # AGV_Entering is asserted from the moment we are docking, and
+            # keeps being asserted until we are out. Rule 2: the machine may
+            # not move while it is set, and rule 3 says the machine only
+            # believes we have left after PROLONGED SILENCE — so it must not
+            # lapse merely because we stopped looking.
+            if not self._machine_permits(target):
+                return
 
         # Loading and unloading take real time on a real line. Standing still
         # during a dwell is not a stall, so this is checked before _check_stall.
         if self._dwell_until is not None:
             if self._now() < self._dwell_until:
-                self._stop()
+                self._stop("dwelling at the port")
                 return
             self._dwell_until = None
             self._begin_delivery()
@@ -1594,7 +1935,7 @@ class SimRobot:
         self._exit_goal = None
         self._exit_station = None
         self._reset_stall()
-        self._stop()
+        self._stop("exit complete")
 
     def _exit_stalled(self, x, y):
         """_check_stall for the exit leg.
@@ -1618,7 +1959,7 @@ class SimRobot:
 
     def _on_arrival(self, distance):
         """Reached the current leg's goal."""
-        self._stop()
+        self._stop("arrived")
         if self._leg == "collect":
             self.node.get_logger().info(
                 f"{self._active_job}: at {self._from} ({distance:.2f} m) — "
@@ -1685,12 +2026,23 @@ class SimRobot:
             return True
         return False
 
+    def _apply_pending_charge(self):
+        """Start a charge that was accepted while this robot was busy."""
+        if self._charge_pending is None:
+            return
+        level, self._charge_pending = self._charge_pending, None
+        self.start_charging(to_level=level)
+        self._go_home()
+        self.node.get_logger().info(
+            f"{self._tag()}job done — going to charge to {level:.0f}%")
+
     def _finish(self, job_id, result):
         # Reported upward. The fleet owns the job -> result table, because a
         # caller asking "is job_7 done?" must get an answer whichever robot
         # happened to carry it — and after the robot has moved on to the next.
         if self.on_finished:
             self.on_finished(job_id, result)
+        self._apply_pending_charge()
 
         # BACK OUT before the bay is released. The robot is physically in it
         # until it has driven clear, and freeing the interlock while it still
@@ -1721,11 +2073,78 @@ class SimRobot:
             self.fleet.release_junction(self)
         self._junction = None
         if self._exit_goal is None:
-            self._stop()
+            self._stop("no exit goal")
 
-    def _stop(self):
+    def _stop(self, why="unspecified"):
+        """Publish zero velocity, and REMEMBER WHY.
+
+        A stopped robot is the hardest thing to diagnose in this system: every
+        layer can stop one, the layers are deliberately independent, and the
+        published Twist looks identical whichever said so. On 2026-08-18 two
+        robots sat frozen for four minutes and the logs could not say which
+        rule was holding either of them — the reason had to be reconstructed by
+        reading the code, and that reconstruction was wrong twice.
+
+        The reason costs one string assignment per cycle and turns "it is
+        stuck" into "it is stuck because".
+        """
+        self._halt_reason = why
         self.pub_cmd.publish(Twist())
 
+
+
+#: ERROR CODES THIS SIMULATED ACS RETURNS.
+#:
+#: ⚠ INVENTED. The real server returns one integer per mutation and its code
+#: table is not in the schema — our analysis calls it "the single most important
+#: thing still owed to us". These stand in so the simulator can exercise the
+#: same SHAPE the real one uses; the VALUES are ours and will be wrong.
+#:
+#: They are decoded only by `classify_error_code`, so replacing them with the
+#: vendor's table is a change in one place. Nothing here should be read as a
+#: claim about what the real ACS returns.
+ERR_BUSY = 1            # no robot free on this leg yet — retry
+ERR_UNKNOWN_STATION = 2
+ERR_NO_TASKS = 3
+
+_RESULT_TO_CODE = {
+    TransportResult.ACCEPTED: 0,
+    TransportResult.BUSY: ERR_BUSY,
+    TransportResult.REJECTED: ERR_UNKNOWN_STATION,
+}
+
+#: The other direction, for `classify_error_code`. We know THIS server's codes
+#: because we wrote them; that is exactly what the real one is missing. Without
+#: this an unknown station would come back as BUSY and be retried for ever
+#: instead of failed.
+SIM_ERROR_CODES = {
+    0: TransportResult.ACCEPTED,
+    ERR_BUSY: TransportResult.BUSY,
+    ERR_UNKNOWN_STATION: TransportResult.REJECTED,
+    ERR_NO_TASKS: TransportResult.REJECTED,
+}
+
+
+class _Assignment:
+    """What the robot layer needs in order to carry one order.
+
+    An order is a task list; a robot is driven by two journeys, collect then
+    deliver. This is the small translation between them, and it exists so the
+    robot code keeps reading `job.from_station` unchanged while the interface
+    above it has become orders and tasks.
+    """
+
+    __slots__ = ("job_id", "from_station", "to_station", "priority")
+
+    def __init__(self, job_id, from_station, to_station, priority=0):
+        self.job_id = job_id
+        self.from_station = from_station
+        self.to_station = to_station
+        self.priority = priority
+
+
+def _name_of(robot):
+    return robot.name if robot is not None else None
 
 
 class SimAcs(AcsAdapter):
@@ -1747,7 +2166,16 @@ class SimAcs(AcsAdapter):
         code that conflated the two.
     """
 
-    def __init__(self, node, robot_names=None, **robot_kwargs):
+    def __init__(self, node, robot_names=None, equipment=None,
+                 **robot_kwargs):
+        """
+        :param equipment: the machines, so a robot can ask one whether it may
+            come in. Optional: without it the docking watchdog is simply not
+            consulted, which is the behaviour every caller had before. It is
+            NOT defaulted to a permissive stand-in — a missing equipment layer
+            and a machine that has granted permission are different things.
+        """
+        self.equipment = equipment
         """
         :param robot_names: namespaces, e.g. ["amr1", "amr2"]. The default is a
             single unnamed robot on the global topics, which is what a
@@ -1762,6 +2190,9 @@ class SimAcs(AcsAdapter):
         self._results = {}
         #: station_id -> robot holding it. One robot per bay.
         self._occupied = {}
+        #: robot name -> the charging slot it holds. Five plugs, ten robots,
+        #: so this is a reservation and not a lookup.
+        self._chargers = {}
         #: pair of robot names -> the one that must give way.
         self._giving_way = {}
         #: junction node -> the robot holding it (the red light).
@@ -1774,7 +2205,158 @@ class SimAcs(AcsAdapter):
 
     # -------------------------------------------------------- AcsAdapter
 
+    # ------------------------------------------------------- the order API
+    #
+    # ADR 2026-08-18-acs-order-task-interface. `create_order` is what the real
+    # ACS exposes, so it is what the simulator must expose too — otherwise what
+    # is verified here has a different shape from what runs at deployment,
+    # which is the one thing specification section 9 asks us not to do.
+    #
+    # `submit_job` is kept and now goes THROUGH the order path, so the four
+    # existing call sites are already exercising orders and task lists without
+    # having been touched.
+
+    def create_order(self, order):
+        """Take an order — an id and an ORDERED LIST OF TASKS.
+
+        The task list is authoritative. Where the robot has to go is read from
+        it rather than passed alongside it:
+
+            LOAD   target -> where material is collected
+            UNLOAD target -> where it is delivered
+
+        which for a plain delivery (MOVE, LOAD, MOVE, UNLOAD) gives the two
+        ends, and for a deliver-and-collect at one port (MOVE, UNLOAD, STAGE,
+        LOAD) gives the same station twice — one visit, which is the case that
+        made an order a list in the first place.
+
+        Returns a `SimpleResponse`, as every real ACS mutation does. The
+        integer is the only channel the real server has, and
+        `classify_error_code` is the only place allowed to interpret one.
+        """
+        if not order.tasks:
+            return SimpleResponse(ERR_NO_TASKS, "order carries no tasks")
+
+        # A CHARGE ORDER IS NOT A TRANSPORT. It moves a named robot to its own
+        # charger and tops it up; there is no material, no source and no
+        # destination, so the LOAD/UNLOAD reading below does not apply to it.
+        charge = next((t for t in order.tasks if t.kind is TaskKind.CHARGE),
+                      None)
+        if charge is not None:
+            return self._charge_order(order, charge)
+
+        frm = next((t.target for t in order.tasks
+                    if t.kind is TaskKind.LOAD), None)
+        to = next((t.target for t in reversed(order.tasks)
+                   if t.kind is TaskKind.UNLOAD), None)
+        if frm is None or to is None:
+            return SimpleResponse(
+                ERR_NO_TASKS,
+                "an order must carry at least one LOAD and one UNLOAD")
+
+        result = self._dispatch(order.id, frm, to, order.priority or 0)
+        return SimpleResponse(_RESULT_TO_CODE.get(result, ERR_BUSY),
+                              result.value)
+
+    def _charge_order(self, order, charge):
+        """Send a robot to its charger. The CSM decided; this obeys.
+
+        The robot is named in the MOVE task's target as `charger:<robot>`,
+        because a charger is that robot's own slot and no other robot may use
+        it — so naming the place would be naming the robot anyway.
+        """
+        move = next((t for t in order.tasks if t.kind is TaskKind.MOVE), None)
+        target = (move.target or "") if move else ""
+        name = target.split(":", 1)[1] if target.startswith("charger:") else None
+        robot = next((r for r in self.robots if r.name == name), None)
+        if robot is None:
+            return SimpleResponse(ERR_UNKNOWN_STATION,
+                                  f"no robot named {name!r}")
+        if robot.busy and order.priority and order.priority >= 100:
+            # CRITICAL: TAKE THE JOB OFF IT AND GO NOW.
+            #
+            # "Finish the job first" deadlocks whenever the remaining charge
+            # cannot outlast the job — and the simulator produced exactly that:
+            # a robot told to charge after its current job, which then went
+            # flat mid-job, so the job never ended and the charge never
+            # started. All three robots died holding jobs they could not
+            # finish.
+            #
+            # The job is FAILED rather than quietly dropped, so the CSM sees a
+            # terminal state and can raise it again for whoever is free. A job
+            # nobody is doing must never look like a job in progress.
+            abandoned = robot._active_job
+            if abandoned is not None:
+                robot._finish(abandoned, TransportResult.FAILED)
+                self._results[abandoned] = TransportResult.FAILED
+                self.node.get_logger().warn(
+                    f"{robot.name}: recalled to charge — {abandoned} given up")
+            robot.start_charging(to_level=float(charge.chargeTo or 90))
+            robot._go_home()
+            self._results[order.id] = TransportResult.IN_PROGRESS
+            return SimpleResponse(0, "recalled to charge")
+
+        if robot.busy:
+            # ACCEPTED AND DEFERRED, not refused.
+            #
+            # Refusing was wrong and the simulator proved it: the CSM sends a
+            # critically low robot even while it is working, this refused every
+            # such order BECAUSE it was working, and the two halves argued 43
+            # times in one run while the battery went to zero. A robot cannot
+            # abandon a roll in an aisle, but the request is still valid — so
+            # it is remembered and honoured the moment the job ends.
+            robot._charge_pending = float(charge.chargeTo or 90)
+            self._results[order.id] = TransportResult.ACCEPTED
+            self.node.get_logger().info(
+                f"{robot.name}: will charge to {charge.chargeTo}% "
+                f"after this job")
+            return SimpleResponse(0, "queued until the current job ends")
+
+        # EVERY PLUG ON THIS LEG MAY BE TAKEN. Five serve ten, so this is a
+        # real and ordinary state, not a fault — BUSY, so the CSM asks again
+        # rather than treating the robot as unchargeable.
+        spot = self.claim_charger(robot)
+        if spot is None:
+            held = ", ".join(sorted(
+                f"{n}" for n, s in self._chargers.items()
+                if s in plant.chargers_for(robot.name)))
+            self.node.get_logger().info(
+                f"{robot.name}: every charger on its leg is taken "
+                f"({held}) — waiting")
+            return SimpleResponse(ERR_BUSY, "no free charger on this leg")
+
+        robot.start_charging(to_level=float(charge.chargeTo or 90))
+        # Home is the plug it now holds — which for most of the fleet is not
+        # its own parking slot. See `_home_target`.
+        robot._go_home()
+        self._results[order.id] = TransportResult.IN_PROGRESS
+        self.node.get_logger().info(
+            f"{robot.name}: charging to {charge.chargeTo}% "
+            f"at ({spot[0]:.1f}, {spot[1]:.1f})")
+        return SimpleResponse(0, "charging")
+
+    def order_state(self, order_id):
+        return self._results.get(order_id, TransportResult.UNKNOWN)
+
+    def cancel_order(self, order_id):
+        return SimpleResponse(0 if self.cancel_job(order_id) else ERR_BUSY)
+
+    def abort_order(self, order_id):
+        """Stop a running order. Takes NO drop-off location — the ACS decides."""
+        return self.cancel_order(order_id)
+
     def submit_job(self, job):
+        """The older shape, now a thin wrapper over the order path.
+
+        Kept so the four call sites migrate one at a time rather than all at
+        once — but they are already going through `create_order` from here, so
+        the order path is what the simulator actually runs.
+        """
+        response = self.create_order(build_order(job))
+        return classify_error_code(response.errorCode, SIM_ERROR_CODES)
+
+    def _dispatch(self, job_id, from_station, to_station, priority=0):
+        job = _Assignment(job_id, from_station, to_station, priority)
         if job.from_station not in self.stations:
             self.node.get_logger().warn(f"unknown source {job.from_station}")
             return TransportResult.REJECTED
@@ -1829,9 +2411,26 @@ class SimAcs(AcsAdapter):
         # entered from where the robot IS. It is a real state, not an error:
         # the node can be offered work in the moment between starting and its
         # first /gazebo/model_states message.
+        # A robot that cannot MOVE is not a candidate, however free it looks.
+        # `can_move` explains why pose is not enough on its own.
+        for r in self.robots:
+            if plant.ROBOT_SEGMENT.get(r.name) != segment["name"]:
+                continue
+            if r.pose is not None and not r.can_move:
+                if not r._noted_immobile:
+                    r._noted_immobile = True
+                    self.node.get_logger().warn(
+                        f"{r.name}: no joint_states — control chain is not "
+                        f"running, so it will not be given work")
+            elif r.can_move and r._noted_immobile:
+                r._noted_immobile = False
+                self.node.get_logger().info(f"{r.name}: control chain back")
+
         free = [r for r in self.robots
                 if not r.busy
+                and not r.charging
                 and r.pose is not None
+                and r.can_move
                 and plant.ROBOT_SEGMENT.get(r.name) == segment["name"]]
         if not free:
             # BUSY, not REJECTED. The job is perfectly valid; the robot class
@@ -1855,6 +2454,36 @@ class SimAcs(AcsAdapter):
         self._results[job.job_id] = TransportResult.IN_PROGRESS
         robot.accept(job)
         return TransportResult.ACCEPTED
+
+    def fleet_partner(self, robot):
+        """The robot this one is in a give-way encounter with, if any."""
+        try:
+            return self.partner_of(robot)
+        except Exception:
+            return None
+
+    def fleet_status(self):
+        """One row per robot, for the PDA. Read live, not remembered."""
+        out = []
+        for r in self.robots:
+            out.append({
+                "name": r.name,
+                "leg": plant.ROBOT_SEGMENT.get(r.name),
+                "busy": bool(r.busy),
+                "job_id": r._active_job,
+                "position": r.pose[:2] if r.pose else None,
+                # Whether it is able to move at all, which is the thing an
+                # operator most wants to know when a leg has gone quiet.
+                "responsive": r.can_move,
+                "halted_because": r._halt_reason,
+                "battery": round(r.battery, 1),
+                "charging_to": r._charging_to,
+                # Who it is negotiating with, and which side it is on. Absent
+                # from the view, a stuck handshake looks like a stuck robot.
+                "giving_way_to": _name_of(self.fleet_partner(r)),
+                "stood_aside": bool(r._stood_aside),
+            })
+        return out
 
     def get_job_result(self, job_id):
         return self._results.get(job_id, TransportResult.UNKNOWN)
@@ -1900,11 +2529,15 @@ class SimAcs(AcsAdapter):
                 parts.append(f"{r.name}({x:+.1f},{y:+.1f}) idle")
                 continue
             gx, gy = r._goal if r._goal else (x, y)
+            speed = moved / period
+            # A robot with a job that is not moving is the thing worth
+            # explaining, so say WHY rather than only that it is at v=0.00.
+            why = f" [{r._halt_reason}]" if speed < 0.02 and r._halt_reason else ""
             parts.append(
                 f"{r.name}({x:+.1f},{y:+.1f})"
                 f"->{r._to if r._leg == 'deliver' else r._from}"
                 f" d={math.hypot(gx - x, gy - y):.1f}"
-                f" v={moved / period:.2f}"
+                f" v={speed:.2f}{why}"
                 + (" HELD" if r._noted_hold else ""))
         self.node.get_logger().info("STATE " + " | ".join(parts))
 
@@ -2068,11 +2701,50 @@ class SimAcs(AcsAdapter):
             self.node.get_logger().info(
                 f"{station_id}: {robot_name} clear — bay free")
 
+    # -- chargers: five plugs, ten robots ---------------------------------
+
+    def claim_charger(self, robot):
+        """Reserve a free charger on this robot's leg. Returns it, or None.
+
+        THE DECK GIVES 5 CHARGERS TO 10 ROBOTS and `CHARGER_EVERY` says two
+        share each one, so "this robot's charger" was only ever true while
+        every leg had a single robot. With three on leg C, `charger_for` hands
+        the same plug to two of them — and nothing would have complained: both
+        would drive to the same slot, one would arrive, the other would sit
+        beside it discharging while reporting that it was charging.
+
+        A robot that already holds one keeps it, so asking twice is safe.
+        Nearest first, so a robot walks past a free plug only when it is taken.
+        """
+        held = self._chargers.get(robot.name)
+        if held is not None:
+            return held
+        taken = set(self._chargers.values())
+        for spot in plant.chargers_for(robot.name):
+            if spot not in taken:
+                self._chargers[robot.name] = spot
+                return spot
+        return None
+
+    def release_charger(self, robot):
+        """Give the plug back. Silent — this runs on every job start."""
+        self._chargers.pop(robot.name, None)
+
+    def charger_held_by(self, spot):
+        for name, held in self._chargers.items():
+            if held == spot:
+                return name
+        return None
+
     def release_all(self, _job_id=None):
         """Free every bay held by a robot that no longer has a job."""
         # A robot backing out still holds its bay, even though its job is done.
         busy = {r.name for r in self.robots
                 if r.busy or r._exit_goal is not None}
+        # A robot that has finished charging is not holding its plug any more.
+        for robot in self.robots:
+            if robot._charging_to is None:
+                self.release_charger(robot)
         for st in [k for k, v in self._occupied.items() if v not in busy]:
             self.node.get_logger().info(f"{st}: bay released")
             del self._occupied[st]

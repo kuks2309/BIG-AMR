@@ -83,6 +83,11 @@ def generate_launch_description():
             name="sick_safetyscanners2_front",
             output="screen",
             emulate_tty=True,
+            # 죽으면 자동 재기동 — 센서 미응답(timeout)으로 죽어도 계속 재시도하므로
+            # 네트워크가 복구되면 사람 손 없이 스트림이 돌아온다. 5초는 센서 쪽 TCP 세션
+            # 정리 시간을 주기 위함. 재기동 시 채널 목적지 재설정은 우리 채널(1)에만 쓴다.
+            respawn=True,
+            respawn_delay=5.0,
             parameters=[
                 {"frame_id": "scan_front",
                  "sensor_ip": FRONT_IP,
@@ -111,6 +116,8 @@ def generate_launch_description():
             name="sick_safetyscanners2_rear",
             output="screen",
             emulate_tty=True,
+            respawn=True,          # front 와 동일 — 근거는 front 노드 주석
+            respawn_delay=5.0,
             parameters=[
                 {"frame_id": "scan_rear",
                  "sensor_ip": REAR_IP,

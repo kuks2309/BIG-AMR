@@ -40,3 +40,26 @@ src/**/log/
 # external_reference/handling.md §5 (licence / external disclosure).
 meeting_files/
 References/local/
+
+# The same rule, for three files that landed at the repository ROOT rather than
+# in either protected directory (found 2026-08-20). They are customer material —
+# a CMS development specification, an AGV job description, and a CCS mapping —
+# and nothing but their location kept them out of the two paths above.
+F Project CMS  개발 사양서.pptx
+F_Project_SMALL_AGV_JOB_Description.pptx
+Single arm to CCS.xlsx
+
+# The CSM's own records database, written at runtime by `--db`. Generated
+# data, not source — and it carries production material identifiers.
+csm_records.db
+csm_records.db-shm
+csm_records.db-wal
+*.db-shm
+*.db-wal
+
+# telegram_notifier 봇 토큰 — 비밀정보. 예시는 telegram.example.json 만 커밋한다.
+config/telegram_notifier/telegram.json
+
+# 화면 캡처(computer-use/capture-test 산출물) — 봇 토큰 등 비밀이 화면에 찍힐 수 있다
+experiments/capture/
+config/telegram_notifier/kakao_tokens.json

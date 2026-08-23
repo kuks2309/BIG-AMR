@@ -136,16 +136,20 @@ def test_every_robot_is_bound_to_a_real_segment():
     segment's robot is being written — none at all. An unserved segment is a
     fleet-sizing fact, and its jobs simply queue.
 
-    What must never happen is a robot bound to a segment that does not exist
-    (it would be offered no work at all and sit idle for ever), or two robots
-    silently sharing one leg.
+    Several robots to one leg is the DESIGN, not an accident: the deck gives
+    leg C six of them. What must never happen is a robot bound to a segment
+    that does not exist — it would be offered no work at all and sit idle for
+    ever — or two robots sent to the same parking slot, which is a collision
+    rather than a scheduling problem.
     """
     names = {s["name"] for s in plant.SEGMENTS}
-    seen = {}
+    slots = {}
     for robot, seg in plant.ROBOT_SEGMENT.items():
         assert seg in names, f"{robot} is bound to unknown segment {seg!r}"
-        assert seg not in seen, f"{robot} and {seen[seg]} both serve segment {seg}"
-        seen[seg] = robot
+        slot = plant.parking_for(robot)
+        assert slot is not None, f"{robot} has nowhere to park"
+        assert slot not in slots, f"{robot} and {slots[slot]} share slot {slot}"
+        slots[slot] = robot
 
 
 def test_a_job_outside_the_documented_flow_has_no_segment():

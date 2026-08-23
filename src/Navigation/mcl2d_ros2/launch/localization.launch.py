@@ -54,5 +54,10 @@ def generate_launch_description():
             remappings=[('odom', LaunchConfiguration('odom_topic')),
                         ('scan', LaunchConfiguration('scan_topic'))],
             output='screen',
+            # 죽으면 자동 재기동 — autostart 는 노드 main 이 수행하므로 재기동한 프로세스도
+            # 스스로 configure→activate 까지 간다. map_path 가 잘못된 경우는 configure 실패
+            # →종료→재기동을 반복하며 로그에 계속 드러난다(조용한 정지보다 낫다).
+            respawn=True,
+            respawn_delay=2.0,
         ),
     ])

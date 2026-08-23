@@ -25,7 +25,7 @@ that both completed and timed out on the same tick is recorded as the failure it
 actually was.
 """
 
-from .adapters.base import TransportResult
+from .adapters.base import ConfirmState, TransportResult
 from .fsm.machine import StateMachine
 from .fsm.state import State
 from .fsm.transition import Transition
@@ -84,7 +84,10 @@ class Assigned(State):
 
         ctx.log(f"submitted to ACS -> {result.value}")
         if result is TransportResult.REJECTED:
-            ctx.fail("ACS rejected the job")
+            # REJECTED means the job itself is wrong — an unknown
+            # station, or a route that is not a leg of the flow.
+            # Raising it again would produce the same answer.
+            ctx.fail("ACS rejected the job", retryable=False)
 
 
 class Running(State):
@@ -94,13 +97,21 @@ class Running(State):
         ctx.log("robot is moving")
 
     def execute(self, ctx):
-        """Poll the ACS once per tick and cache the answer.
+        """Ask the ACS once per tick and cache the answer.
 
         Cached deliberately: t3, t4 and t5 all need to know the outcome, and
         three guards each calling the adapter would triple the traffic and could
         see three different answers within one tick.
+
+        `order_state`, not `get_job_result` — the order interface, ADR
+        2026-08-18. For an adapter that only knows the old path this is the same
+        call, because `AcsAdapter.order_state` falls back to it. For one that
+        speaks the real ACS it is a read of a cache a subscription keeps
+        current, so this tick stops being a network round trip. That is the
+        point: the poll here is 4 Hz, and a level read at 4 Hz cannot see a
+        state entered and left between two ticks.
         """
-        ctx.last_acs_result = ctx.acs.get_job_result(ctx.job.job_id)
+        ctx.last_acs_result = ctx.acs.order_state(ctx.job.job_id)
 
 
 class Done(State):
@@ -127,15 +138,28 @@ class Done(State):
         return value would let an unknown or unreachable station look exactly
         like a clean completion.
         """
-        if not ctx.equipment.send_station_command(ctx.job.from_station,
-                                                  "collected"):
-            ctx.log(f"WARNING: source {ctx.job.from_station} did not accept "
-                    f"the 'collected' notification — it may stay blocked")
-
-        if not ctx.equipment.send_station_command(ctx.job.to_station,
-                                                  "delivered"):
-            ctx.log(f"WARNING: destination {ctx.job.to_station} did not accept "
-                    f"the 'delivered' notification")
+        # SENT, NOT CONFIRMED. The equipment link is shared memory with no
+        # acknowledgement, so the old `if not send(...)` guard here could never
+        # fire on a real machine: the call cannot return False, whatever
+        # happened at the other end. A notification that was accepted and
+        # ignored looked exactly like one that worked, and the machine it was
+        # meant to unblock stayed blocked in silence. debt-034.
+        #
+        # `send_and_confirm` records what the machine's state should become.
+        # EquipmentMonitorTask reads it back on later ticks and reports the
+        # ones that never took effect — which cannot be done from here, since
+        # this runs once and the effect is not instantaneous.
+        now = ctx.clock()
+        for station, command in ((ctx.job.from_station, "collected"),
+                                 (ctx.job.to_station, "delivered")):
+            pending = ctx.equipment.send_and_confirm(station, command, now)
+            # An outright refusal is the ONE case this protocol reports at
+            # once — an unknown or unreachable station. Worth saying
+            # immediately rather than waiting for a read-back that will never
+            # find the state it is looking for.
+            if pending.state is ConfirmState.LOST:
+                ctx.log(f"WARNING: {station} did not accept the "
+                        f"'{command}' notification")
 
         ctx.log("job complete")
 
@@ -150,7 +174,14 @@ class Failed(State):
         destination nobody is waiting for.
         """
         reason = ctx.job.failure_reason or "unknown"
-        ctx.acs.cancel_job(ctx.job.job_id)
+        # `cancel_order`, not `cancel_job` — ADR 2026-08-18. Cancel is the
+        # gentle one of the schema's two operations; abort is for an order a
+        # robot is already carrying out. Which of the two belongs here depends
+        # on whether the ACS has assigned a vehicle yet, and the order's own
+        # `assignedVehicleId` is what answers that — but only an adapter that
+        # actually reads orders can see it, so the choice stays cancel until
+        # one does.
+        ctx.acs.cancel_order(ctx.job.job_id)
         ctx.log(f"FAILED: {reason}")
 
 

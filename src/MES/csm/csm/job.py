@@ -6,6 +6,24 @@ lifecycle.
 """
 
 from dataclasses import dataclass, field
+from enum import Enum
+
+
+class Carried(Enum):
+    """What a job is moving.
+
+    Every hop in this plant is an EXCHANGE, not a delivery: a robot brings a
+    full roll to a machine and takes the empty core away, or brings an empty
+    core and takes the finished roll. Both directions are transport jobs, and
+    until now the model could not tell them apart — so the six bobbin-return
+    jobs in the specification could not be expressed at all.
+
+    The deck names both loads explicitly ("Roll Pallet" and "Bobbin Pallet") and
+    puts them on all three legs.
+    """
+
+    ROLL = "roll"        # material — full, going forward through the process
+    BOBBIN = "bobbin"    # the empty core, going back upstream
 
 
 @dataclass
@@ -18,6 +36,10 @@ class Job:
     priority: int = 0
     created_at: float = 0.0
 
+    #: Roll or bobbin. Defaults to ROLL because every job that existed before
+    #: this field was one, so no existing caller changes meaning.
+    carries: Carried = Carried.ROLL
+
     #: Name of the current FSM state, mirrored here so the record is readable
     #: without reaching into the machine.
     state_name: str = "IDLE"
@@ -29,11 +51,53 @@ class Job:
     #: Set when the job ends badly, so an operator sees *why* and not just that.
     failure_reason: str = ""
 
+    #: WHICH ATTEMPT THIS IS, from 1. The work outlives the job: a failed
+    #: transport does not mean the material stopped needing to move.
+    attempt: int = 1
+
+    #: May this work be raised again if it fails? False for failures that
+    #: repeating cannot fix — an invalid job, or one a person cancelled on
+    #: purpose. Retrying either would be arguing with the answer.
+    retryable: bool = True
+
+    #: The job this one replaces, so a chain of attempts is followable.
+    retry_of: str = None
+
+    # -- the rest of specification section 7's job record --------------------
+
+    #: The call this job answers, or None for the one job type CSM originates
+    #: itself — the WIP diversion, which has no caller.
+    call_id: str = None
+
+    #: WHICH of the four machines, 1-4. The job NAME stays generic
+    #: (assumption A3), so without these two fields two coaters asking for
+    #: material produce jobs that cannot be told apart.
+    from_instance: int = None
+    to_instance: int = None
+
+    #: WHICH material this job is moving, by LOT id.
+    #:
+    #: Beyond specification section 7's job record, which names only the OBJECT
+    #: (roll or bobbin). The scope slide's location management needs the
+    #: individual thing tracked, not just its kind — "이 롤이 어디 있었나" cannot
+    #: be answered from a job that only knows it carried "a roll".
+    #:
+    #: None while the material is not identified, which is most of the line
+    #: today: only the WIP racks name what they hold.
+    material_ref: str = None
+
+    #: The ACS's id for the order we submitted. We use the job id as the order
+    #: id, so these are equal today — but they are separate fields because that
+    #: is our choice and not the ACS's rule, and a server that assigns its own
+    #: ids would break the assumption silently.
+    acs_order_id: str = None
+
     history: list = field(default_factory=list)
 
     def __str__(self):
         return (f"{self.job_id} [{self.state_name}] "
-                f"{self.from_station} -> {self.to_station}")
+                f"{self.from_station} -> {self.to_station} "
+                f"({self.carries.value})")
 
 
 class JobContext:
@@ -106,9 +170,14 @@ class JobContext:
         return (self.submit_attempts == 0
                 or self.time_in_state() >= self.retry_backoff_s)
 
-    def fail(self, reason):
-        """Record why a job is failing. Call before the transition fires."""
+    def fail(self, reason, retryable=True):
+        """Record why a job is failing. Call before the transition fires.
+
+        :param retryable: whether raising this work again could succeed. False
+            for a job that is invalid, or one a person cancelled deliberately.
+        """
         self.job.failure_reason = reason
+        self.job.retryable = retryable
 
     def log(self, message):
         if self.logger:

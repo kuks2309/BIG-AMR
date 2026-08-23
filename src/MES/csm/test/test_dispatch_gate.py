@@ -11,7 +11,7 @@ import pathlib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from csm.adapters.base import TransportResult                 # noqa: E402
+from csm.adapters.base import AcsAdapter, TransportResult                 # noqa: E402
 from csm.adapters.mock import ManualClock, MockAcs, MockEquipment  # noqa: E402
 from csm.runtime.job_store import JobStore                    # noqa: E402
 
@@ -55,7 +55,7 @@ def test_a_bounced_job_waits_for_a_fresh_permit():
     """t_busy returns the job to IDLE. It must not re-submit on its own."""
     clock, store = build(gated=True)
 
-    class AlwaysBusy:
+    class AlwaysBusy(AcsAdapter):
         calls = 0
 
         def submit_job(self, job):
@@ -93,7 +93,7 @@ def test_a_permit_does_not_bypass_the_backoff():
     the job's own retry spacing."""
     clock, store = build(gated=True)
 
-    class AlwaysBusy:
+    class AlwaysBusy(AcsAdapter):
         calls = 0
 
         def submit_job(self, job):
@@ -139,7 +139,7 @@ def test_an_ungated_bounced_job_still_retries_by_itself():
     """Idle.on_exit must not strand a job where nothing grants permits."""
     clock, store = build(gated=False)
 
-    class BusyThenFree:
+    class BusyThenFree(AcsAdapter):
         calls = 0
 
         def submit_job(self, job):

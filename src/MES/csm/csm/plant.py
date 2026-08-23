@@ -73,11 +73,28 @@ aisles with perpendicular docking spurs, not a loop around an open floor.
 """
 
 import math
+import re
 
 # ---------------------------------------------------------------- geometry
 
-HALL_W, HALL_E = -23.0, 20.0     # hall extent in x (assumption A1)
-HALL_S, HALL_N = -13.0, 13.0     # hall extent in y
+HALL_W, HALL_E = -25.0, 26.0     # hall extent in x (assumption A1)
+#: West edge moved out from -23.0 on 2026-08-18 for the same reason the east
+#: edge moved on 5745612: the parking spur has to be longer than a robot, and
+#: at -23.0 there was 2.90 m between the west aisle and the wall face when a
+#: bay needs 3.00 m. The west bay never deadlocked only because leg A has one
+#: robot and nothing drives past its spur — the geometry was equally wrong.
+#: Extended east from 20.0 on 2026-08-18 to make room for leg C's WIP rack.
+#: Segment C had `buffer: []` — no rack at all — so two of its four job types
+#: (fetch-from-rack and divert-to-rack) could not run. The south row between
+#: the west aisle and WIP_CTR is fully occupied: the slitter's four LD ports
+#: reach x -13.3 and CTR1_LD sits at -11.2, leaving no 3 m gap anywhere.
+HALL_S, HALL_N = -15.0, 13.0     # hall extent in y
+#: South edge moved out from -13.0 on 2026-08-18. Leg C has six 3.5T robots
+#: (specification fleet table) and its queue runs south from the east cross
+#: aisle; the sixth slot landed 0.25 m inside the wall's robot-radius pad. The
+#: alternative was to shave the clearance between slots until six fitted, which
+#: is fitting the robot to the drawing rather than the drawing to the robot.
+#: North is unchanged: leg B has two robots and needs 3.65 m.
 WALL_T = 0.2
 
 MACHINE_W, MACHINE_D = 3.0, 2.0        # A5
@@ -102,8 +119,34 @@ DOCK_INSET = 1.5
 AISLE_N_Y = 3.0                        # north aisle
 AISLE_S_Y = -3.0                       # south aisle
 AISLE_W_X = -20.0                      # west cross aisle
-AISLE_E_X = 16.0                       # east cross aisle
-PARK_X = [-21.5, 17.5]                 # parking spurs, off the cross aisles
+AISLE_E_X = 22.0                       # east cross aisle
+#: THE ROBOT ITSELF, because the layout has to be big enough for it.
+#: 1.6 x 0.9 m is the simulated chassis. (The deck gives 1.3 x 1.9 m for the
+#: 1.5T and 1.6 x 2.0 m for the 3.5T; the sim models one body for all three,
+#: and this is that body. If the sim ever carries three, take the largest.)
+ROBOT_L, ROBOT_W = 1.6, 0.9
+
+#: HOW FAR A PARKING BAY SITS OFF ITS CROSS AISLE.
+#:
+#: DERIVED, NOT CHOSEN — and it must exceed the robot's own length. It was
+#: 1.5 m against a 1.6 m robot, so a robot parked correctly in its own bay
+#: still had its tail 0.70 m from the aisle centreline. It was not in the way
+#: by accident; parked properly it COULD NOT be out of the way.
+#:
+#: What that cost, measured 2026-08-18: amr2 drove its own lane west, turned
+#: south down the east aisle toward the coater row as its job required, and
+#: came within 1.8 m of amr3 sitting in the neighbouring bay. Layer 1 stopped
+#: it — correctly, since continuing would have closed the gap below STOP_GAP.
+#: amr3 could not move aside because it was already parked. Layer 1 "only ever
+#: says stop: it cannot say who goes", so both sat frozen for four minutes with
+#: seven jobs queued behind them. Twice, and once they touched.
+#:
+#: The clearance below is the gap between a PASSING robot's flank and a PARKED
+#: robot's tail, both bodies included — not centre to centre.
+PARK_CLEARANCE = 1.25
+PARK_SPUR = ROBOT_L / 2.0 + ROBOT_W / 2.0 + PARK_CLEARANCE      # 2.5 m
+
+PARK_X = [AISLE_W_X - PARK_SPUR, AISLE_E_X + PARK_SPUR]
 
 #: Machine face y (the side the robot approaches from).
 _FACE_N = ROW_N_Y - MACHINE_D / 2.0
@@ -195,6 +238,27 @@ _add("WIP_CTR", "MACHINE", (_WIP_X, ROW_S_Y), _dock_s(_WIP_X))
 for i in (1, 2):
     _add(f"WIP_CTR_{i}", "BUFFER", (_WIP_X, ROW_S_Y),
          _dock_s(_WIP_X + (i - 1.5) * 2 * PORT_OFFSET), machine=False)
+
+#: Leg C's rack — the WIP Slitter. Added 2026-08-18; segment C had none, so a
+#: coater whose slitter was full had nowhere to put its output and the divert
+#: branch was untestable on a third of the line.
+_WIP_SLT_X = 19.0
+_add("WIP_SLT", "MACHINE", (_WIP_SLT_X, ROW_S_Y), _dock_s(_WIP_SLT_X))
+for i in (1, 2):
+    _add(f"WIP_SLT_{i}", "BUFFER", (_WIP_SLT_X, ROW_S_Y),
+         _dock_s(_WIP_SLT_X + (i - 1.5) * 2 * PORT_OFFSET), machine=False)
+
+#: HOW MUCH EACH RACK HOLDS — not how many docks it has.
+#:
+#: The deck counts WIP Gravure Print 2EA, WIP Coater 13EA and WIP Slitter 30EA.
+#: Those are SLOTS, not access points: the customer layout puts only a handful of
+#: AGV positions at each rack, and a rack plainly holds more rolls than it has
+#: places to stand. Modelling 30 docks would be wrong as well as unbuildable.
+#:
+#: So each rack has two access ports and a capacity. The divert decision asks
+#: "is the rack full?", which is a capacity question, and the robot asks "where
+#: do I stand?", which is a dock question. They are not the same number.
+BUFFER_CAPACITY = {"WIP_GRV": 2, "WIP_CTR": 13, "WIP_SLT": 30}
 
 #: Solid bodies robots must never drive through.
 OBSTACLES = {n: s["machine"] for n, s in STATIONS.items() if s["solid"]}
@@ -293,7 +357,7 @@ SEGMENTS = [
         "payload": 3.5,
         "from": [f"CTR{i}_ULD" for i in range(1, 5)],
         "to": [f"SLT_LD{i}" for i in range(1, 5)],
-        "buffer": [],
+        "buffer": ["WIP_SLT_1", "WIP_SLT_2"],
     },
 ]
 
@@ -309,6 +373,114 @@ for _i in range(1, 5):
     FEEDS[f"CTR{_i}_LD"] = f"GRV{_i}_ULD"
     FEEDS[f"SLT_LD{_i}"] = f"CTR{_i}_ULD"
 
+def sources_for(destination):
+    """Every station that could supply this destination, BEST FIRST.
+
+    FEEDS answers "which port is paired with this one". That is not the same
+    question as "where should this material come from", and treating it as if it
+    were is why a coater whose own gravure was empty would wait while the other
+    three gravures held finished material it could have taken.
+
+    The order encodes two decisions, both cheap to change:
+
+      1. **The rack first.** Material already parked on a WIP rack is preferred
+         over fresh material upstream. Otherwise parked rolls accumulate: the
+         rack only ever fills, because there is always something newer to take.
+      2. **Then the paired machine, then its siblings.** FEEDS' pairing is a
+         sensible default — it spreads four destinations across four sources
+         instead of everybody queueing at the first one — but it is a preference
+         now, not a constraint.
+
+    Returns candidates only. Whether a candidate can actually supply right now
+    is a separate question, asked by the caller against live station status, and
+    whether the MATERIAL matches is a third question we cannot yet answer at all
+    (the customer has not given us the matching rules).
+    """
+    seg = segment_of_station(destination)
+    if seg is None:
+        return [FEEDS[destination]] if destination in FEEDS else []
+    out = list(seg["buffer"])                       # 1. clear the rack first
+    paired = FEEDS.get(destination)
+    if paired and paired not in out:                # 2. its own pair next
+        out.append(paired)
+    for src in seg["from"]:                         # 3. then any sibling
+        if src not in out:
+            out.append(src)
+    return out
+
+
+def bobbin_return_for(station):
+    """Where the EMPTY BOBBIN goes when this station has finished with it.
+
+    Specification jobs 3, 7 and 11 — the three returns that had no
+    implementation at all, and assumption A5 which gives their destinations:
+
+        leg A   Gravure LD  -> ASRS                (back to the store)
+        leg B   Coater LD   -> Gravure ULD         (one process upstream)
+        leg C   Slitter LD  -> Coater ULD          (one process upstream)
+
+    Read from SEGMENTS rather than written out, because the rule IS the segment
+    reversed: a bobbin goes back the way its roll came. Writing the three pairs
+    as a literal table would be a second place for the plant to be described,
+    and the last time this file had two descriptions of one thing the launch
+    spawned robots six metres from where the CSM believed they were.
+
+    Every hop here is an exchange, not a delivery (see `Carried`), so this is
+    the return half of every material job, not a special case.
+
+    Returns None for a station that is not a segment destination — the ASRS and
+    the WIP racks do not hand bobbins back.
+    """
+    for seg in SEGMENTS:
+        if station in seg["to"]:
+            # The bobbin goes to the station that supplied the roll. Where a
+            # segment has several sources, the paired one is the natural
+            # partner; FEEDS holds that pairing.
+            paired = FEEDS.get(station)
+            if paired and paired in seg["from"]:
+                return paired
+            return seg["from"][0]
+    return None
+
+
+def is_bobbin_return(from_station, to_station):
+    """True if this pair is a bobbin going back upstream, not a roll going on.
+
+    Useful to callers that have a job and want to know which direction it runs
+    without re-deriving the segment.
+    """
+    return bobbin_return_for(from_station) == to_station
+
+
+def buffer_for(source):
+    """The WIP rack that stranded material from this source should go to.
+
+    A rack buffers the INPUT of the process it serves — WIP_GRV feeds the
+    gravures, so material bound for a gravure parks there. That is why the
+    diversion runs from the upstream source to the rack of the DESTINATION's
+    leg, not to a rack beside the source.
+
+    Returns the rack's access ports, or [] if the source has no leg.
+    """
+    for seg in SEGMENTS:
+        if source in seg["from"]:
+            return list(seg["buffer"])
+    return []
+
+
+def segment_of_station(station):
+    """Which leg a station belongs to, by any of its roles. None if unknown.
+
+    Distinct from `segment_of(robot_name)` below, which answers the same
+    question for a ROBOT. Naming them alike shadowed one with the other.
+    """
+    for seg in SEGMENTS:
+        if (station in seg["from"] or station in seg["to"]
+                or station in seg["buffer"]):
+            return seg
+    return None
+
+
 #: A machine's material goes in one port and comes out the other — the line IP
 #: summary lists these as "Unwinder / Rewinder" pairs. Without the link the two
 #: ports are unrelated stations and the line cannot fill past its first stage:
@@ -321,6 +493,213 @@ PORT_LINKS += [(f"CTR{i}_LD", f"CTR{i}_ULD") for i in range(1, 5)]
 #: Which segment each robot serves. Three robots, three segments — the real line
 #: runs 2 + 2 + 6 [S16], so this is one of each rather than the full fleet.
 #:
+
+
+
+def parking_for(robot_name):
+    """The slot THIS robot parks in — its own, not its leg's.
+
+    A leg's slots are handed out in name order, so the assignment is stable
+    across restarts: amr1 always gets leg A's first slot whether or not amr4
+    exists. It has to be stable, because a robot drives home to it.
+
+    Returns None for a robot with no leg, and None for a robot whose leg has
+    more robots than slots. Both are real states and neither should be papered
+    over with a default — a default would mean sending two robots to the same
+    coordinates, which is what this replaced.
+    """
+    segment, index = parking_index(robot_name)
+    if segment is None:
+        return None
+    slots = PARKING_SLOTS[segment]
+    return slots[index] if index < len(slots) else None
+
+
+def parking_index(robot_name):
+    """Which leg this robot parks on, and its place in that leg's queue.
+
+    Split out of `parking_for` because two things need it and they need
+    different answers from it: the coordinates to drive to, and the ROAD NODE
+    with those coordinates. Deriving the queue position twice is how the two
+    would eventually disagree about which slot a robot owns.
+
+    Returns (None, None) for a robot on no leg.
+    """
+    segment = ROBOT_SEGMENT.get(robot_name)
+    if segment is None:
+        return None, None
+    # Numerically, not alphabetically — see `robot_number`.
+    peers = sorted((n for n, s in ROBOT_SEGMENT.items() if s == segment),
+                   key=lambda n: (robot_number(n) is None, robot_number(n), n))
+    if robot_name not in peers:
+        return None, None
+    return segment, peers.index(robot_name)
+
+
+def segment_of(robot_name):
+    return next((s for s in SEGMENTS
+                 if s["name"] == ROBOT_SEGMENT.get(robot_name)), None)
+
+
+def segment_for_job(from_station, to_station):
+    """Which leg a job belongs to — and therefore which AGV class carries it.
+
+    Matches BOTH directions along a segment, because a leg's robots carry the
+    roll forward and the empty core back. The specification says so directly:
+    jobs 5 and 7 are both LOWBIGB, 9 and 11 are both HIGHBIG, 1 and 3 are both
+    LOWBIGA. The bobbin is not a different leg, it is the return half of one.
+
+    This used to match the forward direction only. Every bobbin return was then
+    rejected by the ACS with "no segment", because CTR1_LD -> GRV1_ULD is
+    segment B read backwards and matched nothing — visible in the simulator as
+    five bobbin jobs created and five failed.
+    """
+    for s in SEGMENTS:
+        if from_station in s["from"] and to_station in s["to"]:
+            return s
+        if from_station in s["to"] and to_station in s["from"]:
+            return s                      # the return half of the same leg
+    return None
+
+
+#: Where idle robots park — on a spur OFF a cross aisle, never on the aisle
+#: itself. An idle robot standing on a lane is a road block, which is exactly
+#: what stranded the fleet before this rewrite.
+#: HOW MANY ROBOTS EACH LEG HAS, from the specification's fleet table
+#: (cathode). Legs A and B carry two 1.5T robots each; leg C carries six 3.5T.
+#: The simulator usually runs one per leg, which is why one bay per leg was
+#: enough until now — and why it stopped being enough the moment anyone asked
+#: what a second robot would do.
+FLEET = {"A": 2, "B": 2, "C": 6}
+
+#: SPACING BETWEEN QUEUE SLOTS, measured across the robots, not centre to
+#: centre. Slots sit side by side along the cross aisle, so what has to clear
+#: is the robot's WIDTH.
+PARK_PITCH = ROBOT_W + PARK_CLEARANCE
+
+#: Which end of the plant each leg parks at, and which way its queue grows.
+#: Away from y=0 in both cases, so the two east legs open out rather than
+#: growing into one another.
+_PARK_SIDE = {"A": (0, +1), "B": (1, +1), "C": (1, -1)}
+
+
+def parking_slots(segment):
+    """Every queue slot for this leg, the one nearest the aisle first.
+
+    A QUEUE, NOT A BAY PER ROBOT. The customer's own layout works this way —
+    the surveyed drawing has a dock column and a separate queue column 3.6 m
+    behind it, with 51 positions in the cell area, not one reserved bay per
+    vehicle. Robots take the next free slot.
+
+    This replaces one bay per LEG, which silently assumed one robot per leg.
+    With two, both were sent home to identical coordinates: two robots aiming
+    at the same point, which is the collision this file spent 2026-08-18
+    designing out at the bays.
+
+    Slots grow outward from the aisle centre. Each one hangs off the cross
+    aisle on its own short spur, which is why `roads` needs no new lane type —
+    it already chains everything sitting on an aisle in order, so a spur
+    further out simply extends that aisle.
+    """
+    which, direction = _PARK_SIDE[segment]
+    x = PARK_X[which]
+    y0 = 1.5 * direction
+    return [(x, y0 + i * PARK_PITCH * direction) for i in range(FLEET[segment])]
+
+
+def parking_join_slots(segment):
+    """Where each of this leg's queue slots meets its cross aisle."""
+    which, _ = _PARK_SIDE[segment]
+    aisle = AISLE_W_X if which == 0 else AISLE_E_X
+    return [(aisle, y) for _, y in parking_slots(segment)]
+
+
+#: Every slot, per leg. Index 0 is the one nearest the aisle.
+PARKING_SLOTS = {seg: parking_slots(seg) for seg in _PARK_SIDE}
+PARKING_JOIN_SLOTS = {seg: parking_join_slots(seg) for seg in _PARK_SIDE}
+
+#: The leg's FIRST slot, under the name callers have always used. Keeping this
+#: means nothing that only ever needed "where does leg B park" has to change.
+PARKING = {seg: slots[0] for seg, slots in PARKING_SLOTS.items()}
+#: Where each parking spur meets its cross aisle.
+PARKING_JOIN = {seg: joins[0] for seg, joins in PARKING_JOIN_SLOTS.items()}
+
+
+#: WHICH QUEUE SLOTS HAVE POWER.
+#:
+#: A CHARGER IS A PARKING SLOT WITH A CABLE, not a separate place. That is how
+#: the real plant works — a robot waiting and a robot charging are in the same
+#: row — and it means charging needs no new geometry at all.
+#:
+#: Every second slot is powered, which is not a guess: deck slide 30 marks
+#: "Charger 5EA" for the Big AGV fleet on each polarity, and the cathode fleet
+#: is 2 + 2 + 6 = ten robots. One charger per two robots gives A:1 + B:1 + C:3
+#: = 5 — the deck's own number.
+#:
+#: ⚠ The real bays are 5.2 x 2.2 m against a 1.6 x 0.9 m robot, so a real
+#: charging bay is much larger than a parking slot. We do not model that: it
+#: matters for the floor plan and not for deciding who charges when.
+CHARGER_EVERY = 2
+
+
+def charging_slots(segment):
+    """Indices of this leg's queue slots that can charge."""
+    return list(range(0, FLEET[segment], CHARGER_EVERY))
+
+
+#: leg -> [(x, y)] of its charging positions.
+CHARGERS = {seg: [PARKING_SLOTS[seg][i] for i in charging_slots(seg)]
+            for seg in _PARK_SIDE}
+
+
+def robot_number(robot_name):
+    """The digits in `amr7`, or None.
+
+    Needed because robots must sort NUMERICALLY. Plain string order puts
+    `amr10` before `amr3`, which would hand leg C's first parking slot to the
+    tenth robot and quietly shuffle everyone else's — a fault that cannot
+    appear below ten robots and is invisible above it until two robots drive to
+    one bay.
+    """
+    found = re.search(r"\d+", robot_name or "")
+    return int(found.group()) if found else None
+
+
+def assign_legs(count, fleet=None):
+    """Hand `count` robots to legs in the deck's own proportions.
+
+    THE RULE: each robot goes to the leg that is furthest from its full
+    complement, measured as a FRACTION of that complement, with ties broken in
+    deck order. Fractions rather than absolute shortfall, so a leg entitled to
+    six does not swallow the first four robots before the two-robot legs get
+    one each.
+
+    It lands on the sensible answer at every size we actually run:
+
+        3 robots -> A 1, B 1, C 1     one per leg, which is what we have today
+        5 robots -> A 1, B 1, C 3     leg C is the busy one, so it gets the spare
+       10 robots -> A 2, B 2, C 6     exactly the deck's fleet [S6]
+
+    Stops at the deck's total: there are only that many parking slots and that
+    many chargers, and a robot with nowhere to park is not a robot.
+    """
+    fleet = FLEET if fleet is None else fleet
+    legs = list(fleet)
+    taken = {leg: 0 for leg in legs}
+    out = {}
+    for i in range(1, count + 1):
+        # Full legs are not candidates. When every leg is full we stop rather
+        # than overflow: the shortage is real and hiding it would put two
+        # robots in one bay.
+        free = [leg for leg in legs if taken[leg] < fleet[leg]]
+        if not free:
+            break
+        leg = min(free, key=lambda l: (taken[l] / fleet[l], legs.index(l)))
+        taken[leg] += 1
+        out[f"amr{i}"] = leg
+    return out
+
+
 #: THIS DICT IS THE WHOLE BINDING. A robot is tied to one leg of the material
 #: flow by naming a segment here; the segment names its pickup and delivery
 #: ports above, and those ports name the markers, the roads and the parking bay.
@@ -335,32 +714,83 @@ PORT_LINKS += [(f"CTR{i}_LD", f"CTR{i}_ULD") for i in range(1, 5)]
 #: so its jobs queue until somebody can serve them. That is what let amr3 be
 #: removed and rewritten without touching anything else — measured over an hour
 #: with segment C unserved, in docs/verification/2026-08-10-two-robot-one-hour-soak.md
-ROBOT_SEGMENT = {"amr1": "A", "amr2": "B", "amr3": "C"}
+#:
+#: Generated for the DECK'S FULL FLEET, not for however many happen to be
+#: running. A three-robot run is amr1..amr3 of the same table, so a robot's leg
+#: and parking slot do not move when the fleet grows — and it has to be stable,
+#: because a robot drives home to its slot.
+ROBOT_SEGMENT = assign_legs(sum(FLEET.values()))
 
 
-def segment_of(robot_name):
-    return next((s for s in SEGMENTS
-                 if s["name"] == ROBOT_SEGMENT.get(robot_name)), None)
+def chargers_for(robot_name):
+    """Every charger this robot may use, nearest to its own slot first.
+
+    A LIST, not one place. The deck gives 5 chargers to 10 robots and
+    `CHARGER_EVERY` says so: two robots share each one. `charger_for` naming a
+    single slot was true only while every leg had one robot, and it stopped
+    being true the moment leg C had three — two of them would be sent to the
+    same plug with nothing arbitrating it, and neither the code nor any test
+    would have noticed.
+
+    Its OWN leg's chargers, because a robot is bound to one leg and driving it
+    across the plant to another leg's charger would cross every lane it is
+    meant to stay out of.
+    """
+    segment = ROBOT_SEGMENT.get(robot_name)
+    if segment is None or not CHARGERS.get(segment):
+        return []
+    home = parking_for(robot_name)
+    if home is None:
+        return list(CHARGERS[segment])
+    return sorted(CHARGERS[segment],
+                  key=lambda c: (c[0] - home[0]) ** 2 + (c[1] - home[1]) ** 2)
 
 
-def segment_for_job(from_station, to_station):
-    for s in SEGMENTS:
-        if from_station in s["from"] and to_station in s["to"]:
-            return s
-    return None
+def charger_for(robot_name):
+    """The charger this robot would prefer, or None if its leg has none.
+
+    ⚠ PREFERENCE, NOT A RESERVATION. Another robot may be on it. Anything that
+    actually sends a robot to charge must ask the fleet for a free one — see
+    `SimAcs.claim_charger` — and this is only the first choice.
+    """
+    chargers = chargers_for(robot_name)
+    return chargers[0] if chargers else None
 
 
-#: Where idle robots park — on a spur OFF a cross aisle, never on the aisle
-#: itself. An idle robot standing on a lane is a road block, which is exactly
-#: what stranded the fleet before this rewrite.
-PARKING = {
-    "A": (PARK_X[0], 1.5),          # west end, north side  — segment A's end
-    "B": (PARK_X[1], 1.5),          # east end, north side
-    "C": (PARK_X[1], -1.5),         # east end, south side
-}
-#: Where each parking spur meets its cross aisle.
-PARKING_JOIN = {
-    "A": (AISLE_W_X, 1.5),
-    "B": (AISLE_E_X, 1.5),
-    "C": (AISLE_E_X, -1.5),
-}
+def is_charger(position, tolerance=0.3):
+    """Is this position one of the charging slots?"""
+    for slots in CHARGERS.values():
+        for x, y in slots:
+            if abs(x - position[0]) <= tolerance and abs(y - position[1]) <= tolerance:
+                return True
+    return False
+
+
+def declare_locations(records):
+    """Tell a records store every place material can legitimately be.
+
+    THE PLANT IS THE SOURCE OF TRUTH, THE TABLE IS ONLY THE INDEX. `records.py`
+    deliberately knows nothing about this plant — it is a generic store — so
+    the knowledge flows one way, from here into it, the same way rack sizes do.
+
+    Why the table exists at all: `materials.location` is a free string that may
+    name a machine port, a buffer rack or the store, and before 2026-08-21 only
+    the first had a table behind it. A reader joining materials to stations
+    lost every roll sitting in the ASRS and was not told.
+    """
+    from .records import LocationKind
+
+    for dock in DOCKS:
+        segment = segment_of_station(dock)
+        records.define_location(
+            dock,
+            LocationKind.STORE if dock == "ASRS" else LocationKind.PORT,
+            segment=segment["name"] if isinstance(segment, dict) else segment)
+
+    for name, station in STATIONS.items():
+        if station.get("kind") == "BUFFER":
+            segment = segment_of_station(name)
+            records.define_location(
+                name, LocationKind.RACK,
+                segment=segment["name"] if isinstance(segment, dict)
+                else segment)
