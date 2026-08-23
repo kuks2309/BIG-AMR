@@ -135,6 +135,8 @@ class WallLocalizerNode : public rclcpp::Node
             declare_parameter<double>("gate_angle_deg", m.gate_angle_rad / kDegToRad) * kDegToRad;
         m.gate_dist_m = declare_parameter<double>("gate_dist_m", m.gate_dist_m);
         m.min_overlap_ratio = declare_parameter<double>("min_overlap_ratio", m.min_overlap_ratio);
+        m.refit_corridor_m = declare_parameter<double>("refit_corridor_m", m.refit_corridor_m);
+        m.refit_margin_m = declare_parameter<double>("refit_margin_m", m.refit_margin_m);
 
         auto &s = params_.solve;
         s.min_normal_spread = declare_parameter<double>("min_normal_spread", s.min_normal_spread);

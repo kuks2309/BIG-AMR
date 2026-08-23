@@ -40,10 +40,12 @@ wall_localizer:
     min_points: 8
     min_length_m: 0.4           # ANT 최소 추출 세그먼트 40 cm 준용
 
-    # 벽 대응
+    # 벽 대응 (선분은 1:N 귀속 — 대응 근거, 측정은 회랑 재적합)
     gate_angle_deg: 10.0
     gate_dist_m: 0.3
-    min_overlap_ratio: 0.25     # (선분∩예측 벽 구간)/예측 벽 구간 길이
+    min_overlap_ratio: 0.25     # (귀속 선분 구간 합집합)/예측 벽 구간 길이
+    refit_corridor_m: 0.06      # 재적합 회랑 반폭 — 잡음 3σ 이상, 벽 근처 클러터보다 작게
+    refit_margin_m: 0.1         # 예측 벽 구간 양끝 여유
 
     # 자세 해석
     min_normal_spread: 0.05     # 벽 2면 등가중 기준 법선 사이각 ≳26° 요구
