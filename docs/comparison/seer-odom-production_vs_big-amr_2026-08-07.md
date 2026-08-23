@@ -318,3 +318,85 @@ SlipSensor 심볼:  libprotocol.so  정의 88 / 참조 0
 `libOdoCalculator.so` 는 `dlopen` 성공·`ldd` 미해결 0건·핵심 심볼 `.dynsym` 공개
 (`_ZN19MultiSteersOdometerC1Ev` · `_ZN19MultiSteersOdometer8CaldPoseEv` 등)라
 karto 오라클과 같은 경로가 열려 있다.
+
+---
+
+## 10. `MultiSteersOdometer::CalOdoCoef()` — 계수행렬 ✓
+
+원본 `multisteerodometer.cpp` **79~107행**, 주소 `0x14c9f0`~`0x14d690`.
+채취물: [`References/seer/libOdoCalculator/calodocoef.asm`](../../References/seer/libOdoCalculator/calodocoef.asm)
+
+`MotorParam` 레이아웃(DWARF 실측, 176 B): `x`=32 · `y`=40 · `yaw`=48 · `canID`=56 ·
+`encoderLine`=60 · `wheelRadius`=96 · `reductionRatio`=104 · `steerOffset`=112 ·
+`maxAngle`=120 · `minAngle`=128 · `cpwheelRadius`=136 · **`cpx`=144 · `cpy`=152** ·
+`cpyaw`=160 · `cpsteerOffset`=168.
+
+```
+ 81  AbstractOdometer::CalOdoCoef()                ; 기저 클래스
+ 84  Eigen::Matrix<double,-1,-1> 생성 + memset 0
+ 86  ┌ 모터맵 순회
+ 89  │   A(2i,   ?) ← −( y   + cpy  )              ; MotorParam +0x28 + +0x98, 부호 반전
+     │                                             ;   마스크 0x19eaf0 = 00..0080 (부호비트)
+ 91  │   A(2i+1, ?) ←  ( x   + cpx  )              ; MotorParam +0x20 + +0x90
+     └
+ 94  Eigen 행렬 재생성                              ; §2 의 PartialPivLU 역행렬 사전계산
+ 96~104  행렬 덤프를 로그·파일로 남김               ; FileSystem::rbkUserData 경로
+107  예외 정리
+```
+
+⇒ 휠 i 의 유효 위치는 **`(x+cpx, y+cpy)`** 다 — `cp*` 는 보정항이며 설계값에 더해진다.
+행 구조는 평면 강체 속도 관계의 표준형이다:
+
+```
+[ 1  0  −(y+cpy) ] [ dx  ]   [ cos δ · s ]
+[ 0  1   (x+cpx) ] [ dy  ] = [ sin δ · s ]      (휠마다 2행)
+                   [ dyaw]
+```
+
+## 11. `MultiSteersOdometer::CalSpeed()` — 속도와 일관성 판정 ✓
+
+원본 `multisteerodometer.cpp` **110~156행**, 주소 `0x14d690`~`0x14f300`.
+채취물: [`References/seer/libOdoCalculator/calspeed.asm`](../../References/seer/libOdoCalculator/calspeed.asm)
+
+`MotorVitalInfo` 레이아웃(DWARF 실측, 64 B): `flagSet`=0 · `t_nsec`=8 · `stop`=16 ·
+`speed`=24 · **`position`=32** · `encoder`=40 · **`v_enc`=48** · **`dpos`=56**.
+
+```
+111  AbstractOdometer::CalSpeed()                  ; 기저 클래스
+117  b 벡터 생성 + memset 0
+119  general_matrix_vector_product (스케일 1.0, 상수 0x188878)
+122  ┌ 모터맵 순회
+     │   v = motor.v_enc                           ; +0x30
+123  │   δ = motor.position                        ; +0x20 (조향각)
+124  │   b[2i]   = cos(δ) · v
+125  │   b[2i+1] = sin(δ) · v
+     └
+131  output.vx, output.vy ← 결과 (0xd8, 16 B)
+     output.vw           ← 결과 (0xe8)
+133~139  잔차를 절대값으로 취합                     ; andpd 마스크 0x19c0d0 = ff..7f
+142  flagWheelConsistent ← (잔차 ≤ thresConsistent) ; ucomisd 0x140 + setbe 0xe
+145·146  초과 시 경고 로그
+151  (early-exit) output.vx = vy = vw = 0
+156  예외 정리
+```
+
+**두 가지가 여기서 닫힌다**:
+
+1. **`RobotPosEKF` 게이트 입력의 출처.** `wzOdoAbsDeg = |Rad2Deg(odom.vel_rotate)|` 의
+   `vel_rotate` 는 **`CalSpeed` 가 만든 `output.vw`** 다(`CaldPose` 는 §9.2 대로 속도를
+   항상 0으로 지운다). 즉 IMU 게이트는 **엔코더 속도 `v_enc` 로부터** 판정된다.
+2. **`FlagConsistentCheck`·`ThresConsistent` 의 소비 지점.** §4 의 배포값
+   `FlagConsistentCheck 0` · `ThresConsistent 0.02` 가 여기 142행에서 쓰인다 —
+   판정 결과는 `flagWheelConsistent`(offset 14)에 남고, 초과는 **로그 경고**로만 나간다.
+
+## 12. 세 함수의 관계 — 한 파일 연속 구간
+
+`multisteerodometer.cpp` 는 세 함수가 연속이다: `CalOdoCoef`(79~107) →
+`CalSpeed`(110~156) → `CaldPose`(159~195). 같은 계수행렬을 **속도**(`v_enc`)와
+**변위**(`dpos`)에 각각 적용하는 대칭 구조다.
+
+| | 입력 | 출력 |
+| --- | --- | --- |
+| `CalSpeed` | `v_enc` · `position` | `output.vx/vy/vw` + `flagWheelConsistent` |
+| `CaldPose` | `dpos` · `position` | `output.dx/dy/dyaw` (속도는 0으로 지움) |
+| `AbstractOdometer::CalPose` | 위 둘 중 `flagCumEncPoseMode` 가 고른 쪽 | `output.x/y/yaw` (§3) |
