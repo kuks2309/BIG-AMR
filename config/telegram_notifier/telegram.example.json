@@ -1,0 +1,20 @@
+{
+  "_안내": "이 파일을 telegram.json 으로 복사해 값을 채운다. telegram.json 은 .gitignore 등재 — 절대 커밋하지 않는다.",
+  "_설치": "cp telegram.example.json telegram.json && chmod 600 telegram.json",
+  "_channels": "켤 채널 목록. telegram / kakao. kakao 는 kakao_rest_api_key 채우고 --kakao-auth 선행",
+  "channels": ["telegram"],
+  "_token": "@BotFather 에서 /newbot 으로 발급받은 봇 토큰",
+  "token": "",
+  "_kakao_rest_api_key": "developers.kakao.com 앱의 REST API 키 (kakao 채널 사용 시)",
+  "kakao_rest_api_key": "",
+  "_chat_id": "봇에게 메시지를 한 번 보낸 뒤: python3 -m telegram_notifier.notifier_node --get-updates",
+  "chat_id": "",
+  "_message_prefix": "메시지 머리표. 비우면 호스트명",
+  "message_prefix": "",
+  "_notify_warn": "WARN 통보 여부. 릴레이 대기(제어권 미획득)가 상시 WARN 이라 기본 false",
+  "notify_warn": false,
+  "_renotify_s": "ERROR 지속 재통보 간격(초)",
+  "renotify_s": 1800,
+  "_stale_after_s": "진단 무수신을 스테일로 판정하는 시간(초). 릴레이는 1 Hz 발행",
+  "stale_after_s": 15.0
+}
