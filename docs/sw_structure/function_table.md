@@ -18,6 +18,7 @@
 | `trnav_2ws_action_server` / **line_follow 한정** | [src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md](../../src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md) | 13 (+struct 2·enum 1·클래스 2) | **부분** — line_follow 만 | 2026-08-14 |
 | `wall_localizer_core` (벽 3면 정밀 측위 코어) | [src/Navigation/wall_localizer_core/docs/code_review/wall-localizer/2026-08-19.md](../../src/Navigation/wall_localizer_core/docs/code_review/wall-localizer/2026-08-19.md) | 14 (+struct 10·내부 4) | 전수 | 2026-08-19 |
 | `wall_localizer_ros2` (벽 측위 ROS2 어댑터) | [src/Navigation/wall_localizer_ros2/docs/code_review/wall-localizer/2026-08-19.md](../../src/Navigation/wall_localizer_ros2/docs/code_review/wall-localizer/2026-08-19.md) | 7 | 전수 | 2026-08-19 |
+| `trnav_2ws_dock_control` (LGIT 도킹 코어 이식 W1+W2) | [src/Control/Motion_Control/2WS/trnav_2ws_dock_control/docs/function_table.md](../../src/Control/Motion_Control/2WS/trnav_2ws_dock_control/docs/function_table.md) | 20+어댑터(IK 6·관측 1) (+struct 10) | 전수 | 2026-08-23 |
 
 ## ⚠ 미등재 — inventory-gate 가 빈 통과하는 범위
 
