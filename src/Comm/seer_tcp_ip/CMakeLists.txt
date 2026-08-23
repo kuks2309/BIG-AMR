@@ -30,11 +30,15 @@ target_link_libraries(read_lidar_install PRIVATE seer_tcp_ip)
 add_executable(seer_param tools/seer_param.cpp)
 target_link_libraries(seer_param PRIVATE seer_tcp_ip)
 
+# 제어권 경로 실기 확인 — 로봇을 움직이지 않는다(안전 가드 2개, --force 로만 우회).
+add_executable(control_probe tools/control_probe.cpp)
+target_link_libraries(control_probe PRIVATE seer_tcp_ip)
+
 install(DIRECTORY include/ DESTINATION include)
 install(TARGETS seer_tcp_ip
   EXPORT export_seer_tcp_ip
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
-install(TARGETS read_lidar_install seer_param DESTINATION lib/${PROJECT_NAME})
+install(TARGETS read_lidar_install seer_param control_probe DESTINATION lib/${PROJECT_NAME})
 ament_export_targets(export_seer_tcp_ip HAS_LIBRARY_TARGET)
 ament_export_dependencies(nlohmann_json)
 
