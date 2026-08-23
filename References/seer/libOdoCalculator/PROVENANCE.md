@@ -8,7 +8,7 @@
 | 항목 | 값 |
 | --- | --- |
 | 원본 위치 | `amap-server:/media/amap/6ab6980d-.../usr/local/SeerRobotics/rbk/plugins/libOdoCalculator.so` |
-| 원본 하드 | 63G SATA (Seer 실기 사본, **읽기 전용으로만** 접근) |
+| 원본 하드 | 63G SATA(Serial Advanced Technology Attachment) (Seer 실기 사본, **읽기 전용으로만** 접근) |
 | 대상 버전 | rbk(Robokit) **3.4.5.20** — DWARF 경로 `/root/workspace/3.4.5.20/plugins/OdoCalculator/` |
 | 채취 도구 | [`Tools/seer_re/fetch_odocalculator.sh`](../../../Tools/seer_re/fetch_odocalculator.sh) |
 | 아키텍처 | ELF64 x86-64, **not stripped**, `.debug_info` 생존 |
