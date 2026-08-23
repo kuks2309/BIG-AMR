@@ -112,6 +112,14 @@
 
 ## Alternatives (기각)
 
+- **반사판(reflector) 점 특징 병용** — 2026-08-23 사용자 결정으로 생략. 근거: 벽만으로
+  이미 정보 한계 부근(실기 sub-mm)이고 ANT 도 "segments preferable over reflectors"
+  [ANT localization⁺ User Manual R2.6, §D 3.2.2.1, page 132]. 실측 제약: `/scan_merged`
+  가 강도(intensity)를 버림(0개 — `/scan_front` 는 0~249 정상 출력), 현장 반사판은
+  smap `rssiPosList` 112건 기존재. **재도입 조건**: 평행 벽뿐인 통로형 스테이션 등
+  가관측성 부족 현장이 생길 때 — 해석기에 점 잔차 행 추가(Gauss-Newton 2~3회) +
+  merger 강도 통과가 선결.
+
 - **RANSAC 직선 추출** — 난수 의존·비결정론, 이 점군 규모에서 이득 없음.
 - **mcl2d 융합(전역 보강)** — 범위 과대 + 타 세션이 mcl2d 수정 중(충돌 위험). 사용자 기각.
 - **ICP 대(對) 기준 스캔(티치)** — 수동 YAML 결정에 따라 보류. 벽 명시 모델이 잔차 해석·
