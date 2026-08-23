@@ -400,3 +400,38 @@ karto 오라클과 같은 경로가 열려 있다.
 | `CalSpeed` | `v_enc` · `position` | `output.vx/vy/vw` + `flagWheelConsistent` |
 | `CaldPose` | `dpos` · `position` | `output.dx/dy/dyaw` (속도는 0으로 지움) |
 | `AbstractOdometer::CalPose` | 위 둘 중 `flagCumEncPoseMode` 가 고른 쪽 | `output.x/y/yaw` (§3) |
+
+## 13. `AbstractOdometer::CalPose()` — 줄 번호 확정과 §3 보강 ✓
+
+원본 `odometer.cpp` **425~454행**, 주소 `0x15d490`~.
+채취물: [`References/seer/libOdoCalculator/calpose_abstract.asm`](../../References/seer/libOdoCalculator/calpose_abstract.asm)
+
+```
+425  진입
+428  if (!flagFirstInputGot) → 종료                 ; offset 11, cmpb 0xb + je
+437  if (!flagCumEncPoseMode) → 속도 경로           ; offset 13, cmpb 0xd + je
+438  Δx ← output.dx      (0xf0)                     ; 변위 경로 — dt 곱 없음
+439  Δy ← output.dy      (0xf8)
+440  Δθ ← output.dyaw    (0x100)
+441  if (!flagDebugDetail) → 446                    ; offset 12, 로그 건너뜀
+442  [로그 블록] · [속도 경로] dt = Δt / 1e9        ; 상수 0x19c0a0
+       Δx = output.vx·dt · Δy = output.vy·dt · Δθ = output.vw·dt
+446  yaw ← yaw + Δθ                                 ; 0x118
+447  yaw ← rbk::foundation::utils::Normalize(yaw)   ; 이름 있는 외부 함수(인라인 아님)
+448  sin(yaw)                                       ; **갱신된** yaw
+449  cos(yaw)
+450  (x, y) ← (x, y) + R(yaw)·(Δx, Δy)              ; 0x108/0x110, movupd 16 B
+454  예외 정리
+```
+
+§3 에서 raw 역어셈블로 세운 구조가 **줄 번호와 함께 재확인**됐고, 세 가지가 보강된다:
+
+1. **`flagFirstInputGot` 게이트(428행)** — §3 에는 없던 항목이다. 첫 입력 전에는 자세를
+   누적하지 않는다. `CaldPose` 의 같은 게이트(§9.2 163행)와 짝을 이룬다.
+2. **`flagDebugDetail` 게이트(441행)** — 로그만 가른다. 계산 경로에는 영향이 없다.
+3. **정규화는 이름 있는 함수** `rbk::foundation::utils::Normalize(double)` 다.
+   재구현 시 그 함수의 치역(구간 경계 포함 여부)을 별도로 맞춰야 한다 — 아직 미확인.
+
+⚠ **줄 귀속의 한계**: 속도 경로(`dt` 나눗셈·`vx·dt`)가 줄 테이블상 442행으로 묶여 있다.
+최적화로 로그 블록과 인접해 배치된 결과로 보이며, **분기 흐름(437행의 `je` 착지점)** 이
+근거이지 줄 번호가 근거는 아니다. 값 인용 시 주소를 함께 적을 것.
