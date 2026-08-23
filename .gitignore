@@ -56,3 +56,10 @@ csm_records.db-shm
 csm_records.db-wal
 *.db-shm
 *.db-wal
+
+# telegram_notifier 봇 토큰 — 비밀정보. 예시는 telegram.example.json 만 커밋한다.
+config/telegram_notifier/telegram.json
+
+# 화면 캡처(computer-use/capture-test 산출물) — 봇 토큰 등 비밀이 화면에 찍힐 수 있다
+experiments/capture/
+config/telegram_notifier/kakao_tokens.json
