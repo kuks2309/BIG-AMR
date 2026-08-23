@@ -332,6 +332,43 @@ bool refitWallFromPoints(const std::vector<Point2D> &points_lidar, const Predict
         l = fitLineTLS(sel, 0, sel.size() - 1, &rms);
         center = l;
     }
+    // 이상치 트림 — 혼합 화소·에지 반사가 회랑 안에 간헐 유입되면 소수 점이 적합을
+    // mm 단위로 끌고 간다(실기 한쪽 꼬리 분포로 확인). 척도는 MAD — rms 는 오염만큼
+    // 부풀어 3σ 트림이 오염을 통과시킨다.
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        std::vector<double> res(sel.size());
+        std::vector<double> abs_dev(sel.size());
+        for (std::size_t i = 0; i < sel.size(); ++i)
+        {
+            res[i] = l.nx * sel[i].x_m + l.ny * sel[i].y_m - l.d_m;
+        }
+        std::vector<double> tmp = res;
+        std::nth_element(tmp.begin(), tmp.begin() + tmp.size() / 2, tmp.end());
+        const double med = tmp[tmp.size() / 2];
+        for (std::size_t i = 0; i < sel.size(); ++i)
+        {
+            abs_dev[i] = std::fabs(res[i] - med);
+        }
+        tmp = abs_dev;
+        std::nth_element(tmp.begin(), tmp.begin() + tmp.size() / 2, tmp.end());
+        const double scale = std::max(1.4826 * tmp[tmp.size() / 2], 2e-3);
+        std::vector<Point2D> kept;
+        kept.reserve(sel.size());
+        for (std::size_t i = 0; i < sel.size(); ++i)
+        {
+            if (abs_dev[i] <= 3.0 * scale)
+            {
+                kept.push_back(sel[i]);
+            }
+        }
+        if (kept.size() == sel.size() || kept.size() < static_cast<std::size_t>(min_points))
+        {
+            break;
+        }
+        sel.swap(kept);
+        l = fitLineTLS(sel, 0, sel.size() - 1, &rms);
+    }
     // 재적합이 예측과 크게 벌어지면 회랑에 잡물이 섞였거나 예측이 틀린 것 — 기각.
     const double d_ang = std::fabs(normalizeAngle(
         std::atan2(l.ny, l.nx) - std::atan2(pred.line.ny, pred.line.nx)));
