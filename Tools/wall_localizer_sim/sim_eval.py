@@ -77,6 +77,7 @@ class SimEval(Node):
                                                  self.on_diag, 10)
         self.truth_by_stamp = {}
         self.records = []
+        self.diag_records = []
         self.diag_counts = {"OK": 0, "DEGRADED": 0, "LOST": 0}
         self.first_fix_scan = None
         self.n_scans = 0
@@ -145,11 +146,20 @@ class SimEval(Node):
                              "eyaw_deg": math.degrees(eyaw)})
 
     def on_diag(self, msg):
+        stamp_ns = msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec
         for st in msg.status:
             if st.name == "wall_localizer":
-                key = st.message.split(":")[0].strip()
+                parts = st.message.split(":", 1)
+                key = parts[0].strip()
                 if key in self.diag_counts:
                     self.diag_counts[key] += 1
+                rec = {"stamp_ns": stamp_ns, "status": key,
+                       "reason": parts[1].strip() if len(parts) > 1 else ""}
+                truth = self.truth_by_stamp.get(stamp_ns)
+                if truth is not None:
+                    rec["truth"] = [truth[0], truth[1], math.degrees(truth[2])]
+                rec.update({kv.key: kv.value for kv in st.values})
+                self.diag_records.append(rec)
 
     def summary(self):
         n = len(self.records)
@@ -206,6 +216,9 @@ def main():
     with open(os.path.join(args.out_dir, f"{args.scenario}.jsonl"), "w") as f:
         for r in node.records:
             f.write(json.dumps(r) + "\n")
+    with open(os.path.join(args.out_dir, f"{args.scenario}_diag.jsonl"), "w") as f:
+        for r in node.diag_records:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
     summ = node.summary()
     with open(os.path.join(args.out_dir, f"{args.scenario}_summary.json"), "w") as f:
         json.dump(summ, f, indent=2, ensure_ascii=False)
