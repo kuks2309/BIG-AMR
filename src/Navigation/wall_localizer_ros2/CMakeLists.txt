@@ -17,6 +17,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 # 프레임워크-독립 코어 (형제 디렉터리, ROS 의존 0) — 소스를 직접 컴파일 (mcl2d 관례).
 set(CORE ${CMAKE_CURRENT_SOURCE_DIR}/../wall_localizer_core)
@@ -30,7 +31,7 @@ target_include_directories(wall_localizer_core_lib PUBLIC ${CORE}/include)
 add_executable(wall_localizer_node src/wall_localizer_node.cpp)
 target_link_libraries(wall_localizer_node wall_localizer_core_lib)
 ament_target_dependencies(wall_localizer_node
-  rclcpp sensor_msgs geometry_msgs diagnostic_msgs tf2 tf2_ros)
+  rclcpp sensor_msgs geometry_msgs diagnostic_msgs tf2 tf2_ros visualization_msgs)
 
 install(TARGETS wall_localizer_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
