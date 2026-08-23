@@ -6,10 +6,12 @@
 #   없고, 두 원자료에서 직접 읽어야 한다: ① 실기 API 1400 ② amap-server 의 63G 원본 하드
 #   `robot.param`(SQLite). 두 값이 어긋나면 그 자체가 신호다(하드 이미지 ≠ 현재 로봇 설정).
 #
+# 실기 조회는 `seer_tcp_ip` 의 C++ 실행파일이 한다 — 저장소에서 Seer 와 TCP 로 말하는 유일한 지점.
+#
 # 사용:
 #   seer_param.sh                      # 포트 동시연결 한도 6종 (기본 세트)
 #   seer_param.sh MaxAcc               # 이름 조각으로 검색 (원본 하드 전 플러그인 대상)
-#   seer_param.sh MoveFactory MaxAcc   # 플러그인·파라미터 지정 → 실기 1400 정확 조회
+#   seer_param.sh MoveFactory MaxAcc   # 플러그인·파라미터 지정 → 실기·하드 동시 조회
 #
 # 환경변수: SEER_IP(기본 192.168.44.82) · AMAP_* 는 amap_server.sh 가 해석
 # 인벤토리·경위: docs/code_review/seer_re/ 의 최신 항목
@@ -31,32 +33,31 @@ DEFAULT_PAIRS=(
   "NetProtocol RobotPushTCPServerMaxConnections 19301_Push"
 )
 
-live_query() {  # $1=plugin $2=param
-  PYTHONPATH="$REPO/src/Comm/seer_tcp_ip:${PYTHONPATH:-}" \
-  SEER_IP="$SEER_IP" PLUGIN="$1" PARAM="$2" python3 - <<'PY'
-import os, sys
-try:
-    from seer_tcp_ip import SeerApi
-except ImportError as e:
-    print(f"(라이브러리 import 실패: {e})"); sys.exit(0)
-plugin, param = os.environ["PLUGIN"], os.environ["PARAM"]
-try:
-    with SeerApi(os.environ["SEER_IP"], timeout=4.0) as c:
-        r = c.get_param(plugin, param)
-except Exception as e:
-    print(f"(실기 조회 실패: {type(e).__name__}: {e})"); sys.exit(0)
-d = r.get(plugin, {}).get(param)
-if d is None:
-    print("(응답에 항목 없음)")
-else:
-    print(f"value={d.get('value')} default={d.get('defaultValue')} "
-          f"range={d.get('minValue')}~{d.get('maxValue')} type={d.get('type')}")
-PY
+# seer_tcp_ip 의 seer_param 실행파일을 찾는다 — 설치본 우선, 없으면 빌드 트리.
+find_cli() {
+  if command -v ros2 >/dev/null 2>&1 && ros2 pkg prefix seer_tcp_ip >/dev/null 2>&1; then
+    local p; p="$(ros2 pkg prefix seer_tcp_ip)/lib/seer_tcp_ip/seer_param"
+    [ -x "$p" ] && { echo "$p"; return 0; }
+  fi
+  local b="$REPO/install/seer_tcp_ip/lib/seer_tcp_ip/seer_param"
+  [ -x "$b" ] && { echo "$b"; return 0; }
+  b="$REPO/build/seer_tcp_ip/seer_param"
+  [ -x "$b" ] && { echo "$b"; return 0; }
+  return 1
+}
+
+live_query() {  # $1=plugin $2=param  (인자 없으면 기본 세트)
+  local cli
+  if ! cli="$(find_cli)"; then
+    echo "(실기 조회 생략 — seer_tcp_ip 미빌드. colcon build --packages-select seer_tcp_ip)"
+    return 0
+  fi
+  SEER_IP="$SEER_IP" "$cli" "$@" 2>&1 || true
 }
 
 drive_query() {  # $1=plugin(또는 --grep) $2=param(또는 조각)
   if [ ! -x "$AMAP" ]; then
-    echo "(원본 하드 조회 생략 — $AMAP 없음. session/5466b21a 브랜치에 있다)"
+    echo "(원본 하드 조회 생략 — $AMAP 없음)"
     return 0
   fi
   AMAP_TIMEOUT="${AMAP_TIMEOUT:-240}" "$AMAP" ssh "
@@ -82,13 +83,13 @@ PY
 }
 
 if [ $# -eq 0 ]; then
-  echo "=== Seer 포트 동시연결 한도 — 실기($SEER_IP) vs 원본 하드 ==="
-  echo "⚠ 이 값은 문서 판본이 정하는 상수가 아니라 **런타임 파라미터**다(변경 가능)."
+  echo "=== 실기 ==="
+  live_query
+  echo
+  echo "=== 원본 하드 ==="
   for row in "${DEFAULT_PAIRS[@]}"; do
     read -r plugin param label <<<"$row"
-    printf '\n[%s] %s\n' "$label" "$param"
-    printf '  실기 1400 : %s\n' "$(live_query "$plugin" "$param")"
-    printf '  원본 하드 : %s\n' "$(drive_query "$plugin" "$param" | sed 's/^ *//')"
+    printf '  %-14s %-46s %s\n' "$label" "$param" "$(drive_query "$plugin" "$param" | sed 's/^ *//')"
   done
 elif [ $# -eq 1 ]; then
   echo "=== 원본 하드 robot.param 에서 '$1' 검색 (전 플러그인) ==="
@@ -97,6 +98,6 @@ elif [ $# -eq 1 ]; then
   echo "정확한 플러그인·이름을 알면 실기도 조회한다:  $0 <플러그인> <파라미터>"
 else
   printf '[%s.%s]\n' "$1" "$2"
-  printf '  실기 1400 : %s\n' "$(live_query "$1" "$2")"
+  printf '  실기      : %s\n' "$(live_query "$1" "$2" | sed 's/^ *//')"
   printf '  원본 하드 : %s\n' "$(drive_query "$1" "$2" | sed 's/^ *//')"
 fi
