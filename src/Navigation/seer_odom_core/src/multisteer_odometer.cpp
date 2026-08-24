@@ -23,7 +23,7 @@ double normalize(double x)
 bool MultiSteersOdometer::setMotorParams(const std::vector<MotorParam> &wheels)
 {
     coef_ready_ = false;
-    coef_.clear();
+    coef_.resize(0, 0);
     wheels_ = wheels;
     // 미지수가 3개(dx, dy, dyaw)이므로 관측이 3개 이상이어야 한다 — 휠 2개면 4개다.
     if (wheels_.size() < 2)
@@ -51,8 +51,7 @@ bool MultiSteersOdometer::setMotorParams(const std::vector<MotorParam> &wheels)
     if (std::fabs(ata.determinant()) < 1e-12)
         return false;
 
-    const Eigen::MatrixXd coef = ata.inverse() * a.transpose(); // 3 × rows
-    coef_.assign(coef.data(), coef.data() + coef.size());       // Eigen 기본 열 우선
+    coef_ = ata.inverse() * a.transpose(); // 3 × rows
     coef_ready_ = true;
     return true;
 }
@@ -81,14 +80,13 @@ bool MultiSteersOdometer::buildObservation(bool use_velocity, std::vector<double
 void MultiSteersOdometer::applyCoef(const std::vector<double> &b, double &r0, double &r1,
                                     double &r2) const
 {
-    // coef_ 는 열 우선 3×m 이므로 (행 k, 열 j) 는 coef_[j*3 + k] 다.
-    double acc[3] = {0.0, 0.0, 0.0};
-    for (std::size_t j = 0; j < b.size(); ++j)
-        for (int k = 0; k < 3; ++k)
-            acc[k] += coef_[j * 3 + k] * b[j];
-    r0 = acc[0];
-    r1 = acc[1];
-    r2 = acc[2];
+    // 원본과 같은 Eigen 행렬–벡터 곱을 쓴다. 손으로 누적하면 덧셈 순서가 달라져
+    //   상쇄가 큰 yaw 성분에서 결과가 갈린다 — 원본 대조에서 실측했다.
+    const Eigen::Map<const Eigen::VectorXd> bv(b.data(), static_cast<Eigen::Index>(b.size()));
+    const Eigen::VectorXd r = coef_ * bv;
+    r0 = r(0);
+    r1 = r(1);
+    r2 = r(2);
 }
 
 void MultiSteersOdometer::calSpeed()

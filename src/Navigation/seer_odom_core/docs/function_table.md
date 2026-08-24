@@ -9,27 +9,27 @@
 | 함수 | 위치 | 입력 | 출력 | 부작용 | 원본 대응 |
 | --- | --- | --- | --- | --- | --- |
 | `normalize(x)` | multisteer_odometer.cpp:10-21 | 각도(rad) | [−π, π) | 없음(순수) | `rbk::foundation::utils::Normalize` 0x18750 |
-| `setMotorParams(wheels)` | multisteer_odometer.cpp:23-58 | 휠 기하 목록 | bool(굳었는가) | 계수행렬 (AᵀA)⁻¹Aᵀ 사전 계산 | `CalOdoCoef` 79~107 |
-| `setVitalInfo(info)` | multisteer_odometer.cpp:60-63 | 모터별 계측 map | — | 이번 주기 계측 보관 | `ExtractMotorInfo` 계열 |
-| `buildObservation(use_velocity, b)` | multisteer_odometer.cpp:65-79 | 속도/변위 선택 | bool(전 휠 계측 존재) | 관측벡터 b 채움 | `CalSpeed`/`CaldPose` 공통부 |
-| `applyCoef(b, r0, r1, r2)` | multisteer_odometer.cpp:81-92 | 관측벡터 | 3성분 | 없음 | `general_matrix_vector_product` |
-| `calSpeed()` | multisteer_odometer.cpp:94-121 | — | — | `output.vx/vy/vw` + `wheel_consistent_` | `CalSpeed` 110~156 |
-| `caldPose()` | multisteer_odometer.cpp:123-135 | — | — | `output.dx/dy/dyaw`. **속도는 항상 0으로 지운다** | `CaldPose` 159~195 |
-| `calPose(dt_sec)` | multisteer_odometer.cpp:137-162 | dt(속도 경로 전용) | — | `output.x/y/yaw` 누적. 각을 먼저 갱신·정규화하고 **그 각으로** 회전(end-point) | `AbstractOdometer::CalPose` 425~454 |
+| `setMotorParams(wheels)` | multisteer_odometer.cpp:23-57 | 휠 기하 목록 | bool(굳었는가) | 계수행렬 (AᵀA)⁻¹Aᵀ 사전 계산 | `CalOdoCoef` 79~107 |
+| `setVitalInfo(info)` | multisteer_odometer.cpp:59-62 | 모터별 계측 map | — | 이번 주기 계측 보관 | `ExtractMotorInfo` 계열 |
+| `buildObservation(use_velocity, b)` | multisteer_odometer.cpp:64-78 | 속도/변위 선택 | bool(전 휠 계측 존재) | 관측벡터 b 채움 | `CalSpeed`/`CaldPose` 공통부 |
+| `applyCoef(b, r0, r1, r2)` | multisteer_odometer.cpp:80-90 | 관측벡터 | 3성분 | 없음 | `general_matrix_vector_product` |
+| `calSpeed()` | multisteer_odometer.cpp:92-119 | — | — | `output.vx/vy/vw` + `wheel_consistent_` | `CalSpeed` 110~156 |
+| `caldPose()` | multisteer_odometer.cpp:121-133 | — | — | `output.dx/dy/dyaw`. **속도는 항상 0으로 지운다** | `CaldPose` 159~195 |
+| `calPose(dt_sec)` | multisteer_odometer.cpp:135-160 | dt(속도 경로 전용) | — | `output.x/y/yaw` 누적. 각을 먼저 갱신·정규화하고 **그 각으로** 회전(end-point) | `AbstractOdometer::CalPose` 425~454 |
 
 ## 멤버 변수 (전역변수 없음 — 모듈 전역 0)
 
 | 변수 | 위치 | 용도 | 원본 대응 |
 | --- | --- | --- | --- |
-| `wheels_` | multisteer_odometer.hpp:88-88 | 휠 기하. 순서가 관측벡터 순서를 정한다 | `mapMotorParam` |
-| `coef_` | multisteer_odometer.hpp:90-90 | (AᵀA)⁻¹Aᵀ, 열 우선 3×2n | 사전 계산 역행렬 |
-| `vital_` | multisteer_odometer.hpp:91-91 | 이번 주기 모터 계측 | `curVitalInfo` |
-| `output_` | multisteer_odometer.hpp:93-93 | 속도·증분·누적 자세 | `output` (88 B) |
-| `coef_ready_` | multisteer_odometer.hpp:94-94 | 계수행렬이 굳었는가 | `flagCoefCal` |
-| `cum_enc_pose_mode_` | multisteer_odometer.hpp:95-95 | 변위 누적(true) vs 속도 적분 | `flagCumEncPoseMode` (배포값 1) |
-| `first_input_got_` | multisteer_odometer.hpp:96-96 | 첫 입력 전에는 증분·자세를 만들지 않는다 | `flagFirstInputGot` |
-| `wheel_consistent_` | multisteer_odometer.hpp:97-97 | `calSpeed()` 잔차가 임계 이하였는가 | `flagWheelConsistent` |
-| `thres_consistent_` | multisteer_odometer.hpp:98-98 | 일관성 임계 (배포값 0.02) | `thresConsistent` |
+| `wheels_` | multisteer_odometer.hpp:90-90 | 휠 기하. 순서가 관측벡터 순서를 정한다 | `mapMotorParam` |
+| `coef_` | multisteer_odometer.hpp:94-94 | (AᵀA)⁻¹Aᵀ, 열 우선 3×2n | 사전 계산 역행렬 |
+| `vital_` | multisteer_odometer.hpp:95-95 | 이번 주기 모터 계측 | `curVitalInfo` |
+| `output_` | multisteer_odometer.hpp:97-97 | 속도·증분·누적 자세 | `output` (88 B) |
+| `coef_ready_` | multisteer_odometer.hpp:98-98 | 계수행렬이 굳었는가 | `flagCoefCal` |
+| `cum_enc_pose_mode_` | multisteer_odometer.hpp:99-99 | 변위 누적(true) vs 속도 적분 | `flagCumEncPoseMode` (배포값 1) |
+| `first_input_got_` | multisteer_odometer.hpp:100-100 | 첫 입력 전에는 증분·자세를 만들지 않는다 | `flagFirstInputGot` |
+| `wheel_consistent_` | multisteer_odometer.hpp:101-101 | `calSpeed()` 잔차가 임계 이하였는가 | `flagWheelConsistent` |
+| `thres_consistent_` | multisteer_odometer.hpp:102-102 | 일관성 임계 (배포값 0.02) | `thresConsistent` |
 
 ## 원본에서 의도적으로 이탈한 것
 

@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 
+#include <Eigen/Dense>
+
 #include "seer_odom_core/types.hpp"
 
 namespace seer_odom_core
@@ -86,8 +88,10 @@ class MultiSteersOdometer
     void applyCoef(const std::vector<double> &b, double &r0, double &r1, double &r2) const;
 
     std::vector<MotorParam> wheels_;
-    // (AᵀA)⁻¹Aᵀ — 행 3 × 열 2n. 원본이 Eigen 표현식으로 한 번에 계산해 굳히는 것과 같다.
-    std::vector<double> coef_;
+    // (AᵀA)⁻¹Aᵀ — 행 3 × 열 2n. 원본이 Eigen 표현식으로 굳히는 것과 같다.
+    //   **Eigen 타입으로 들고 Eigen 곱을 쓴다** — 손으로 짠 누적 루프는 덧셈 순서가 달라
+    //   yaw 성분에서 1~2 ULP 갈렸다(원본 대조 실측).
+    Eigen::MatrixXd coef_;
     std::map<std::string, MotorVitalInfo> vital_;
 
     OdometerOutput output_;
