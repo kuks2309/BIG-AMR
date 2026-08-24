@@ -341,6 +341,15 @@ yaw_control ±, mpc ±)로 노출되며, 모두 `/motion/wheel_cmd/<action>` 에
 
 git 협업 모드: solo
 
+언어 표준: C++ (ROS2 패키지 — 노드·라이브러리) / Python (비-ROS 도구·스크립트, `Tools/`)
+
+`src/` 아래 ROS2 패키지는 `ament_cmake` 가 기본이다. 실측 분포도 그렇다 —
+`ament_cmake` 32 : `ament_python` 12 (2026-08-18, `find src -name package.xml` 의 `build_type`).
+Python 으로 갈 이유가 있으면 **ADR 에 §Language 절로 근거를 적고** 그 패키지에 한해 예외로 둔다
+(예: PyQt5 GUI, 단독 진단 스크립트). 판정은 이 선언과 위 분포로 하고,
+`docs/claude_guideline/coding/stack.md` §2 의 빈 템플릿을 「정해진 것이 없다」로 읽지 않는다 —
+그 오독으로 `seer_tcp_ip` 가 Python 으로 만들어졌다(`docs/claude-mistake/2026-08-18-002`).
+
 ### 현재 상태
 
 **동작 확인됨**

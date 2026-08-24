@@ -2,24 +2,20 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>seer_lidar_tf</name>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
   <description>Read 2D LiDAR mounting pose (install_info) from a SEER SRC controller via the
-    Robokit TCP API (port 19204, API 1009) and publish base_footprint -> scan_* static TF.</description>
+    Robokit TCP API (port 19204, API 1009) and publish base_footprint -&gt; scan_* static TF.</description>
   <maintainer email="kukwonko@gmail.com">Big-AMR</maintainer>
   <license>Apache-2.0</license>
 
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>tf2_ros</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
-  <!-- Seer TCP 프로토콜은 여기서 재구현하지 않는다 (ADR 2026-08-07-seer-api-tcp-hal). -->
-  <exec_depend>seer_tcp_ip</exec_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
+  <depend>rclcpp</depend>
+  <depend>tf2_ros</depend>
+  <depend>geometry_msgs</depend>
+  <depend>seer_tcp_ip</depend>
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

@@ -2,34 +2,29 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>seer_tcp_ip</name>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
   <description>
     Seer(SRC) Robokit TCP/IP API 클라이언트 — 16B 헤더(0x5A) + JSON, 1문1답.
 
-    저장소 안에서 Seer 와 TCP 로 말하는 유일한 지점이다. 이전에는 헤더가
-    src/Sensors/Lidar/2D 의 두 파일에 각각 재구현돼 있었다(ADR 2026-08-07-seer-api-tcp-hal).
+    저장소 안에서 Seer 와 TCP 로 말하는 유일한 지점이다. rclcpp 에 의존하지 않는 순수 C++17
+    라이브러리라 노드·단독 실행파일·시험 어디서나 같은 코드를 쓴다.
 
-    ⚠ 포트 정책 — 19205/19206/19207/19210 은 동시연결 1(v1.2.1)이라 선점되면 RoboShop 을
-    포함한 타 클라이언트가 거부된다. 라이브러리 직결은 19204(Status, 동시 10) 까지만 허용하고,
-    배타 포트는 SeerApi(allow_exclusive=True) 를 명시해야 열린다.
+    ⚠ 포트 정책 — 19205/19206/19207/19210 은 지령·설정이라 기본 차단이다.
+    막는 이유는 연결 수가 아니라 지령 중재다(두 주체가 동시에 지령하면 소켓이 남아돌아도 사고).
+    단발 도구는 SeerApi(..., allowGuarded=true) 를 명시해야 열린다.
 
-    ⚠ 이 패키지는 HAL 경계가 아니다. 상위 알고리즘 패키지는 이 패키지를 import 하지 않고
-    ROS 인터페이스(토픽·서비스·액션)를 통해 접근한다 — 그래야 Seer 를 우리 스택으로 교체할 때
-    이 디렉토리만 삭제하면 된다.
-
-    코드 자체는 rclpy 에 의존하지 않는다(단독 스크립트·pytest 에서 그대로 import 가능).
+    ⚠ 이 패키지는 HAL 경계가 아니다. 상위 알고리즘 패키지는 이것을 직접 쓰지 않고
+    ROS 인터페이스를 통해 접근한다 — 그래야 Seer 를 우리 스택으로 교체할 때 이 디렉토리만 지운다.
   </description>
   <maintainer email="gabekim883@gmail.com">kuks2309</maintainer>
   <license>Proprietary</license>
 
-  <buildtool_depend>ament_python</buildtool_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>nlohmann_json</depend>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

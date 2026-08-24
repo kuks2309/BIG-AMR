@@ -1,5 +1,14 @@
 # sick_safetyscanners2 Code Updates
 
+2026-08-23 / (pending commit) / launch: 드라이버 2대 respawn 추가
+- `launch/sick_safetyscanners2_launch.py` front/rear Node 에 `respawn=True, respawn_delay=5.0` —
+  센서 미응답(timeout)으로 죽어도 자동 재시도, 네트워크 복구 시 사람 손 없이 스트림 복귀.
+  5초는 센서 쪽 TCP 세션 정리 여유. 채널 가드(OpaqueFunction)는 launch 시 1회만 돌지만
+  respawn 이 재설정하는 것은 우리 채널(1) 목적지뿐이라 Seer 채널(0) 무영향.
+- 검증(실기 2026-08-23): front `kill -9` → 재기동(pid 2420396→2422577), `/scan_front` 34.0 Hz 회복.
+- 내구(실기 2026-08-23, 120분 순환 kill): front proc 5.34 s / `/scan_front` 6.9 s,
+  rear proc 5.33 s / `/scan_rear` 7.0 s — 둘 다 센서 재접속 포함 7초 내 복귀, Seer 채널 무영향.
+
 2026-07-25 / (pending commit) / 추가: Ford-CATL-AMR/Big-AMR 로 재이식
 - 원본 TR_Nav_ros2_ws(github.com/kuks2309/TR_Nav_ros2_ws) src/Sensor/Lidar/2D → 본 워크스페이스 src/Sensors/Lidar/2D 통째 복사
 - 변경: 없음 (rsync bit-identical 검증 완료 — 34 파일, diff 0)

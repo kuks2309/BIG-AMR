@@ -4,6 +4,20 @@
 > `../seer_lidar_tf_launch.py`)의 수정 이력을 함께 담는다 — 셋이 한 작업 단위로 움직인다.
 > 인벤토리(함수표·전역변수표): [docs/code_review/seer-lidar-tf/2026-08-10.md](code_review/seer-lidar-tf/2026-08-10.md)
 
+## 2026-08-23 / (pending commit) — ament_python → ament_cmake, 노드 C++ 재작성
+
+- **왜**: `seer_tcp_ip` 가 C++ 라이브러리가 되면서 rclpy 노드가 그것을 import 할 수 없다.
+  저장소 언어 표준(README `언어 표준:`)도 ROS2 패키지는 C++ 다.
+  ADR `docs/adr/2026-08-18-seer-tcp-ip-cpp-rewrite.md` §Decision 3.
+- **조치**: `seer_lidar_tf/seer_lidar_tf_node.py`(207줄) → `src/seer_lidar_tf_node.cpp`(278줄).
+  `setup.py`·`setup.cfg`·`resource/` 제거, `CMakeLists.txt` 신설, `package.xml` 을 ament_cmake 로.
+  런치 파일은 그대로 — 실행파일 이름(`seer_lidar_tf_node`)과 파라미터 9개를 유지했다.
+- **동작 유지 확인**: 두 모드(publish latch/폴링, calibration write) 그대로. 실기에서 Python 판과
+  **같은 install_info 값**으로 `base_footprint -> [scan_front, scan_rear]` TF 발행.
+- **부수 확인**: `seer_port` 에 지령 포트(19205)를 넣으면 `seer_tcp_ip` 게이트가 막는 것을
+  실기에서 확인했다 — 게이트가 라이브러리 안에서 끝나지 않고 노드 단에서 작동한다.
+- **잔여(⚠)**: 이 노드는 조회(19204)만 쓴다. 지령 포트 API 의 실기 검증은 debt-111 소관.
+
 ## 2026-08-10 / (pending commit) — 게이트 개명에 따른 주석 정정 + 함수표 신설
 
 - **증상**: `seer_lidar_tf_node.py` 의 클라이언트 생성부 주석이 `allow_exclusive` 를 언급 —

@@ -1,7 +1,66 @@
 # seer_tcp_ip Code Updates
 
-> 인벤토리(함수표·전역변수표): [docs/code_review/seer_tcp_ip/2026-08-07.md](code_review/seer_tcp_ip/2026-08-07.md)
+> 인벤토리(함수표·전역변수표): [docs/code_review/seer_tcp_ip/2026-08-23.md](code_review/seer_tcp_ip/2026-08-23.md) (C++)
+> 직전 판(Python): [2026-08-07.md](code_review/seer_tcp_ip/2026-08-07.md)
 > 설계 결정: [ADR 2026-08-07-seer-api-tcp-hal](../../../../docs/adr/2026-08-07-seer-api-tcp-hal.md)
+
+## 2026-08-23 / (pending commit) — `control_probe` 신설, 제어권 경로 실기 확인 (debt-111 부분 상환)
+
+- **왜**: 쓰기 API 26종이 실기 미검증이었는데(debt-111), 그중 **제어권 4005/4006 이 가장 앞의
+  관문**이다 — 이것이 막히면 나머지가 전부 `ret_code 40020` 으로 거부된다. 로봇을 움직이지 않고
+  확인할 수 있는 유일한 쓰기 경로이기도 하다.
+- **왜 도구인가**: 한 번 확인하고 마는 주장은 다음 사람이 다시 믿을 수 없다. 재실행할 수 있어야
+  근거로 쓸 수 있다(lgit `seer_api_comm/tools/lock_probe.py` 도 같은 목적의 도구를 둔다).
+- **조치**: `tools/control_probe.cpp` — `1060` → `4005` → `1060`(내 이름 확인) → `2000` → `4006`
+  → `1060`(반납 확인). 안전 가드 2개를 달았다:
+  - 시작 전 `1060` 이 `locked=true` 면 중단 — 4005 는 기존 소유자를 빼앗고 반납해도 복귀시키지 않는다.
+  - 시작 전 `1005` 속도가 0 이 아니면 중단 — 2000 은 주행 중인 로봇을 세운다.
+  - 둘 다 `--force` 로만 넘어간다.
+- **실측**(192.168.44.82, rbk 3.4.5.22): 사전 `locked=false` → 4005 획득 →
+  `1060` 이 `nick_name='big-amr-control-probe'` 로 **내 이름을 보임** → 2000 → 4006 →
+  사후 `locked=false`. **`ControlSession` 의 획득→정지→반납 계약이 실기에서 성립한다.**
+- **범위**: 로봇은 움직이지 않았다. `2010` 개루프·내비게이션·재측위는 여전히 미검증이며
+  잭업·승인이 필요하다(debt-111 잔여).
+
+## 2026-08-23 / (pending commit) — Python → C++17 전면 재구현, 소비자 3곳 동반 전환
+
+- **왜**: 저장소 언어 표준이 C++ 인데 이 패키지만 Python 이었다. 언어를 **결정 항목으로 올린 적이
+  없었고**(ADR 에 §Language 절 부재), 저장소 형상(`ament_cmake` 32 : `ament_python` 12)도 세어
+  보지 않았다. 경위 `docs/claude-mistake/2026-08-18-002`, 결정 ADR `2026-08-18-seer-tcp-ip-cpp-rewrite.md`.
+  모션 스택(`trnav_2ws_action_server`)이 C++ 라 제어권 세션이 경계 반대편에 있었던 것이 실질 문제였다.
+- **구성**: `ament_cmake` · C++17 · **rclcpp 무의존**. `ports`/`transport`/`api`/`control` 4층은
+  Python 판 설계를 그대로 옮겼고 바뀐 것은 언어뿐이다. 의존성은 `nlohmann_json`(헤더 온리, MIT) 하나.
+- **소비자 3곳 전환**(두 벌 공존 금지 — debt-039 선례):
+  - `seer_lidar_tf` → `ament_cmake` C++ 노드로 재작성. 파라미터 9개·두 모드(publish/write) 유지.
+  - `seer_read_lidar_install.py` → `seer_tcp_ip` 의 실행파일 `read_lidar_install` 로 교체.
+  - `Tools/seer_re/seer_param.sh` → 새 실행파일 `seer_param` 호출로 교체.
+  - Python 구현·시험·`mutation_check.py` 삭제.
+- **시험**: 자체 CHECK 하니스(gtest 미도입, `mcl2d_core` 관례). **`assert` 를 쓰지 않는다** —
+  기본 빌드가 Release(`-DNDEBUG`)라 `assert` 기반 시험은 무조건 통과한다.
+  `harness_selftest` 가 매크로의 검출력 자체를 시험한다.
+- **lgit 조사**: `LGIT_C6_MoMa` 가 실제로 호출하는 편호 13개는 **전부 우리 50편호 안**에 있었다
+  (`2022`·`4200`·`6100`·`6101` 은 벤더 사본에 정의만 있고 호출처 0건). 대신 그쪽이 규칙으로 남긴
+  **「2002 를 보냈다 ≠ 성공」** 을 `relocateAndConfirm()` 으로 반영했다 — 2002 → 1021 폴링 →
+  상태 3 이면 2003 확정 → 상태 1 에서만 성공. 상태값은 참조 구현에서 확인했고,
+  **이 기체(rbk 3.4.5.22)가 상태 3 이 나오는 판(3.4.6.1800 미만)이다.**
+- **이식 중 잡은 결함 4건**
+  1. **하니스가 「예외 미발생」을 못 잡았다** — `CHECK_THROWS_MSG` 가 예외가 아예 안 나면 통과시켰다.
+     이게 살아 있었으면 이후 돌연변이 결과가 전부 가짜다. 자기시험으로 닫았다.
+  2. **시험 `Rig` 세그폴트** — 멤버 소멸 순서(`owned` 가 `api` 보다 먼저 파괴)로 죽은 스트림 접근.
+     선언 순서를 주석에 계약으로 박았다.
+  3. **`connect` 실패가 죽은 스트림을 남겼다** — 다음 요청이 `Bad file descriptor` 로 한 번 더
+     헛돌았다. **Python 판에 없던, 이식하며 만든 버그**이며 실기 실패경로에서 드러났다.
+     회귀 시험을 붙였고 옛 동작을 되돌리면 잡히는 것까지 확인했다.
+  4. **무의미한 가드** — `ret_code` 부재 검사가 기본값 0 때문에 아무 일도 하지 않았다.
+     돌연변이가 그것을 증명해 걷어내고, 실제로 일하는 `is_object()` 만 남겼다.
+- **OpenSSL 미도입**: 초안이 md5 대조 때문에 집었으나 걷어냈다 — 호출자 0건인 편의 인자를 위해
+  저장소 최초의 시스템 의존성을 들일 값이 아니다. `downloadMap` 은 원문 바이트만 돌려주고 무결성
+  대조는 호출자 몫이다.
+- **검증**: ctest **4/4**(`test_transport` 44 · `test_api` 158 · `test_control` 36 ·
+  `harness_selftest`) · **돌연변이 48/48 검출**(전송 15 · 편호 20 · 제어권 13) · colcon 2패키지
+  경고 0 · 실기 조회 5경로(도구 2 · 노드 · 실패경로 · **게이트 차단**).
+- **잔여(⚠)**: 쓰기 API 26종과 `control.py` 상당분은 여전히 **실기 미검증**(debt-111).
+  2022 편호 충돌 미해소(debt-110). broker 미착수(debt-072·112).
 
 ## 2026-08-18 / (pending commit) — 편호 커버리지 17 → 50, 제어권 세션 신설, `duration` 필수화
 
