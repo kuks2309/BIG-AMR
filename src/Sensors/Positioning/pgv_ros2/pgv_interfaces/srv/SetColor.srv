@@ -1,0 +1,8 @@
+# 추종 레인 색 선택 (매뉴얼 §5.1.4). 상수값 = 응답 비트 배치 (R<<2 | G<<1 | B) 와 동일.
+uint8 COLOR_BLUE=1
+uint8 COLOR_GREEN=2
+uint8 COLOR_RED=4
+
+uint8 color
+---
+bool success                # 요청 색과 동일한 색이 응답으로 확인됨
