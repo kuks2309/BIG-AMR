@@ -20,6 +20,7 @@
 | `pc_setup` (Orin 개발 PC 셋업 + USB 킷 제작) | [Tools/pc_setup/docs/function_table.md](../../Tools/pc_setup/docs/function_table.md) (게이트 인식본: [docs/code_review/pc-setup/2026-08-24.md](../code_review/pc-setup/2026-08-24.md)) | 12 (+본문 5) — 스크립트 2본 | 전수 | 2026-08-24 |
 | `wall_localizer_core` (벽 3면 정밀 측위 코어) | [src/Navigation/wall_localizer_core/docs/code_review/wall-localizer/2026-08-19.md](../../src/Navigation/wall_localizer_core/docs/code_review/wall-localizer/2026-08-19.md) | 14 (+struct 10·내부 4) | 전수 | 2026-08-19 |
 | `wall_localizer_ros2` (벽 측위 ROS2 어댑터) | [src/Navigation/wall_localizer_ros2/docs/code_review/wall-localizer/2026-08-19.md](../../src/Navigation/wall_localizer_ros2/docs/code_review/wall-localizer/2026-08-19.md) | 7 | 전수 | 2026-08-19 |
+| `pgv_driver`·`pgv_interfaces` (P+F PGV 읽기 헤드) | [src/Sensors/Positioning/pgv_ros2/pgv_driver/docs/function_table.md](../../src/Sensors/Positioning/pgv_ros2/pgv_driver/docs/function_table.md) | 16 (+상수 5·파라미터 7·인터페이스 3) | 전수 | 2026-08-24 |
 
 ## ⚠ 미등재 — inventory-gate 가 빈 통과하는 범위
 
