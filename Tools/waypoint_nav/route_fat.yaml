@@ -1,0 +1,19 @@
+# FAT 시나리오 1 경로 템플릿 — 노드 좌표는 현장 배치 확정 후 실측/smap 으로 채울 것.
+# 원문: Remote_instruction/FAT_Test/FAT 시나리오_티로보틱스_초안.pptx 
+#   레그 1-2 전후방 ≥10 m·1.0 m/s·0.3 m/s² / 레그 2-3 측방 ≥4 m·0.5 m/s / 레그 3-4 0.6 m/s
+#   → 도킹 노드 정밀 도킹(Laser Tracker·PGV 측정)
+nodes:            # ⚠ 자리표시 좌표 — 현장 확정 전 실기 사용 금지
+  N1: {x: 0.0, y: 0.0}
+  N2: {x: 10.0, y: 0.0}
+  N3: {x: 10.0, y: 4.0}
+  N4: {x: 12.0, y: 4.0}
+route:
+  - {to: N2, max_speed: 1.0, accel: 0.3}
+  - {to: N3, max_speed: 0.5, accel: 0.3, heading: keep}
+  - {to: N4, max_speed: 0.6, accel: 0.3}
+dock:             # 정밀 도킹 전환 — target 은 **스테이션 프레임**(wall_localizer 티치 좌표)
+  target: {x: 1.5, y: 0.0, yaw_deg: 0.0}   # ⚠ 자리표시 — 스테이션 티치 후 확정
+  axis_deg: 0.0
+  max_speed: 0.15
+  tol: {d_mm: 3.0, lat_mm: 3.0, yaw_deg: 0.5}
+  timeout_s: 90.0
