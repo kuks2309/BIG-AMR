@@ -1,0 +1,55 @@
+# `Tools/pc_setup` 함수표 · 전역변수표 (권위본)
+
+> `coding.md` §2/§6 이중 기록 중 **모듈 로컬 권위본**. 루트 집계 인덱스는
+> [docs/sw_structure/function_table.md](../../../docs/sw_structure/function_table.md).
+> 최초 작성 2026-08-24 (신규 파일 — coding.md §2 「신규 파일은 계획 단계에서 표를 생성」).
+> 상태: **전수** (스크립트 내 함수 전부 등재).
+
+## 함수표 — `setup_orin_dev_pc.sh`
+
+Jetson Orin NX(arm64, Ubuntu 22.04) 개발 PC 에 SSH 서버·Tailscale·VSCode 를 설치하는
+일회성 셋업 스크립트. 재실행 안전(idempotent), 일반 사용자 실행 + 내부 sudo.
+
+| 함수 | 위치 | 인자 → 반환 | 용도 | 부수효과 |
+| --- | --- | --- | --- | --- |
+| `log` | setup_orin_dev_pc.sh:48 | `문자열…` → stdout | 단계 구분 배너 출력 | stdout |
+| `check_platform` | setup_orin_dev_pc.sh:50-64 | 없음 → 없음 (부적합 시 exit) | arm64/22.04 확인, root 직접실행 거부, sudo 자격 선확인 | 대화형 프롬프트 가능 |
+| `apt_prepare` | setup_orin_dev_pc.sh:66-70 | 없음 → 없음 | apt 갱신 + curl·gnupg 등 공통 의존 설치 | 시스템 패키지 설치 |
+| `setup_ssh` | setup_orin_dev_pc.sh:72-80 | 없음 → 없음 | openssh-server 설치·활성화, UFW 활성 시에만 허용 규칙 | 서비스 enable, 방화벽 규칙 |
+| `setup_tailscale` | setup_orin_dev_pc.sh:82-102 | 없음 → 없음 | 공식 apt 저장소 등록·설치·기동, auth key 있으면 접속/없으면 수동 안내 | apt 소스 추가, 서비스 enable, VPN 접속 |
+| `setup_vscode` | setup_orin_dev_pc.sh:104-115 | 없음 → 없음 | Microsoft apt 저장소(arm64) 등록·`code` 설치 | apt 소스 추가, 패키지 설치 |
+| `report` | setup_orin_dev_pc.sh:117-129 | 없음 → stdout | 설치 결과 요약(서비스 상태·버전·IP) | stdout |
+| (인자 파싱) | setup_orin_dev_pc.sh:18-37 | argv: `--authkey <key>`, `--skip-vscode`, `-h` | 인자 → 전역변수, 미지의 인자는 exit 1 | `AUTHKEY`·`SKIP_VSCODE` 설정 |
+| (키파일 기본값) | setup_orin_dev_pc.sh:39-46 | 없음 → `AUTHKEY` 갱신 | `--authkey` 미지정 시 스크립트 옆 `tailscale_authkey.txt` 의 첫 `tskey-…` 토큰을 채택 (USB 무인 설치) | `AUTHKEY` 설정 |
+| (본문 호출) | setup_orin_dev_pc.sh:131-136 | 없음 → 없음 | 단계 순차 호출 (vscode 는 플래그 조건부) | 위 함수들의 합 |
+
+## 전역변수표 — `setup_orin_dev_pc.sh`
+
+| 변수 | 위치 | 형 | 용도 |
+| --- | --- | --- | --- |
+| `AUTHKEY` | setup_orin_dev_pc.sh:15 | 문자열 | `--authkey` 값. 비면 tailscale 수동 인증 안내 |
+| `SKIP_VSCODE` | setup_orin_dev_pc.sh:16 | 0/1 | `--skip-vscode` 플래그 |
+
+## 함수표 — `make_usb.sh`
+
+USB 배포 킷 제작기. USB 디스크를 FAT32(라벨 ORIN_SETUP)로 포맷하고
+`setup_orin_dev_pc.sh`·`README.txt`·`tailscale_authkey.txt` 3파일을 복사한다. root 필요.
+
+| 함수 | 위치 | 인자 → 반환 | 용도 | 부수효과 |
+| --- | --- | --- | --- | --- |
+| `require_root` | make_usb.sh:42-47 | 없음 → 없음 (비root 시 exit) | root 권한 확인 | 없음 |
+| `validate_device` | make_usb.sh:49-63 | 없음 → 없음 (부적합 시 exit) | 이동식(RM=1)·USB(TRAN=usb) 디스크만 허용, 시스템 마운트 보유 장치 거부 | 없음 |
+| `confirm` | make_usb.sh:65-72 | 없음 → 없음 (거부 시 exit) | 소거 확인 프롬프트 (`--yes` 로 생략) | 대화형 프롬프트 |
+| `do_format` | make_usb.sh:74-86 | 없음 → 없음 | 잔여 마운트 해제, msdos 테이블 + 단일 FAT32 파티션 생성, `mkfs.vfat -n ORIN_SETUP` | **디스크 전체 소거**, `PART` 설정 |
+| `do_copy` | make_usb.sh:88-103 | 없음 → 없음 | 킷 3파일 복사(`--authkey` 지정 시 실키, 아니면 자리표시 파일), sync 후 umount | USB 쓰기 |
+| (인자 파싱) | make_usb.sh:17-40 | argv: `/dev/sdX`, `--authkey <key>`, `--yes`, `-h` | 인자 → 전역변수, 미지의 인자는 exit 1 | `DEV`·`AUTHKEY`·`ASSUME_YES` 설정 |
+| (본문 호출) | make_usb.sh:105-110 | 없음 → 없음 | 검증→확인→포맷→복사 순차 호출 | 위 함수들의 합 |
+
+## 전역변수표 — `make_usb.sh`
+
+| 변수 | 위치 | 형 | 용도 |
+| --- | --- | --- | --- |
+| `DEV` | make_usb.sh:13 | 문자열 | 대상 블록 장치 (`/dev/sdX`) |
+| `AUTHKEY` | make_usb.sh:14 | 문자열 | USB 에 심을 tailscale auth key (비면 자리표시 파일 복사) |
+| `ASSUME_YES` | make_usb.sh:15 | 0/1 | `--yes` 확인 생략 플래그 |
+| `PART` | make_usb.sh:83 | 문자열 | `do_format` 이 만든 파티션 경로, `do_copy` 가 사용 |

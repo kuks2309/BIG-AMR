@@ -17,6 +17,7 @@
 | `line_vision` (YOLOv8-seg 라인 인식) | [src/AI/line_vision/docs/code_review/ai-line-vision/2026-08-13.md](../../src/AI/line_vision/docs/code_review/ai-line-vision/2026-08-13.md) | 17 (+dataclass 1·상수 8) | 전수 | 2026-08-13 |
 | `trnav_2ws_action_server` / **line_follow 한정** | [src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md](../../src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md) | 13 (+struct 2·enum 1·클래스 2) | **부분** — line_follow 만 | 2026-08-14 |
 | `telegram_notifier` (CAN 경보 텔레그램 통보) | [src/Safety/telegram_notifier/docs/code_review/telegram-notifier/2026-08-23.md](../../src/Safety/telegram_notifier/docs/code_review/telegram-notifier/2026-08-23.md) | 13 (+헬퍼 5·상수 5) | 전수 | 2026-08-23 |
+| `pc_setup` (Orin 개발 PC 셋업 + USB 킷 제작) | [Tools/pc_setup/docs/function_table.md](../../Tools/pc_setup/docs/function_table.md) (게이트 인식본: [docs/code_review/pc-setup/2026-08-24.md](../code_review/pc-setup/2026-08-24.md)) | 12 (+본문 5) — 스크립트 2본 | 전수 | 2026-08-24 |
 | `wall_localizer_core` (벽 3면 정밀 측위 코어) | [src/Navigation/wall_localizer_core/docs/code_review/wall-localizer/2026-08-19.md](../../src/Navigation/wall_localizer_core/docs/code_review/wall-localizer/2026-08-19.md) | 14 (+struct 10·내부 4) | 전수 | 2026-08-19 |
 | `wall_localizer_ros2` (벽 측위 ROS2 어댑터) | [src/Navigation/wall_localizer_ros2/docs/code_review/wall-localizer/2026-08-19.md](../../src/Navigation/wall_localizer_ros2/docs/code_review/wall-localizer/2026-08-19.md) | 7 | 전수 | 2026-08-19 |
 
