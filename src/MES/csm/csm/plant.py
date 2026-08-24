@@ -77,17 +77,11 @@ import re
 
 # ---------------------------------------------------------------- geometry
 
-HALL_W, HALL_E = -25.0, 26.0     # hall extent in x (assumption A1)
-#: West edge moved out from -23.0 on 2026-08-18 for the same reason the east
-#: edge moved on 5745612: the parking spur has to be longer than a robot, and
-#: at -23.0 there was 2.90 m between the west aisle and the wall face when a
-#: bay needs 3.00 m. The west bay never deadlocked only because leg A has one
-#: robot and nothing drives past its spur — the geometry was equally wrong.
-#: Extended east from 20.0 on 2026-08-18 to make room for leg C's WIP rack.
-#: Segment C had `buffer: []` — no rack at all — so two of its four job types
-#: (fetch-from-rack and divert-to-rack) could not run. The south row between
-#: the west aisle and WIP_CTR is fully occupied: the slitter's four LD ports
-#: reach x -13.3 and CTR1_LD sits at -11.2, leaving no 3 m gap anywhere.
+HALL_W, HALL_E = -27.0, 26.2     # hall extent in x (assumption A1)
+#: West edge moved out from -25.0 on 2026-08-21, by the SAME 1.6 m the west
+#: aisle moved. Parking hangs off the aisle (`PARK_X = AISLE_W_X - PARK_SPUR`),
+#: so a wall that moved less would fix the corner by squeezing the bays; at
+#: -26.6 a parked robot keeps the 1.50 m of wall clearance it had before.
 HALL_S, HALL_N = -15.0, 13.0     # hall extent in y
 #: South edge moved out from -13.0 on 2026-08-18. Leg C has six 3.5T robots
 #: (specification fleet table) and its queue runs south from the east cross
@@ -118,8 +112,20 @@ ROW_S_Y = -8.0                         # south machine row centre
 DOCK_INSET = 1.5
 AISLE_N_Y = 3.0                        # north aisle
 AISLE_S_Y = -3.0                       # south aisle
-AISLE_W_X = -20.0                      # west cross aisle
-AISLE_E_X = 22.0                       # east cross aisle
+#: Moved west from -20.0 on 2026-08-21, together with `_SLT_PORT_X0` below.
+#: NEITHER CHANGE WORKS ALONE and both were tried that way first:
+#:   moving only the road   — the slitter ports are measured FROM the road, so
+#:                            they move with it and the corner gap is unchanged
+#:   moving only the offset — the ports slide east into CTR1_LD, and the gap
+#:                            at that end drops to 0.30 m
+#: The south row between the corner and CTR1_LD needs 9.80 m — four ports at a
+#: 2.0 m pitch, plus 1.90 m of clearance at each end — and at -20.0 it had
+#: 8.80 m. It did not fit. This is the metre it was short.
+AISLE_W_X = -22.0                      # west cross aisle
+#: Moved east from 22.0 on 2026-08-21: `WIP_SLT_2` sat 1.80 m from the corner
+#: and two robots need 1.90 m. The same fault as the west end, mirrored, and
+#: found only because `_check_row` was written to look for it.
+AISLE_E_X = 22.2                       # east cross aisle
 #: THE ROBOT ITSELF, because the layout has to be big enough for it.
 #: 1.6 x 0.9 m is the simulated chassis. (The deck gives 1.3 x 1.9 m for the
 #: 1.5T and 1.6 x 2.0 m for the 3.5T; the sim models one body for all three,
@@ -214,7 +220,25 @@ for i, x in enumerate(_CTR_X, 1):
 #: less than the 0.8 m the gravure and coater LD/ULD pairs enjoy, but positive,
 #: which 1.3 m was not.
 _SLT_PITCH = 2.0
-_SLT_PORT_X0 = AISLE_W_X + 0.7          # westmost port, clear of the cross aisle
+#: THE PORTS BELONG TO THE MACHINE, NOT TO THE ROAD.
+#:
+#: This was `AISLE_W_X + 0.7` — the first port defined as an offset from the
+#: west aisle. Two things were wrong with that.
+#:
+#: It could not be fixed. The gap between the corner and the first port WAS
+#: this number, by construction, so widening the hall moved the ports with the
+#: road and changed nothing. That was tried, on 2026-08-21, and the hall grew
+#: 1.8 m for no effect before anyone re-measured the gap rather than the road.
+#:
+#: And it was backwards. `_SLT_X` comes from the customer's drawing; where we
+#: put a road does not. A machine's own docking ports sliding about because we
+#: moved a road is not something that can happen in a factory.
+#:
+#: So the four ports are centred on the machine, and the ROAD is placed to
+#: clear them — which is the direction the dependency should run. `_check_row`
+#: below then verifies the clearance instead of defining it, so a layout that
+#: does not fit fails loudly rather than silently guaranteeing 0.7 m.
+_SLT_PORT_X0 = _SLT_X - (3 * _SLT_PITCH) / 2.0
 
 _add("SLT", "MACHINE", (_SLT_X, ROW_S_Y), _dock_s(_SLT_X))
 for i in range(1, 5):
@@ -764,6 +788,66 @@ def is_charger(position, tolerance=0.3):
             if abs(x - position[0]) <= tolerance and abs(y - position[1]) <= tolerance:
                 return True
     return False
+
+
+
+#: What two robots need between two points on a road: one body length, plus the
+#: gap layer 1 refuses to close. Below this, two robots meeting there have
+#: nowhere to resolve it and no traffic rule can help them.
+ROW_MIN_GAP = ROBOT_L + 0.30
+
+
+def row_gaps(north):
+    """Every gap along one row, west to east, corners included.
+
+    (gap, from_name, to_name), in metres.
+    """
+    side = 1 if north else -1
+    points = sorted((st["dock"][0], name) for name, st in STATIONS.items()
+                    if st.get("dock")
+                    and (1 if st["dock"][1] > 0 else -1) == side
+                    and st.get("kind") in ("LD", "ULD", "BUFFER", "SOURCE"))
+    out, prev, prev_name = [], AISLE_W_X, "west corner"
+    for x, name in points:
+        out.append((x - prev, prev_name, name))
+        prev, prev_name = x, name
+    out.append((AISLE_E_X - prev, prev_name, "east corner"))
+    return out
+
+
+def check_rows():
+    """Refuse a layout where two robots could meet with nowhere to go.
+
+    WHY THIS EXISTS. The slitter's first port was written as `AISLE_W_X + 0.7`
+    — 0.7 m from the corner, with a comment calling it "clear of the cross
+    aisle". A robot is 1.60 m long. It was not clear of anything, and nothing
+    said so: the number DEFINED the clearance, so it could never be wrong.
+
+    It surfaced as a three-robot jam on 2026-08-21 — amr2 came round the corner
+    as amr3 came out of the spur, and neither could give way because there was
+    no road between them. Then the same fault turned up mirrored at the east
+    end, `WIP_SLT_2` 1.80 m from its corner, which nobody had noticed either.
+
+    So the clearance is CHECKED rather than assumed. A layout that does not fit
+    raises here, at import, instead of being discovered by two robots meeting
+    in it.
+    """
+    bad = []
+    for north in (False, True):
+        for gap, a, b in row_gaps(north):
+            # A hair under the minimum and exactly the minimum are the same
+            # thing to a float, and neither is a layout anybody should ship.
+            # The tolerance is there so the message is about the geometry
+            # rather than about binary representation.
+            if gap < ROW_MIN_GAP - 1e-9:
+                bad.append(f"{a} -> {b}: {gap:.2f} m, needs {ROW_MIN_GAP:.2f}")
+    if bad:
+        raise ValueError(
+            "layout leaves nowhere for two robots to pass:\n  "
+            + "\n  ".join(bad))
+
+
+check_rows()
 
 
 def declare_locations(records):

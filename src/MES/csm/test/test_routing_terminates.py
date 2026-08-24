@@ -67,7 +67,10 @@ def arrived(seen, station):
 
 def test_the_position_that_turned_amr2_round():
     """(-18.1, +1.9) heading for CTR1_LD. It planned backwards."""
-    route = NETWORK.route_from((-18.1, 1.9), "CTR1_LD")
+    # Measured at (-18.1, +1.9) when the west aisle was x -20.0, i.e. 1.9 m
+    # east of it. Kept relative so a layout change moves the case with the
+    # layout instead of silently testing a different spot.
+    route = NETWORK.route_from((plant.AISLE_W_X + 1.9, 1.9), "CTR1_LD")
     assert route[0][1] < 2.5, \
         f"first hop {route[0]} goes back north to the lane it just left"
 

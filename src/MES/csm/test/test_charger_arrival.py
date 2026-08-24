@@ -31,7 +31,11 @@ def test_the_parking_tolerance_is_the_one_that_matters():
 
 def test_the_observed_failure():
     """The exact positions from the run. amr1 parked, and did not charge."""
-    parked_at = (-21.9, 1.6)
+    # Where amr1 actually stopped: 0.6 m short of its bay and 0.1 m off it.
+    # Taken from the bay rather than written down, so the case survives the
+    # bays moving — they did, on 2026-08-21, when the west aisle moved.
+    _bay = plant.parking_for("amr1")
+    parked_at = (_bay[0] + 0.6, _bay[1] + 0.1)
     charger = plant.charger_for("amr1")
 
     assert not plant.is_charger(parked_at), "this is what went wrong"

@@ -72,7 +72,13 @@ def test_the_corner_that_caused_the_contact():
     `[amr3] stepping aside to (-19.4,-1.0)` while amr2 sat at y = -2.70 in that
     exact path.
     """
-    pose = (-19.36, -4.07, 0.0)
+    # DERIVED FROM THE PLANT, not written down. The measured pose was
+    # (-19.36, -4.07) when the west aisle was at x -20.0 — 0.64 m east of it
+    # and 1.07 m south of the south aisle. The aisle moved on 2026-08-21 and a
+    # hard-coded x quietly stopped being "on the cross aisle" at all, so the
+    # test passed the wrong pose and failed for the wrong reason. What matters
+    # here is the RELATIVE position, so that is what is written.
+    pose = (plant.AISLE_W_X + 0.64, plant.AISLE_S_Y - 1.07, 0.0)
     r = robot(pose, heading(pose, (0.0, 1.0)))          # driving north, up the cross aisle
 
     gx, gy = r._sidestep_target()

@@ -161,6 +161,15 @@ LOOKAHEAD_STEP_S = 0.25
 #: whichever way the robot happens to be pointing.
 SIDESTEP = 2.0
 
+#: How far ahead a red light is visible. A follower closes up to STOP_GAP and
+#: holds; beyond this it carries on normally rather than stopping half an aisle
+#: away from something it cannot even see round.
+#:
+#: There is no second stopping distance. A queue behind a yielder forms at the
+#: same STOP_GAP as every other stop in this file, so a queue looks like a
+#: queue and the system has ONE number for "how close is too close".
+QUEUE_LOOKAHEAD = 8.0
+
 #: A robot that has given way will not wait for ever.
 YIELD_LIMIT = 45.0
 
@@ -1462,6 +1471,23 @@ class SimRobot:
             return
         self._blocked_by = None
 
+        # THE RED LIGHT BEHIND A YIELDER. Layer 1 sees only closing geometry,
+        # and a robot standing aside is stationary, so the gap to it never
+        # closes and it never stops anybody. That is right for a robot gone to
+        # its dock and wrong for one holding a gap open — the gap belongs to
+        # the robot it is yielding for, and everybody else queues.
+        #
+        # Placed after layer 1 rather than inside it because layer 1 is about
+        # collision and this is about right of way. They answer different
+        # questions and mixing them is what made a yielder and a docked robot
+        # indistinguishable in the first place.
+        holding = self._yielder_ahead()
+        if holding is not None:
+            self._reset_stall()
+            self._stop(f"queueing behind {holding.name or 'a robot'} "
+                       f"— it is giving way")
+            return
+
         # ======================= WORK — WHAT IS IT DOING? ===================
         #
         # Reversing out of a bay after finishing. Nothing else may happen until
@@ -1895,6 +1921,86 @@ class SimRobot:
         # bounds the attempt.
         return max(options, key=lambda g: math.hypot(g[0] - partner.pose[0],
                                                      g[1] - partner.pose[1]))
+
+    def _yielder_ahead(self):
+        """A robot standing aside ahead of us whose gap is NOT ours to use.
+
+        THE RED LIGHT BEHIND A YIELDER.
+
+        A robot leaves the lane for two different reasons and they need
+        opposite treatment:
+
+          giving way   it is holding a gap open for ONE named robot
+          docking      it has turned off onto its spur, for its own job
+
+        From outside the two look identical — off the lane, stationary — and
+        `_threat` sees only geometry, so it treats both the same and lets a
+        follower drive past either. That is right for docking and wrong for
+        giving way, and it is what produced the three-robot jam of 2026-08-21:
+
+            amr3 and amr4 travelling west, amr2 coming east
+            amr3 stands aside for amr2
+            amr4 does not stop — it drives PAST amr3 and takes the road in
+              front of amr2
+            now amr4 must yield, with amr3 beside it and amr2 in front, and
+              nowhere to go
+
+        Measured: amr2 (-5.32,-3.00) facing east, amr4 (-3.52,-3.02) facing
+        west, amr3 parked at (-3.56,-1.39) — its lay-by. All three stopped,
+        and only YIELD_LIMIT would have broken it, by failing a job.
+
+        THE GAP BELONGS TO THE PASSER. Everyone else queues. `partner_of`
+        already knows who a yielder is standing aside for, so this needs no new
+        bookkeeping — only that the question be asked before moving.
+
+        AHEAD IS MEASURED ALONG OUR TRAVEL, NOT ALONG THE LANE. A yielder is
+        SIDESTEP metres off to the side; it is no longer on our line, so a
+        test against the lane would never see it. What matters is whether it
+        is in front of us, however far across it has moved.
+        """
+        if self.fleet is None or self.pose is None:
+            return None
+        direction = self._travel_dir()
+        if direction is None:
+            return None
+
+        for other in self.fleet.robots:
+            if other is self or other.pose is None:
+                continue
+            if not self.fleet.yielding(other):
+                continue
+            # The gap is being held open for us: drive through it. This is the
+            # whole point of the other robot standing aside.
+            if self.fleet.partner_of(other) is self:
+                continue
+            dx = other.pose[0] - self.pose[0]
+            dy = other.pose[1] - self.pose[1]
+            ahead = dx * direction[0] + dy * direction[1]
+            if ahead <= 0.0:
+                continue                      # behind us; not our concern
+
+            # IT MUST BE BETWEEN US AND WHERE WE ARE GOING.
+            #
+            # Without this the test is "roughly in front, within 8 m", which
+            # blocked robots that were nowhere near: amr1 held 0.8 m from its
+            # own dock on the NORTH aisle by a yielder ten metres away on the
+            # south one, and amr4 held 0.24 m from its dock by a yielder 2.6 m
+            # off to the side. Both measured 2026-08-21, both plainly wrong —
+            # a robot cannot be following something it will never reach.
+            gx, gy = self._goal
+            to_goal = math.hypot(gx - self.pose[0], gy - self.pose[1])
+            if ahead > min(QUEUE_LOOKAHEAD, to_goal):
+                continue
+
+            # AND IT MUST BE IN OUR PATH, not merely in front of it. A yielder
+            # sits SIDESTEP off the lane, so the corridor has to be wide enough
+            # to still see it — but not so wide that the next aisle counts.
+            across = abs(-dx * direction[1] + dy * direction[0])
+            if across > SIDESTEP + ROBOT_W:
+                continue
+
+            return other
+        return None
 
     def _threat(self, exclude=None):
         """The robot we are on course to touch, or None. LAYER 1.
