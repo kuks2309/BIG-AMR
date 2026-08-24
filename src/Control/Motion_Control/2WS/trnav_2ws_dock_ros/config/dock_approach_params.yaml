@@ -1,0 +1,51 @@
+# 도킹 접근 액션 서버 파라미터.
+# ⚠ 게인·arm 은 초기값(코어 원본은 QD 기체 px 단위) — SIL 로 초기 확인 후 실기 튜닝 필수.
+dock_approach_server:
+  ros__parameters:
+    control_rate_hz: 30.0
+    obs_max_age_s: 0.2        # /wall_pose 신선도 상한 (34 Hz 기준 여유 6프레임)
+    obs_grace_s: 1.0          # 유예 — 이 동안은 steer-hold 정지로 복귀를 기다린다
+    default_timeout_s: 60.0
+    runaway_yaw_deg: 15.0     # 시작 이후 누적 회전 상한 (최후 방어선)
+    mux_source_id: 40         # trnav_motion_mux source_40 "dock"
+    mux_restore_id: 0         # 종료 시 복원 소스 (0 = joystick 안전 기본)
+
+    # 거리축 PID (m 단위 — 원본 px 게인과 무관, 재튜닝 대상)
+    dist_kp: 0.8
+    dist_ki: 0.0
+    dist_kd: 0.0
+    dist_i_band_m: 0.05
+    dist_i_clamp: 0.05
+    dist_lpf_a: 0.6
+
+    # 기하 진입 crab
+    delta_max_deg: 25.0
+    entry_bias_deg: 0.0       # 과조향 바이어스 — 실기 폐합률 실측 후에만 부여
+
+    # 자세 보정 — 전/후 조향 분할(전방 접근용; 속도차 yaw 는 측면 crab 전용)
+    yaw_split_kp_deg_per_deg: 0.3
+    yaw_split_max_deg: 5.0
+
+    # PRE_YAW — 접근 전 제자리 회전으로 초기 yaw 소거 (settle-then-drive)
+    spin_kp_dps_per_deg: 1.0
+    spin_w_max_dps: 5.0
+    spin_w_min_dps: 0.8
+    steer_settle_s: 2.0
+    approach_stuck_cycles: 60  # d·lat 수렴+yaw 미달 지속 시 VERIFY 이관 (행 방지)
+
+    # 근접 감속 (ANT adjusted stop 대응)
+    near_zone_m: 0.30
+    v_near_mps: 0.03
+
+    # PRE_ALIGN (도크면 평행 수평 소거)
+    prealign_kp: 0.5
+    prealign_v_max_mps: 0.05
+
+    # 재접근
+    reapproach_dist_m: 0.15
+    reapproach_v_mps: 0.05
+    max_reapproach: 1
+    verify_cycles: 30         # 1초 @30 Hz — 정지 평균 판정 (실기 반복정밀도 0.82 mm 근거)
+
+    # 속도차 yaw 레버암 — 2WS 인라인 실측 기하
+    arm_m: 0.6039
