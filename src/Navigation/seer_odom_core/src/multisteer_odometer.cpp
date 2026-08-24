@@ -106,14 +106,17 @@ void MultiSteersOdometer::calSpeed()
     applyCoef(b, output_.vx, output_.vy, output_.vw);
 
     // 휠 일관성 — 풀어낸 (vx, vy, vw) 를 관측으로 되돌려 잔차를 본다.
-    //   원본은 잔차를 절대값으로 취합해 thresConsistent 와 비교하고 결과만 남긴다(경고 로그).
+    //   원본은 **휠마다 2성분 잔차의 유클리드 노름**을 구하고 그 최대값을 임계와 비교한다
+    //   (calspeed.asm 139행: mulpd → movhlps → addsd → sqrtpd, 이후 andpd + 최대값 루프).
+    //   성분별 최대값(L∞)으로 바꾸면 값이 달라진다 — 원본 잔차 역추출로 확인했다.
     double worst = 0.0;
     for (std::size_t i = 0; i < wheels_.size(); ++i)
     {
-        const double ex = output_.vx - output_.vw * (wheels_[i].y + wheels_[i].cpy);
-        const double ey = output_.vy + output_.vw * (wheels_[i].x + wheels_[i].cpx);
-        worst = std::max(worst, std::fabs(ex - b[2 * i]));
-        worst = std::max(worst, std::fabs(ey - b[2 * i + 1]));
+        const double fit_x = output_.vx - output_.vw * (wheels_[i].y + wheels_[i].cpy);
+        const double fit_y = output_.vy + output_.vw * (wheels_[i].x + wheels_[i].cpx);
+        const double ex = fit_x - b[2 * i];
+        const double ey = fit_y - b[2 * i + 1];
+        worst = std::max(worst, std::sqrt(ex * ex + ey * ey));
     }
     wheel_consistent_ = (worst <= thres_consistent_);
 }

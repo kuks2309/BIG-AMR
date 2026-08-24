@@ -165,6 +165,34 @@ int main(int argc, char **argv) {
         std::printf("POSE  %-9s x=%.17g y=%.17g yaw=%.17g\n",
                     sc.name, out->x, out->y, out->yaw);
     }
+    // ── 잔차 역추출 ──────────────────────────────────────────────────────────
+    // 원본은 잔차 값을 노출하지 않는다. 그러나 판정 플래그(offset 14)는 노출하고
+    //   판정은 `잔차 <= thresConsistent` 다. 임계를 이분 탐색하면 그 경계가 곧 잔차다.
+    std::printf("[M4] 잔차 역추출 (임계 이분 탐색 100회)\n");
+    for (const auto &sc : scenes) {
+        double d[2] = {sc.d0, sc.d1}, a[2] = {sc.a0, sc.a1};
+        for (std::size_t i = 0; i < wheels.size() && i < 2; ++i) {
+            MotorVitalInfo v{};
+            v.flagSet = true; v.position = a[i]; v.dpos = d[i]; v.v_enc = d[i] * 10.0;
+            cv[wheels[i].n] = v;
+        }
+        auto consistentAt = [&](double t) {
+            *thres = t;
+            buf[OFF_FLAG_CONSIST] = 0;
+            calSpeed(buf);
+            return buf[OFF_FLAG_CONSIST] != 0;
+        };
+        // lo: 불일치로 나오는 임계, hi: 일치로 나오는 임계
+        double lo = 0.0, hi = 1.0;
+        if (consistentAt(lo)) { std::printf("RESID %-9s = 0 (임계 0 에서도 일치)\n", sc.name); continue; }
+        while (!consistentAt(hi) && hi < 1e12) hi *= 2.0;
+        for (int k = 0; k < 100; ++k) {
+            const double mid = lo + (hi - lo) * 0.5;
+            if (mid == lo || mid == hi) break;
+            (consistentAt(mid) ? hi : lo) = mid;
+        }
+        std::printf("RESID %-9s = %.17g\n", sc.name, hi);
+    }
     dlclose(h);
     return 0;
 }

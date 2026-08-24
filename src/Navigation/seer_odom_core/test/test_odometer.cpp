@@ -286,6 +286,48 @@ int main()
         CHECK(std::fabs(o.output().dyaw - dyaw) < 1e-12, "왕복 dyaw 가 복원되지 않았다");
     }
 
+
+    // 15) 잔차는 **휠별 2성분 노름의 최대값**이다 — 성분별 최대값(L∞)이 아니다.
+    //     원본 calspeed.asm 139행이 mulpd→movhlps→addsd→sqrtpd 로 노름을 만든다.
+    //     ⚠ 센터라인 2륜은 y 잔차가 구조상 0 이라 노름과 성분 최대값이 같다 —
+    //        그 기하로는 이 성질을 시험할 수 없어 **대각 기하**를 쓴다.
+    {
+        const std::vector<MotorParam> diag = {{"w1", 0.330, 0.135, 0.0, 0.0},
+                                              {"w2", -0.330, -0.135, 0.0, 0.0}};
+        MultiSteersOdometer o;
+        o.setMotorParams(diag);
+        o.setFirstInputGot(true);
+        o.setThresConsistent(1e9); // 먼저 크게 열어 두고 (vx, vy, vw) 를 얻는다
+        const double d[2] = {0.37, -0.21}, ang[2] = {0.4, -0.9};
+        o.setVitalInfo(measNamed("w1", "w2", d[0], ang[0], d[1], ang[1], /*velocity=*/true));
+        o.calSpeed();
+
+        // 되돌린 관측과의 잔차를 시험 쪽에서 따로 계산한다.
+        double comp_max = 0.0, norm_max = 0.0;
+        for (int i = 0; i < 2; ++i)
+        {
+            const double bx = std::cos(ang[i]) * d[i], by = std::sin(ang[i]) * d[i];
+            const double fx = o.output().vx - o.output().vw * (diag[i].y + diag[i].cpy);
+            const double fy = o.output().vy + o.output().vw * (diag[i].x + diag[i].cpx);
+            const double ex = fx - bx, ey = fy - by;
+            comp_max = std::max(comp_max, std::max(std::fabs(ex), std::fabs(ey)));
+            norm_max = std::max(norm_max, std::sqrt(ex * ex + ey * ey));
+        }
+        CHECK(norm_max > comp_max * 1.000001,
+              "이 시나리오는 노름과 성분최대값이 갈리지 않는다 — 시험이 성질을 못 지킨다");
+
+        auto judgeAt = [&](double thres) {
+            o.setThresConsistent(thres);
+            o.setVitalInfo(measNamed("w1", "w2", d[0], ang[0], d[1], ang[1], true));
+            o.calSpeed();
+            return o.wheelConsistent();
+        };
+        // 임계를 성분최대값에 두면 **불일치**여야 한다 — 노름이 그보다 크기 때문이다.
+        CHECK(!judgeAt(comp_max), "성분최대값 임계에서 일치로 판정했다 — 잔차가 노름이 아니다");
+        // 노름에 두면 일치.
+        CHECK(judgeAt(norm_max), "노름 임계에서 불일치로 판정했다");
+    }
+
     if (g_fail == 0)
         std::printf("[PASS] Seer MultiSteersOdometer 재구현 회귀 통과\n");
     else
