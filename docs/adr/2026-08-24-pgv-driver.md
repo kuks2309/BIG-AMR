@@ -9,7 +9,7 @@
   - `tdoct3707d_eng.pdf` = [PGV…-F200/-F200A…-R4-V19 Incident Light Positioning System Manual, DOCT-3707D, 2019-03] — RS-485 판 읽기 헤드 매뉴얼(63쪽). 통신 프로토콜 전체가 §5 에 있다: 요청 2바이트(둘째 바이트 = 첫째 바이트 반전), 위치 응답 21바이트 + XOR 체크섬, 방향 결정 응답 3바이트, 색 선택 응답 2바이트. 시리얼은 **8-E-1**, 전송률 38400/57600/76800/115200(preset)/230400 bit/s ([manual §2.2, page 9](../../References/pepperl-fuchs/pgv/tdoct3707d_eng.pdf)).
   - `1833705u.zip` = `VCSetup7.1.0+g93016ac.exe` — Windows 전용 Vision Configurator 설치기. **Linux 런타임 구현에는 사용 불가**(파라미터라이징 도구일 뿐). 따라서 "설치 파일 참조 설치"는 exe 설치가 아니라 **매뉴얼 §5 프로토콜 기반 드라이버 신규 작성**으로 해석한다.
 - 저장소에 PGV 관련 기존 코드 0건(grep 확인). 기존 시리얼 센서 드라이버 선례는 `src/Sensors/IMU/iahrs_driver_ros2/`(C++ · termios · 드라이버+interfaces 2패키지 구성).
-- 이 기체는 라인 트래킹 주행 스택(`trnav_2ws_action_server` line_follow, `src/AI/line_vision`)을 이미 갖고 있고, PGV 의 Y 편차·각도 출력은 그 계열의 센서 입력 후보다.
+- 용도는 **도킹 정밀도 검증용 독립 계측 기준**이다(2026-08-24 사용자 확언) — 도킹 목표점의 Data Matrix 태그를 읽어 X/Y/각도 편차를 측위 스택과 무관하게 잰다. 제어 입력이 아니므로 mux/모션 체인 통합은 범위 밖이다. (정정: 초판은 용도를 묻지 않고 "라인 추종 스택의 센서 입력 후보"로 추정 기재했다 — `docs/claude-mistake/2026-08-24-001` 참조.)
 
 ## Decision
 
@@ -29,7 +29,7 @@
 
 ## Consequences
 
-- 이득: 라인 트래킹/태그 측위 센서 입력이 표준 토픽으로 확보된다. 프로토콜 모듈이 순수 함수라 실기 없이 매뉴얼 예제 벡터(0xC8/0x37, 0xE8/0x17 등)로 회귀 가능.
+- 이득: 도킹 편차(X/Y/각도)를 표준 토픽으로 얻는 독립 계측 기준이 확보된다. 프로토콜 모듈이 순수 함수라 실기 없이 매뉴얼 예제 벡터(0xC8/0x37, 0xE8/0x17 등)로 회귀 가능.
 - 의존성 추가: 없음(rclcpp·rosidl·ament_cmake_gtest — 전부 기존 사용 중). License: 자작 코드 Apache-2.0(`telegram_notifier` 선례). 취약점 표면: 시리얼 로컬 장치뿐, 네트워크 없음.
 - 남는 위험: **실기 미검증** — ⚠ 8E1 패리티·응답 타이밍·컬러 레인 모드의 ANG 부호 표현(매뉴얼이 -45°~45° 라 하나 14bit 인코딩 방식 미서술)은 센서 연결 후 실측으로 확정해야 한다. 미확정 항목은 README 와 debt 로 추적.
 
