@@ -1099,8 +1099,40 @@ class SimRobot:
         # ordinary traffic and it will clear itself.
         if math.hypot(*other.vel) >= MOVING_MIN:
             return
-        if self.fleet.partner_of(self) is not None:
-            return                      # an encounter is already being handled
+
+        partner = self.fleet.partner_of(self)
+        if partner is other:
+            return          # this IS our encounter; the handshake owns it
+
+        if partner is not None:
+            # BOXED IN BY A THIRD ROBOT while an encounter we cannot finish is
+            # still on the books.
+            #
+            # This used to return here for any partner at all — "an encounter is
+            # already being handled" — which is true and was the wrong
+            # conclusion. Being in an encounter was treated as proof that
+            # something was working on the problem, so the one rule able to
+            # break a deadlock switched itself off precisely when a robot was
+            # stuck. In the 2026-08-24 five-robot run it fired ONCE.
+            #
+            # We cannot open a second encounter — `who_yields` refuses, and that
+            # refusal is what stops the cycle. So let the stalled one go instead.
+            # Both robots become free, and the next decision can be about the
+            # robot that is ACTUALLY in the way rather than the one we happened
+            # to meet first.
+            #
+            # Only when the partner is stationary too. A partner still driving
+            # to its lay-by is an encounter making progress, and tearing that up
+            # would strand it half way there.
+            if math.hypot(*partner.vel) >= MOVING_MIN:
+                return
+            self.node.get_logger().info(
+                f"{self._tag()}blocked by {other.name} while stuck with "
+                f"{partner.name} — dropping the stalled encounter")
+            self.fleet.encounter_over(self)
+            self._blocked_since = now
+            return
+
         self.node.get_logger().info(
             f"{self._tag()}deadlocked with {other.name} — asking who yields")
         self.fleet.who_yields(self, other)
@@ -1226,25 +1258,98 @@ class SimRobot:
 
     # -------------------------------------------------------------- driving
 
-    def _off_the_road(self):
-        """True if this robot is already somewhere nobody needs to drive.
+    #: The gap a stood-aside robot must leave beyond its own body: half the
+    #: width of whatever drives past, plus the margin layer 1 refuses to close.
+    #:
+    #: The robot's OWN half-extent is not a constant and is computed per lane —
+    #: see `_lane_clearance`. Adding a fixed 0.45 m here was the 2026-08-24
+    #: near-miss: it is only the robot's half-extent when it happens to be
+    #: parallel to the lane.
+    PASSING_GAP = ROBOT_W / 2 + 0.30
 
-        A bay or a parking spur. Both are off the aisles by construction, so a
-        robot sitting in one is not in anybody's way and has nothing to step
-        aside from — it satisfies a give-way instruction by standing still.
+    def _lane_clearance(self, x, y, yaw, a, b):
+        """(distance to this lane, distance this robot needs from it).
+
+        HOW MUCH ROOM A ROBOT TAKES DEPENDS ON WHICH WAY IT IS POINTING.
+
+        A 1.6 x 0.9 m robot parallel to a lane reaches 0.45 m across it. Turned
+        27 degrees it reaches 0.76 m — and turned square, 0.80 m. Treating the
+        first number as if it were the robot is what let a robot stand 1.25 m
+        off the north aisle, pass a 1.20 m test, and be hit anyway.
+
+        Measured 2026-08-24, second run: amr2 was told to stand aside, drove
+        toward its lay-by at (-14.7,+1.0), and part way there — at
+        (-13.63,+1.75), turned 27 degrees — answered "already clear — you may
+        pass". Its centre was 1.25 m from the north aisle, which cleared the
+        flat 1.20 m rule by 0.05 m. What it actually needed was 1.51 m. amr1
+        came down the aisle and the meter read 0.160 m, then 0.000 m.
+
+        The same trap is written up two screens above for the PASSER: "turning
+        swings its corner out to 0.92 m where standing side-on presents
+        0.45 m". It was true of the yielder too, and this is the fix.
+
+        The extent is taken across the LANE'S OWN direction, not across y, so
+        it is right for the north-south cross aisles as well.
+        """
+        (ax, ay), (bx, by) = ROADS.nodes[a], ROADS.nodes[b]
+        length = math.hypot(bx - ax, by - ay)
+        if length < 1e-9:
+            return float("inf"), 0.0
+        # Unit normal of the lane: the direction "across" it.
+        nx, ny = -(by - ay) / length, (bx - ax) / length
+        # How far this robot's body reaches along that normal.
+        along = (math.cos(yaw), math.sin(yaw))
+        across = (-math.sin(yaw), math.cos(yaw))
+        reach = (ROBOT_L / 2) * abs(along[0] * nx + along[1] * ny) + \
+                (ROBOT_W / 2) * abs(across[0] * nx + across[1] * ny)
+        return (roads._clearance((x, y), (ax, ay), (bx, by)),
+                reach + self.PASSING_GAP)
+
+    def _off_the_road(self):
+        """True if this robot is far enough from the lanes to be passed safely.
+
+        A GIVE-WAY ANSWERED BY STANDING STILL MUST BE TRUE, NOT MERELY PLAUSIBLE.
+
+        This used to ask a question about CATEGORY — am I in a bay, am I at my
+        parking slot — and treat the answer as clearance. `_in_a_bay` is any
+        marker within BAY_RADIUS = 3.0 m, and a bay circle around a station on
+        the south machine row reaches y = -4.0, which is 1.0 m from the south
+        aisle. So a robot could be "in a bay", tell the fleet "already clear —
+        you may pass", never move, and still have its body in the lane.
+
+        Measured 2026-08-24, four robots. amr4 stood 2.96 m from the CTR2_ULD
+        marker — 0.04 m inside BAY_RADIUS — and answered the give-way without
+        moving:
+
+            amr4 gives way to amr3
+            [amr4] already clear — you may pass
+
+        amr4 was 1.04 m off the south aisle, so its north edge reached
+        y = -3.59. amr3 took the all-clear, drove the aisle at y = -3.10 with
+        its south edge at -3.55, and the two bodies touched — measured at
+        0.00 m by a footprint meter that shares none of this code
+        (Tools/contact_meter/). Nothing in the run log recorded it.
+
+        So the question asked here is the one that matters: IS MY BODY OUT OF
+        THE WAY? Distance to each through lane, against what this robot needs
+        from that lane AT ITS CURRENT HEADING — see `_lane_clearance`.
+
+        THROUGH LANES ONLY. Dock and parking spurs are lanes in the graph too,
+        and a robot at its own dock necessarily sits on one — measuring against
+        those would mean no robot could ever be clear. A spur is a dead end
+        serving one station, and nothing passes along it; only the aisle network
+        is traffic.
         """
         if self.pose is None:
             return False
-        if self._in_a_bay():
-            return True
-        # Wherever home currently is — its slot, or the plug it is charging
-        # on. Asking `parking_for` here would call a charging robot "not
-        # parked" while it stands on somebody else's slot.
-        bay, _node = self._home_target()
-        if bay is None:
-            return False
-        return math.hypot(bay[0] - self.pose[0],
-                          bay[1] - self.pose[1]) <= self.HOME_TOL
+        x, y, yaw = self.pose
+        for a, b in ROADS.lanes:
+            if a.startswith(("dock_", "park_")) or b.startswith(("dock_", "park_")):
+                continue
+            distance, needed = self._lane_clearance(x, y, yaw, a, b)
+            if distance < needed:
+                return False
+        return True
 
     def _handle_give_way(self, x, y, yaw, target):
         """The give-way handshake. True if it has consumed this tick.
@@ -1279,13 +1384,34 @@ class SimRobot:
             # ALREADY OUT OF THE WAY. A robot in a bay or on its parking spur
             # has nothing to step aside from, and dragging it out of a dock to
             # perform a lay-by it does not need would be worse than useless.
-            # It answers the instruction by saying so, and carries on.
+            # It answers the instruction by saying so — AND THEN HOLDS STILL.
+            #
+            # IT USED TO SAY SO AND CARRY ON. `return False` hands the tick back
+            # to drive(), which falls through to the work path, so the robot
+            # resumed driving to its OWN goal the instant it declared itself
+            # clear. That was survivable only while `_off_the_road` meant "in a
+            # bay or at its parking slot" — a robot that is genuinely parked and
+            # whose answer does not change as it moves.
+            #
+            # Making the test depend on live position and heading broke that
+            # assumption, and the result was a robot bouncing in and out of the
+            # lane: clear -> carry on -> back on the road -> not clear -> drive
+            # to the lay-by -> clear -> carry on. Measured 2026-08-24 over
+            # 10.7 minutes, amr2 announced "already clear" TWENTY-NINE times and
+            # not one stand-aside was ever completed, while amr1 sat at v=0.00
+            # holding as the passer. The user watched it happen and said so.
+            #
+            # A GIVE-WAY IS A PROMISE TO STAY PUT. The passer is holding on the
+            # strength of it — that is the whole point of one robot moving at a
+            # time. The hold ends when the encounter does: the passer reports
+            # "road is yours", or YIELD_LIMIT gives up.
             if self._off_the_road():
                 if not self._stood_aside:
                     self._stood_aside = True
                     self.node.get_logger().info(
                         f"{self._tag()}already clear — you may pass")
-                return False
+                self._stop("clear of the lane, waiting to be passed")
+                return True
 
             self._reset_stall()
             if self._yield_since is None:
@@ -1308,6 +1434,12 @@ class SimRobot:
                 # we are getting out of the way of.
                 self._standoff = self._sidestep_target(
                     self.fleet.partner_of(self))
+                if self._standoff is None:
+                    # NOWHERE TO GO. Hand the duty over rather than stand here
+                    # until YIELD_LIMIT fails the job — see `cannot_yield`.
+                    self.fleet.cannot_yield(self)
+                    self._stop("no lay-by within reach — handing over the yield")
+                    return True
                 self.node.get_logger().info(
                     f"{self._tag()}stepping aside to "
                     f"({self._standoff[0]:+.1f},{self._standoff[1]:+.1f})")
@@ -1810,20 +1942,39 @@ class SimRobot:
         """
         if self.fleet is None:
             return None
-        n = math.hypot(ex, ey)
-        if n < 1e-9:
-            return None
-        fx, fy = ex / n, ey / n
+        goal = (x + ex, y + ey)
         for other in self.fleet.robots:
-            if other is self or other.pose is None:
+            if other is self:
                 continue
-            dx, dy = other.pose[0] - x, other.pose[1] - y
-            along = dx * fx + dy * fy
-            if along <= 0.0 or along >= ROBOT_STOP_AHEAD:
-                continue                      # behind us, or far enough off
-            if abs(-dx * fy + dy * fx) < ROBOT_STOP_SIDE:
+            if self._blocks_path(other, x, y, goal):
                 return other
         return None
+
+    def _blocks_path(self, other, x, y, goal):
+        """Is `other` standing in the protective corridor from here to `goal`?
+
+        The corridor arithmetic of `_robot_ahead` for ONE named robot, so that
+        a route can be tested before it is driven rather than discovered to be
+        blocked halfway along it. `_robot_ahead` is this asked about everybody.
+
+        Kept as the single copy on purpose. `_sidestep_target` needs exactly the
+        test that will later stop the robot, and a second implementation of it
+        would drift from this one — at which point the planner would choose
+        lay-bys the driver refuses to drive to, which is the 2026-08-24 deadlock
+        with extra steps.
+        """
+        if other is None or other.pose is None:
+            return False
+        ex, ey = goal[0] - x, goal[1] - y
+        n = math.hypot(ex, ey)
+        if n < 1e-9:
+            return False
+        fx, fy = ex / n, ey / n
+        dx, dy = other.pose[0] - x, other.pose[1] - y
+        along = dx * fx + dy * fy
+        if along <= 0.0 or along >= ROBOT_STOP_AHEAD:
+            return False                  # behind us, or far enough off
+        return abs(-dx * fy + dy * fx) < ROBOT_STOP_SIDE
 
     # ------------------------------------------------------------ giving way
 
@@ -1895,16 +2046,34 @@ class SimRobot:
             near_x = min(abs(x - plant.AISLE_W_X), abs(x - plant.AISLE_E_X))
             axis = "ew" if near_y <= near_x else "ns"
 
-        if axis == "ew":
-            base = plant.AISLE_N_Y if y >= 0.0 else plant.AISLE_S_Y
-            toward_centre = -1.0 if y >= 0.0 else +1.0
-            options = [(x, base + toward_centre * SIDESTEP),
-                       (x, base - toward_centre * SIDESTEP)]
-        else:
-            base = plant.AISLE_E_X if x >= 0.0 else plant.AISLE_W_X
-            toward_centre = -1.0 if x >= 0.0 else +1.0
-            options = [(base + toward_centre * SIDESTEP, y),
-                       (base - toward_centre * SIDESTEP, y)]
+        ew_base = plant.AISLE_N_Y if y >= 0.0 else plant.AISLE_S_Y
+        ew_centre = -1.0 if y >= 0.0 else +1.0
+        ew = [(x, ew_base + ew_centre * SIDESTEP),
+              (x, ew_base - ew_centre * SIDESTEP)]
+
+        ns_base = plant.AISLE_E_X if x >= 0.0 else plant.AISLE_W_X
+        ns_centre = -1.0 if x >= 0.0 else +1.0
+        ns = [(ns_base + ns_centre * SIDESTEP, y),
+              (ns_base - ns_centre * SIDESTEP, y)]
+
+        # BOTH PAIRS, HEADING FIRST. The heading picks which pair to PREFER, it
+        # no longer picks the only pair on offer.
+        #
+        # Heading alone was wrong whenever a robot had turned off an aisle
+        # toward its station: it still stands ON the aisle, but its goal vector
+        # points across it. Measured 2026-08-24, amr2 at (-9.6,+3.9) on the
+        # north aisle, turning north to GRV1_ULD. `d` read north-south, so the
+        # candidates became x-offsets from AISLE_W_X and the nearest lay-by on
+        # offer was 10.4 m west — on the far side of amr1, the robot it was
+        # yielding to. Both candidates were rejected below, the old fallback
+        # returned one anyway, and neither robot moved again until YIELD_LIMIT
+        # failed both their jobs.
+        #
+        # Choosing by POSITION instead is the other half of the same mistake,
+        # and the note above records what it cost on 2026-08-10. So neither
+        # question decides alone: the heading orders the candidates, and
+        # reachability picks between them.
+        options = (ew + ns) if axis == "ew" else (ns + ew)
 
         if partner is None or partner.pose is None:
             return options[0]
@@ -1913,14 +2082,45 @@ class SimRobot:
         # the partner — that is the distance layer 1 refuses to close anyway, so
         # such a standoff could never be reached.
         for goal in options:
-            if _point_seg(partner.pose[:2], (x, y), goal) >= PATH_CLEARANCE:
-                return goal
+            if _point_seg(partner.pose[:2], (x, y), goal) < PATH_CLEARANCE:
+                continue                  # the path grazes the partner
+            # EVERY ROBOT, NOT ONLY THE PARTNER.
+            #
+            # This tested the partner alone, on the reasoning that the partner
+            # is the robot the manoeuvre exists to get away from. But a lay-by
+            # is unreachable whoever is standing in it, and the robot most
+            # likely to be standing in it is the one QUEUEING for this very
+            # encounter: `_yielder_ahead` holds it back so the passer gets the
+            # gap, and where it holds is often the lay-by itself.
+            #
+            # Measured 2026-08-24: amr4 yielding to amr2 chose (-13.4,-1.0).
+            # amr2 did not block it. amr3 — queueing behind amr4, holding
+            # exactly as it should — was sitting in it, and amr4 stopped with
+            # "robot ahead on the road" for 80 seconds while amr2 waited as the
+            # passer. The south lay-by at (-13.4,-5.0) was clear of both and
+            # was never considered, because only the partner was asked about.
+            others = self.fleet.robots if self.fleet is not None else (partner,)
+            if any(self._blocks_path(other, x, y, goal)
+                   for other in others if other is not self):
+                continue
+            return goal
 
-        # Both fouled: take the one that ends up furthest from the partner. Not
-        # ideal, but moving away beats driving at it, and YIELD_LIMIT still
-        # bounds the attempt.
-        return max(options, key=lambda g: math.hypot(g[0] - partner.pose[0],
-                                                     g[1] - partner.pose[1]))
+        # NO LAY-BY. Say so, rather than returning one we know cannot be used.
+        #
+        # This used to return "the one that ends up furthest from the partner",
+        # on the reasoning that moving away beats driving at it and YIELD_LIMIT
+        # bounds the attempt. Both halves were wrong. The furthest candidate is
+        # the one deepest THROUGH the partner when the partner is between us and
+        # that whole side, which is exactly the case that reaches here. And
+        # YIELD_LIMIT does not bound an attempt, it ends a JOB: on 2026-08-24 it
+        # cost two, amr2's BOBBIN_0003 and amr1's ROLL_0006, for one encounter
+        # that a 1.1 m sidestep would have cleared.
+        #
+        # A yielder with nowhere to go is not a driving problem, it is the wrong
+        # robot yielding. `SimAcs.cannot_yield` hands the duty to the other one,
+        # which is standing where this one wanted to be and therefore has the
+        # room this one lacks.
+        return None
 
     def _yielder_ahead(self):
         """A robot standing aside ahead of us whose gap is NOT ours to use.
@@ -2301,6 +2501,10 @@ class SimAcs(AcsAdapter):
         self._chargers = {}
         #: pair of robot names -> the one that must give way.
         self._giving_way = {}
+        #: Encounters in which a chosen yielder has already reported it
+        #: has nowhere to stand aside — key -> set of robot names. One
+        #: hand-over per encounter; see `cannot_yield`.
+        self._yield_refused = {}
         #: junction node -> the robot holding it (the red light).
         self._junctions = {}
         self._last_log = 0.0
@@ -2717,6 +2921,37 @@ class SimAcs(AcsAdapter):
         key = frozenset((a.name or "a", b.name or "b"))
         if key in self._giving_way:
             return self._giving_way[key]
+
+        # ONE ENCOUNTER PER ROBOT. A robot already negotiating one meeting does
+        # not get handed a second; the newcomer queues instead, exactly as it
+        # would behind any other robot holding the road.
+        #
+        # THE CYCLE THIS BREAKS, measured live on 2026-08-24 with five robots.
+        # `_giving_way` is keyed by PAIR, so three robots meeting in the
+        # south-west corner produced three encounters inside one second, each
+        # naming its own yielder and none of them aware of the others:
+        #
+        #     amr5 gives way to amr4
+        #     amr5 gives way to amr3
+        #     amr4 gives way to amr3
+        #
+        # amr5 was now the yielder in two encounters at once and owns exactly
+        # one `_standoff`, so it could satisfy at most one of them. amr4 was a
+        # passer and a yielder at the same time. Both reported `stood_aside`,
+        # both were stopped by layer 1 at a 0.94 m gap, and the fleet delivered
+        # nothing for the remaining six minutes of the run.
+        #
+        # Refusing the second encounter is enough: amr5 steps aside for amr4,
+        # amr4 passes, the encounter ends, and only then may amr3 open one. The
+        # meetings are serialised rather than superimposed.
+        #
+        # A refusal is not a decision — the caller gets None and the robot falls
+        # through to layer 1, which stops it. That is the queue.
+        for robot in (a, b):
+            engaged = self.partner_of(robot)
+            if engaged is not None:
+                return None
+
         chosen = a if (a.name or "") > (b.name or "") else b
         self._giving_way[key] = chosen
 
@@ -2759,6 +2994,56 @@ class SimAcs(AcsAdapter):
             f"{chosen.name} gives way to {(b if chosen is a else a).name}")
         return chosen
 
+    def cannot_yield(self, robot):
+        """The chosen yielder has no lay-by it can reach. Hand the duty over.
+
+        WHO YIELDS IS DECIDED BY NAME ORDER, AND NAME ORDER KNOWS NOTHING ABOUT
+        ROOM. That is deliberate — see `who_yields`, where a rule recomputed
+        from live positions flipped every tick and the two robots touched inside
+        the loop. The cost is that the fleet can name a yielder that is boxed in.
+
+        Measured 2026-08-24: amr1 and amr2 met on the north aisle 2.25 m apart.
+        Name order made amr2 the yielder. Every lay-by open to amr2 lay on the
+        far side of amr1, so amr2 could not move; amr1 held, because a passer
+        waits for the explicit all-clear. Both jobs failed at YIELD_LIMIT. amr1
+        had room the whole time — it was simply not the one being asked.
+
+        So the decision is still made once, but it may be handed over ONCE, and
+        only by the robot that has actually tried and found nothing. The other
+        robot is by construction the one standing where this one wanted to be,
+        which is the room this one lacks.
+
+        ONE HAND-OVER, NOT A NEGOTIATION. If both have refused there is genuinely
+        no room for either, and flipping further would just alternate for ever.
+        The encounter is left as it stands and YIELD_LIMIT ends it, which is the
+        old behaviour and the right one once the geometry really is hopeless.
+        """
+        name = robot.name or "a"
+        for key, chosen in list(self._giving_way.items()):
+            if name not in key or chosen is not robot:
+                continue
+            refused = self._yield_refused.setdefault(key, set())
+            refused.add(name)
+            other = self.partner_of(robot)
+            if other is None or (other.name or "b") in refused:
+                self.node.get_logger().warn(
+                    f"[{name}] nowhere to stand aside and no one to hand to — "
+                    f"waiting out the encounter")
+                return None
+            self._giving_way[key] = other
+            robot._standoff = None
+            robot._stood_aside = False
+            robot._yield_since = None
+            other._standoff = None
+            other._stood_aside = False
+            other._yield_since = None
+            self.release_junction(other)
+            other._junction = None
+            self.node.get_logger().info(
+                f"[{name}] nowhere to stand aside — {other.name} yields instead")
+            return other
+        return None
+
     def partner_of(self, robot):
         """The other robot in this robot's active encounter, or None."""
         name = robot.name or "a"
@@ -2782,6 +3067,9 @@ class SimAcs(AcsAdapter):
         for key in [k for k in self._giving_way if name in k]:
             chosen = self._giving_way.pop(key)
             chosen._stood_aside = False
+            # The hand-over budget is per encounter, so it dies with it. Keeping
+            # it would spend the next encounter's one allowance before it began.
+            self._yield_refused.pop(key, None)
 
     def request_entry(self, station_id, robot_name):
         """May this robot approach that station? One at a time, ever.

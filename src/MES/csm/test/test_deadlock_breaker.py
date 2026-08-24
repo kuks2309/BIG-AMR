@@ -38,6 +38,7 @@ def fleet(*names):
     acs.node = FakeNode()
     acs._junctions = {}
     acs._giving_way = {}
+    acs._yield_refused = {}
     acs._occupied = {}
     acs._results = {}
     acs._last_log = 0.0
@@ -146,3 +147,89 @@ def test_robots_far_apart_are_not_in_an_encounter():
 def test_the_range_is_generous_enough_not_to_end_a_real_encounter():
     """Ending one early is the failure the code above it warns about."""
     assert SimRobot.ENCOUNTER_RANGE >= 5.0
+
+
+# -- 3. three robots, and the encounters that superimposed -------------------
+
+def test_a_robot_already_in_an_encounter_is_not_given_a_second():
+    """The south-west cycle of 2026-08-24.
+
+    `_giving_way` is keyed by pair, so three robots meeting at once opened three
+    encounters in one second — amr5 yielding to amr4, amr5 to amr3, amr4 to
+    amr3. amr5 was then the yielder twice over with one `_standoff` to satisfy
+    both, and amr4 was a passer and a yielder at the same time. All three
+    stopped and the fleet delivered nothing for six minutes.
+    """
+    acs = fleet("amr3", "amr4", "amr5")
+    amr3, amr4, amr5 = acs.robots
+
+    assert acs.who_yields(amr5, amr4) is amr5
+    assert acs.who_yields(amr5, amr3) is None, "amr5 is already engaged"
+    assert acs.who_yields(amr4, amr3) is None, "so is amr4"
+
+    assert acs.partner_of(amr3) is None, "amr3 queues instead"
+    assert acs.partner_of(amr5) is amr4
+
+
+def test_the_queue_moves_up_when_the_encounter_ends():
+    """Serialised, not refused for ever."""
+    acs = fleet("amr3", "amr4", "amr5")
+    amr3, amr4, amr5 = acs.robots
+    acs.who_yields(amr5, amr4)
+    assert acs.who_yields(amr5, amr3) is None
+
+    acs.encounter_over(amr5)
+
+    assert acs.who_yields(amr5, amr3) is amr5, "now it may open"
+
+
+def test_partner_of_is_unambiguous_once_encounters_are_serialised():
+    """It returns the first matching key, which only means anything with one."""
+    acs = fleet("amr3", "amr4", "amr5")
+    amr3, amr4, amr5 = acs.robots
+    acs.who_yields(amr5, amr4)
+    acs.who_yields(amr5, amr3)
+
+    assert acs.partner_of(amr5) is amr4
+    assert acs.partner_of(amr4) is amr5
+
+
+# -- 4. the breaker may now act on a stalled encounter -----------------------
+
+def test_a_stalled_encounter_is_dropped_when_a_third_robot_boxes_us_in():
+    """Being in an encounter was treated as proof someone was working on it."""
+    acs = fleet("amr3", "amr4", "amr5")
+    amr3, amr4, amr5 = acs.robots
+    acs.who_yields(amr5, amr4)          # amr5 and amr4 engaged, both stationary
+
+    amr5._note_blocked_by(amr3)         # a third robot in the way
+    advance(amr5, SimRobot.DEADLOCK_AFTER_S + 0.1)
+    amr5._note_blocked_by(amr3)
+
+    assert acs.partner_of(amr5) is None, "the stalled encounter was let go"
+
+
+def test_an_encounter_making_progress_is_left_alone():
+    """A partner still driving to its lay-by must not be stranded there."""
+    acs = fleet("amr3", "amr4", "amr5")
+    amr3, amr4, amr5 = acs.robots
+    acs.who_yields(amr5, amr4)
+    amr4.vel = (0.5, 0.0)               # the partner is moving
+
+    amr5._note_blocked_by(amr3)
+    advance(amr5, SimRobot.DEADLOCK_AFTER_S + 0.1)
+    amr5._note_blocked_by(amr3)
+
+    assert acs.partner_of(amr5) is amr4, "still engaged"
+
+
+def test_our_own_partner_blocking_us_is_the_handshake_not_a_deadlock():
+    acs = fleet("amr4", "amr5")
+    amr4, amr5 = acs.robots
+    acs.who_yields(amr5, amr4)
+
+    amr5._note_blocked_by(amr4)
+    advance(amr5, SimRobot.DEADLOCK_AFTER_S + 1.0)
+    amr5._note_blocked_by(amr4)
+
+    assert acs.partner_of(amr5) is amr4, "the give-way branch owns this"

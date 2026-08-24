@@ -85,6 +85,7 @@ def fleet(*robots):
     acs.robots = list(robots)
     acs._junctions = {}
     acs._giving_way = {}
+    acs._yield_refused = {}
     acs._occupied = {}
     acs._results = {}
     acs._last_log = 0.0

@@ -136,20 +136,68 @@ def test_a_partner_without_a_pose_is_not_a_crash():
     assert goal == pytest.approx((pose[0], plant.AISLE_N_Y - SIDESTEP))
 
 
-def test_both_sides_fouled_picks_the_further_one_rather_than_driving_at_it():
+def test_every_candidate_fouled_reports_no_lay_by():
+    """Nowhere to go must be said, not approximated.
+
+    This used to return "the one furthest from the partner", on the reasoning
+    that moving away beats driving at it. Where the partner is between us and
+    that whole side — which is the only case that reaches here — the furthest
+    candidate is the one deepest THROUGH it. The robot then stood still until
+    YIELD_LIMIT failed its job. `None` lets the fleet hand the yield to the
+    other robot instead; see test_cannot_yield.py.
+    """
     pose = (plant.AISLE_W_X, -4.0, 0.0)
     r = robot(pose, heading(pose, (0.0, 1.0)))
     # Partner right on top of us: every candidate path is too close.
     other = robot((plant.AISLE_W_X, -4.2, 0.0))
 
-    goal = r._sidestep_target(other)
+    assert r._sidestep_target(other) is None
 
-    d_chosen = math.hypot(goal[0] - other.pose[0], goal[1] - other.pose[1])
-    mirrored = (plant.AISLE_W_X - SIDESTEP, -4.0)
-    preferred = (plant.AISLE_W_X + SIDESTEP, -4.0)
-    d_other = min(math.hypot(c[0] - other.pose[0], c[1] - other.pose[1])
-                  for c in (mirrored, preferred))
-    assert d_chosen >= d_other, "must move away from the partner, not toward it"
+
+# ------------------------------------------- the aisle we are ON, not only the
+# ------------------------------------------- direction we happen to be facing
+
+def test_turning_off_an_aisle_still_steps_off_that_aisle():
+    """The 2026-08-24 deadlock, in one call.
+
+    amr2 stood on the north aisle at (-9.6, +3.9) and had turned north toward
+    GRV1_ULD, so its goal vector read north-south. The candidates became
+    x-offsets from AISLE_W_X and the nearest lay-by on offer was 10.4 m west —
+    on the far side of amr1, the robot it was yielding to. Neither robot moved
+    again until YIELD_LIMIT failed both their jobs.
+
+    A lay-by must be somewhere the robot can actually reach, and here that is
+    the perpendicular step off the aisle it is standing on.
+    """
+    pose = (-9.6, 3.9, 0.0)
+    r = robot(pose, heading(pose, (0.0, 1.0)))       # turned north to its port
+    partner = robot((-11.7, 3.1, 0.0))               # amr1, 2.25 m to the west
+
+    goal = r._sidestep_target(partner)
+
+    assert goal is not None, "there was a clear lay-by 1.1 m away"
+    assert math.hypot(goal[0] - pose[0], goal[1] - pose[1]) < 3.0, \
+        "a lay-by must be a step aside, not a journey"
+    assert _point_seg(partner.pose[:2], pose[:2], goal) >= PATH_CLEARANCE, \
+        "must never aim through the robot we are yielding to"
+    assert not r._blocks_path(partner, pose[0], pose[1], goal), \
+        "and must not pick a path the partner is standing in"
+
+
+def test_the_preferred_axis_still_wins_when_it_is_usable():
+    """Trying both axes must not disturb the ordinary case.
+
+    The heading still chooses which pair to offer first. It only stops being
+    the last word when every candidate in that pair is unreachable.
+    """
+    pose = (-8.0, plant.AISLE_S_Y, 0.0)
+    r = robot(pose, heading(pose, (1.0, 0.0)))       # driving east
+    far = robot((5.0, 12.0, 0.0))
+
+    gx, gy = r._sidestep_target(far)
+
+    assert gx == pytest.approx(pose[0])
+    assert gy == pytest.approx(plant.AISLE_S_Y + SIDESTEP)
 
 
 # ------------------------------------------------------------------- fallback
@@ -167,3 +215,34 @@ def test_no_heading_falls_back_to_the_nearer_aisle_comparing_both_axes():
 
     assert gy == pytest.approx(pose[1]), "nearest line here is the east cross aisle"
     assert gx == pytest.approx(plant.AISLE_E_X - SIDESTEP)
+
+
+# ------------------------------------ a lay-by is unreachable whoever is in it
+
+def test_a_third_robot_standing_in_the_lay_by_rules_it_out():
+    """The 2026-08-24 three-robot jam.
+
+    amr4, yielding to amr2, chose the north lay-by. amr2 did not block it —
+    but amr3 did, and amr3 was there precisely BECAUSE of this encounter:
+    `_yielder_ahead` holds a queuer back so the passer gets the gap, and where
+    it holds is often the lay-by itself. amr4 stopped with "robot ahead on the
+    road" for eighty seconds while amr2 waited as the passer.
+
+    The south lay-by was clear of both and was never considered, because only
+    the partner was asked about.
+    """
+    class Fleet:
+        def __init__(self, robots):
+            self.robots = robots
+
+    yielder = robot((-13.44, -2.98, 0.0), heading((-13.44, -2.98), (-1.0, 0.0)))
+    partner = robot((-15.33, -2.99, 0.0))
+    third = robot((-14.22, -1.52, 0.0))          # queueing, sat in the north lay-by
+    yielder.fleet = Fleet([yielder, partner, third])
+
+    goal = yielder._sidestep_target(partner)
+
+    assert goal is not None, "the south lay-by was free"
+    assert goal[1] < -2.98, "must go SOUTH, away from the robot in the north one"
+    assert not yielder._blocks_path(third, -13.44, -2.98, goal)
+    assert not yielder._blocks_path(partner, -13.44, -2.98, goal)

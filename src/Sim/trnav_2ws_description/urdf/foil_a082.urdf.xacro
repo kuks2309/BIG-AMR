@@ -35,22 +35,38 @@
        all. Off by default; turn it on when you are debugging the scanners. -->
   <xacro:arg name="show_scan" default="false"/>
 
-  <!-- Body colour per robot. Three identical grey robots in one window are
-       impossible to tell apart, which makes every observation about "the robot"
-       ambiguous — and an ambiguous observation is worse than none, because it
-       sends the diagnosis somewhere wrong. Keyed off the namespace so amr1 is
-       red, amr2 green, amr3 blue, and the single-robot world stays grey. -->
+  <!-- Body colour per LEG, not per robot. Identical grey robots in one window
+       are impossible to tell apart, which makes every observation about "the
+       robot" ambiguous — and an ambiguous observation is worse than none,
+       because it sends the diagnosis somewhere wrong. What you need to read off
+       the window is which leg of the material flow a robot is serving, so that
+       is what the colour carries: A red, B green, C blue. Robots on the same
+       leg are the same colour on purpose — they are interchangeable, and the
+       CSM treats them that way. The single-robot world passes no segment and
+       stays grey.
+
+       KEYED OFF THE SEGMENT, NOT THE NAME. It used to be three xacro:if cases
+       on the namespace — amr1 red, amr2 green, amr3 blue — and every robot
+       past the third fell through to the default. At robots:=5 that put amr4
+       and amr5 on segment C in DarkGrey, the same grey the single-robot world
+       uses, so the window showed four colours for three legs. This is the same
+       failure fleet.launch.py records against its own hand-written fleet tuple:
+       a list written out by hand caps the fleet at the length of the list. The
+       leg map lives in csm/plant.py ROBOT_SEGMENT and the launch passes it in,
+       so this stays right at the deck's full ten. -->
   <!-- xacro:if rather than a dict lookup: xacro's ${...} parser is naive and
        the dict's own closing brace terminates the expression, failing with
        "'{' was never closed". Conditionals have no braces to trip over. -->
+  <xacro:arg name="segment" default=""/>
+  <xacro:property name="SEGMENT" value="$(arg segment)"/>
   <xacro:property name="BODY_COLOUR" value="Gazebo/DarkGrey"/>
-  <xacro:if value="${NS == 'amr1'}">
+  <xacro:if value="${SEGMENT == 'A'}">
     <xacro:property name="BODY_COLOUR" value="Gazebo/Red"/>
   </xacro:if>
-  <xacro:if value="${NS == 'amr2'}">
+  <xacro:if value="${SEGMENT == 'B'}">
     <xacro:property name="BODY_COLOUR" value="Gazebo/Green"/>
   </xacro:if>
-  <xacro:if value="${NS == 'amr3'}">
+  <xacro:if value="${SEGMENT == 'C'}">
     <xacro:property name="BODY_COLOUR" value="Gazebo/Blue"/>
   </xacro:if>
   <xacro:property name="PFX" value="${NS + '/' if NS else ''}"/>

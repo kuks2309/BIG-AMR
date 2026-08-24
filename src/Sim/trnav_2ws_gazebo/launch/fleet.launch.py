@@ -109,7 +109,20 @@ def _strip_comments(node):
 
 
 def _description(xacro_file, ns):
-    doc = xacro.process_file(xacro_file, mappings={'ns': ns})
+    """The URDF for one robot, with its namespace and its leg baked in.
+
+    The SEGMENT comes from plant.ROBOT_SEGMENT rather than from the name,
+    because the colour it drives is a statement about which leg a robot serves
+    — see the body-colour note in foil_a082.urdf.xacro. Reading it here is what
+    keeps the map in one place: the xacro never learns which robot is on which
+    leg, it is told.
+
+    A robot on no leg gets the empty string and the model's grey default, which
+    is the honest answer — it is also the robot the launch offers no work to.
+    """
+    doc = xacro.process_file(
+        xacro_file,
+        mappings={'ns': ns, 'segment': plant.ROBOT_SEGMENT.get(ns, '')})
     dom = xml.dom.minidom.parseString(doc.toxml())
     _strip_comments(dom)
     urdf = dom.toxml()

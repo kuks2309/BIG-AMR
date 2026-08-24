@@ -71,6 +71,7 @@ def fleet(*names):
     acs.robots = [FakeRobot(n) for n in names]
     acs._junctions = {}
     acs._giving_way = {}
+    acs._yield_refused = {}
     acs._occupied = {}
     acs._results = {}
     acs._last_log = 0.0
