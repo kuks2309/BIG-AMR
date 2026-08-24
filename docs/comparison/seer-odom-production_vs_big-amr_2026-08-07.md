@@ -247,3 +247,362 @@ SlipSensor 심볼:  libprotocol.so  정의 88 / 참조 0
 
 즉 원본이 누적 오차를 감당하는 방식은 "정밀한 적분"이 아니라
 **증분만 사용 + 관측 보정 + 불확실성 적응 + 이상 시 정지** 네 겹이고, 우리는 그중 셋을 갖췄다.
+
+---
+
+## 9. `MultiSteersOdometer::CaldPose()` 줄 단위 복원 ✓
+
+`libOdoCalculator.so` 에 **DWARF 가 살아 있다.** 그래서 생 오프셋이 아니라 **멤버 이름**과
+**원본 소스 줄 번호**로 확정된다. 원본 트리:
+`/root/workspace/3.4.5.20/plugins/OdoCalculator/src/Odometer/multisteerodometer.cpp`
+(형제: `odometer.{h,cpp}` · `ackermanodometer.cpp` · `diffodometer.cpp` · `dualdiffodometer.cpp` ·
+`multidiffodometer.cpp` · `omniodometer.cpp` · `rgv2odometer.cpp`)
+
+### 9.1 `AbstractOdometer` 레이아웃 — 앞선 §3 의 생 오프셋이 전부 이름으로 확정된다
+
+| 오프셋 | 멤버 | §3 에서 부르던 이름 |
+| --- | --- | --- |
+| 11 | `bool flagFirstInputGot` | — |
+| 12 | `bool flagDebugDetail` | — |
+| 13 | `bool flagCumEncPoseMode` | `0xd` |
+| 184 / 192 | `uint64_t tcur` / `tpre` | `0xb8` |
+| 216 / 224 / 232 | `output.vx` / `vy` / `vw` | `0xd8` / `0xe0` / `0xe8` |
+| 240 / 248 / 256 | `output.dx` / `dy` / `dyaw` | `0xf0` / `0xf8` / `0x100` |
+| 264 / 272 / 280 | `output.x` / `y` / `yaw` | `0x108` / `0x110` / `0x118` |
+| 320 | `double thresConsistent` | — |
+
+`struct OdometerOutput` 전체 88 B, `AbstractOdometer` 전체 328 B.
+⇒ §3 의 해독은 **전부 맞았다** — 이름으로 재확인됐다.
+
+### 9.2 `CaldPose()` — 원본 159~195행
+
+주소 `0x14f300`~`0x14fe80`. 줄 번호는 DWARF 줄 테이블 실측이다.
+
+```
+159  진입
+160  AbstractOdometer::CaldPose()                 ; 기저 클래스 선처리
+163  if (!flagFirstInputGot) goto 190             ; 첫 입력 전에는 증분을 만들지 않는다
+166  Eigen 벡터 2개 생성 + memset 0
+168  ┌ 모터맵 순회 ─────────────────────────────
+171  │   ds = motor.second[+0x38]                 ; 휠 변위
+172  │   δ  = motor.second[+0x20]                 ; 조향각
+173  │   b[2i]   = cos(δ) * ds
+174  │   b[2i+1] = sin(δ) * ds
+     └ 순회 끝 → general_matrix_vector_product     ; 계수행렬(§2 CalOdoCoef 사전 역행렬) × b
+180  output.dx, output.dy ← 결과                  ; 0xf0 에 16 B 동시 저장(movupd)
+182  output.dyaw          ← 결과                  ; 0x100
+184  if (flagDebugDetail)
+185      stringstream → rbk::Logger::thread()
+190  output.vx = output.vy = 0 ; output.vw = 0    ; 공통 종료 + 163 의 early-exit 착지점
+195  정리
+```
+
+**읽어야 할 두 가지**:
+
+1. **`CaldPose` 는 속도를 항상 0으로 지운다**(190행). 속도는 `CalSpeed()` 소관이다 —
+   `RobotPosEKF` 의 게이트 입력 `wzOdoAbsDeg`(= `odom.vel_rotate`)는 여기서 나오지 않는다.
+2. **첫 입력 전에는 증분이 생산되지 않는다**(163행 게이트). 그 경로도 190행으로 착지하므로
+   `dx`/`dy`/`dyaw` 는 **직전 값이 남고** 속도만 0이 된다.
+
+### 9.3 우리 것과의 대조
+
+| | 레거시 `CaldPose` | `motor_control/driver_node.py` |
+| --- | --- | --- |
+| 휠 계측 | `(ds, δ)` 쌍 | `(ds, δ)` 쌍 — 같은 구조 |
+| 벡터화 | `b[2i]=cos δ·ds`, `b[2i+1]=sin δ·ds` | `modules_to_twist` 내부 |
+| 역해 | 계수행렬 사전 역행렬 × b | 정기구학 최소자승 |
+| 첫 입력 게이트 | `flagFirstInputGot` | `self._prev_pos is not None` — 같은 성질 |
+| 속도 | `CaldPose` 가 0으로 지움 | 별도 |
+
+⇒ **구조는 같고 역해 방법이 다르다.** 수치 동일성은 대조로 확인해야 한다 —
+`libOdoCalculator.so` 는 `dlopen` 성공·`ldd` 미해결 0건·핵심 심볼 `.dynsym` 공개
+(`_ZN19MultiSteersOdometerC1Ev` · `_ZN19MultiSteersOdometer8CaldPoseEv` 등)라
+karto 오라클과 같은 경로가 열려 있다.
+
+---
+
+## 10. `MultiSteersOdometer::CalOdoCoef()` — 계수행렬 ✓
+
+원본 `multisteerodometer.cpp` **79~107행**, 주소 `0x14c9f0`~`0x14d690`.
+채취물: [`References/seer/libOdoCalculator/calodocoef.asm`](../../References/seer/libOdoCalculator/calodocoef.asm)
+
+`MotorParam` 레이아웃(DWARF 실측, 176 B): `x`=32 · `y`=40 · `yaw`=48 · `canID`=56 ·
+`encoderLine`=60 · `wheelRadius`=96 · `reductionRatio`=104 · `steerOffset`=112 ·
+`maxAngle`=120 · `minAngle`=128 · `cpwheelRadius`=136 · **`cpx`=144 · `cpy`=152** ·
+`cpyaw`=160 · `cpsteerOffset`=168.
+
+```
+ 81  AbstractOdometer::CalOdoCoef()                ; 기저 클래스
+ 84  Eigen::Matrix<double,-1,-1> 생성 + memset 0
+ 86  ┌ 모터맵 순회
+ 89  │   A(2i,   ?) ← −( y   + cpy  )              ; MotorParam +0x28 + +0x98, 부호 반전
+     │                                             ;   마스크 0x19eaf0 = 00..0080 (부호비트)
+ 91  │   A(2i+1, ?) ←  ( x   + cpx  )              ; MotorParam +0x20 + +0x90
+     └
+ 94  Eigen 행렬 재생성                              ; §2 의 PartialPivLU 역행렬 사전계산
+ 96~104  행렬 덤프를 로그·파일로 남김               ; FileSystem::rbkUserData 경로
+107  예외 정리
+```
+
+⇒ 휠 i 의 유효 위치는 **`(x+cpx, y+cpy)`** 다 — `cp*` 는 보정항이며 설계값에 더해진다.
+행 구조는 평면 강체 속도 관계의 표준형이다:
+
+```
+[ 1  0  −(y+cpy) ] [ dx  ]   [ cos δ · s ]
+[ 0  1   (x+cpx) ] [ dy  ] = [ sin δ · s ]      (휠마다 2행)
+                   [ dyaw]
+```
+
+## 11. `MultiSteersOdometer::CalSpeed()` — 속도와 일관성 판정 ✓
+
+원본 `multisteerodometer.cpp` **110~156행**, 주소 `0x14d690`~`0x14f300`.
+채취물: [`References/seer/libOdoCalculator/calspeed.asm`](../../References/seer/libOdoCalculator/calspeed.asm)
+
+`MotorVitalInfo` 레이아웃(DWARF 실측, 64 B): `flagSet`=0 · `t_nsec`=8 · `stop`=16 ·
+`speed`=24 · **`position`=32** · `encoder`=40 · **`v_enc`=48** · **`dpos`=56**.
+
+```
+111  AbstractOdometer::CalSpeed()                  ; 기저 클래스
+117  b 벡터 생성 + memset 0
+119  general_matrix_vector_product (스케일 1.0, 상수 0x188878)
+122  ┌ 모터맵 순회
+     │   v = motor.v_enc                           ; +0x30
+123  │   δ = motor.position                        ; +0x20 (조향각)
+124  │   b[2i]   = cos(δ) · v
+125  │   b[2i+1] = sin(δ) · v
+     └
+131  output.vx, output.vy ← 결과 (0xd8, 16 B)
+     output.vw           ← 결과 (0xe8)
+133~139  잔차를 절대값으로 취합                     ; andpd 마스크 0x19c0d0 = ff..7f
+142  flagWheelConsistent ← (잔차 ≤ thresConsistent) ; ucomisd 0x140 + setbe 0xe
+145·146  초과 시 경고 로그
+151  (early-exit) output.vx = vy = vw = 0
+156  예외 정리
+```
+
+**두 가지가 여기서 닫힌다**:
+
+1. **`RobotPosEKF` 게이트 입력의 출처.** `wzOdoAbsDeg = |Rad2Deg(odom.vel_rotate)|` 의
+   `vel_rotate` 는 **`CalSpeed` 가 만든 `output.vw`** 다(`CaldPose` 는 §9.2 대로 속도를
+   항상 0으로 지운다). 즉 IMU 게이트는 **엔코더 속도 `v_enc` 로부터** 판정된다.
+2. **`FlagConsistentCheck`·`ThresConsistent` 의 소비 지점.** §4 의 배포값
+   `FlagConsistentCheck 0` · `ThresConsistent 0.02` 가 여기 142행에서 쓰인다 —
+   판정 결과는 `flagWheelConsistent`(offset 14)에 남고, 초과는 **로그 경고**로만 나간다.
+
+## 12. 세 함수의 관계 — 한 파일 연속 구간
+
+`multisteerodometer.cpp` 는 세 함수가 연속이다: `CalOdoCoef`(79~107) →
+`CalSpeed`(110~156) → `CaldPose`(159~195). 같은 계수행렬을 **속도**(`v_enc`)와
+**변위**(`dpos`)에 각각 적용하는 대칭 구조다.
+
+| | 입력 | 출력 |
+| --- | --- | --- |
+| `CalSpeed` | `v_enc` · `position` | `output.vx/vy/vw` + `flagWheelConsistent` |
+| `CaldPose` | `dpos` · `position` | `output.dx/dy/dyaw` (속도는 0으로 지움) |
+| `AbstractOdometer::CalPose` | 위 둘 중 `flagCumEncPoseMode` 가 고른 쪽 | `output.x/y/yaw` (§3) |
+
+## 13. `AbstractOdometer::CalPose()` — 줄 번호 확정과 §3 보강 ✓
+
+원본 `odometer.cpp` **425~454행**, 주소 `0x15d490`~.
+채취물: [`References/seer/libOdoCalculator/calpose_abstract.asm`](../../References/seer/libOdoCalculator/calpose_abstract.asm)
+
+```
+425  진입
+428  if (!flagFirstInputGot) → 종료                 ; offset 11, cmpb 0xb + je
+437  if (!flagCumEncPoseMode) → 속도 경로           ; offset 13, cmpb 0xd + je
+438  Δx ← output.dx      (0xf0)                     ; 변위 경로 — dt 곱 없음
+439  Δy ← output.dy      (0xf8)
+440  Δθ ← output.dyaw    (0x100)
+441  if (!flagDebugDetail) → 446                    ; offset 12, 로그 건너뜀
+442  [로그 블록] · [속도 경로] dt = Δt / 1e9        ; 상수 0x19c0a0
+       Δx = output.vx·dt · Δy = output.vy·dt · Δθ = output.vw·dt
+446  yaw ← yaw + Δθ                                 ; 0x118
+447  yaw ← rbk::foundation::utils::Normalize(yaw)   ; 이름 있는 외부 함수(인라인 아님)
+448  sin(yaw)                                       ; **갱신된** yaw
+449  cos(yaw)
+450  (x, y) ← (x, y) + R(yaw)·(Δx, Δy)              ; 0x108/0x110, movupd 16 B
+454  예외 정리
+```
+
+§3 에서 raw 역어셈블로 세운 구조가 **줄 번호와 함께 재확인**됐고, 세 가지가 보강된다:
+
+1. **`flagFirstInputGot` 게이트(428행)** — §3 에는 없던 항목이다. 첫 입력 전에는 자세를
+   누적하지 않는다. `CaldPose` 의 같은 게이트(§9.2 163행)와 짝을 이룬다.
+2. **`flagDebugDetail` 게이트(441행)** — 로그만 가른다. 계산 경로에는 영향이 없다.
+3. **정규화는 이름 있는 함수** `rbk::foundation::utils::Normalize(double)` 다.
+   재구현 시 그 함수의 치역(구간 경계 포함 여부)을 별도로 맞춰야 한다 — 아직 미확인.
+
+⚠ **줄 귀속의 한계**: 속도 경로(`dt` 나눗셈·`vx·dt`)가 줄 테이블상 442행으로 묶여 있다.
+최적화로 로그 블록과 인접해 배치된 결과로 보이며, **분기 흐름(437행의 `je` 착지점)** 이
+근거이지 줄 번호가 근거는 아니다. 값 인용 시 주소를 함께 적을 것.
+
+## 14. `rbk::foundation::utils::Normalize(double)` — 치역 [−π, π) 확정 ✓
+
+`libfoundation.so` `0x18750`. §13 이 남긴 미확인 항목을 닫는다.
+
+상수 실측: `rbk::foundation::math::PI` (`.data` `0x2204b0`) = `182d4454fb210940` =
+**`M_PI` 와 비트 동일**. `xorpd` 마스크 `0x1ae10` = `00..0080` (부호비트) ⇒ `−PI`.
+
+```
+[빠른 경로]  if (x < −π) 또는 (π ≤ x) → 느린 경로
+             그 외에는 **x 를 그대로 돌려준다**(변환 없음)
+
+[느린 경로]  r = x − 2π·floor(x / 2π)          ; r ∈ [0, 2π)
+             y = (r < π) ? r : r − 2π           ; cmpnlesd + andpd/andnpd/orpd
+             y = (y < −π) ? y + 2π : y          ; cmpltsd, 부동소수 경계 보정
+             return y
+```
+
+⇒ **치역은 `[−π, π)`** — `−π` 포함, `π` 제외. 분기 없는(branchless) 마스크 연산이라
+비교 결과가 `NaN` 이면 두 마스크가 모두 0이 되어 `orpd` 결과도 0 이 된다(입력이 `NaN`
+일 때의 거동이며 정상 입력에서는 도달하지 않는다).
+
+### 우리 이식본과의 대조
+
+`src/Navigation/odom_imu_ekf/src/ekf.cpp` 의 `normalizeAngle`:
+
+```cpp
+while (a >= M_PI)  a -= 2.0 * M_PI;
+while (a < -M_PI)  a += 2.0 * M_PI;
+```
+
+| 항목 | 원본 | 이식본 |
+| --- | --- | --- |
+| 치역 | `[−π, π)` | `[−π, π)` — **일치** |
+| 구간 내 입력 | 그대로 반환 | 루프 미진입 → 그대로 반환 — **일치** |
+| 축약 방식 | `floor` 1회 (상수 시간) | 반복 감산 (|a| 에 비례) |
+
+**수치 대조 실측** (양쪽을 그대로 옮겨 14개 입력에서 비교):
+
+| 입력 | 원본식 | 이식본 | 비트 |
+| --- | --- | --- | --- |
+| 0 · ±0.1 · ±(π−ε) · ±3.5 · ±7 | — | — | **일치**(10/10) |
+| ±100 | −0.53096491487337261 | −0.53096491487341524 | 불일치 |
+| 10000 | −2.8310090299012458 | −2.8310090299901063 | 불일치 |
+| 1e6 | −0.35756416701340044 | −0.35756278089451854 | 불일치 |
+
+⚠ **차이는 ULP(Unit in the Last Place) 수준이 아니다** — `1e6` 에서 **1.4e−6 rad**
+(그 크기에서 1 ULP 는 약 5.5e−17 이므로 10^10 ULP 규모다). 「`floor` 1회」와 「반복 감산」의
+누적 반올림 차이다. 초고에 「마지막 ULP 가 갈릴 수 있다」고 쓴 것은 **과소 서술이었고
+실측으로 반증됐다.**
+
+⇒ **실사용 경로에서는 무해하다.** `CalPose` 는 `Normalize(yaw + dyaw)` 를 부르는데 `yaw` 가
+이미 정규화돼 있어 입력이 대략 `[-2π, 2π]` 를 벗어나지 않고, 그 구간은 위 표대로 비트 일치
+구간이다. **다만 비트 대조 하니스에서는 이 함수부터 원본 방식(`floor` 1회)으로 맞춰야 한다** —
+큰 각을 넣는 시험을 쓰면 여기서 먼저 갈린다.
+
+치역 자체는 무작위 20만 표본으로도 확인했다 — 최대 `3.1415736948038102` (< π),
+최소 `-3.1415792237633227` (>= -π).
+
+## 15. 원본 오라클 수치 대조 — **비트 일치 달성** ✓
+
+재현: `bash Tools/seer_re/odo_oracle/run_compare.sh`
+
+### 하니스
+
+원본 `libOdoCalculator.so` 를 `dlopen` 하고 심볼을 직접 부른다 — 플러그인 프레임워크는
+재현하지 않는다. 객체는 DWARF 가 준 크기(`MultiSteersOdometer` **424 B**)로 잡고 원본
+생성자 `_ZN19MultiSteersOdometerC1Ev` 를 호출한다. 구조체는 원본 레이아웃을 미러링해
+같은 `libstdc++` new ABI 로 맞춘다.
+
+관문마다 되읽어 확인하며 올라갔다:
+
+| 관문 | 확인한 것 |
+| --- | --- |
+| M1 | 생성 후 `thresConsistent` = **0.05**(생성자 기본값. 배포값 0.02 는 설정에서 온다) |
+| M1 | `mapMotorParam`(offset 16) 주입 성공 |
+| M2 | `CalOdoCoef` 가 **파라미터 미검증**으로 거부 → `CheckModelParam` 이 `flagModelFileRead`=0 때문에 실패. 모델 파일 없이 도는 하니스라 플래그를 직접 세웠다 |
+| M2 | 휠 수는 `mapMotorParam` 이 아니라 **offset 328 의 문자열 맵**에서 온다(`mov 0x170(%rbx),%rsi` = 그 맵의 `_M_node_count`) — 조향↔주행 짝 맵. 채우자 `A` 가 4×3 으로 섰다 |
+| M3 | 시나리오 5종 구동 → `%.17g` 출력 |
+
+### `A` 와 `Aplus` — 복원한 구조가 원본에서 확인됐다
+
+`MultiSteersOdometer` 는 `Eigen::MatrixXd A`(offset 376)·`Aplus`(400)를 **이름째** 갖는다.
+원본이 굳힌 값:
+
+```
+A (4×3)                          Aplus (3×4)
+[1, 0, -0     ]   front          [0.5, 0,                   0.5, 0                  ]
+[0, 1,  0.6039]   front          [0,   0.49674999999999997, 0,   0.50324999999999998]
+[1, 0, -0     ]   rear           [0,   0.83333333333333326, 0,  -0.83333333333333337]
+[0, 1, -0.5961]   rear
+```
+
+§10 에서 세운 행 구조 `[1, 0, −(y+cpy)]` / `[0, 1, (x+cpx)]` 가 **원본 메모리에서 그대로 확인**됐다.
+
+### 대조 결과
+
+시나리오 5종(직진·제자리스핀·호·혼합·미소) × `SPEED`/`DPOSE`/`POSE` 15줄, **필드 50개**:
+
+**차이 0건 — 비트 완전 일치.**
+
+`consistent` 플래그도 전 시나리오 일치했다(`mixed` 만 0).
+⚠ 다만 이는 **판정 결과**가 같다는 것이지 잔차 산식이 같다는 증명은 아니다 —
+원본은 잔차 값을 노출하지 않는다. `calSpeed` 의 잔차 취합 방식은 여전히 우리 재구성이다.
+
+### ⚠ 대조는 **x86-64 에서만** 성립한다
+
+로봇 PC(aarch64)에서 빌드한 재구현본은 원본과 갈린다. 처음 대조에서 `vx·vy·dx·dy·x·y`
+는 비트 일치하는데 **`vw`·`dyaw`·`yaw` 만** 최대 `2.78e−17` 어긋났고, 추적하니
+`Aplus` 12원소 중 **하나**가 1 ULP 달랐다:
+
+| | `Aplus(2,3)` |
+| --- | --- |
+| 원본(x86-64) | `-0.83333333333333337` |
+| 재구현(aarch64) | `-0.83333333333333326` |
+| 재구현(x86-64) | `-0.83333333333333337` ← 일치 |
+
+Eigen 버전(원본 트리 **3.3.4** ↔ 시스템 3.4.0)이나 컴파일러(원본 **clang 6.0.0** ↔ g++ 11.4)를
+바꿔도 x86-64 에서는 모두 원본 값이 나왔다. ⇒ **원인은 아키텍처**다.
+`-ffp-contract=off` 를 준 상태에서도 남는 차이이므로 컴파일 옵션으로 지울 수 없다.
+
+⇒ **비트 대조는 x86-64 에서 수행한다.** 이는 karto 오라클 ADR 이 「qemu 부동소수가 하드웨어와
+달라 대조가 오염된다」고 경계한 것과 같은 종류이며, 이번에 실측으로 확인됐다.
+로봇에서 도는 코드의 **실용 정확도**에는 영향이 없다(1 ULP).
+
+## 16. `CalSpeed` 잔차 산식 확정 — 임계 이분 탐색으로 역추출 ✓
+
+§15 가 남긴 마지막 공백을 닫는다. 원본은 잔차 **값**을 노출하지 않지만
+**판정 플래그**(`flagWheelConsistent`, offset 14)는 노출하고 판정이 `잔차 ≤ thresConsistent`
+이므로, 임계를 이분 탐색하면 그 경계가 곧 잔차다(조건이 `≤` 라 경계값이 잔차 자신이다).
+
+### 역추출 결과 (Foil_A082 기하, x86-64)
+
+| 시나리오 | 원본 잔차 | 재구현 |
+| --- | --- | --- |
+| straight | 0 | 0 ✓ |
+| spin | `1.1694330014359091e-16` | `1.1694330014359088e-16` — **~2 ULP** |
+| arc | 0 | 0 ✓ |
+| mixed | `0.2356653305589535` | `0.2356653305589535` ✓ |
+| tiny | `9.9999950000004155e-06` | `9.9999950000004155e-06` ✓ |
+
+**4/5 비트 일치.** `spin` 만 갈리는데 그 잔차가 `1e-16` — 값 `0.6` 대에서 완전 상쇄된
+자리라 연산 순서에 따라 마지막 2 비트가 흔들린다. 판정은 임계 `0.02` 대비이므로 실용 영향은 없다.
+
+### 산식
+
+역어셈블 139행이 결정적이다:
+
+```
+movupd (%rsi,%rdx,8),%xmm0    ; 한 휠의 잔차 2성분을 함께 적재
+mulpd  %xmm0,%xmm0            ; (ex², ey²)
+movapd %xmm0,%xmm1
+movhlps %xmm1,%xmm1           ; xmm1 ← ey²
+addsd  %xmm0,%xmm1            ; ey² + ex²
+sqrtpd %xmm0,%xmm0            ; √(ex² + ey²)          ← 유클리드 노름
+movlpd %xmm0,(%rdi,%rax,4)    ; 휠별 노름 배열에 저장
+```
+이후 `andpd`(절대값) + 최대값 루프 → `ucomisd thresConsistent` → `setbe flagWheelConsistent`.
+
+⇒ **잔차 = max over wheels of ‖(fit − b)_wheel‖₂**.
+성분별 최대값(L∞)이 아니다 — 재구현본이 그렇게 돼 있어 정정했다.
+
+⚠ **센터라인 2륜으로는 이 성질을 시험할 수 없다.** 휠이 y=0 인 두 개면 미지수 `vy`·`vw` 가
+`y` 방정식 2개를 정확히 맞추므로 **y 잔차가 항상 0** 이고, 노름과 성분최대값이 같아진다.
+회귀 시험은 **대각 기하**로 갈라 고정했다(돌연변이 「노름→성분최대값」 검출 확인).
+
+### 하니스 한계
+
+대각 기하로 잔차를 역추출하려 하면 하니스가 `SIGSEGV` 로 죽는다(임계를 바꿔 가며
+`CalSpeed` 를 반복 호출할 때의 재진입 문제로 보인다 — 원인은 미규명).
+센터라인 기하에서는 정상 동작하므로 위 표는 그 조건에서 얻었다.

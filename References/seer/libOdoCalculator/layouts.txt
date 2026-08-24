@@ -1,0 +1,122 @@
+/* offset      |    size */  type = class AbstractOdometer {
+                             protected:
+/*      8      |       1 */    bool flagModelFileRead;
+/*      9      |       1 */    bool flagModelParamCheck;
+/*     10      |       1 */    bool flagCoefCal;
+/*     11      |       1 */    bool flagFirstInputGot;
+/*     12      |       1 */    bool flagDebugDetail;
+/*     13      |       1 */    bool flagCumEncPoseMode;
+/*     14      |       1 */    bool flagWheelConsistent;
+/* XXX  1-byte hole      */
+/*     16      |      48 */    class std::map<std::__cxx11::basic_string<char>, MotorParam, std::less<std::__cxx11::basic_string<char> >, std::allocator<std::pair<std::__cxx11::basic_string<char> const, MotorParam> > > [with _Key = class std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, _Tp = struct MotorParam, _Compare = struct std::less<std::__cxx11::basic_string<char> >, _Alloc = class std::allocator<std::pair<std::__cxx11::basic_string<char> const, MotorParam> >] {
+                                 private:
+/*     16      |      48 */        _Rep_type _M_t;
+
+                                   /* total size (bytes):   48 */
+                               } mapMotorParam;
+/*     64      |      48 */    class std::map<std::__cxx11::basic_string<char>, MotorVitalInfo, std::less<std::__cxx11::basic_string<char> >, std::allocator<std::pair<std::__cxx11::basic_string<char> const, MotorVitalInfo> > > [with _Key = class std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, _Tp = struct MotorVitalInfo, _Compare = struct std::less<std::__cxx11::basic_string<char> >, _Alloc = class std::allocator<std::pair<std::__cxx11::basic_string<char> const, MotorVitalInfo> >] {
+                                 private:
+/*     64      |      48 */        _Rep_type _M_t;
+
+                                   /* total size (bytes):   48 */
+                               } curVitalInfo;
+/*    112      |      48 */    class std::map<std::__cxx11::basic_string<char>, MotorVitalInfo, std::less<std::__cxx11::basic_string<char> >, std::allocator<std::pair<std::__cxx11::basic_string<char> const, MotorVitalInfo> > > [with _Key = class std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, _Tp = struct MotorVitalInfo, _Compare = struct std::less<std::__cxx11::basic_string<char> >, _Alloc = class std::allocator<std::pair<std::__cxx11::basic_string<char> const, MotorVitalInfo> >] {
+                                 private:
+/*    112      |      48 */        _Rep_type _M_t;
+
+                                   /* total size (bytes):   48 */
+                               } preVitalInfo;
+/*    160      |      24 */    class std::vector<MovingAverage, std::allocator<MovingAverage> > [with _Tp = class MovingAverage, _Alloc = class std::allocator<MovingAverage>] : protected std::_Vector_base<_Tp, _Alloc> {
+
+                                   /* total size (bytes):   24 */
+                               } vecVerrFilter;
+/*    184      |       8 */    uint64_t tcur;
+/*    192      |       8 */    uint64_t tpre;
+/*    200      |      88 */    struct OdometerOutput {
+/*    200      |       8 */        uint64_t t;
+/*    208      |       1 */        bool stop;
+/* XXX  7-byte hole      */
+/*    216      |       8 */        double vx;
+/*    224      |       8 */        double vy;
+/*    232      |       8 */        double vw;
+/*    240      |       8 */        double dx;
+/*    248      |       8 */        double dy;
+/*    256      |       8 */        double dyaw;
+/*    264      |       8 */        double x;
+/*    272      |       8 */        double y;
+/*    280      |       8 */        double yaw;
+
+                                   /* total size (bytes):   88 */
+                               } output;
+/*    288      |       0 */    std::__cxx11::string strErr;
+/* XXX 32-byte hole      */
+/*    320      |       8 */    double thresConsistent;
+
+                               /* total size (bytes):  328 */
+                             }
+/* offset      |    size */  type = class MultiSteersOdometer : public AbstractOdometer {
+                             protected:
+/*    328      |      48 */    class std::map<std::__cxx11::basic_string<char>, std::__cxx11::basic_string<char>, std::less<std::__cxx11::basic_string<char> >, std::allocator<std::pair<std::__cxx11::basic_string<char> const, std::__cxx11::basic_string<char> > > > [with _Key = class std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, _Tp = class std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, _Compare = struct std::less<std::__cxx11::basic_string<char> >, _Alloc = class std::allocator<std::pair<std::__cxx11::basic_string<char> const, std::__cxx11::basic_string<char> > >] {
+                                 private:
+/*    328      |      48 */        _Rep_type _M_t;
+
+                                   /* total size (bytes):   48 */
+                               } mapWalkSteer;
+/*    376      |      24 */    Eigen::MatrixXd A;
+/*    400      |      24 */    Eigen::MatrixXd Aplus;
+
+                               /* total size (bytes):  424 */
+                             }
+/* offset      |    size */  type = struct MotorParam {
+/*      0      |       0 */    std::__cxx11::string name;
+/*     32      |       8 */    double x;
+/*     40      |       8 */    double y;
+/*     48      |       8 */    double yaw;
+/*     56      |       4 */    uint32_t canID;
+/*     60      |       4 */    uint32_t encoderLine;
+/*     64      |       0 */    std::__cxx11::string func;
+/* XXX 32-byte hole      */
+/*     96      |       8 */    double wheelRadius;
+/*    104      |       8 */    double reductionRatio;
+/*    112      |       8 */    double steerOffset;
+/*    120      |       8 */    double maxAngle;
+/*    128      |       8 */    double minAngle;
+/*    136      |       8 */    double cpwheelRadius;
+/*    144      |       8 */    double cpx;
+/*    152      |       8 */    double cpy;
+/*    160      |       8 */    double cpyaw;
+/*    168      |       8 */    double cpsteerOffset;
+
+                               /* total size (bytes):  176 */
+                             }
+/* offset      |    size */  type = struct MotorVitalInfo {
+/*      0      |       1 */    bool flagSet;
+/* XXX  7-byte hole      */
+/*      8      |       8 */    uint64_t t_nsec;
+/*     16      |       1 */    bool stop;
+/* XXX  7-byte hole      */
+/*     24      |       8 */    double speed;
+/*     32      |       8 */    double position;
+/*     40      |       4 */    int32_t encoder;
+/* XXX  4-byte hole      */
+/*     48      |       8 */    double v_enc;
+/*     56      |       8 */    double dpos;
+
+                               /* total size (bytes):   64 */
+                             }
+/* offset      |    size */  type = struct OdometerOutput {
+/*      0      |       8 */    uint64_t t;
+/*      8      |       1 */    bool stop;
+/* XXX  7-byte hole      */
+/*     16      |       8 */    double vx;
+/*     24      |       8 */    double vy;
+/*     32      |       8 */    double vw;
+/*     40      |       8 */    double dx;
+/*     48      |       8 */    double dy;
+/*     56      |       8 */    double dyaw;
+/*     64      |       8 */    double x;
+/*     72      |       8 */    double y;
+/*     80      |       8 */    double yaw;
+
+                               /* total size (bytes):   88 */
+                             }
