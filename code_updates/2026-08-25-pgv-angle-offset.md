@@ -9,3 +9,9 @@
 
 축 실측(−90° 관계) 후 발행 x/y 를 REP-103 로봇 프레임으로 회전하는 파라미터 추가.
 상세는 패키지 권위본 같은 날짜 절. 운용: `angle_offset_deg:=45.3 frame_rotation_deg:=-90.0`.
+
+## 관련 — 도킹 종방향 대책 (같은 날)
+
+dock_approach 서버에 이동평균 트리거·정밀 크립 추가. 권위 기록은
+`src/Control/Motion_Control/2WS/trnav_2ws_dock_ros/docs/trnav_2ws_dock_ros_code_updates.md`
+2026-08-25 절. 분석 근거는 pgv_ros2 계측 로그(bag 성분 분해).

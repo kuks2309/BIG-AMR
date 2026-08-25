@@ -12,6 +12,7 @@
 #include <cmath>
 #include <memory>
 #include <mutex>
+#include <deque>
 #include <optional>
 #include <string>
 
@@ -125,6 +126,18 @@ class DockApproachServer : public rclcpp::Node
         reapproach_v_mps_ = declare_parameter<double>("reapproach_v_mps", 0.05);
         max_reapproach_ = static_cast<int>(declare_parameter<int64_t>("max_reapproach", 1));
         verify_cycles_ = static_cast<int>(declare_parameter<int64_t>("verify_cycles", 30));
+        // VERIFY 진입 판정의 d 는 최근 N 주기 이동평균 — 순간 판독 트리거는 관측 잡음이
+        // 아래로 출렁이는 순간 조기 종료를 만든다(공차+잡음폭 만큼의 종방향 잔차 실측).
+        // 1 이면 종전 순간 판정과 동일.
+        trigger_avg_cycles_ = static_cast<int>(declare_parameter<int64_t>("trigger_avg_cycles", 5));
+        // 검증 잔차가 횡·각은 공차 안인데 d 만 남는 경우, 후퇴(reapproach) 대신
+        // 제자리에서 잔차만큼 저속 재접근(크립)한다 — 공차-트리거가 남기는 종방향
+        // 잔차를 측정 잡음 바닥까지 조이는 단계. 후진 방향 크립(过도달)도 지원.
+        creep_enable_ = declare_parameter<bool>("creep_enable", true);
+        creep_tol_mm_ = declare_parameter<double>("creep_tol_mm", 2.0);
+        creep_v_mps_ = declare_parameter<double>("creep_v_mps", 0.015);
+        creep_max_mm_ = declare_parameter<double>("creep_max_mm", 80.0);
+        creep_attempts_ = static_cast<int>(declare_parameter<int64_t>("creep_attempts", 2));
 
         arm_m_ = declare_parameter<double>("arm_m", 0.6039);
     }
@@ -168,6 +181,9 @@ class DockApproachServer : public rclcpp::Node
         verify_acc_ = {};
         dist_state_ = {};
         e_d_prev_.reset();
+        d_trig_hist_.clear();
+        creep_mode_ = false;
+        creep_count_ = 0;
         yaw_accum_ = {};
         stale_since_.reset();
         have_steer_ = false;
@@ -355,8 +371,22 @@ class DockApproachServer : public rclcpp::Node
         }
         case kApproach:
         {
+            // 트리거 판정용 d 이동평균 — 제어(PID)는 순간값, 종료 판정만 평균값
+            d_trig_hist_.push_back(obs.e_d_m);
+            while (static_cast<int>(d_trig_hist_.size()) > std::max(1, trigger_avg_cycles_))
+            {
+                d_trig_hist_.pop_front();
+            }
+            double d_trig = 0.0;
+            for (double v : d_trig_hist_)
+            {
+                d_trig += v;
+            }
+            d_trig /= static_cast<double>(d_trig_hist_.size());
+            // 크립 중에는 내부 목표를 좁혀 잔차를 더 조인다 (성공 판정은 goal 공차 그대로)
+            const double tol_d_eff = creep_mode_ ? creep_tol_mm_ * 1e-3 : tol_d;
             // 완료 후보 → VERIFY 진입
-            if (std::fabs(obs.e_d_m) <= tol_d && std::fabs(obs.e_lat_m) <= tol_lat &&
+            if (std::fabs(d_trig) <= tol_d_eff && std::fabs(obs.e_lat_m) <= tol_lat &&
                 std::fabs(obs.e_yaw_deg) <= g.tol_yaw_deg)
             {
                 phase_ = kVerify;
@@ -366,7 +396,7 @@ class DockApproachServer : public rclcpp::Node
             }
             // 행 방지 — d·lat 만 수렴하고 yaw 미달이 지속되면 VERIFY 로 넘겨 정직하게
             // 판정한다(yaw 권한은 v 에 비례하므로 정지 근방에서는 더 기다려도 안 좋아진다)
-            if (std::fabs(obs.e_d_m) <= tol_d && std::fabs(obs.e_lat_m) <= tol_lat)
+            if (std::fabs(d_trig) <= tol_d_eff && std::fabs(obs.e_lat_m) <= tol_lat)
             {
                 if (++yaw_stuck_ >= approach_stuck_cycles_)
                 {
@@ -388,8 +418,12 @@ class DockApproachServer : public rclcpp::Node
                 obs.e_d_m, e_d_prev_ ? &e_prev_val : nullptr, obs.e_d_m, dt, dist_state_,
                 dist_gains_, g.max_speed_mps, dist_limits_);
             e_d_prev_ = obs.e_d_m;
-            const double v =
+            double v =
                 dock_control::phase4Vcap(pid.u, obs.e_d_m, near_zone_m_, v_near_mps_);
+            if (creep_mode_)
+            {
+                v = std::clamp(v, -creep_v_mps_, creep_v_mps_);
+            }
             const double delta = dock_control::geomEntryDeltaBiased(
                 obs.e_lat_m, obs.e_d_m, delta_max_rad_, entry_bias_rad_);
             const double steer = dock_control::wrapPm180(
@@ -425,6 +459,21 @@ class DockApproachServer : public rclcpp::Node
                 finish(0 /*OK*/, true, "완료");
                 return;
             }
+            // 횡·각은 공차 안이고 d 잔차만 소폭 남음 → 후퇴 없이 정밀 크립 재접근
+            if (creep_enable_ && std::fabs(ml) <= tol_lat &&
+                std::fabs(my) <= g.tol_yaw_deg &&
+                std::fabs(md) <= creep_max_mm_ * 1e-3 && creep_count_ < creep_attempts_)
+            {
+                ++creep_count_;
+                creep_mode_ = true;
+                phase_ = kApproach;
+                dist_state_ = {};
+                e_d_prev_.reset();
+                d_trig_hist_.clear();
+                RCLCPP_INFO(get_logger(), "검증 잔차 d=%.1f mm — 정밀 크립 %d회차",
+                            1e3 * md, creep_count_);
+                break;
+            }
             if (reapproach_count_ < max_reapproach_)
             {
                 ++reapproach_count_;
@@ -445,6 +494,8 @@ class DockApproachServer : public rclcpp::Node
                 phase_ = kApproach;
                 dist_state_ = {};
                 e_d_prev_.reset();
+                d_trig_hist_.clear();
+                creep_mode_ = false;  // 전체 재접근은 통상 속도·공차로
                 break;
             }
             const double steer = dock_control::wrapPm180(approach_axis_rad_ / kDegToRad) *
@@ -578,6 +629,11 @@ class DockApproachServer : public rclcpp::Node
     VerifyAcc verify_acc_;
     dock_control::PidState dist_state_;
     std::optional<double> e_d_prev_;
+    int trigger_avg_cycles_{5};
+    std::deque<double> d_trig_hist_;
+    bool creep_enable_{true}, creep_mode_{false};
+    double creep_tol_mm_{2.0}, creep_v_mps_{0.015}, creep_max_mm_{80.0};
+    int creep_attempts_{2}, creep_count_{0};
     dock_control::ImuAccum yaw_accum_;
     std::optional<rclcpp::Time> stale_since_;
     rclcpp::Time start_time_;
