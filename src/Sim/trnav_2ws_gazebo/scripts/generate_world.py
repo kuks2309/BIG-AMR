@@ -113,6 +113,53 @@ def box(name, x, y, z, sx, sy, sz, rgba, solid=True):
     </model>"""
 
 
+#: An overhead camera looking straight down at the whole hall.
+#:
+#: WHY THE WORLD CARRIES ONE. Capturing the Gazebo WINDOW does not work here:
+#: gzclient is an XWayland client, and an X11 root grab of it returns a black
+#: frame. A camera inside the simulation is not a picture of a window, it is a
+#: picture of the world — so it works headless, over ssh, and while paused.
+#:
+#: It publishes on a ROS topic through gazebo_ros_camera, so anything that
+#: wants a frame subscribes and takes one. `Tools/rule_watch/` uses it to
+#: photograph the moment a traffic rule fires.
+#:
+#: Static, high, and orthographic-ish (a narrow field of view from far up), so
+#: the picture is a plan view that can be measured rather than a perspective
+#: shot that cannot.
+OVERHEAD = """
+    <model name="overhead_camera">
+      <static>true</static>
+      <pose>{cx:.3f} {cy:.3f} {height:.3f} 0 1.5708 0</pose>
+      <link name="link">
+        <sensor name="overhead" type="camera">
+          <update_rate>4.0</update_rate>
+          <camera>
+            <horizontal_fov>{fov:.4f}</horizontal_fov>
+            <image><width>1600</width><height>1000</height><format>R8G8B8</format></image>
+            <clip><near>1.0</near><far>{far:.1f}</far></clip>
+          </camera>
+          <plugin name="overhead_camera" filename="libgazebo_ros_camera.so">
+            <ros><namespace>/overhead</namespace></ros>
+            <camera_name>overhead</camera_name>
+            <frame_name>overhead_link</frame_name>
+          </plugin>
+        </sensor>
+      </link>
+    </model>
+"""
+
+
+def overhead_camera(w, e, s, n):
+    """A camera far enough up to see the whole hall, looking straight down."""
+    import math
+    cx, cy = (w + e) / 2.0, (s + n) / 2.0
+    width = e - w
+    height = 60.0                      # metres above the floor
+    fov = 2.0 * math.atan((width / 2.0) * 1.06 / height)
+    return OVERHEAD.format(cx=cx, cy=cy, height=height, fov=fov, far=height + 10.0)
+
+
 def main():
     w, e, s, n = plant.HALL_W, plant.HALL_E, plant.HALL_S, plant.HALL_N
     t, h = plant.WALL_T, 2.0
@@ -123,6 +170,8 @@ def main():
     parts.append(box("wall_south", (w + e) / 2, s, h / 2, e - w, t, h, (0.8, 0.8, 0.82, 1)))
     parts.append(box("wall_west", w, (s + n) / 2, h / 2, t, n - s, h, (0.8, 0.8, 0.82, 1)))
     parts.append(box("wall_east", e, (s + n) / 2, h / 2, t, n - s, h, (0.8, 0.8, 0.82, 1)))
+
+    parts.append(overhead_camera(w, e, s, n))
 
     # One box per solid machine. Colour by family so the line reads at a glance.
     for name, (mx, my) in plant.OBSTACLES.items():

@@ -7,7 +7,7 @@ amr1 and amr2 met head-on on the north aisle, 2.25 m apart:
     amr1  (-11.7, +3.1)  ->GRV3_LD   [passer: waiting for the yielder to stand aside]
     amr2  ( -9.6, +3.9)  ->GRV1_ULD  [robot ahead on the road]
 
-`who_yields` picks by name order, so amr2 was the yielder. Every lay-by open to
+Under RULE 1 the lower number gives way, so amr1 is the yielder. Every lay-by open to
 amr2 lay west, on the far side of amr1, so amr2 could not move — and a passer
 waits for the explicit all-clear, so amr1 would not. Forty-five seconds later
 YIELD_LIMIT ended it the only way it can, by failing a job. It cost two:
@@ -51,6 +51,10 @@ def robot(name, x, y, goal):
     r._stood_aside = False
     r._yield_since = None
     r._junction = None
+    # Rule 4 reads these: a robot going in to dock outranks everyone.
+    r._docking = False
+    r._active_job = None
+    r._waypoints = [(0.0, 0.0), (1.0, 0.0)]      # more than one hop: not final
     r.fleet = None
     return r
 
@@ -79,50 +83,50 @@ def the_encounter():
 
 # --------------------------------------------------------------- the hand-over
 
-def test_name_order_still_decides_first():
+def test_the_lower_number_decides_first():
     acs, amr1, amr2 = the_encounter()
 
-    assert acs.who_yields(amr1, amr2) is amr2, "later name yields"
+    assert acs.who_yields(amr1, amr2) is amr1, "RULE 1: the lower number gives way"
 
 
 def test_a_yielder_with_nowhere_to_go_hands_over():
     acs, amr1, amr2 = the_encounter()
     acs.who_yields(amr1, amr2)
 
-    assert acs.cannot_yield(amr2) is amr1
-    assert acs.yielding(amr1), "the one with room is now the yielder"
-    assert not acs.yielding(amr2)
+    assert acs.cannot_yield(amr1) is amr2
+    assert acs.yielding(amr2), "the one with room is now the yielder"
+    assert not acs.yielding(amr1)
 
 
 def test_the_new_yielder_starts_from_a_clean_slate():
     """A stale standoff or all-clear from the old role would be read as truth."""
     acs, amr1, amr2 = the_encounter()
-    acs.who_yields(amr1, amr2)
-    amr1._stood_aside = True
-    amr1._standoff = (99.0, 99.0)
+    acs.who_yields(amr1, amr2)          # RULE 1: amr1 is the yielder
+    amr2._stood_aside = True            # stale state on the robot about to take over
+    amr2._standoff = (99.0, 99.0)
 
-    acs.cannot_yield(amr2)
+    acs.cannot_yield(amr1)              # amr1 has nowhere to go; amr2 takes the duty
 
-    assert amr1._standoff is None
-    assert amr1._stood_aside is False
+    assert amr2._standoff is None
+    assert amr2._stood_aside is False
 
 
 def test_the_hand_over_happens_once_and_does_not_oscillate():
     """If neither has room, flipping for ever is worse than waiting it out."""
     acs, amr1, amr2 = the_encounter()
     acs.who_yields(amr1, amr2)
-    acs.cannot_yield(amr2)
+    acs.cannot_yield(amr1)
 
-    assert acs.cannot_yield(amr1) is None, "no one left to hand to"
-    assert acs.yielding(amr1), "the decision stands; YIELD_LIMIT ends it"
+    assert acs.cannot_yield(amr2) is None, "no one left to hand to"
+    assert acs.yielding(amr2), "the decision stands; YIELD_LIMIT ends it"
 
 
 def test_a_robot_that_is_not_the_yielder_cannot_hand_over():
     acs, amr1, amr2 = the_encounter()
     acs.who_yields(amr1, amr2)
 
-    assert acs.cannot_yield(amr1) is None
-    assert acs.yielding(amr2), "unchanged — amr1 was never the yielder"
+    assert acs.cannot_yield(amr2) is None
+    assert acs.yielding(amr1), "unchanged — amr2 was never the yielder"
 
 
 def test_the_budget_dies_with_the_encounter():
@@ -133,7 +137,7 @@ def test_the_budget_dies_with_the_encounter():
     acs.encounter_over(amr1)
 
     acs.who_yields(amr1, amr2)
-    assert acs.cannot_yield(amr2) is amr1, "a fresh encounter, a fresh allowance"
+    assert acs.cannot_yield(amr1) is amr2, "a fresh encounter, a fresh allowance"
 
 
 # ------------------------------------------------- why it could not move at all
@@ -156,3 +160,94 @@ def test_the_incident_geometry_left_amr2_no_lay_by_on_its_own_axis():
             "every north-south candidate passed through amr1"
         assert math.hypot(goal[0] - x, goal[1] - y) > 10.0, \
             "and each was a journey, not a step aside"
+
+
+# ------------------------------------- rule 2 must not wait for a parked robot
+
+def test_a_parked_robot_does_not_hold_the_encounter_open():
+    """The five-robot jam of 2026-08-24.
+
+    amr3 sat in leg C's first bay with no job. `_travel_dir` is None for a robot
+    with no goal, and `_head_on_with` answers an unknown direction with True —
+    the safe reading when OPENING an encounter, the wrong one when closing it.
+    So amr4 and amr5 both held for a robot that was never going to move:
+
+        [amr4] amr5 is past, but amr3 is following it — holding
+        [amr5] amr4 is past, but amr3 is following it — holding
+
+    Neither left the parking row.
+    """
+    from csm import plant
+
+    mover = robot("amr4", 20.0, -3.65, (0.0, -3.65))      # driving west
+    parked = robot("amr3", *plant.parking_for("amr3"), goal=None)
+    parked._goal = None
+    acs = fleet(mover, parked)
+
+    assert parked._on_a_spur(), "it is in its bay"
+    assert mover._oncoming_ahead() is None, \
+        "a parked robot with no goal is not oncoming traffic"
+
+
+# ------------------------------------ RULE 4: going in to dock beats everything
+
+def docker(name, station_bound=True):
+    r = robot(name, 0.0, 0.0, (1.0, 0.0))
+    r._active_job = "JOB" if station_bound else None
+    r._waypoints = [(1.0, 0.0)] if station_bound else [(1.0, 0.0), (2.0, 0.0)]
+    return r
+
+
+def test_a_robot_going_to_dock_never_gives_way():
+    """The 2026-08-25 incident, in one call.
+
+    amr3 was waiting for SLT_LD3 to grant entry. Six seconds later the deadlock
+    breaker ruled it deadlocked with amr5, Rule 1 made it the yielder because
+    3 < 5, and it abandoned its approach. It lost the delivery and then cycled
+    through the 45 s timeout twenty-one times.
+    """
+    amr3, amr5 = docker("amr3"), docker("amr5", station_bound=False)
+    acs = fleet(amr3, amr5)
+
+    assert amr3.going_to_dock() and not amr5.going_to_dock()
+    assert acs.who_yields(amr3, amr5) is amr5, \
+        "the robot heading in to dock has priority, whatever its number"
+
+
+def test_rule_4_beats_rule_1_in_both_directions():
+    """It is about docking, not about which number happens to be docking."""
+    amr5, amr3 = docker("amr5"), docker("amr3", station_bound=False)
+    acs = fleet(amr5, amr3)
+
+    assert acs.who_yields(amr3, amr5) is amr3, \
+        "the higher number docks; the lower one stops for it"
+
+
+def test_number_order_still_decides_when_neither_is_docking():
+    amr3, amr5 = docker("amr3", station_bound=False), docker("amr5", station_bound=False)
+    acs = fleet(amr3, amr5)
+
+    assert acs.who_yields(amr3, amr5) is amr3, "RULE 1 applies as before"
+
+
+def test_number_order_decides_when_both_are_docking():
+    """Two robots bound for different stations cannot both be waved through."""
+    amr3, amr5 = docker("amr3"), docker("amr5")
+    acs = fleet(amr3, amr5)
+
+    assert amr3.going_to_dock() and amr5.going_to_dock()
+    assert acs.who_yields(amr3, amr5) is amr3, "falls back to the lower number"
+
+
+def test_docking_covers_the_whole_approach_not_just_the_refusal():
+    """Waiting for entry, the last hop, and the manoeuvre are all 'going in'."""
+    r = docker("amr3")
+    assert r.going_to_dock(), "on the final leg with a job"
+
+    r._docking = True
+    r._waypoints = [(1.0, 0.0), (2.0, 0.0)]
+    assert r.going_to_dock(), "and while actually docking"
+
+    r._docking = False
+    r._active_job = None
+    assert not r.going_to_dock(), "but not once the job is done"

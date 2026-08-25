@@ -2,16 +2,16 @@
 
 THE JAM THIS PREVENTS, observed live on 2026-08-21 with four robots.
 
-amr3 and amr4 were travelling west together; amr2 was coming east. amr3 was
-told to stand aside for amr2 and pulled off into its lay-by. amr4 did not stop
-— it drove PAST amr3 and took the road directly in front of amr2. Now amr4 was
-the one that had to yield, with amr3 parked beside it and amr2 in front of it,
+amr3 and amr4 were travelling west together; amr5 was coming east. amr3 was
+told to stand aside for amr5 and pulled off into its lay-by. amr4 did not stop
+— it drove PAST amr3 and took the road directly in front of amr5. Now amr4 was
+the one that had to yield, with amr3 parked beside it and amr5 in front of it,
 and nowhere left to go.
 
 Measured at the moment it stuck:
 
-    amr2  (-5.32, -3.00)  facing east   giving way to amr4
-    amr4  (-3.52, -3.02)  facing west   giving way to amr2
+    amr5  (-5.32, -3.00)  facing east   giving way to amr4
+    amr4  (-3.52, -3.02)  facing west   giving way to amr5
     amr3  (-3.56, -1.39)  parked in its lay-by, junction held
 
 All three stopped. Nothing would have broken it except YIELD_LIMIT, forty-five
@@ -75,6 +75,9 @@ def robot(name, x, y, heading, goal=None):
         (x + 10.0, y) if abs(heading) < 1.0 else (x - 10.0, y))
     r._stood_aside = False
     r._junction = None
+    r._docking = False
+    r._active_job = None
+    r._waypoints = [(0.0, 0.0), (1.0, 0.0)]
     r.fleet = None
     return r
 
@@ -104,13 +107,13 @@ def the_jam():
     whether it is allowed to close that gap, which is the decision that went
     wrong live.
     """
-    amr2 = robot("amr2", -5.32, -3.00, EAST)     # oncoming, will be passed
+    amr5 = robot("amr5", -5.32, -3.00, EAST)     # oncoming, will be passed
     amr3 = robot("amr3", -3.56, -1.39, WEST)     # standing aside, in its lay-by
     amr4 = robot("amr4", -1.00, -3.00, WEST)     # following amr3, still on road
-    acs = fleet(amr2, amr3, amr4)
-    acs.who_yields(amr3, amr2)                   # amr3 is the yielder
+    acs = fleet(amr5, amr3, amr4)
+    acs.who_yields(amr3, amr5)                   # RULE 1: amr3 is lower, so it yields
     assert acs.yielding(amr3), "amr3 should be the one standing aside"
-    return acs, amr2, amr3, amr4
+    return acs, amr5, amr3, amr4
 
 
 # ------------------------------------------------------------- the fix
@@ -123,9 +126,9 @@ def test_a_follower_stops_behind_a_robot_that_is_giving_way():
 
 
 def test_the_passer_drives_through_the_gap():
-    """amr2 is who the gap was made for. It must NOT be held."""
-    _, amr2, _, _ = the_jam()
-    assert amr2._yielder_ahead() is None, \
+    """amr5 is who the gap was made for. It must NOT be held."""
+    _, amr5, _, _ = the_jam()
+    assert amr5._yielder_ahead() is None, \
         "the robot being given way to was stopped by the gap made for it"
 
 
@@ -162,10 +165,10 @@ def test_a_robot_off_the_lane_for_ITS_OWN_reasons_does_not_block():
     was written for, and it must keep working — otherwise nothing could ever
     drive past a docked robot.
     """
-    amr2 = robot("amr2", -5.32, -3.00, EAST)
+    amr5 = robot("amr5", -5.32, -3.00, EAST)
     docked = robot("amr3", -3.56, -1.39, WEST)   # same spot, but NOT yielding
     amr4 = robot("amr4", -1.00, -3.00, WEST)
-    acs = fleet(amr2, docked, amr4)
+    acs = fleet(amr5, docked, amr4)
     assert not acs.yielding(docked)
     assert amr4._yielder_ahead() is None, \
         "a docked robot must not stop the traffic behind it"

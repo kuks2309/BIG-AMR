@@ -52,6 +52,9 @@ def fleet(*names):
         r.vel = (0.0, 0.0)
         r._junction = None
         r._stood_aside = False
+        r._docking = False
+        r._active_job = None
+        r._waypoints = [(0.0, 0.0), (1.0, 0.0)]
         r._standoff = None
         r._blocked_by = None
         r._blocked_since = 0.0
@@ -151,47 +154,59 @@ def test_the_range_is_generous_enough_not_to_end_a_real_encounter():
 
 # -- 3. three robots, and the encounters that superimposed -------------------
 
-def test_a_robot_already_in_an_encounter_is_not_given_a_second():
-    """The south-west cycle of 2026-08-24.
+def test_a_robot_yields_to_every_higher_robot_at_once():
+    """RULE 1 is a strict order, not a one-at-a-time queue.
 
-    `_giving_way` is keyed by pair, so three robots meeting at once opened three
-    encounters in one second — amr5 yielding to amr4, amr5 to amr3, amr4 to
-    amr3. amr5 was then the yielder twice over with one `_standoff` to satisfy
-    both, and amr4 was a passer and a yielder at the same time. All three
-    stopped and the fleet delivered nothing for six minutes.
+    amr2 gives way to amr3, amr4 and amr5 — including when it is already
+    giving way to one of them. A restriction added before the rules were
+    written refused the second encounter, and on 2026-08-25 that left amr2
+    stopped in the road 2.73 m from amr5, never becoming a yielder, while
+    amr5 was busy with amr3.
+    """
+    acs = fleet("amr2", "amr3", "amr5")
+    amr2, amr3, amr5 = acs.robots
+
+    assert acs.who_yields(amr3, amr5) is amr3
+    assert acs.who_yields(amr2, amr5) is amr2, "amr2 yields to amr5 as well"
+    assert acs.who_yields(amr2, amr3) is amr2, "and to amr3"
+
+    assert acs.yielding(amr2)
+    assert acs.yielding(amr3)
+    assert not acs.yielding(amr5), "the highest number never yields"
+
+
+def test_the_order_makes_a_cycle_impossible():
+    """Why no cycle-breaking rule is needed.
+
+    The three-way cycle of 2026-08-24 — amr5 to amr4, amr4 to amr3, amr3 to
+    amr5 — required an inconsistent choice. Ranking by number is a total order,
+    so 'yields to' can only ever point one way.
     """
     acs = fleet("amr3", "amr4", "amr5")
     amr3, amr4, amr5 = acs.robots
 
-    assert acs.who_yields(amr5, amr4) is amr5
-    assert acs.who_yields(amr5, amr3) is None, "amr5 is already engaged"
-    assert acs.who_yields(amr4, amr3) is None, "so is amr4"
+    chosen = {(a.name, b.name): acs.who_yields(a, b).name
+              for a, b in ((amr3, amr4), (amr4, amr5), (amr3, amr5))}
 
-    assert acs.partner_of(amr3) is None, "amr3 queues instead"
-    assert acs.partner_of(amr5) is amr4
-
-
-def test_the_queue_moves_up_when_the_encounter_ends():
-    """Serialised, not refused for ever."""
-    acs = fleet("amr3", "amr4", "amr5")
-    amr3, amr4, amr5 = acs.robots
-    acs.who_yields(amr5, amr4)
-    assert acs.who_yields(amr5, amr3) is None
-
-    acs.encounter_over(amr5)
-
-    assert acs.who_yields(amr5, amr3) is amr5, "now it may open"
+    assert chosen == {("amr3", "amr4"): "amr3",
+                      ("amr4", "amr5"): "amr4",
+                      ("amr3", "amr5"): "amr3"}, \
+        "every arrow points from the lower number — no cycle can close"
 
 
-def test_partner_of_is_unambiguous_once_encounters_are_serialised():
-    """It returns the first matching key, which only means anything with one."""
-    acs = fleet("amr3", "amr4", "amr5")
-    amr3, amr4, amr5 = acs.robots
-    acs.who_yields(amr5, amr4)
-    acs.who_yields(amr5, amr3)
+def test_partner_of_names_one_of_several_encounters():
+    """With simultaneous encounters, `partner_of` returns whichever it finds.
 
-    assert acs.partner_of(amr5) is amr4
-    assert acs.partner_of(amr4) is amr5
+    That is enough for the handshake, which asks only "who am I negotiating
+    with"; the give-way branch is driven by `yielding`, which sees them all.
+    """
+    acs = fleet("amr2", "amr3", "amr5")
+    amr2, amr3, amr5 = acs.robots
+    acs.who_yields(amr2, amr3)
+    acs.who_yields(amr2, amr5)
+
+    assert acs.partner_of(amr2) in (amr3, amr5)
+    assert acs.yielding(amr2), "and it is a yielder in both"
 
 
 # -- 4. the breaker may now act on a stalled encounter -----------------------
@@ -233,3 +248,37 @@ def test_our_own_partner_blocking_us_is_the_handshake_not_a_deadlock():
     amr5._note_blocked_by(amr4)
 
     assert acs.partner_of(amr5) is amr4, "the give-way branch owns this"
+
+
+def test_dropping_one_stalled_encounter_leaves_the_others_alone():
+    """The 2026-08-25 nose-to-nose.
+
+    amr3 was passer for amr2 and yielder for amr5 at the same time. The
+    breaker dropped the stalled amr2 encounter — and `encounter_over` took the
+    amr5 one with it, so amr3 stopped stepping aside mid-manoeuvre and sat
+    0.19 m from amr5 until its job timed out.
+    """
+    acs = fleet("amr2", "amr3", "amr5")
+    amr2, amr3, amr5 = acs.robots
+    acs.who_yields(amr2, amr3)          # amr2 yields; amr3 is the passer
+    acs.who_yields(amr3, amr5)          # amr3 yields to amr5
+    assert acs.yielding(amr3) and acs.yielding(amr2)
+
+    acs.encounter_over(amr3, amr2)      # drop only the stalled one
+
+    assert acs.yield_partners(amr3) == [amr5], \
+        "amr3 must still be giving way to amr5"
+    assert not acs.yielding(amr2), "and the amr2 encounter is gone"
+
+
+def test_encounter_over_without_a_partner_still_clears_everything():
+    """The old all-or-nothing behaviour is still available, and still used."""
+    acs = fleet("amr2", "amr3", "amr5")
+    amr2, amr3, amr5 = acs.robots
+    acs.who_yields(amr2, amr3)
+    acs.who_yields(amr3, amr5)
+
+    acs.encounter_over(amr3)
+
+    assert acs.yield_partners(amr3) == []
+    assert acs.partner_of(amr3) is None

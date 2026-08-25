@@ -125,6 +125,10 @@ class Roads:
         on an aisle or at a spur junction makes that structural rather than a
         rule someone has to remember.
         """
+        own = self.spur_join(pos)
+        if own is not None:
+            return own
+
         order = sorted((n for n in self.nodes if not n.startswith(self.TERMINAL)),
                        key=lambda n: math.hypot(self.nodes[n][0] - pos[0],
                                                 self.nodes[n][1] - pos[1]))
@@ -132,6 +136,42 @@ class Roads:
             if self.is_clear(pos, self.nodes[name]):
                 return name
         return order[0]
+
+    def spur_join(self, pos):
+        """The junction of the spur this point is ON, or None if it is not on one.
+
+        A ROBOT LEAVES BY ITS OWN JUNCTION, NEVER A NEIGHBOUR'S.
+
+        `entry_node` below picks the nearest node reachable in a straight line,
+        which is right for a robot standing in open aisle and wrong for one
+        standing in a bay. Parking slots are 2.15 m apart and their junctions
+        2.15 m apart too, so from slot C3 the nearest reachable node can easily
+        be C2's junction or the aisle beyond it — and the straight line to
+        either one crosses slot C2.
+
+        Measured 2026-08-25: amr5 leaving leg C slot 3 at (29.14, -5.80) was
+        given a first waypoint of (26.64, -3.60) — the aisle, 2.2 m north — so
+        it drove diagonally across slot C2 and into amr4, which was parked
+        there. Body gap 0.00 m. `entry_node` reported `join_parkC2` as the
+        on-ramp for a robot whose own spur was C3.
+
+        This is the same structural fix the docstring below already argues for
+        with docks: a robot must never enter a bay it has no business in, and
+        making the on-ramp its OWN junction is what makes that structural rather
+        than a rule somebody has to remember.
+        """
+        for a, b in self.lanes:
+            tip, join = (a, b) if a.startswith(self.TERMINAL) else (b, a)
+            if not tip.startswith(self.TERMINAL):
+                continue
+            tx, ty = self.nodes[tip]
+            jx, jy = self.nodes[join]
+            if math.hypot(tx - pos[0], ty - pos[1]) >= math.hypot(jx - pos[0],
+                                                                 jy - pos[1]):
+                continue                      # nearer the junction: already out
+            if _clearance(pos, (tx, ty), (jx, jy)) < ROBOT_RADIUS:
+                return join                   # standing on this spur
+        return None
 
     #: How much further than the NEAREST on-ramp we will walk to avoid one
     #: that points the wrong way.
@@ -175,6 +215,14 @@ class Roads:
         Total cost is continuous in position, so it cannot flip like that: an
         on-ramp only wins by saving more than the walk to it costs.
         """
+        # ON A SPUR, THE JUNCTION IS NOT A CHOICE. Cost comparison is the right
+        # question for a robot in open aisle and the wrong one in a bay: the
+        # cheapest on-ramp from slot C3 is the aisle 2.2 m north, and the
+        # straight line to it crosses slot C2. See `spur_join`.
+        own = self.spur_join(pos)
+        if own is not None:
+            return own
+
         reach = self._distances_to(goal)
         if not reach:
             return self.entry_node(pos)

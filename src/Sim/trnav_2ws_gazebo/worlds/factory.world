@@ -60,11 +60,11 @@
 
     <model name="wall_north">
       <static>true</static>
-      <pose>-0.400 13.000 1.000 0 0 0</pose>
+      <pose>-0.480 15.600 1.000 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>53.200 0.200 2.000</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>63.840 0.240 2.000</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>53.200 0.200 2.000</size></box></geometry>
+          <geometry><box><size>63.840 0.240 2.000</size></box></geometry>
           <material>
             <ambient>0.8 0.8 0.82 1</ambient>
             <diffuse>0.8 0.8 0.82 1</diffuse>
@@ -74,11 +74,11 @@
     </model>
     <model name="wall_south">
       <static>true</static>
-      <pose>-0.400 -15.000 1.000 0 0 0</pose>
+      <pose>-0.480 -18.000 1.000 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>53.200 0.200 2.000</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>63.840 0.240 2.000</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>53.200 0.200 2.000</size></box></geometry>
+          <geometry><box><size>63.840 0.240 2.000</size></box></geometry>
           <material>
             <ambient>0.8 0.8 0.82 1</ambient>
             <diffuse>0.8 0.8 0.82 1</diffuse>
@@ -88,11 +88,11 @@
     </model>
     <model name="wall_west">
       <static>true</static>
-      <pose>-27.000 -1.000 1.000 0 0 0</pose>
+      <pose>-32.400 -1.200 1.000 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>0.200 28.000 2.000</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>0.240 33.600 2.000</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>0.200 28.000 2.000</size></box></geometry>
+          <geometry><box><size>0.240 33.600 2.000</size></box></geometry>
           <material>
             <ambient>0.8 0.8 0.82 1</ambient>
             <diffuse>0.8 0.8 0.82 1</diffuse>
@@ -102,11 +102,11 @@
     </model>
     <model name="wall_east">
       <static>true</static>
-      <pose>26.200 -1.000 1.000 0 0 0</pose>
+      <pose>31.440 -1.200 1.000 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>0.200 28.000 2.000</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>0.240 33.600 2.000</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>0.200 28.000 2.000</size></box></geometry>
+          <geometry><box><size>0.240 33.600 2.000</size></box></geometry>
           <material>
             <ambient>0.8 0.8 0.82 1</ambient>
             <diffuse>0.8 0.8 0.82 1</diffuse>
@@ -114,13 +114,33 @@
         </visual>
       </link>
     </model>
+    <model name="overhead_camera">
+      <static>true</static>
+      <pose>-0.480 -1.200 60.000 0 1.5708 0</pose>
+      <link name="link">
+        <sensor name="overhead" type="camera">
+          <update_rate>4.0</update_rate>
+          <camera>
+            <horizontal_fov>1.0269</horizontal_fov>
+            <image><width>1600</width><height>1000</height><format>R8G8B8</format></image>
+            <clip><near>1.0</near><far>70.0</far></clip>
+          </camera>
+          <plugin name="overhead_camera" filename="libgazebo_ros_camera.so">
+            <ros><namespace>/overhead</namespace></ros>
+            <camera_name>overhead</camera_name>
+            <frame_name>overhead_link</frame_name>
+          </plugin>
+        </sensor>
+      </link>
+    </model>
+
     <model name="m_ASRS">
       <static>true</static>
-      <pose>-17.000 8.000 0.600 0 0 0</pose>
+      <pose>-20.400 9.600 0.600 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>3.000 2.000 1.200</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>3.600 2.400 1.200</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>3.000 2.000 1.200</size></box></geometry>
+          <geometry><box><size>3.600 2.400 1.200</size></box></geometry>
           <material>
             <ambient>0.95 0.75 0.15 1</ambient>
             <diffuse>0.95 0.75 0.15 1</diffuse>
@@ -130,11 +150,11 @@
     </model>
     <model name="m_GRV1">
       <static>true</static>
-      <pose>-10.000 8.000 0.600 0 0 0</pose>
+      <pose>-12.000 9.600 0.600 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>3.000 2.000 1.200</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>3.600 2.400 1.200</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>3.000 2.000 1.200</size></box></geometry>
+          <geometry><box><size>3.600 2.400 1.200</size></box></geometry>
           <material>
             <ambient>0.3 0.55 0.9 1</ambient>
             <diffuse>0.3 0.55 0.9 1</diffuse>
@@ -144,11 +164,11 @@
     </model>
     <model name="m_GRV2">
       <static>true</static>
-      <pose>-4.000 8.000 0.600 0 0 0</pose>
+      <pose>-4.800 9.600 0.600 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>3.000 2.000 1.200</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>3.600 2.400 1.200</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>3.000 2.000 1.200</size></box></geometry>
+          <geometry><box><size>3.600 2.400 1.200</size></box></geometry>
           <material>
             <ambient>0.3 0.55 0.9 1</ambient>
             <diffuse>0.3 0.55 0.9 1</diffuse>
@@ -158,11 +178,11 @@
     </model>
     <model name="m_GRV3">
       <static>true</static>
-      <pose>2.000 8.000 0.600 0 0 0</pose>
+      <pose>2.400 9.600 0.600 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>3.000 2.000 1.200</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>3.600 2.400 1.200</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>3.000 2.000 1.200</size></box></geometry>
+          <geometry><box><size>3.600 2.400 1.200</size></box></geometry>
           <material>
             <ambient>0.3 0.55 0.9 1</ambient>
             <diffuse>0.3 0.55 0.9 1</diffuse>
@@ -172,11 +192,11 @@
     </model>
     <model name="m_GRV4">
       <static>true</static>
-      <pose>8.000 8.000 0.600 0 0 0</pose>
+      <pose>9.600 9.600 0.600 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>3.000 2.000 1.200</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>3.600 2.400 1.200</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>3.000 2.000 1.200</size></box></geometry>
+          <geometry><box><size>3.600 2.400 1.200</size></box></geometry>
           <material>
             <ambient>0.3 0.55 0.9 1</ambient>
             <diffuse>0.3 0.55 0.9 1</diffuse>
@@ -186,11 +206,11 @@
     </model>
     <model name="m_CTR1">
       <static>true</static>
-      <pose>-10.000 -8.000 0.600 0 0 0</pose>
+      <pose>-12.000 -9.600 0.600 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>3.000 2.000 1.200</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>3.600 2.400 1.200</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>3.000 2.000 1.200</size></box></geometry>
+          <geometry><box><size>3.600 2.400 1.200</size></box></geometry>
           <material>
             <ambient>0.85 0.35 0.3 1</ambient>
             <diffuse>0.85 0.35 0.3 1</diffuse>
@@ -200,11 +220,11 @@
     </model>
     <model name="m_CTR2">
       <static>true</static>
-      <pose>-4.000 -8.000 0.600 0 0 0</pose>
+      <pose>-4.800 -9.600 0.600 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>3.000 2.000 1.200</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>3.600 2.400 1.200</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>3.000 2.000 1.200</size></box></geometry>
+          <geometry><box><size>3.600 2.400 1.200</size></box></geometry>
           <material>
             <ambient>0.85 0.35 0.3 1</ambient>
             <diffuse>0.85 0.35 0.3 1</diffuse>
@@ -214,11 +234,11 @@
     </model>
     <model name="m_CTR3">
       <static>true</static>
-      <pose>2.000 -8.000 0.600 0 0 0</pose>
+      <pose>2.400 -9.600 0.600 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>3.000 2.000 1.200</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>3.600 2.400 1.200</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>3.000 2.000 1.200</size></box></geometry>
+          <geometry><box><size>3.600 2.400 1.200</size></box></geometry>
           <material>
             <ambient>0.85 0.35 0.3 1</ambient>
             <diffuse>0.85 0.35 0.3 1</diffuse>
@@ -228,11 +248,11 @@
     </model>
     <model name="m_CTR4">
       <static>true</static>
-      <pose>8.000 -8.000 0.600 0 0 0</pose>
+      <pose>9.600 -9.600 0.600 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>3.000 2.000 1.200</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>3.600 2.400 1.200</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>3.000 2.000 1.200</size></box></geometry>
+          <geometry><box><size>3.600 2.400 1.200</size></box></geometry>
           <material>
             <ambient>0.85 0.35 0.3 1</ambient>
             <diffuse>0.85 0.35 0.3 1</diffuse>
@@ -242,11 +262,11 @@
     </model>
     <model name="m_SLT">
       <static>true</static>
-      <pose>-17.000 -8.000 0.600 0 0 0</pose>
+      <pose>-20.400 -9.600 0.600 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>3.000 2.000 1.200</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>3.600 2.400 1.200</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>3.000 2.000 1.200</size></box></geometry>
+          <geometry><box><size>3.600 2.400 1.200</size></box></geometry>
           <material>
             <ambient>0.45 0.8 0.4 1</ambient>
             <diffuse>0.45 0.8 0.4 1</diffuse>
@@ -256,11 +276,11 @@
     </model>
     <model name="m_WIP_GRV">
       <static>true</static>
-      <pose>13.000 8.000 0.600 0 0 0</pose>
+      <pose>15.600 9.600 0.600 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>3.000 2.000 1.200</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>3.600 2.400 1.200</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>3.000 2.000 1.200</size></box></geometry>
+          <geometry><box><size>3.600 2.400 1.200</size></box></geometry>
           <material>
             <ambient>0.55 0.55 0.58 1</ambient>
             <diffuse>0.55 0.55 0.58 1</diffuse>
@@ -270,11 +290,11 @@
     </model>
     <model name="m_WIP_CTR">
       <static>true</static>
-      <pose>13.000 -8.000 0.600 0 0 0</pose>
+      <pose>15.600 -9.600 0.600 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>3.000 2.000 1.200</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>3.600 2.400 1.200</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>3.000 2.000 1.200</size></box></geometry>
+          <geometry><box><size>3.600 2.400 1.200</size></box></geometry>
           <material>
             <ambient>0.55 0.55 0.58 1</ambient>
             <diffuse>0.55 0.55 0.58 1</diffuse>
@@ -284,11 +304,11 @@
     </model>
     <model name="m_WIP_SLT">
       <static>true</static>
-      <pose>19.000 -8.000 0.600 0 0 0</pose>
+      <pose>22.800 -9.600 0.600 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>3.000 2.000 1.200</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>3.600 2.400 1.200</size></box></geometry></collision>
         <visual name="v">
-          <geometry><box><size>3.000 2.000 1.200</size></box></geometry>
+          <geometry><box><size>3.600 2.400 1.200</size></box></geometry>
           <material>
             <ambient>0.55 0.55 0.58 1</ambient>
             <diffuse>0.55 0.55 0.58 1</diffuse>
@@ -298,7 +318,7 @@
     </model>
     <model name="marker_ASRS">
       <static>true</static>
-      <pose>-17.000 6.980 0.675 0 0 0</pose>
+      <pose>-20.400 8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -311,7 +331,7 @@
     </model>
     <model name="markerdot_ASRS">
       <static>true</static>
-      <pose>-17.000 6.970 0.675 0 0 0</pose>
+      <pose>-20.400 8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -324,7 +344,7 @@
     </model>
     <model name="markerbit_ASRS_0">
       <static>true</static>
-      <pose>-17.030 6.960 0.675 0 0 0</pose>
+      <pose>-20.430 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -337,7 +357,7 @@
     </model>
     <model name="marker_GRV1_LD">
       <static>true</static>
-      <pose>-11.200 6.980 0.675 0 0 0</pose>
+      <pose>-13.440 8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -350,7 +370,7 @@
     </model>
     <model name="markerdot_GRV1_LD">
       <static>true</static>
-      <pose>-11.200 6.970 0.675 0 0 0</pose>
+      <pose>-13.440 8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -363,7 +383,7 @@
     </model>
     <model name="markerbit_GRV1_LD_1">
       <static>true</static>
-      <pose>-11.215 6.960 0.675 0 0 0</pose>
+      <pose>-13.455 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -376,7 +396,7 @@
     </model>
     <model name="markerbit_GRV1_LD_3">
       <static>true</static>
-      <pose>-11.185 6.960 0.675 0 0 0</pose>
+      <pose>-13.425 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -389,7 +409,7 @@
     </model>
     <model name="marker_GRV1_ULD">
       <static>true</static>
-      <pose>-8.800 6.980 0.675 0 0 0</pose>
+      <pose>-10.560 8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -402,7 +422,7 @@
     </model>
     <model name="markerdot_GRV1_ULD">
       <static>true</static>
-      <pose>-8.800 6.970 0.675 0 0 0</pose>
+      <pose>-10.560 8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -415,7 +435,7 @@
     </model>
     <model name="markerbit_GRV1_ULD_0">
       <static>true</static>
-      <pose>-8.830 6.960 0.675 0 0 0</pose>
+      <pose>-10.590 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -428,7 +448,7 @@
     </model>
     <model name="markerbit_GRV1_ULD_1">
       <static>true</static>
-      <pose>-8.815 6.960 0.675 0 0 0</pose>
+      <pose>-10.575 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -441,7 +461,7 @@
     </model>
     <model name="markerbit_GRV1_ULD_3">
       <static>true</static>
-      <pose>-8.785 6.960 0.675 0 0 0</pose>
+      <pose>-10.545 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -454,7 +474,7 @@
     </model>
     <model name="marker_GRV2_LD">
       <static>true</static>
-      <pose>-5.200 6.980 0.675 0 0 0</pose>
+      <pose>-6.240 8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -467,7 +487,7 @@
     </model>
     <model name="markerdot_GRV2_LD">
       <static>true</static>
-      <pose>-5.200 6.970 0.675 0 0 0</pose>
+      <pose>-6.240 8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -480,7 +500,7 @@
     </model>
     <model name="markerbit_GRV2_LD_2">
       <static>true</static>
-      <pose>-5.200 6.960 0.675 0 0 0</pose>
+      <pose>-6.240 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -493,7 +513,7 @@
     </model>
     <model name="markerbit_GRV2_LD_3">
       <static>true</static>
-      <pose>-5.185 6.960 0.675 0 0 0</pose>
+      <pose>-6.225 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -506,7 +526,7 @@
     </model>
     <model name="marker_GRV2_ULD">
       <static>true</static>
-      <pose>-2.800 6.980 0.675 0 0 0</pose>
+      <pose>-3.360 8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -519,7 +539,7 @@
     </model>
     <model name="markerdot_GRV2_ULD">
       <static>true</static>
-      <pose>-2.800 6.970 0.675 0 0 0</pose>
+      <pose>-3.360 8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -532,7 +552,7 @@
     </model>
     <model name="markerbit_GRV2_ULD_0">
       <static>true</static>
-      <pose>-2.830 6.960 0.675 0 0 0</pose>
+      <pose>-3.390 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -545,7 +565,7 @@
     </model>
     <model name="markerbit_GRV2_ULD_2">
       <static>true</static>
-      <pose>-2.800 6.960 0.675 0 0 0</pose>
+      <pose>-3.360 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -558,7 +578,7 @@
     </model>
     <model name="markerbit_GRV2_ULD_3">
       <static>true</static>
-      <pose>-2.785 6.960 0.675 0 0 0</pose>
+      <pose>-3.345 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -571,7 +591,7 @@
     </model>
     <model name="marker_GRV3_LD">
       <static>true</static>
-      <pose>0.800 6.980 0.675 0 0 0</pose>
+      <pose>0.960 8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -584,7 +604,7 @@
     </model>
     <model name="markerdot_GRV3_LD">
       <static>true</static>
-      <pose>0.800 6.970 0.675 0 0 0</pose>
+      <pose>0.960 8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -597,7 +617,7 @@
     </model>
     <model name="markerbit_GRV3_LD_1">
       <static>true</static>
-      <pose>0.785 6.960 0.675 0 0 0</pose>
+      <pose>0.945 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -610,7 +630,7 @@
     </model>
     <model name="markerbit_GRV3_LD_2">
       <static>true</static>
-      <pose>0.800 6.960 0.675 0 0 0</pose>
+      <pose>0.960 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -623,7 +643,7 @@
     </model>
     <model name="markerbit_GRV3_LD_3">
       <static>true</static>
-      <pose>0.815 6.960 0.675 0 0 0</pose>
+      <pose>0.975 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -636,7 +656,7 @@
     </model>
     <model name="marker_GRV3_ULD">
       <static>true</static>
-      <pose>3.200 6.980 0.675 0 0 0</pose>
+      <pose>3.840 8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -649,7 +669,7 @@
     </model>
     <model name="markerdot_GRV3_ULD">
       <static>true</static>
-      <pose>3.200 6.970 0.675 0 0 0</pose>
+      <pose>3.840 8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -662,7 +682,7 @@
     </model>
     <model name="markerbit_GRV3_ULD_0">
       <static>true</static>
-      <pose>3.170 6.960 0.675 0 0 0</pose>
+      <pose>3.810 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -675,7 +695,7 @@
     </model>
     <model name="markerbit_GRV3_ULD_1">
       <static>true</static>
-      <pose>3.185 6.960 0.675 0 0 0</pose>
+      <pose>3.825 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -688,7 +708,7 @@
     </model>
     <model name="markerbit_GRV3_ULD_2">
       <static>true</static>
-      <pose>3.200 6.960 0.675 0 0 0</pose>
+      <pose>3.840 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -701,7 +721,7 @@
     </model>
     <model name="markerbit_GRV3_ULD_3">
       <static>true</static>
-      <pose>3.215 6.960 0.675 0 0 0</pose>
+      <pose>3.855 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -714,7 +734,7 @@
     </model>
     <model name="marker_GRV4_LD">
       <static>true</static>
-      <pose>6.800 6.980 0.675 0 0 0</pose>
+      <pose>8.160 8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -727,7 +747,7 @@
     </model>
     <model name="markerdot_GRV4_LD">
       <static>true</static>
-      <pose>6.800 6.970 0.675 0 0 0</pose>
+      <pose>8.160 8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -740,7 +760,7 @@
     </model>
     <model name="markerbit_GRV4_LD_4">
       <static>true</static>
-      <pose>6.830 6.960 0.675 0 0 0</pose>
+      <pose>8.190 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -753,7 +773,7 @@
     </model>
     <model name="marker_GRV4_ULD">
       <static>true</static>
-      <pose>9.200 6.980 0.675 0 0 0</pose>
+      <pose>11.040 8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -766,7 +786,7 @@
     </model>
     <model name="markerdot_GRV4_ULD">
       <static>true</static>
-      <pose>9.200 6.970 0.675 0 0 0</pose>
+      <pose>11.040 8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -779,7 +799,7 @@
     </model>
     <model name="markerbit_GRV4_ULD_0">
       <static>true</static>
-      <pose>9.170 6.960 0.675 0 0 0</pose>
+      <pose>11.010 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -792,7 +812,7 @@
     </model>
     <model name="markerbit_GRV4_ULD_4">
       <static>true</static>
-      <pose>9.230 6.960 0.675 0 0 0</pose>
+      <pose>11.070 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -805,7 +825,7 @@
     </model>
     <model name="marker_CTR1_LD">
       <static>true</static>
-      <pose>-11.200 -6.980 0.675 0 0 0</pose>
+      <pose>-13.440 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -818,7 +838,7 @@
     </model>
     <model name="markerdot_CTR1_LD">
       <static>true</static>
-      <pose>-11.200 -6.970 0.675 0 0 0</pose>
+      <pose>-13.440 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -831,7 +851,7 @@
     </model>
     <model name="markerbit_CTR1_LD_1">
       <static>true</static>
-      <pose>-11.185 -6.960 0.675 0 0 0</pose>
+      <pose>-13.425 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -844,7 +864,7 @@
     </model>
     <model name="marker_CTR1_ULD">
       <static>true</static>
-      <pose>-8.800 -6.980 0.675 0 0 0</pose>
+      <pose>-10.560 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -857,7 +877,7 @@
     </model>
     <model name="markerdot_CTR1_ULD">
       <static>true</static>
-      <pose>-8.800 -6.970 0.675 0 0 0</pose>
+      <pose>-10.560 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -870,7 +890,7 @@
     </model>
     <model name="markerbit_CTR1_ULD_0">
       <static>true</static>
-      <pose>-8.770 -6.960 0.675 0 0 0</pose>
+      <pose>-10.530 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -883,7 +903,7 @@
     </model>
     <model name="markerbit_CTR1_ULD_1">
       <static>true</static>
-      <pose>-8.785 -6.960 0.675 0 0 0</pose>
+      <pose>-10.545 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -896,7 +916,7 @@
     </model>
     <model name="marker_CTR2_LD">
       <static>true</static>
-      <pose>-5.200 -6.980 0.675 0 0 0</pose>
+      <pose>-6.240 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -909,7 +929,7 @@
     </model>
     <model name="markerdot_CTR2_LD">
       <static>true</static>
-      <pose>-5.200 -6.970 0.675 0 0 0</pose>
+      <pose>-6.240 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -922,7 +942,7 @@
     </model>
     <model name="markerbit_CTR2_LD_2">
       <static>true</static>
-      <pose>-5.200 -6.960 0.675 0 0 0</pose>
+      <pose>-6.240 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -935,7 +955,7 @@
     </model>
     <model name="marker_CTR2_ULD">
       <static>true</static>
-      <pose>-2.800 -6.980 0.675 0 0 0</pose>
+      <pose>-3.360 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -948,7 +968,7 @@
     </model>
     <model name="markerdot_CTR2_ULD">
       <static>true</static>
-      <pose>-2.800 -6.970 0.675 0 0 0</pose>
+      <pose>-3.360 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -961,7 +981,7 @@
     </model>
     <model name="markerbit_CTR2_ULD_0">
       <static>true</static>
-      <pose>-2.770 -6.960 0.675 0 0 0</pose>
+      <pose>-3.330 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -974,7 +994,7 @@
     </model>
     <model name="markerbit_CTR2_ULD_2">
       <static>true</static>
-      <pose>-2.800 -6.960 0.675 0 0 0</pose>
+      <pose>-3.360 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -987,7 +1007,7 @@
     </model>
     <model name="marker_CTR3_LD">
       <static>true</static>
-      <pose>0.800 -6.980 0.675 0 0 0</pose>
+      <pose>0.960 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1000,7 +1020,7 @@
     </model>
     <model name="markerdot_CTR3_LD">
       <static>true</static>
-      <pose>0.800 -6.970 0.675 0 0 0</pose>
+      <pose>0.960 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1013,7 +1033,7 @@
     </model>
     <model name="markerbit_CTR3_LD_1">
       <static>true</static>
-      <pose>0.815 -6.960 0.675 0 0 0</pose>
+      <pose>0.975 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1026,7 +1046,7 @@
     </model>
     <model name="markerbit_CTR3_LD_2">
       <static>true</static>
-      <pose>0.800 -6.960 0.675 0 0 0</pose>
+      <pose>0.960 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1039,7 +1059,7 @@
     </model>
     <model name="marker_CTR3_ULD">
       <static>true</static>
-      <pose>3.200 -6.980 0.675 0 0 0</pose>
+      <pose>3.840 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1052,7 +1072,7 @@
     </model>
     <model name="markerdot_CTR3_ULD">
       <static>true</static>
-      <pose>3.200 -6.970 0.675 0 0 0</pose>
+      <pose>3.840 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1065,7 +1085,7 @@
     </model>
     <model name="markerbit_CTR3_ULD_0">
       <static>true</static>
-      <pose>3.230 -6.960 0.675 0 0 0</pose>
+      <pose>3.870 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1078,7 +1098,7 @@
     </model>
     <model name="markerbit_CTR3_ULD_1">
       <static>true</static>
-      <pose>3.215 -6.960 0.675 0 0 0</pose>
+      <pose>3.855 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1091,7 +1111,7 @@
     </model>
     <model name="markerbit_CTR3_ULD_2">
       <static>true</static>
-      <pose>3.200 -6.960 0.675 0 0 0</pose>
+      <pose>3.840 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1104,7 +1124,7 @@
     </model>
     <model name="marker_CTR4_LD">
       <static>true</static>
-      <pose>6.800 -6.980 0.675 0 0 0</pose>
+      <pose>8.160 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1117,7 +1137,7 @@
     </model>
     <model name="markerdot_CTR4_LD">
       <static>true</static>
-      <pose>6.800 -6.970 0.675 0 0 0</pose>
+      <pose>8.160 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1130,7 +1150,7 @@
     </model>
     <model name="markerbit_CTR4_LD_3">
       <static>true</static>
-      <pose>6.785 -6.960 0.675 0 0 0</pose>
+      <pose>8.145 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1143,7 +1163,7 @@
     </model>
     <model name="marker_CTR4_ULD">
       <static>true</static>
-      <pose>9.200 -6.980 0.675 0 0 0</pose>
+      <pose>11.040 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1156,7 +1176,7 @@
     </model>
     <model name="markerdot_CTR4_ULD">
       <static>true</static>
-      <pose>9.200 -6.970 0.675 0 0 0</pose>
+      <pose>11.040 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1169,7 +1189,7 @@
     </model>
     <model name="markerbit_CTR4_ULD_0">
       <static>true</static>
-      <pose>9.230 -6.960 0.675 0 0 0</pose>
+      <pose>11.070 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1182,7 +1202,7 @@
     </model>
     <model name="markerbit_CTR4_ULD_3">
       <static>true</static>
-      <pose>9.185 -6.960 0.675 0 0 0</pose>
+      <pose>11.025 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1195,7 +1215,7 @@
     </model>
     <model name="marker_SLT_LD1">
       <static>true</static>
-      <pose>-20.000 -6.980 0.675 0 0 0</pose>
+      <pose>-24.000 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1208,7 +1228,7 @@
     </model>
     <model name="markerdot_SLT_LD1">
       <static>true</static>
-      <pose>-20.000 -6.970 0.675 0 0 0</pose>
+      <pose>-24.000 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1221,7 +1241,7 @@
     </model>
     <model name="markerbit_SLT_LD1_1">
       <static>true</static>
-      <pose>-19.985 -6.960 0.675 0 0 0</pose>
+      <pose>-23.985 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1234,7 +1254,7 @@
     </model>
     <model name="markerbit_SLT_LD1_4">
       <static>true</static>
-      <pose>-20.030 -6.960 0.675 0 0 0</pose>
+      <pose>-24.030 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1247,7 +1267,7 @@
     </model>
     <model name="marker_SLT_LD2">
       <static>true</static>
-      <pose>-18.000 -6.980 0.675 0 0 0</pose>
+      <pose>-21.600 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1260,7 +1280,7 @@
     </model>
     <model name="markerdot_SLT_LD2">
       <static>true</static>
-      <pose>-18.000 -6.970 0.675 0 0 0</pose>
+      <pose>-21.600 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1273,7 +1293,7 @@
     </model>
     <model name="markerbit_SLT_LD2_0">
       <static>true</static>
-      <pose>-17.970 -6.960 0.675 0 0 0</pose>
+      <pose>-21.570 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1286,7 +1306,7 @@
     </model>
     <model name="markerbit_SLT_LD2_1">
       <static>true</static>
-      <pose>-17.985 -6.960 0.675 0 0 0</pose>
+      <pose>-21.585 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1299,7 +1319,7 @@
     </model>
     <model name="markerbit_SLT_LD2_4">
       <static>true</static>
-      <pose>-18.030 -6.960 0.675 0 0 0</pose>
+      <pose>-21.630 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1312,7 +1332,7 @@
     </model>
     <model name="marker_SLT_LD3">
       <static>true</static>
-      <pose>-16.000 -6.980 0.675 0 0 0</pose>
+      <pose>-19.200 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1325,7 +1345,7 @@
     </model>
     <model name="markerdot_SLT_LD3">
       <static>true</static>
-      <pose>-16.000 -6.970 0.675 0 0 0</pose>
+      <pose>-19.200 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1338,7 +1358,7 @@
     </model>
     <model name="markerbit_SLT_LD3_2">
       <static>true</static>
-      <pose>-16.000 -6.960 0.675 0 0 0</pose>
+      <pose>-19.200 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1351,7 +1371,7 @@
     </model>
     <model name="markerbit_SLT_LD3_4">
       <static>true</static>
-      <pose>-16.030 -6.960 0.675 0 0 0</pose>
+      <pose>-19.230 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1364,7 +1384,7 @@
     </model>
     <model name="marker_SLT_LD4">
       <static>true</static>
-      <pose>-14.000 -6.980 0.675 0 0 0</pose>
+      <pose>-16.800 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1377,7 +1397,7 @@
     </model>
     <model name="markerdot_SLT_LD4">
       <static>true</static>
-      <pose>-14.000 -6.970 0.675 0 0 0</pose>
+      <pose>-16.800 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1390,7 +1410,7 @@
     </model>
     <model name="markerbit_SLT_LD4_0">
       <static>true</static>
-      <pose>-13.970 -6.960 0.675 0 0 0</pose>
+      <pose>-16.770 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1403,7 +1423,7 @@
     </model>
     <model name="markerbit_SLT_LD4_2">
       <static>true</static>
-      <pose>-14.000 -6.960 0.675 0 0 0</pose>
+      <pose>-16.800 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1416,7 +1436,7 @@
     </model>
     <model name="markerbit_SLT_LD4_4">
       <static>true</static>
-      <pose>-14.030 -6.960 0.675 0 0 0</pose>
+      <pose>-16.830 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1429,7 +1449,7 @@
     </model>
     <model name="marker_WIP_GRV_1">
       <static>true</static>
-      <pose>11.800 6.980 0.675 0 0 0</pose>
+      <pose>14.160 8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1442,7 +1462,7 @@
     </model>
     <model name="markerdot_WIP_GRV_1">
       <static>true</static>
-      <pose>11.800 6.970 0.675 0 0 0</pose>
+      <pose>14.160 8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1455,7 +1475,7 @@
     </model>
     <model name="markerbit_WIP_GRV_1_3">
       <static>true</static>
-      <pose>11.815 6.960 0.675 0 0 0</pose>
+      <pose>14.175 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1468,7 +1488,7 @@
     </model>
     <model name="markerbit_WIP_GRV_1_4">
       <static>true</static>
-      <pose>11.830 6.960 0.675 0 0 0</pose>
+      <pose>14.190 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1481,7 +1501,7 @@
     </model>
     <model name="marker_WIP_GRV_2">
       <static>true</static>
-      <pose>14.200 6.980 0.675 0 0 0</pose>
+      <pose>17.040 8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1494,7 +1514,7 @@
     </model>
     <model name="markerdot_WIP_GRV_2">
       <static>true</static>
-      <pose>14.200 6.970 0.675 0 0 0</pose>
+      <pose>17.040 8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1507,7 +1527,7 @@
     </model>
     <model name="markerbit_WIP_GRV_2_0">
       <static>true</static>
-      <pose>14.170 6.960 0.675 0 0 0</pose>
+      <pose>17.010 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1520,7 +1540,7 @@
     </model>
     <model name="markerbit_WIP_GRV_2_3">
       <static>true</static>
-      <pose>14.215 6.960 0.675 0 0 0</pose>
+      <pose>17.055 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1533,7 +1553,7 @@
     </model>
     <model name="markerbit_WIP_GRV_2_4">
       <static>true</static>
-      <pose>14.230 6.960 0.675 0 0 0</pose>
+      <pose>17.070 8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1546,7 +1566,7 @@
     </model>
     <model name="marker_WIP_CTR_1">
       <static>true</static>
-      <pose>11.800 -6.980 0.675 0 0 0</pose>
+      <pose>14.160 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1559,7 +1579,7 @@
     </model>
     <model name="markerdot_WIP_CTR_1">
       <static>true</static>
-      <pose>11.800 -6.970 0.675 0 0 0</pose>
+      <pose>14.160 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1572,7 +1592,7 @@
     </model>
     <model name="markerbit_WIP_CTR_1_1">
       <static>true</static>
-      <pose>11.815 -6.960 0.675 0 0 0</pose>
+      <pose>14.175 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1585,7 +1605,7 @@
     </model>
     <model name="markerbit_WIP_CTR_1_2">
       <static>true</static>
-      <pose>11.800 -6.960 0.675 0 0 0</pose>
+      <pose>14.160 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1598,7 +1618,7 @@
     </model>
     <model name="markerbit_WIP_CTR_1_4">
       <static>true</static>
-      <pose>11.770 -6.960 0.675 0 0 0</pose>
+      <pose>14.130 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1611,7 +1631,7 @@
     </model>
     <model name="marker_WIP_CTR_2">
       <static>true</static>
-      <pose>14.200 -6.980 0.675 0 0 0</pose>
+      <pose>17.040 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1624,7 +1644,7 @@
     </model>
     <model name="markerdot_WIP_CTR_2">
       <static>true</static>
-      <pose>14.200 -6.970 0.675 0 0 0</pose>
+      <pose>17.040 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1637,7 +1657,7 @@
     </model>
     <model name="markerbit_WIP_CTR_2_0">
       <static>true</static>
-      <pose>14.230 -6.960 0.675 0 0 0</pose>
+      <pose>17.070 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1650,7 +1670,7 @@
     </model>
     <model name="markerbit_WIP_CTR_2_1">
       <static>true</static>
-      <pose>14.215 -6.960 0.675 0 0 0</pose>
+      <pose>17.055 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1663,7 +1683,7 @@
     </model>
     <model name="markerbit_WIP_CTR_2_2">
       <static>true</static>
-      <pose>14.200 -6.960 0.675 0 0 0</pose>
+      <pose>17.040 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1676,7 +1696,7 @@
     </model>
     <model name="markerbit_WIP_CTR_2_4">
       <static>true</static>
-      <pose>14.170 -6.960 0.675 0 0 0</pose>
+      <pose>17.010 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1689,7 +1709,7 @@
     </model>
     <model name="marker_WIP_SLT_1">
       <static>true</static>
-      <pose>17.800 -6.980 0.675 0 0 0</pose>
+      <pose>21.360 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1702,7 +1722,7 @@
     </model>
     <model name="markerdot_WIP_SLT_1">
       <static>true</static>
-      <pose>17.800 -6.970 0.675 0 0 0</pose>
+      <pose>21.360 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1715,7 +1735,7 @@
     </model>
     <model name="markerbit_WIP_SLT_1_1">
       <static>true</static>
-      <pose>17.815 -6.960 0.675 0 0 0</pose>
+      <pose>21.375 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1728,7 +1748,7 @@
     </model>
     <model name="markerbit_WIP_SLT_1_3">
       <static>true</static>
-      <pose>17.785 -6.960 0.675 0 0 0</pose>
+      <pose>21.345 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1741,7 +1761,7 @@
     </model>
     <model name="markerbit_WIP_SLT_1_4">
       <static>true</static>
-      <pose>17.770 -6.960 0.675 0 0 0</pose>
+      <pose>21.330 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1754,7 +1774,7 @@
     </model>
     <model name="marker_WIP_SLT_2">
       <static>true</static>
-      <pose>20.200 -6.980 0.675 0 0 0</pose>
+      <pose>24.240 -8.380 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.130 0.020 0.130</size></box></geometry>
@@ -1767,7 +1787,7 @@
     </model>
     <model name="markerdot_WIP_SLT_2">
       <static>true</static>
-      <pose>20.200 -6.970 0.675 0 0 0</pose>
+      <pose>24.240 -8.370 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.080 0.010 0.080</size></box></geometry>
@@ -1780,7 +1800,7 @@
     </model>
     <model name="markerbit_WIP_SLT_2_0">
       <static>true</static>
-      <pose>20.230 -6.960 0.675 0 0 0</pose>
+      <pose>24.270 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1793,7 +1813,7 @@
     </model>
     <model name="markerbit_WIP_SLT_2_1">
       <static>true</static>
-      <pose>20.215 -6.960 0.675 0 0 0</pose>
+      <pose>24.255 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1806,7 +1826,7 @@
     </model>
     <model name="markerbit_WIP_SLT_2_3">
       <static>true</static>
-      <pose>20.185 -6.960 0.675 0 0 0</pose>
+      <pose>24.225 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>
@@ -1819,7 +1839,7 @@
     </model>
     <model name="markerbit_WIP_SLT_2_4">
       <static>true</static>
-      <pose>20.170 -6.960 0.675 0 0 0</pose>
+      <pose>24.210 -8.360 0.675 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>0.009 0.005 0.034</size></box></geometry>

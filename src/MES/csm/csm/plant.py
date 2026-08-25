@@ -77,26 +77,62 @@ import re
 
 # ---------------------------------------------------------------- geometry
 
-HALL_W, HALL_E = -27.0, 26.2     # hall extent in x (assumption A1)
+#: UNIFORM PLANT SCALE. Multiplies every PLANT dimension and leaves the ROBOT
+#: alone, so a bigger hall means more room per robot rather than a bigger robot
+#: in the same room.
+#:
+#: WHY IT EXISTS. On 2026-08-24 the slitter's four docking ports were measured
+#: at a 2.00 m pitch while every other LD/ULD pair in the plant uses 2.40 m. A
+#: 1.6 x 0.9 m robot turning to dock beside a parked one needs 2.02 m
+#: (half-diagonal 0.918 + half-length 0.80 + the 0.30 margin), so two adjacent
+#: slitter docks could not both be used: measured body gap 0.19 m, and layer 1
+#: stopped the arriving robot 0.8 m short of its goal for 72 seconds.
+#:
+#: WHAT SCALES AND WHAT DOES NOT. Everything below this line that is a distance
+#: in the building scales. `ROBOT_L`/`ROBOT_W` and everything derived from them
+#: — PARK_SPUR, PARK_PITCH, ROW_MIN_GAP, the docking tolerances — do not, and
+#: neither do the traffic clearances in sim_acs.py (STOP_GAP, SIDESTEP,
+#: PATH_CLEARANCE, PASSING_GAP). Those are properties of the vehicle and of the
+#: margin we refuse to close; scaling them would move the goalposts with the
+#: pitch and measure nothing.
+#:
+#: 1.20 is not a guess: it lifts the slitter's 2.00 m pitch to 2.40 m, which is
+#: the spacing the rest of the plant already uses and already works at.
+#:
+#: THE COST IS TRAVEL. Every route grows by this factor, and route length is
+#: what broke the one-way-aisle change of 2026-08-07 — segment B went from 12
+#: to 24 waypoints and its robot never arrived. Expect deliveries per minute to
+#: fall by roughly (SCALE - 1). Judge a scaled run on deliveries/min, not on
+#: deliveries.
+SCALE = 1.20
+
+
+def _s(value):
+    """Scale one plant dimension. Lists and tuples scale element-wise."""
+    if isinstance(value, (list, tuple)):
+        return type(value)(_s(v) for v in value)
+    return value * SCALE
+
+HALL_W, HALL_E = _s(-27.0), _s(26.2)     # hall extent in x (assumption A1)
 #: West edge moved out from -25.0 on 2026-08-21, by the SAME 1.6 m the west
 #: aisle moved. Parking hangs off the aisle (`PARK_X = AISLE_W_X - PARK_SPUR`),
 #: so a wall that moved less would fix the corner by squeezing the bays; at
 #: -26.6 a parked robot keeps the 1.50 m of wall clearance it had before.
-HALL_S, HALL_N = -15.0, 13.0     # hall extent in y
+HALL_S, HALL_N = _s(-15.0), _s(13.0)     # hall extent in y
 #: South edge moved out from -13.0 on 2026-08-18. Leg C has six 3.5T robots
 #: (specification fleet table) and its queue runs south from the east cross
 #: aisle; the sixth slot landed 0.25 m inside the wall's robot-radius pad. The
 #: alternative was to shave the clearance between slots until six fitted, which
 #: is fitting the robot to the drawing rather than the drawing to the robot.
 #: North is unchanged: leg B has two robots and needs 3.65 m.
-WALL_T = 0.2
+WALL_T = _s(0.2)
 
-MACHINE_W, MACHINE_D = 3.0, 2.0        # A5
-MACHINE_PITCH = 6.0                    # A4
-PORT_OFFSET = 1.2                      # A4: LD/ULD either side of centre
+MACHINE_W, MACHINE_D = _s(3.0), _s(2.0)        # A5
+MACHINE_PITCH = _s(6.0)                    # A4
+PORT_OFFSET = _s(1.2)                      # A4: LD/ULD either side of centre
 
-ROW_N_Y = 8.0                          # north machine row centre
-ROW_S_Y = -8.0                         # south machine row centre
+ROW_N_Y = _s(8.0)                          # north machine row centre
+ROW_S_Y = _s(-8.0)                         # south machine row centre
 #: A6: how far in front of the machine face the lane network hands over to
 #: docking. This is a THROUGHPUT number, not a clearance one.
 #:
@@ -109,9 +145,9 @@ ROW_S_Y = -8.0                         # south machine row centre
 #:
 #: 1.5 m closes in ~23 s and still leaves 0.58 m of clearance for the robot to
 #: square up at the hand-over, against a 0.918 m half-diagonal.
-DOCK_INSET = 1.5
-AISLE_N_Y = 3.0                        # north aisle
-AISLE_S_Y = -3.0                       # south aisle
+DOCK_INSET = _s(1.5)
+AISLE_N_Y = _s(3.0)                        # north aisle
+AISLE_S_Y = _s(-3.0)                       # south aisle
 #: Moved west from -20.0 on 2026-08-21, together with `_SLT_PORT_X0` below.
 #: NEITHER CHANGE WORKS ALONE and both were tried that way first:
 #:   moving only the road   — the slitter ports are measured FROM the road, so
@@ -121,11 +157,11 @@ AISLE_S_Y = -3.0                       # south aisle
 #: The south row between the corner and CTR1_LD needs 9.80 m — four ports at a
 #: 2.0 m pitch, plus 1.90 m of clearance at each end — and at -20.0 it had
 #: 8.80 m. It did not fit. This is the metre it was short.
-AISLE_W_X = -22.0                      # west cross aisle
+AISLE_W_X = _s(-22.0)                      # west cross aisle
 #: Moved east from 22.0 on 2026-08-21: `WIP_SLT_2` sat 1.80 m from the corner
 #: and two robots need 1.90 m. The same fault as the west end, mirrored, and
 #: found only because `_check_row` was written to look for it.
-AISLE_E_X = 22.2                       # east cross aisle
+AISLE_E_X = _s(22.2)                       # east cross aisle
 #: THE ROBOT ITSELF, because the layout has to be big enough for it.
 #: 1.6 x 0.9 m is the simulated chassis. (The deck gives 1.3 x 1.9 m for the
 #: 1.5T and 1.6 x 2.0 m for the 3.5T; the sim models one body for all three,
@@ -159,10 +195,10 @@ _FACE_N = ROW_N_Y - MACHINE_D / 2.0
 _FACE_S = ROW_S_Y + MACHINE_D / 2.0
 
 #: Where the machines stand, west to east along each row.
-_GRV_X = [-10.0, -4.0, 2.0, 8.0]       # Gravure 1..4, north row
-_CTR_X = [-10.0, -4.0, 2.0, 8.0]       # Coater 1..4, south row
-_ASRS_X = -17.0                        # west end, north row (A3)
-_SLT_X = -17.0                         # west end, south row (A3)
+_GRV_X = _s([-10.0, -4.0, 2.0, 8.0])       # Gravure 1..4, north row
+_CTR_X = _s([-10.0, -4.0, 2.0, 8.0])       # Coater 1..4, south row
+_ASRS_X = _s(-17.0)                        # west end, north row (A3)
+_SLT_X = _s(-17.0)                         # west end, south row (A3)
 
 
 def _dock_n(x):
@@ -219,7 +255,7 @@ for i, x in enumerate(_CTR_X, 1):
 #: leaves 6.0 m of span for four ports. That gives 0.4 m between docked robots —
 #: less than the 0.8 m the gravure and coater LD/ULD pairs enjoy, but positive,
 #: which 1.3 m was not.
-_SLT_PITCH = 2.0
+_SLT_PITCH = _s(2.0)
 #: THE PORTS BELONG TO THE MACHINE, NOT TO THE ROAD.
 #:
 #: This was `AISLE_W_X + 0.7` — the first port defined as an offset from the
@@ -253,7 +289,7 @@ for i in range(1, 5):
 # does not start with "WIP_GRV_", so roads._owner_of never recognised them and
 # the buffer spurs were never exempt from their own rack. Harmless at the old
 # hand-over distance and an instant build failure once it shortened.
-_WIP_X = 13.0
+_WIP_X = _s(13.0)
 _add("WIP_GRV", "MACHINE", (_WIP_X, ROW_N_Y), _dock_n(_WIP_X))
 for i in (1, 2):
     _add(f"WIP_GRV_{i}", "BUFFER", (_WIP_X, ROW_N_Y),
@@ -266,7 +302,7 @@ for i in (1, 2):
 #: Leg C's rack — the WIP Slitter. Added 2026-08-18; segment C had none, so a
 #: coater whose slitter was full had nowhere to put its output and the divert
 #: branch was untestable on a third of the line.
-_WIP_SLT_X = 19.0
+_WIP_SLT_X = _s(19.0)
 _add("WIP_SLT", "MACHINE", (_WIP_SLT_X, ROW_S_Y), _dock_s(_WIP_SLT_X))
 for i in (1, 2):
     _add(f"WIP_SLT_{i}", "BUFFER", (_WIP_SLT_X, ROW_S_Y),

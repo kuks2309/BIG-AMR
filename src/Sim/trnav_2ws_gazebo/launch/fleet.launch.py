@@ -418,6 +418,20 @@ def generate_launch_description():
                         LaunchConfiguration('acs_loopback')],
                        ['--acs-endpoint=',
                         LaunchConfiguration('acs_endpoint')]],
+            # THE CSM MUST READ THE SAME CLOCK AS THE ROBOTS.
+            #
+            # Every node that touches a robot already runs on sim time. The
+            # CSM did not, so it measured every timeout in WALL seconds while
+            # the robots moved in SIM seconds: the 45 s give-way limit, the 8 s
+            # stall watchdog, the 4 s deadlock breaker and the 600 s job
+            # timeout.
+            #
+            # A real-time factor below 1.0 shrinks all four in proportion. And
+            # PAUSING GAZEBO STOPS SIM TIME WHILE WALL TIME RUNS ON — so every
+            # pause to look at something burned the timeouts, and the robots
+            # came back to a world where they had all expired. That is not a
+            # small drift; it is minutes of timeout spent in a moment.
+            parameters=[{'use_sim_time': True}],
             condition=IfCondition(LaunchConfiguration('mes')),
         )],
     )

@@ -427,6 +427,7 @@ class SimRobot:
         self._noted_hold = False
         #: Set while stopped for another robot, so the wait is logged once.
         self._noted_yield = False
+        self._noted_convoy = False
         #: When this robot first stopped for another one. Bounds the wait.
         self._yield_since = None
         #: Where this robot is standing aside, or None.
@@ -1129,7 +1130,9 @@ class SimRobot:
             self.node.get_logger().info(
                 f"{self._tag()}blocked by {other.name} while stuck with "
                 f"{partner.name} — dropping the stalled encounter")
-            self.fleet.encounter_over(self)
+            # THAT encounter only. Dropping the rest would cancel instructions
+            # this robot is in the middle of obeying — see `encounter_over`.
+            self.fleet.encounter_over(self, partner)
             self._blocked_since = now
             return
 
@@ -1253,103 +1256,109 @@ class SimRobot:
         """
         return len(self._waypoints) <= 1
 
+    def going_to_dock(self):
+        """True while this robot is on its way INTO a station.
+
+        RULE 4 (user, 2026-08-25): a robot waiting to dock has the highest
+        priority — everyone stops until it has gone in. It never gives way,
+        whatever its number.
+
+        Covers the whole approach, not only the moment it is refused entry: the
+        final hop to the dock, the wait for the machine to grant entry, and the
+        docking manoeuvre itself. All three are "going in", and pulling the
+        robot out of any of them wastes the trip.
+
+        WHY IT EXISTS. A robot queuing at a station is stationary for a
+        perfectly good reason, and `_note_blocked_by` could not tell that apart
+        from being wedged. Measured 2026-08-25:
+
+            +0 s   [amr3] waiting for SLT_LD3 to permit entry
+            +6 s   [amr3] deadlocked with amr5 — asking who yields
+            +6 s   [amr3] stepping aside to (-24.4,-4.7)
+            +51 s  [amr3] BOBBIN_0011: gave way for 45s — giving up
+
+        amr3 was waiting its turn at the slitter. Six seconds later it was
+        ruled deadlocked, made the yielder because 3 < 5, and dragged off its
+        approach. It lost the delivery and then cycled through the same 45 s
+        timeout twenty-one times over sixteen minutes.
+        """
+        return self._docking or (self._active_job is not None
+                                 and self._final_leg)
+
     def _tag(self):
         return f"[{self.name}] " if self.name else ""
 
     # -------------------------------------------------------------- driving
 
-    #: The gap a stood-aside robot must leave beyond its own body: half the
-    #: width of whatever drives past, plus the margin layer 1 refuses to close.
-    #:
-    #: The robot's OWN half-extent is not a constant and is computed per lane —
-    #: see `_lane_clearance`. Adding a fixed 0.45 m here was the 2026-08-24
-    #: near-miss: it is only the robot's half-extent when it happens to be
-    #: parallel to the lane.
-    PASSING_GAP = ROBOT_W / 2 + 0.30
+    #: How near a corner a robot must be before it may turn. Its own
+    #: half-diagonal plus the margin: far enough out and the swing is still
+    #: inside the junction, not out along a lane.
+    CORNER_RADIUS = math.hypot(ROBOT_L / 2.0, ROBOT_W / 2.0) + 0.30
 
-    def _lane_clearance(self, x, y, yaw, a, b):
-        """(distance to this lane, distance this robot needs from it).
+    def _at_a_corner(self):
+        """True if this robot is in one of the four aisle junctions.
 
-        HOW MUCH ROOM A ROBOT TAKES DEPENDS ON WHICH WAY IT IS POINTING.
+        RULE 5 (user, 2026-08-25): a robot may not rotate anywhere on the road
+        except at the four corners.
 
-        A 1.6 x 0.9 m robot parallel to a lane reaches 0.45 m across it. Turned
-        27 degrees it reaches 0.76 m — and turned square, 0.80 m. Treating the
-        first number as if it were the robot is what let a robot stand 1.25 m
-        off the north aisle, pass a 1.20 m test, and be hit anyway.
+        WHY IT IS SAFE TO FORBID IT EVERYWHERE ELSE. The platform crabs, so
+        heading and direction of travel are independent — a robot can drive
+        north while pointing east. Turning is never NEEDED to get somewhere; it
+        is only needed to line up with a machine face, and that happens at the
+        approach point under its own rule.
 
-        Measured 2026-08-24, second run: amr2 was told to stand aside, drove
-        toward its lay-by at (-14.7,+1.0), and part way there — at
-        (-13.63,+1.75), turned 27 degrees — answered "already clear — you may
-        pass". Its centre was 1.25 m from the north aisle, which cleared the
-        flat 1.20 m rule by 0.05 m. What it actually needed was 1.51 m. amr1
-        came down the aisle and the meter read 0.160 m, then 0.000 m.
+        WHY IT MATTERS. Rotating swings a corner out to 0.918 m where a robot
+        lying flat presents 0.450 m. Lanes are sized for the flat number, so a
+        robot that turns mid-aisle is momentarily half a metre wider than the
+        lane was built for. Every clearance problem measured on 2026-08-24 and
+        2026-08-25 — the lay-by at 0.16 m, the parking bays at 0.01 m of
+        headroom, the two contacts — was a turning robot against a flat one.
 
-        The same trap is written up two screens above for the PASSER: "turning
-        swings its corner out to 0.92 m where standing side-on presents
-        0.45 m". It was true of the yielder too, and this is the fix.
-
-        The extent is taken across the LANE'S OWN direction, not across y, so
-        it is right for the north-south cross aisles as well.
-        """
-        (ax, ay), (bx, by) = ROADS.nodes[a], ROADS.nodes[b]
-        length = math.hypot(bx - ax, by - ay)
-        if length < 1e-9:
-            return float("inf"), 0.0
-        # Unit normal of the lane: the direction "across" it.
-        nx, ny = -(by - ay) / length, (bx - ax) / length
-        # How far this robot's body reaches along that normal.
-        along = (math.cos(yaw), math.sin(yaw))
-        across = (-math.sin(yaw), math.cos(yaw))
-        reach = (ROBOT_L / 2) * abs(along[0] * nx + along[1] * ny) + \
-                (ROBOT_W / 2) * abs(across[0] * nx + across[1] * ny)
-        return (roads._clearance((x, y), (ax, ay), (bx, by)),
-                reach + self.PASSING_GAP)
-
-    def _off_the_road(self):
-        """True if this robot is far enough from the lanes to be passed safely.
-
-        A GIVE-WAY ANSWERED BY STANDING STILL MUST BE TRUE, NOT MERELY PLAUSIBLE.
-
-        This used to ask a question about CATEGORY — am I in a bay, am I at my
-        parking slot — and treat the answer as clearance. `_in_a_bay` is any
-        marker within BAY_RADIUS = 3.0 m, and a bay circle around a station on
-        the south machine row reaches y = -4.0, which is 1.0 m from the south
-        aisle. So a robot could be "in a bay", tell the fleet "already clear —
-        you may pass", never move, and still have its body in the lane.
-
-        Measured 2026-08-24, four robots. amr4 stood 2.96 m from the CTR2_ULD
-        marker — 0.04 m inside BAY_RADIUS — and answered the give-way without
-        moving:
-
-            amr4 gives way to amr3
-            [amr4] already clear — you may pass
-
-        amr4 was 1.04 m off the south aisle, so its north edge reached
-        y = -3.59. amr3 took the all-clear, drove the aisle at y = -3.10 with
-        its south edge at -3.55, and the two bodies touched — measured at
-        0.00 m by a footprint meter that shares none of this code
-        (Tools/contact_meter/). Nothing in the run log recorded it.
-
-        So the question asked here is the one that matters: IS MY BODY OUT OF
-        THE WAY? Distance to each through lane, against what this robot needs
-        from that lane AT ITS CURRENT HEADING — see `_lane_clearance`.
-
-        THROUGH LANES ONLY. Dock and parking spurs are lanes in the graph too,
-        and a robot at its own dock necessarily sits on one — measuring against
-        those would mean no robot could ever be clear. A spur is a dead end
-        serving one station, and nothing passes along it; only the aisle network
-        is traffic.
+        The corners are the one place with room: two lanes meet, so the open
+        area is wider than either.
         """
         if self.pose is None:
             return False
-        x, y, yaw = self.pose
-        for a, b in ROADS.lanes:
-            if a.startswith(("dock_", "park_")) or b.startswith(("dock_", "park_")):
+        x, y = self.pose[0], self.pose[1]
+        for name, (cx, cy) in ROADS.nodes.items():
+            if not name.startswith("aisle"):
                 continue
-            distance, needed = self._lane_clearance(x, y, yaw, a, b)
-            if distance < needed:
-                return False
-        return True
+            if math.hypot(cx - x, cy - y) <= self.CORNER_RADIUS:
+                return True
+        return False
+
+    def _on_a_spur(self):
+        """True if this robot has turned OFF the lane network onto a dead end.
+
+        A dock spur or a parking spur. Both serve exactly one place, so a robot
+        on one is not on any road another robot needs, and traffic carries on
+        around it.
+
+        MEASURED AGAINST THE ROAD GRAPH, NOT A RADIUS. This used to be
+        `_in_a_bay` — any marker within BAY_RADIUS, a 3.8 m circle. A circle
+        that wide around a station on the machine row reaches the aisle, so a
+        robot standing IN THE ROAD answered "I am in a bay". On 2026-08-24 that
+        let amr4 tell amr3 "you may pass" with its body in the lane, and the
+        two touched.
+
+        The honest question is whether the robot has left the through network,
+        and the graph already knows: it is on a spur when the nearest DOCK or
+        PARK node is closer than that spur's own junction with the aisle.
+        """
+        if self.pose is None:
+            return False
+        x, y = self.pose[0], self.pose[1]
+        for a, b in ROADS.lanes:
+            tip, join = (a, b) if a.startswith(("dock_", "park_")) else (b, a)
+            if not tip.startswith(("dock_", "park_")):
+                continue
+            tx, ty = ROADS.nodes[tip]
+            jx, jy = ROADS.nodes[join]
+            if math.hypot(tx - x, ty - y) < math.hypot(jx - x, jy - y):
+                # Past the junction, heading up the dead end.
+                if roads._clearance((x, y), (tx, ty), (jx, jy)) < ROBOT_W:
+                    return True
+        return False
 
     def _handle_give_way(self, x, y, yaw, target):
         """The give-way handshake. True if it has consumed this tick.
@@ -1405,17 +1414,37 @@ class SimRobot:
             # strength of it — that is the whole point of one robot moving at a
             # time. The hold ends when the encounter does: the passer reports
             # "road is yours", or YIELD_LIMIT gives up.
-            if self._off_the_road():
-                if not self._stood_aside:
-                    self._stood_aside = True
-                    self.node.get_logger().info(
-                        f"{self._tag()}already clear — you may pass")
-                self._stop("clear of the lane, waiting to be passed")
-                return True
-
+            # RULE 3. A ROBOT GIVING WAY IS STILL ON THE ROAD.
+            #
+            # Only a robot that has turned off onto a spur — docking, or parked
+            # — has actually left the lane, and only that robot may be driven
+            # past. One standing aside is holding a gap open for ONE named
+            # robot and is otherwise in the way, so everybody else queues.
+            #
+            # This branch used to ask "is my body far enough from the lane
+            # centreline to be passed", and I rewrote that test three times in
+            # one day chasing the answer: bay radius, then a flat 1.20 m, then
+            # a heading-dependent reach. Each version produced a collision or a
+            # deadlock, because the question itself was wrong. Under the rule
+            # above a yielder is not passable at any distance, so there is no
+            # clearance to compute — the geometry disappears and the queue
+            # behind it is handled by `_yielder_ahead`, which already exists.
+            #
+            # The bound applies HERE TOO, above the early return. It used to sit
+            # below it, so a yielder that reported itself clear never set
+            # `_yield_since`, YIELD_LIMIT could never fire, and the hold was
+            # unbounded — three robots sat in the south lay-by until the run was
+            # killed.
             self._reset_stall()
             if self._yield_since is None:
                 self._yield_since = self._now()
+            if self._on_a_spur():
+                if not self._stood_aside:
+                    self._stood_aside = True
+                    self.node.get_logger().info(
+                        f"{self._tag()}off the lane already — you may pass")
+                self._stop("on a spur, waiting to be passed")
+                return True
             if self._now() - self._yield_since >= YIELD_LIMIT:
                 self.node.get_logger().warn(
                     f"{self._tag()}{self._active_job or 'no job'}: gave way for "
@@ -1432,8 +1461,11 @@ class SimRobot:
             if self._standoff is None:
                 # Pass the partner: the standoff must not lie beyond the robot
                 # we are getting out of the way of.
+                # Clear of EVERY robot we are giving way to, not just one.
+                # `partner_of` is ambiguous once a robot yields to several.
+                yields_to = self.fleet.yield_partners(self)
                 self._standoff = self._sidestep_target(
-                    self.fleet.partner_of(self))
+                    yields_to[0] if yields_to else None)
                 if self._standoff is None:
                     # NOWHERE TO GO. Hand the duty over rather than stand here
                     # until YIELD_LIMIT fails the job — see `cannot_yield`.
@@ -1483,8 +1515,12 @@ class SimRobot:
                     self.fleet.encounter_over(self)
                     return False
 
-            # I am the passer. Wait for the explicit all-clear, not for the gap.
-            if not partner._stood_aside:
+            # I am the passer. Wait for the explicit all-clear from EVERY robot
+            # that is giving way to me, not merely from whichever one
+            # `partner_of` happened to name.
+            waiting_on = [r for r in self.fleet.pass_partners(self)
+                          if not r._stood_aside]
+            if waiting_on:
                 self._reset_stall()
                 self._stop("passer: waiting for the yielder to stand aside")
                 return True
@@ -1497,13 +1533,29 @@ class SimRobot:
             # goal, and turning swings its corner out to 0.92 m where standing
             # side-on presents 0.45 m. It gave way and then took the space back
             # while the other robot was still arriving.
-            px, py = partner.pose[0] - x, partner.pose[1] - y
-            d = self._travel_dir()
-            behind = d is None or (px * d[0] + py * d[1]) < 0.0
-            if behind and math.hypot(px, py) > 3.0:
+            # RULE 2. WAIT FOR THE WHOLE GROUP, NOT JUST THE ONE ROBOT.
+            #
+            # A convoy travelling together arrives as a convoy. If amr1 stands
+            # aside for amr2 and amr3 is following amr2 down the same lane, then
+            # rejoining the moment amr2 is past puts amr1 straight back into
+            # amr3 — and amr1 is now in the road, mid-turn, in front of a robot
+            # that had right of way.
+            #
+            # This tested `partner` and nothing else, so the encounter ended 3 m
+            # after the partner passed regardless of who was behind it.
+            #
+            # The road is yours when NOBODY still coming the other way is ahead
+            # of you. `_oncoming_ahead` answers that for the whole fleet.
+            still_coming = self._oncoming_ahead()
+            if still_coming is None:
                 self.node.get_logger().info(
-                    f"{self._tag()}past {partner.name} — road is yours")
+                    f"{self._tag()}road is clear — it is yours")
                 self.fleet.encounter_over(self)
+            elif still_coming is not partner and not self._noted_convoy:
+                self._noted_convoy = True
+                self.node.get_logger().info(
+                    f"{self._tag()}{partner.name} is past, but {still_coming.name} "
+                    f"is following it — holding")
 
         # Standing aside is finished: rebuild the route from where we now are.
         if self._standoff is not None:
@@ -1837,20 +1889,84 @@ class SimRobot:
         # it only happened sometimes — the rule turns only when the heading
         # error exceeds the crab window, so a robot already pointing roughly the
         # right way crabbed out cleanly.
-        if self._final_leg or self._in_a_bay():
+        # A PARKING SPUR IS AS NARROW AS A DOCK, AND WAS NOT COVERED.
+        #
+        # `_in_a_bay` is the STATION test — within BAY_RADIUS of a machine
+        # marker. A parking slot is not a station and has no marker, so a robot
+        # leaving its bay fell through to the `else` below and rotated while it
+        # drove out, swinging a corner into the neighbouring bay.
+        #
+        # Measured 2026-08-25 with five robots: amr4 sat in leg C slot 2 unable
+        # to leave while amr5 manoeuvred beside it at 128 degrees, 0.23 m away.
+        # Parking slots are PARK_PITCH = 2.15 m apart and two turning robots
+        # need 2.14 m, so the manoeuvre has one centimetre of headroom — and a
+        # robot that crabs straight out does not need any of it.
+        #
+        # The platform crabs, so heading is optional while travelling. Out
+        # first, turn on the road. The route already does the right thing: the
+        # first waypoint from a parking slot IS its own junction, straight out
+        # along the spur.
+        # RULE 5: turning is allowed at the four aisle corners and nowhere
+        # else on the road. Squaring up to a machine face is a separate path
+        # (`_square_up`) and is not affected.
+        if (self._final_leg or self._in_a_bay() or self._on_a_spur()
+                or not self._at_a_corner()):
             cmd.angular.z = 0.0
         else:
-            cmd.angular.z = max(-self.max_turn, min(self.max_turn,
-                                                    self.turn_gain * heading_err))
-            # Slow down while badly misaligned — turning on the spot beats
-            # driving confidently in the wrong direction, and it stops the robot
-            # arcing wide around every goal.
-            if abs(heading_err) > self.crab_window:
-                speed *= max(0.0, math.cos(heading_err))
+            # AT A CORNER: FINISH THE TURN BEFORE DRIVING OUT.
+            #
+            # Forbidding rotation on the lanes is only half the rule. Without
+            # this half a robot leaves the junction still half-turned and keeps
+            # that heading the whole way down the aisle — measured 2026-08-25,
+            # amr2 and amr5 driving the south aisle 20 degrees crooked, 0.70 m
+            # across where an aligned robot is 0.45 m. A momentary widening
+            # became a permanent one, which is worse than the problem the rule
+            # was written for.
+            #
+            # So the corner is where alignment is FINISHED, not merely allowed:
+            # rotate on the spot until square with the lane, then go. The same
+            # shape as `_square_up` at a machine face, and for the same reason
+            # — this is the one place with room to turn.
+            # NOT `_parallel_heading` — that is the DOCKING helper and returns
+            # a quarter turn from a machine's face normal. Here the lane axis
+            # IS the heading wanted, so the only choice is which way along it.
+            axis = self._lane_heading()
+            forward, backward = _wrap(axis - yaw), _wrap(axis + math.pi - yaw)
+            error = forward if abs(forward) <= abs(backward) else backward
+            if abs(error) > self.LANE_ALIGN_TOL:
+                cmd.angular.z = max(-self.max_turn,
+                                    min(self.max_turn, self.turn_gain * error))
+                cmd.linear.x = cmd.linear.y = 0.0     # turn on the spot
+                self.pub_cmd.publish(cmd)
+                return
+            cmd.angular.z = 0.0
 
         cmd.linear.x = vx * speed
         cmd.linear.y = vy * speed
         self.pub_cmd.publish(cmd)
+
+    #: How square with the lane is square enough to drive out of a corner.
+    #:
+    #: At 5 degrees a 1.6 x 0.9 m robot is 0.518 m across where a perfectly
+    #: aligned one is 0.450 m — 0.068 m of extra width, about a quarter of the
+    #: 0.30 m margin. Tightening it costs time turning at every corner and buys
+    #: little: 2 degrees still costs 0.028 m, so the curve is shallow here.
+    #: What it must NOT be is loose — at 20 degrees the robot is 0.696 m
+    #: across, which is the crooked driving this tolerance exists to stop.
+    LANE_ALIGN_TOL = math.radians(5.0)
+
+    def _lane_heading(self):
+        """The axis of the lane this robot is about to drive, as a heading.
+
+        Snapped to a cardinal direction, because every lane in this plant runs
+        east-west or north-south. `_parallel_heading` then picks whichever of
+        that axis and its opposite is the shorter turn, so a robot never spins
+        180 degrees to achieve a symmetric result.
+        """
+        direction = self._travel_dir()
+        if direction is None:
+            return self.pose[2] if self.pose else 0.0
+        return 0.0 if abs(direction[0]) >= abs(direction[1]) else math.pi / 2.0
 
     def _drive_to_exit(self):
         """Back out to the waiting spot, then release the bay."""
@@ -2121,6 +2237,58 @@ class SimRobot:
         # which is standing where this one wanted to be and therefore has the
         # room this one lacks.
         return None
+
+    def _oncoming_ahead(self):
+        """A robot coming the other way that is still ahead of us, or None.
+
+        AHEAD is measured along OUR travel, so a robot that has gone by is not
+        ahead however close it still is. COMING THE OTHER WAY is the same
+        head-on test the encounter was opened with, so a robot overtaking in our
+        own direction does not hold us here — Rule 3 keeps that one behind us.
+
+        Returns the nearest such robot, which is the one worth naming in a log
+        line. Rule 2 is satisfied when this is None.
+        """
+        if self.fleet is None or self.pose is None:
+            return None
+        d = self._travel_dir()
+        if d is None:
+            return None
+        x, y = self.pose[0], self.pose[1]
+        found = []
+        for other in self.fleet.robots:
+            if other is self or other.pose is None:
+                continue
+            px, py = other.pose[0] - x, other.pose[1] - y
+            along = px * d[0] + py * d[1]
+            if along <= 0.0:
+                continue                       # already behind us
+            distance = math.hypot(px, py)
+            if distance > self.ENCOUNTER_RANGE:
+                continue                       # too far to be part of this
+            if other._on_a_spur():
+                continue                       # parked or docking; not on the road
+            # A GENUINELY OPPOSING HEADING, not `_head_on_with`.
+            #
+            # `_head_on_with` answers "unknown direction" with True, because
+            # when OPENING an encounter the safe reading of an unknown is to
+            # assume a meeting. Closing one is the opposite question, and the
+            # same answer is the wrong one: an idle robot has no goal, so no
+            # travel direction, so it read as oncoming and the yielder waited
+            # for a robot that was never going to arrive.
+            #
+            # Measured 2026-08-24 with five robots: amr3 sat parked in leg C's
+            # first bay with no job, and amr4 and amr5 both held for it —
+            # "amr5 is past, but amr3 is following it — holding" — cycling
+            # through hold, deadlock-breaker and re-hold until the run was
+            # stopped. Neither ever left the parking row.
+            theirs = other._travel_dir()
+            if theirs is None:
+                continue                       # standing still is not coming
+            if d[0] * theirs[0] + d[1] * theirs[1] >= 0.0:
+                continue                       # going our way, not against us
+            found.append((distance, other))
+        return min(found)[1] if found else None
 
     def _yielder_ahead(self):
         """A robot standing aside ahead of us whose gap is NOT ours to use.
@@ -2447,6 +2615,15 @@ class _Assignment:
         self.from_station = from_station
         self.to_station = to_station
         self.priority = priority
+
+
+def _yield_rank(robot):
+    """Lower gives way. The robot's number, or last if it has none.
+
+    Numeric, not textual: text order reads "amr10" as lower than "amr2".
+    """
+    number = plant.robot_number(robot.name or "")
+    return (number is None, number if number is not None else 0, robot.name or "")
 
 
 def _name_of(robot):
@@ -2912,47 +3089,53 @@ class SimAcs(AcsAdapter):
     def who_yields(self, a, b):
         """Which robot steps aside. Decided ONCE, then remembered.
 
-        Any robot can step aside anywhere now, so there is nothing to compare —
-        the rule is simply name order, which is total and cannot flip. It used
-        to be "nearer to a free spur", recomputed every tick from live
+        THE LOWER NUMBER GIVES WAY. amr1 stands aside for everybody; amr2 stands
+        aside for everybody except amr1; and so on up the fleet. Stated by the
+        user 2026-08-24 and it is the whole rule — total, fixed, and needing no
+        negotiation, so two robots can never both think they have the road.
+
+        It used to be "nearer to a free spur", recomputed every tick from live
         positions, and it flipped the moment either robot moved: both gave way,
         both rejoined, both met again, and they touched inside that loop.
+
+        It was then name order, which is total — but it picked the HIGHER name,
+        the opposite of the rule above, and compared names as TEXT. Text order
+        puts "amr10" before "amr2", so the fleet's tenth robot would have been
+        treated as its lowest. `plant.robot_number` is what the parking and
+        segment code already sorts by, and it is what decides here.
         """
         key = frozenset((a.name or "a", b.name or "b"))
         if key in self._giving_way:
             return self._giving_way[key]
 
-        # ONE ENCOUNTER PER ROBOT. A robot already negotiating one meeting does
-        # not get handed a second; the newcomer queues instead, exactly as it
-        # would behind any other robot holding the road.
+        # A ROBOT YIELDS TO EVERY HIGHER ROBOT, NOT TO ONE AT A TIME.
         #
-        # THE CYCLE THIS BREAKS, measured live on 2026-08-24 with five robots.
-        # `_giving_way` is keyed by PAIR, so three robots meeting in the
-        # south-west corner produced three encounters inside one second, each
-        # naming its own yielder and none of them aware of the others:
+        # RULE 1 is a strict order: amr2 gives way to amr3, amr4 and amr5, and
+        # it does so whether or not it is already giving way to one of them.
         #
-        #     amr5 gives way to amr4
-        #     amr5 gives way to amr3
-        #     amr4 gives way to amr3
+        # THIS USED TO REFUSE A SECOND ENCOUNTER. The refusal was added on
+        # 2026-08-24, BEFORE the rules were written down, to break a three-way
+        # cycle: amr5 yielding to amr4, amr4 to amr3, amr3 to amr5. Under an
+        # order by number no such cycle can form — with three robots meeting,
+        # the lowest yields to both of the others and the middle one yields to
+        # the highest. The workaround outlived the problem and then broke the
+        # rule it was standing in for.
         #
-        # amr5 was now the yielder in two encounters at once and owns exactly
-        # one `_standoff`, so it could satisfy at most one of them. amr4 was a
-        # passer and a yielder at the same time. Both reported `stood_aside`,
-        # both were stopped by layer 1 at a 0.94 m gap, and the fleet delivered
-        # nothing for the remaining six minutes of the run.
-        #
-        # Refusing the second encounter is enough: amr5 steps aside for amr4,
-        # amr4 passes, the encounter ends, and only then may amr3 open one. The
-        # meetings are serialised rather than superimposed.
-        #
-        # A refusal is not a decision — the caller gets None and the robot falls
-        # through to layer 1, which stops it. That is the queue.
-        for robot in (a, b):
-            engaged = self.partner_of(robot)
-            if engaged is not None:
-                return None
-
-        chosen = a if (a.name or "") > (b.name or "") else b
+        # Measured 2026-08-25: amr5 was engaged with amr3, so when amr2 met
+        # amr5 at 2.73 m the fleet refused to open the encounter. amr2 never
+        # became a yielder — it stopped in the road on layer 1 and stayed
+        # there, in the way, while amr3 shuttled uselessly between the road and
+        # a lay-by it could not reach.
+        # RULE 4 BEATS RULE 1. A robot going in to dock has the highest
+        # priority: everyone stops until it is in. Only when neither is docking
+        # — or both are — does number order decide.
+        a_docking, b_docking = a.going_to_dock(), b.going_to_dock()
+        if a_docking and not b_docking:
+            chosen = b
+        elif b_docking and not a_docking:
+            chosen = a
+        else:
+            chosen = a if _yield_rank(a) < _yield_rank(b) else b
         self._giving_way[key] = chosen
 
         # A YIELDER HOLDS NO JUNCTION.
@@ -3044,8 +3227,51 @@ class SimAcs(AcsAdapter):
             return other
         return None
 
+    def yield_partners(self, robot):
+        """Every robot this one must give way TO. Possibly several at once.
+
+        RULE 1 is a strict order, so amr2 gives way to amr3 AND amr5 when both
+        are there. `partner_of` cannot express that — it returns whichever
+        encounter the dictionary happens to yield first, so a robot that was a
+        yielder in one encounter and a passer in another flipped between the
+        two roles tick by tick.
+
+        Measured 2026-08-25: amr3 was passer for amr2 and yielder for amr5 at
+        the same moment. It alternated between "passer: waiting for the yielder"
+        and "pulling out: road not clear", settled into a layer 1 stop 0.19 m
+        from amr5, and lost its delivery 47 seconds later.
+        """
+        name = robot.name or "a"
+        out = []
+        for key, chosen in self._giving_way.items():
+            if name not in key or chosen is not robot:
+                continue
+            other = next((n for n in key if n != name), None)
+            for r in self.robots:
+                if (r.name or "a") == other and r is not robot:
+                    out.append(r)
+        return out
+
+    def pass_partners(self, robot):
+        """Every robot giving way TO this one — the gaps that are ours to use."""
+        name = robot.name or "a"
+        out = []
+        for key, chosen in self._giving_way.items():
+            if name not in key or chosen is robot:
+                continue
+            for r in self.robots:
+                if r is chosen and r is not robot:
+                    out.append(r)
+        return out
+
     def partner_of(self, robot):
-        """The other robot in this robot's active encounter, or None."""
+        """The other robot in this robot's active encounter, or None.
+
+        ⚠ AMBIGUOUS when a robot is in more than one encounter, which RULE 1
+        allows. Prefer `yield_partners` or `pass_partners`, which say which
+        SIDE of the handshake is meant. Kept for callers that only need to know
+        whether any encounter exists.
+        """
         name = robot.name or "a"
         for key, chosen in self._giving_way.items():
             if name in key:
@@ -3061,12 +3287,27 @@ class SimAcs(AcsAdapter):
         return any(chosen is robot for key, chosen in self._giving_way.items()
                    if name in key)
 
-    def encounter_over(self, robot):
-        """Forget every decision involving this robot — it is clear again."""
+    def encounter_over(self, robot, other=None):
+        """Forget an encounter. With `other`, forget only THAT one.
+
+        ⚠ WITHOUT `other` THIS DROPS ALL OF THEM. That was harmless while a
+        robot could be in only one encounter and became a bug the moment RULE 1
+        allowed several: a robot stuck in one encounter dropped the others too,
+        including ones it was actively obeying.
+
+        Measured 2026-08-25: amr3 was passer for amr2 and yielder for amr5.
+        The deadlock breaker dropped "the stalled encounter" with amr2 — and
+        took the amr5 one with it. amr3 stopped stepping aside mid-manoeuvre
+        and sat nose to nose with amr5, 0.19 m apart, until it lost its job.
+        """
         name = robot.name or "a"
-        for key in [k for k in self._giving_way if name in k]:
+        wanted = None if other is None else frozenset(
+            (name, other.name or "b"))
+        for key in [k for k in self._giving_way
+                    if name in k and (wanted is None or k == wanted)]:
             chosen = self._giving_way.pop(key)
             chosen._stood_aside = False
+            chosen._noted_convoy = False      # the next convoy gets its own line
             # The hand-over budget is per encounter, so it dies with it. Keeping
             # it would spend the next encounter's one allowance before it began.
             self._yield_refused.pop(key, None)

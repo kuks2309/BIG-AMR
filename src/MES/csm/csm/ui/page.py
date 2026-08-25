@@ -133,7 +133,16 @@ __NAVCSS__
 
 <script>
 const $ = id => document.getElementById(id);
-let PLANT = null, failures = 0;
+let PLANT = null, PLANT_STAMP = null, failures = 0;
+
+/* Everything drawPlant() reads. Cheap enough to compute twice a second, and it
+   changes if the hall moves, a machine moves, or a dock or bay is added. */
+function plantStamp(p) {
+  return [p.hall.w, p.hall.e, p.hall.s, p.hall.n,
+          p.machine_size, p.robot_size,
+          p.machines.length, p.docks.length, p.parking.length,
+          p.machines.map(m => `${m.name}:${m.x},${m.y}`).join('|')].join(';');
+}
 
 function table(el, cols, rows, cell) {
   if (!rows.length) { el.innerHTML =
@@ -246,7 +255,18 @@ async function refresh() {
   const d = await (await fetch('/state', {cache:'no-store'})).json();
   failures = 0; lastOk = Date.now();
   $('stale').style.display = 'none';
-  if (!PLANT) { PLANT = d.plant; drawPlant(PLANT);
+  /* REDRAW THE FLOOR WHEN THE FLOOR CHANGES.
+     This was `if (!PLANT)` — drawn once on the first poll and never again. Robot
+     positions kept updating every 500 ms against a frozen backdrop, so any change
+     to the layout left an open tab showing robots in new coordinates on the old
+     hall. On 2026-08-24 the plant was scaled 1.2x and a tab that had been open
+     across the change showed robots outside the walls and offset from the
+     stations they were actually docked at. It read as a navigation fault and
+     was reported as one; the robots were correct and the picture was stale.
+     A view that can be wrong without saying so is worse than no view. */
+  const stamp = plantStamp(d.plant);
+  if (stamp !== PLANT_STAMP) {
+    PLANT = d.plant; PLANT_STAMP = stamp; drawPlant(PLANT);
     $('m-note').textContent =
       `${PLANT.machines.length} machines · ${PLANT.docks.length} docks · `
       + `${PLANT.parking.length} parking slots`; }

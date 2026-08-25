@@ -54,7 +54,16 @@ class FakeRobot:
     def __init__(self, name):
         self.name = name
         self._junction = None
+        # Rule 4 reads these: going in to dock outranks everyone.
+        self._docking = False
+        self._active_job = None
+        self._waypoints = [(0.0, 0.0), (1.0, 0.0)]
         self._stood_aside = False
+
+    def going_to_dock(self):
+        """RULE 4. Mirrors SimRobot's, which the fleet calls on every robot."""
+        return self._docking or (self._active_job is not None
+                                 and len(self._waypoints) <= 1)
 
 
 def fleet(*names):
@@ -90,25 +99,25 @@ def test_the_yielder_releases_the_junction_it_was_holding():
     """The fix. Standing aside must free the red light too, not just the road."""
     acs = fleet("amr1", "amr2")
     amr1, amr2 = acs.robots
-    hold(acs, "join_GRV1_ULD", amr2)
+    hold(acs, "join_GRV1_ULD", amr1)
 
     chosen = acs.who_yields(amr1, amr2)
 
-    assert chosen is amr2, "name order decides; amr2 yields to amr1"
+    assert chosen is amr1, "RULE 1: the lower number gives way"
     assert acs.junction_holder("join_GRV1_ULD") is None, \
         "a robot standing aside must not keep the junction it was holding"
-    assert amr2._junction is None, "and its own record must agree with the fleet's"
+    assert amr1._junction is None, "and its own record must agree with the fleet's"
 
 
 def test_the_passer_can_take_the_junction_the_yielder_gave_up():
     """Releasing is only useful if the other robot can then actually move."""
     acs = fleet("amr1", "amr2")
     amr1, amr2 = acs.robots
-    hold(acs, "join_GRV1_ULD", amr2)
+    hold(acs, "join_GRV1_ULD", amr1)
 
     acs.who_yields(amr1, amr2)
 
-    assert acs.claim_junction("join_GRV1_ULD", amr1), \
+    assert acs.claim_junction("join_GRV1_ULD", amr2), \
         "the passer was blocked by the yielder's reservation, and must not be"
 
 
@@ -152,13 +161,13 @@ def test_the_passer_keeps_its_own_junction():
     """Only the yielder gives up its claim. The passer is about to drive."""
     acs = fleet("amr1", "amr2")
     amr1, amr2 = acs.robots
-    hold(acs, "join_GRV1_LD", amr1)
-    hold(acs, "join_GRV1_ULD", amr2)
+    hold(acs, "join_GRV1_LD", amr2)
+    hold(acs, "join_GRV1_ULD", amr1)
 
     acs.who_yields(amr1, amr2)
 
-    assert acs.junction_holder("join_GRV1_LD") is amr1
-    assert amr1._junction == "join_GRV1_LD", \
+    assert acs.junction_holder("join_GRV1_LD") is amr2
+    assert amr2._junction == "join_GRV1_LD", \
         "the robot being let through must not be stripped of its own red light"
 
 
@@ -168,7 +177,7 @@ def test_a_yielder_holding_nothing_is_not_a_special_case():
 
     chosen = acs.who_yields(amr1, amr2)
 
-    assert chosen is amr2
+    assert chosen is amr1
     assert acs.junction_holder("join_GRV1_ULD") is None
 
 
@@ -217,25 +226,50 @@ def test_the_give_way_rules_exist_in_exactly_one_place():
         "the give-way decision is written in more than one place"
     assert whole.count('f"{self._tag()}stepping aside to "') == 1, \
         "the stand-aside manoeuvre is written in more than one place"
-    assert whole.count("partner._stood_aside") == 1, \
+    # The passer waits on EVERY robot yielding to it, so the expression is a
+    # comprehension over pass_partners rather than a single named partner.
+    assert whole.count("self.fleet.pass_partners(self)") == 1, \
         "the passer's wait is written in more than one place"
 
 
-def test_a_robot_already_off_the_road_answers_by_standing_still():
-    """A robot in a bay or on its parking spur has nothing to step aside from.
+def test_a_robot_on_a_spur_answers_by_standing_still():
+    """A robot at a dock or on its parking spur has nothing to step aside from.
 
     Without this it would either be dragged out of a dock to perform a lay-by it
     does not need, or — as measured — leave the passer waiting on a
     `_stood_aside` flag that a parked robot never sets.
+
+    RULE 3 narrows which robots this covers. It used to be `_off_the_road`, a
+    question about distance from the lane, and a robot standing aside could
+    answer yes. Only a robot that has turned off ONTO A SPUR may now, because a
+    robot giving way is still in the road and is not passable at any distance.
     """
     import inspect
     from csm.adapters.sim_acs import SimRobot
 
-    assert hasattr(SimRobot, "_off_the_road")
+    assert hasattr(SimRobot, "_on_a_spur")
+    assert not hasattr(SimRobot, "_off_the_road"), \
+        "the distance-based test is gone; see test_on_a_spur.py"
     gate = inspect.getsource(SimRobot._handle_give_way)
-    assert "_off_the_road()" in gate, \
-        "the handshake must let an already-clear robot answer without moving"
-    assert "already clear" in gate
+    assert "_on_a_spur()" in gate, \
+        "the handshake must let a docked robot answer without moving"
+    assert "off the lane already" in gate
+
+
+def test_the_yield_bound_is_set_before_the_spur_shortcut():
+    """A yielder that answers without moving must still be on the clock.
+
+    `_yield_since` used to be set BELOW the early return, so a robot that
+    reported itself clear never started the timer, YIELD_LIMIT could never fire,
+    and the hold was unbounded. Measured 2026-08-24: three robots held in the
+    south lay-by until the run was killed.
+    """
+    import inspect
+    from csm.adapters.sim_acs import SimRobot
+
+    gate = inspect.getsource(SimRobot._handle_give_way)
+    assert gate.index("_yield_since is None") < gate.index("_on_a_spur()"), \
+        "the clock must start before any path that returns early"
 
 
 # ------------------------------------------- layer 1 guards every path, once
@@ -334,7 +368,7 @@ def test_the_encounter_can_be_ended_and_started_again():
     assert not acs.yielding(amr2)
 
     # amr2 rejoins the road and takes a junction again.
-    hold(acs, "join_CTR1_LD", amr2)
+    hold(acs, "join_CTR1_LD", amr1)
     acs.who_yields(amr1, amr2)
 
     assert acs.junction_holder("join_CTR1_LD") is None, \
@@ -414,5 +448,5 @@ def test_only_one_robot_yields_in_an_encounter():
 
     acs.who_yields(amr1, amr2)
 
-    assert acs.yielding(amr2)
-    assert not acs.yielding(amr1), "both yielding means nobody passes"
+    assert acs.yielding(amr1)
+    assert not acs.yielding(amr2), "both yielding means nobody passes"
