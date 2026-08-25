@@ -139,6 +139,44 @@ int main()
         }
     }
 
+    // 8) 고잡음 σ=25mm — 토막화 면역: 회랑 재적합이 벽 점수를 회복해 정밀도를 지킨다.
+    //    (거리 임계는 3σ 규칙대로 조정 — 임계 < 1.5σ 의 극한 붕괴는 본 수정의 범위 밖)
+    {
+        WallLocalizerParams hp;
+        hp.extract.split_dist_m = 0.075;
+        hp.extract.merge_dist_m = 0.075;
+        hp.match.refit_corridor_m = 0.075;
+        hp.quality.max_dist_residual_m = 0.075;
+        WallLocalizer loc(kStationWalls, hp, kLaserInBase, kInitialGuess);
+        const Pose2D truth{0.5, 0.1, 2.0 * M_PI / 180.0};
+        std::mt19937 rng(11);
+        int n_fix = 0;
+        double worst = 0.0;
+        int min_front_points = 1 << 30;
+        for (int k = 0; k < 40; ++k)
+        {
+            const LocalizeResult r =
+                loc.update(scanAt(kStationWalls, truth, 0.025, &rng), kAngleMin, kAngleInc);
+            if (r.status == Status::LOST)
+            {
+                continue;
+            }
+            ++n_fix;
+            worst = std::max(worst, std::hypot(r.T_station_base.x_m - truth.x_m,
+                                               r.T_station_base.y_m - truth.y_m));
+            for (const auto &f : r.wall_fits)
+            {
+                if (f.name == "front" && f.matched)
+                {
+                    min_front_points = std::min(min_front_points, f.seg_points);
+                }
+            }
+        }
+        CHECK(n_fix >= 36);              // 해율 ≥ 90%
+        CHECK(worst < 0.012);            // 단발 최악 < 12mm (종전 σ=20 에서 49mm)
+        CHECK(min_front_points >= 140);  // 재적합이 전방 벽 점수를 토막과 무관하게 회복
+    }
+
     std::printf("test_wall_localizer: PASS\n");
     return 0;
 }

@@ -1,0 +1,17 @@
+# SIL 스테이션 기준 벽 — dock_sil_plant.py 의 WALLS 와 동일 기하(어긋나면 SIL 무효).
+wall_localizer:
+  ros__parameters:
+    station_frame: "station"
+    base_frame: "base_link"
+    wall_names: ['front', 'left', 'right']
+    walls.front: [2.0, -1.5, 2.0, 1.5]
+    walls.left: [0.0, 1.5, 2.0, 1.5]
+    walls.right: [0.0, -1.5, 2.0, -1.5]
+    initial_x_m: 0.4
+    initial_y_m: 0.0
+    initial_yaw_deg: 0.0
+    use_tf_extrinsic: false   # SIL 스캔 = base_link 프레임 (플랜트 규약)
+    laser_x_m: 0.0
+    laser_y_m: 0.0
+    laser_yaw_deg: 0.0
+    min_walls: 2

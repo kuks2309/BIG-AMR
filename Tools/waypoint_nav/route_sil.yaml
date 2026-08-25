@@ -1,0 +1,10 @@
+# SIL 검증 경로 — 플랜트 원점 근방 3레그 (FAT 시나리오 1 축약형: 전방→측방→전방)
+nodes:
+  N2: {x: 4.0, y: 0.0}
+  N3: {x: 4.0, y: 2.0}
+  N4: {x: 6.0, y: 2.0}
+route:
+  - {to: N2, max_speed: 1.0, accel: 0.3}                  # 전방 직진 (FAT 레그 1-2)
+  - {to: N3, max_speed: 0.5, accel: 0.3, heading: keep}   # 측방 crab (FAT 레그 2-3)
+  - {to: N4, max_speed: 0.6, accel: 0.3}                  # 전진 (FAT 레그 3-4)
+# dock 섹션 없음 — 도킹 전환은 dock_sil 플랜트가 별도(주행 SIL 은 여기까지)

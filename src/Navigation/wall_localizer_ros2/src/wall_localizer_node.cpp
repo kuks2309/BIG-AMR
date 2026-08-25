@@ -16,6 +16,7 @@
 #include "sensor_msgs/msg/laser_scan.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
+#include "visualization_msgs/msg/marker_array.hpp"
 
 #include "wall_localizer_core/wall_localizer.hpp"
 
@@ -66,6 +67,8 @@ class WallLocalizerNode : public rclcpp::Node
         pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>("wall_pose", 10);
         diag_pub_ =
             create_publisher<diagnostic_msgs::msg::DiagnosticArray>("wall_localizer/diagnostics", 10);
+        marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+            "wall_localizer/wall_markers", 10);
         tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
         tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
         scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
@@ -135,6 +138,8 @@ class WallLocalizerNode : public rclcpp::Node
             declare_parameter<double>("gate_angle_deg", m.gate_angle_rad / kDegToRad) * kDegToRad;
         m.gate_dist_m = declare_parameter<double>("gate_dist_m", m.gate_dist_m);
         m.min_overlap_ratio = declare_parameter<double>("min_overlap_ratio", m.min_overlap_ratio);
+        m.refit_corridor_m = declare_parameter<double>("refit_corridor_m", m.refit_corridor_m);
+        m.refit_margin_m = declare_parameter<double>("refit_margin_m", m.refit_margin_m);
 
         auto &s = params_.solve;
         s.min_normal_spread = declare_parameter<double>("min_normal_spread", s.min_normal_spread);
@@ -217,6 +222,74 @@ class WallLocalizerNode : public rclcpp::Node
             pose_pub_->publish(ps);
         }
         publishDiagnostics(msg->header.stamp, res);
+        publishWallMarkers(msg->header.stamp, res);
+    }
+
+    // 기준 벽(스테이션 프레임)을 base_link 프레임으로 변환해 RViz 마커로 그린다.
+    // 스테이션 프레임은 TF 트리에 없으므로 현재 해(무효면 직전 해)의 역변환을 쓴다 —
+    // RViz 고정 프레임이 map 이어도 TF(map→odom→base_link)를 타고 물리 벽 위에 겹친다.
+    // 색: 매칭=초록, 미매칭=빨강, LOST=회색(직전 해 기준 표시).
+    void publishWallMarkers(const rclcpp::Time &stamp,
+                            const wall_localizer_core::LocalizeResult &res)
+    {
+        const bool lost = (res.status == wall_localizer_core::Status::LOST);
+        const wall_localizer_core::Pose2D &T_station_base =
+            lost ? localizer_->lastPose() : res.T_station_base;
+        const wall_localizer_core::Pose2D T_base_station =
+            wall_localizer_core::inverse(T_station_base);
+
+        visualization_msgs::msg::MarkerArray arr;
+        for (std::size_t i = 0; i < walls_.size(); ++i)
+        {
+            const bool matched =
+                !lost && i < res.wall_fits.size() && res.wall_fits[i].matched;
+            visualization_msgs::msg::Marker m;
+            m.header.stamp = stamp;
+            m.header.frame_id = base_frame_;
+            m.ns = "walls";
+            m.id = static_cast<int>(i);
+            m.type = visualization_msgs::msg::Marker::LINE_STRIP;
+            m.action = visualization_msgs::msg::Marker::ADD;
+            // 선폭은 화면 가시성 기준 — 맵 전체 줌(수십 m 시야)에서도 수 픽셀이 되도록.
+            // 0.03 m 는 전체 줌에서 1픽셀 미만이라 안 보인다(실기 확인).
+            m.scale.x = 0.08;
+            // 매칭 = 오렌지(사용자 지정), 미매칭 = 빨강, LOST = 회색
+            m.color.r = lost ? 0.5f : (matched ? 1.0f : 0.9f);
+            m.color.g = lost ? 0.5f : (matched ? 0.55f : 0.1f);
+            m.color.b = lost ? 0.5f : 0.05f;
+            m.color.a = 0.9f;
+            m.lifetime = rclcpp::Duration::from_seconds(0.5);
+            for (const auto &p_station : {walls_[i].p1, walls_[i].p2})
+            {
+                const wall_localizer_core::Point2D p_base =
+                    wall_localizer_core::transformPoint(T_base_station, p_station);
+                geometry_msgs::msg::Point gp;
+                gp.x = p_base.x_m;
+                gp.y = p_base.y_m;
+                gp.z = 0.05;
+                m.points.push_back(gp);
+            }
+            arr.markers.push_back(m);
+
+            visualization_msgs::msg::Marker t;
+            t.header = m.header;
+            t.ns = "wall_labels";
+            t.id = static_cast<int>(i);
+            t.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
+            t.action = visualization_msgs::msg::Marker::ADD;
+            t.scale.z = 0.15;
+            t.color = m.color;
+            t.lifetime = m.lifetime;
+            t.pose.position.x = 0.5 * (m.points[0].x + m.points[1].x);
+            t.pose.position.y = 0.5 * (m.points[0].y + m.points[1].y);
+            t.pose.position.z = 0.3;
+            t.pose.orientation.w = 1.0;
+            t.text = walls_[i].name +
+                     (matched ? (" (" + std::to_string(res.wall_fits[i].seg_points) + "pt)")
+                              : (lost ? " (lost)" : " (unmatched)"));
+            arr.markers.push_back(t);
+        }
+        marker_pub_->publish(arr);
     }
 
     void publishDiagnostics(const rclcpp::Time &stamp,
@@ -273,6 +346,7 @@ class WallLocalizerNode : public rclcpp::Node
 
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::unique_ptr<tf2_ros::TransformListener> tf_listener_;

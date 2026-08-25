@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>정밀 도킹 실기 검증 리포트</title>
+<style>
+  body { font-family: "Noto Sans CJK KR", "Noto Sans KR", sans-serif; color: #1c2126;
+         font-size: 10.5pt; line-height: 1.62; margin: 0; }
+  h1 { font-size: 21pt; font-weight: 700; margin: 0 0 2pt 0; letter-spacing: -0.3pt; }
+  .sub { color: #5a646e; font-size: 10pt; margin-bottom: 14pt; }
+  .meta td { font-size: 9.5pt; color: #39424b; padding: 1pt 14pt 1pt 0; }
+  h2 { font-size: 13.5pt; font-weight: 700; color: #0d6a66; margin: 20pt 0 6pt 0;
+       padding-top: 8pt; border-top: 1.6pt solid #0d6a66; }
+  h3 { font-size: 11pt; font-weight: 700; margin: 12pt 0 4pt 0; }
+  p { margin: 4pt 0; }
+  table.data { border-collapse: collapse; width: 100%; margin: 6pt 0 10pt 0; font-size: 9.5pt; }
+  table.data th { background: #eef3f2; color: #12433f; border: 0.6pt solid #c8d2d0;
+                  padding: 4pt 6pt; text-align: center; font-weight: 700; }
+  table.data td { border: 0.6pt solid #d9dee3; padding: 3.5pt 6pt; text-align: center; }
+  table.data td.l, table.data th.l { text-align: left; }
+  .num { font-variant-numeric: tabular-nums; }
+  .ok { color: #1c7c39; font-weight: 700; }
+  .accent { color: #0d6a66; font-weight: 700; }
+  .warn { color: #9a5b00; }
+  .keybox { background: #f2f6f5; border-left: 3pt solid #0d6a66; padding: 8pt 12pt; margin: 10pt 0; }
+  .keybox p { margin: 2pt 0; }
+  .small { font-size: 8.8pt; color: #5a646e; }
+  ul { margin: 4pt 0 6pt 0; padding-left: 16pt; }
+  li { margin: 2pt 0; }
+  .pagebreak { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<h1>정밀 도킹 실기 검증 리포트</h1>
+<div class="sub">벽 기준면 라이다 측위 기반 2WS AMR 정밀 도킹 — 목표 정밀도 ±3 mm 실기 달성</div>
+<table class="meta"><tr>
+  <td><b>일자</b> 2026-08-25</td>
+  <td><b>기체</b> Foil_A082 (2WS 인라인 듀얼스티어)</td>
+  <td><b>장소</b> 시험장 (LM1 스테이션)</td>
+  <td><b>시험 횟수</b> 도킹 33회</td>
+</tr></table>
+
+<div class="keybox">
+  <p><b>결론</b> — 주행(상한 0.6~0.8 m/s) 후 정밀 도킹 전환 시험 포함 <span class="accent">총 33회 도킹 전량 성공</span>,
+  독립 계측(PGV, Position Guided Vehicle) 참오차 <span class="accent">종방향 최대 2.7 mm · 횡방향 최대 1.9 mm · 각도 최대 0.24°</span>
+  — 목표(±3 mm / 0.5°)를 속도 상한과 무관하게 충족.</p>
+</div>
+
+<h2>1. 목적</h2>
+<p>FAT(Factory Acceptance Test) 시나리오 "노드 간 주행 중 스테이션 근접 시 정밀 도킹 전환"의 핵심 성능인
+<b>도킹 반복 정밀도 ≤3 mm</b> 를 실기에서 검증한다. 제어는 라이다 벽 기준면 측위(wall_localizer) 단독으로 수행하고,
+정밀도 판정은 제어에 관여하지 않는 독립 계측기(PGV, 분해능 0.1 mm)로 한다.</p>
+
+<h2>2. 시스템 구성</h2>
+<table class="data">
+  <tr><th class="l">계층</th><th class="l">구성</th><th class="l">핵심 수치</th></tr>
+  <tr><td class="l">측위(제어용)</td><td class="l">SICK 2D 라이다 ×2 병합 → wall_localizer (기준면: 좌벽 14.5 m + 전방 보드 1.0 m/4.7 m 전방)</td>
+      <td class="l num">정지 잡음 σ — 종 0.69 mm · 횡 0.52 mm · 각 0.01°</td></tr>
+  <tr><td class="l">도킹 제어</td><td class="l">거리 PID(Proportional-Integral-Derivative) + 근접 속도 캡 + 이동평균 도달 판정 + 검증 후 정밀 크립</td>
+      <td class="l num">접근 0.03 m/s · 크립 0.015 m/s · 판정 5주기 이동평균</td></tr>
+  <tr><td class="l">주행</td><td class="l">translate 액션(직진), 가감속 0.3 m/s² (FAT 사양)</td>
+      <td class="l num">시험 레그 1.57 m — 프로파일 실피크 ≈0.69 m/s</td></tr>
+  <tr><td class="l">검증(독립)</td><td class="l">PGV 데이터매트릭스 판독 헤드 — 제어 미관여</td>
+      <td class="l num">분해능 0.1 mm/0.1° · 정지 지터 0카운트</td></tr>
+</table>
+
+<h2>3. 시험 방법</h2>
+<ul>
+  <li><b>A. 단거리 반복</b> — 타깃 앞 0.27 m 후퇴 → 도킹 접근. 속도 상한 0.1/0.6/0.7/0.8 m/s, 각 3~5회.</li>
+  <li><b>B. 주행→도킹 전환</b> — 1.8 m 후퇴 → 고속 직진 레그(1.57 m, 가감속 0.3 m/s²) → 게이트(타깃 앞 0.25 m)에서
+      정지 후 도킹 전환. 속도 상한 0.6/0.7/0.8 m/s, 각 5회.</li>
+  <li>공차: 종·횡 3 mm, 각 0.5°. 매 회 도킹 완료 후 PGV 10샘플 평균으로 참오차 기록.
+      전 과정 rosbag 취득(3본, 184 MB).</li>
+</ul>
+
+<h2>4. 결과</h2>
+<table class="data">
+  <tr><th>시험</th><th>속도 상한<br>(m/s)</th><th>n</th><th>성공</th>
+      <th>종방향 평균±σ (최대)<br>(mm)</th><th>횡방향 평균<br>(mm)</th><th>각도<br>(°)</th></tr>
+  <tr><td>A 단거리</td><td class="num">0.1</td><td class="num">3</td><td class="ok">3/3</td>
+      <td class="num">−1.1 (−2.0)</td><td class="num">+0.7</td><td class="num">≤0.1</td></tr>
+  <tr><td>A 단거리</td><td class="num">0.6</td><td class="num">5</td><td class="ok">5/5</td>
+      <td class="num">−2.2 ± 0.3 (−2.7)</td><td class="num">+0.9</td><td class="num">≤0.1</td></tr>
+  <tr><td>A 단거리</td><td class="num">0.7</td><td class="num">5</td><td class="ok">5/5</td>
+      <td class="num">−1.2 ± 0.6 (−2.3)</td><td class="num">+1.0</td><td class="num">≤0.2</td></tr>
+  <tr><td>A 단거리</td><td class="num">0.8</td><td class="num">5</td><td class="ok">5/5</td>
+      <td class="num">−1.5 ± 0.6 (−2.4)</td><td class="num">+1.0</td><td class="num">≤0.2</td></tr>
+  <tr><td><b>B 주행→전환</b></td><td class="num">0.6</td><td class="num">5</td><td class="ok">5/5</td>
+      <td class="num">−1.0 ± 0.6 (−1.7)</td><td class="num">+1.7</td><td class="num">≤0.2</td></tr>
+  <tr><td><b>B 주행→전환</b></td><td class="num">0.7</td><td class="num">5</td><td class="ok">5/5</td>
+      <td class="num">−1.4 ± 0.3 (−1.7)</td><td class="num">+1.9</td><td class="num">≤0.2</td></tr>
+  <tr><td><b>B 주행→전환</b></td><td class="num">0.8</td><td class="num">5</td><td class="ok">5/5</td>
+      <td class="num">−1.1 ± 0.2 (−1.4)</td><td class="num">+1.8</td><td class="num">≤0.24</td></tr>
+</table>
+<p class="small">참오차 = PGV 판독 − 기준값(타깃 캡처 시점 PGV). 음수 종방향 = 타깃 직전 정지.
+제어기 자체 판정(wall_pose)과 PGV 참값의 차이는 전 회 1.5 mm 이내 — 측정·제어 사슬 상호 검증.</p>
+
+<h2>5. 분석 — 하루 동안의 정밀도 개선 경로</h2>
+<table class="data">
+  <tr><th class="l">단계</th><th>종방향 오차</th><th class="l">원인/조치</th></tr>
+  <tr><td class="l">아침: 초기 상태 (0.08 m/s)</td><td class="num">−11.5 mm</td>
+      <td class="l">공차-트리거 설계가 공차만큼 잔차를 남김</td></tr>
+  <tr><td class="l">낮: 0.4 m/s 반복</td><td class="num">−26.8 ~ −36.0 mm</td>
+      <td class="l">순간 판독 트리거의 잡음 조기 종료 + 원거리 토막 전방벽(6 m/1.7 m)의 측위 간헐 점프 ±70 mm — rosbag 성분 분해로 규명</td></tr>
+  <tr><td class="l">개선 ① 이동평균 트리거</td><td class="num">−18.2 mm</td>
+      <td class="l">도달 판정을 5주기 이동평균으로 — 조기 종료 제거</td></tr>
+  <tr><td class="l">개선 ② 기준면 교체</td><td class="num">측정 σ 0.69 mm</td>
+      <td class="l">전방 4.7 m 평탄 보드 라이브 티치 — 측위 잡음 15배 개선</td></tr>
+  <tr><td class="l">개선 ③ 정밀 크립</td><td class="num accent">≤2.7 mm (33회 전량)</td>
+      <td class="l">검증 잔차만큼 0.015 m/s 재접근(≤2회) — 공차 잔차 제거</td></tr>
+</table>
+<p>속도 상한이 정밀도에 영향을 주지 않는 이유: 4단 감속 구조(주행 0.3 m/s² 감속 → 접근 0.03 m/s
+→ 크립 0.015 m/s)가 진입 속도를 완전히 흡수하기 때문이다.</p>
+
+<h2>6. 한계와 후속 항목</h2>
+<ul>
+  <li><b>레그 길이</b> — 시험 레그 1.57 m 는 가감속 제한으로 실피크 ≈0.69 m/s. 0.7/0.8 상한이 온전히 실리는 검증은
+      FAT 현장의 10 m 급 레그에서 수행 필요.</li>
+  <li><b>정지 후 전환</b> — 현 구현은 게이트에서 정지 후 도킹 전환. 무정지(rolling) 전환은 mux 절환 중 지령 연속성
+      검증 후 도입 예정.</li>
+  <li><b>기준면 운용</b> — 전방 보드는 기준면이므로 이동 시 재티치 필수. FAT 스테이션은 상설 도크면으로 대체.</li>
+  <li><b>재부팅 절차</b> — 센서 네트워크(eth1) 영구화(netplan), PGV 방향설정(STRAIGHT) 재적용, 드라이브 전원 사이클 시
+      can_relay 재기동이 체크리스트로 확정됨.</li>
+  <li><b>주행 측위</b> — 복도 방향 mcl 표류(정지 중 m 급)는 스테이션 진입 전 재시드 또는 wall_pose 인계로 대응.
+      노드 간 장거리 주행의 도착 반복은 별도 시험(왕복 5회: 횡 σ 0.38 mm·종 σ 25.7 mm)으로 계량됨.</li>
+</ul>
+
+<h2>7. 원자료</h2>
+<ul class="small">
+  <li>회차 기록: Log/dock_precision_222803.jsonl · dock_precision_223327.jsonl · dock_longleg_223931.jsonl</li>
+  <li>rosbag: Log/dock_precision_0825/{dock04_202334, dock3mm_222741, dockspeed_223306, …} (총 184 MB)</li>
+  <li>계측 정본: src/Sensors/Positioning/pgv_ros2/docs/measurements.md (전 회차·경위 포함)</li>
+  <li>제어 변경: trnav_2ws_dock_ros 2026-08-25 (trigger_avg_cycles·creep_*, 커밋 eab5d64)</li>
+</ul>
+
+</body>
+</html>

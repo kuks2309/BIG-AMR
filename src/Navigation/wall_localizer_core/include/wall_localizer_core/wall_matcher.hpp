@@ -50,6 +50,36 @@ std::vector<WallMatch> matchWalls(const std::vector<PredictedWall> &predicted,
                                   const std::vector<ExtractedSegment> &segments,
                                   const std::vector<OrientedWall> &walls, const MatchParams &p);
 
+// 벽 하나에 귀속된 후보 선분 묶음 (1:N 대응 — 토막화 대비).
+struct WallCandidateGroup
+{
+    std::size_t wall_idx{0};
+    LineNormalForm ref_line_station;
+    std::vector<std::size_t> seg_indices;
+    double combined_overlap_ratio{0.0};  // 귀속 선분들의 구간 합집합 / 예측 벽 길이
+    LineNormalForm seed_line;  // 점수 최대 귀속 선분의 직선 — 재적합 회랑의 초기 중심
+    double s_lo{0.0};          // 귀속 선분들이 실제로 본 구간 (예측 벽 접선축 좌표)
+    double s_hi{0.0};
+};
+
+// 게이트 통과 선분을 벽당 여러 개 귀속한다(선분은 최적 점수 벽 1곳에만). 벽은
+// 구간 합집합 겹침비가 min_overlap_ratio 이상일 때만 채택. 결정론적.
+std::vector<WallCandidateGroup> matchWallsMulti(const std::vector<PredictedWall> &predicted,
+                                                const std::vector<ExtractedSegment> &segments,
+                                                const std::vector<OrientedWall> &walls,
+                                                const MatchParams &p);
+
+// 귀속 선분들이 본 구간(group.s_lo~s_hi ± margin) 안에서, 관측 시드선(group.seed_line)
+// 중심 회랑(±corridor)의 원시 점 전체를 총최소자승 재적합해 그 벽의 측정으로 만든다 —
+// 토막은 대응 근거, 측정은 점이 담당. 회랑 중심이 예측선이 아니라 시드선인 이유:
+// 초기 추정 오차는 대응 게이트(수십 cm)까지 허용되는데 회랑 반폭은 수 cm 라, 예측선
+// 기준으로는 벽 점이 회랑 밖에 있다. 1패스 적합 후 그 결과선으로 재중심화해 한 번 더
+// 적합한다(시드 토막의 기울기 오차 제거). 점 부족이거나 결과가 예측과 gate_angle 이상
+// 벌어지면 false.
+bool refitWallFromPoints(const std::vector<Point2D> &points_lidar, const PredictedWall &pred,
+                         const WallCandidateGroup &group, const MatchParams &p, int min_points,
+                         double gate_angle_rad, ExtractedSegment *out);
+
 }  // namespace wall_localizer_core
 
 #endif  // WALL_LOCALIZER_CORE__WALL_MATCHER_HPP_

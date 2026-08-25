@@ -60,7 +60,9 @@ LocalizeResult WallLocalizer::update(const std::vector<float> &ranges_m, double 
     Pose2D T_station_lidar =
         compose(has_fix_ ? last_T_station_base_ : initial_T_station_base_, T_base_lidar_);
 
-    // 대응 → 해석 → 재대응 반복 (시드 오차로 인한 오대응을 해로 교정).
+    // 대응 → 재적합 → 해석 → 재대응 반복 (시드 오차로 인한 오대응을 해로 교정).
+    // 대응은 추출 선분(1:N)이, 해석기에 넣는 측정은 예측 직선 회랑 안 원시 점 전체의
+    // 재적합이 담당한다 — 잡음 토막화가 측정 점수·편향에 영향을 못 주게 하는 구조.
     std::vector<WallMatch> matches;
     SolveResult sr;
     for (int iter = 0; iter < params_.solve.max_iterations; ++iter)
@@ -68,7 +70,24 @@ LocalizeResult WallLocalizer::update(const std::vector<float> &ranges_m, double 
         res.iterations = iter + 1;
         const std::vector<PredictedWall> predicted =
             predictWallsInLidar(oriented_walls_, T_station_lidar);
-        matches = matchWalls(predicted, segments, oriented_walls_, params_.match);
+        const std::vector<WallCandidateGroup> groups =
+            matchWallsMulti(predicted, segments, oriented_walls_, params_.match);
+        matches.clear();
+        for (const WallCandidateGroup &g : groups)
+        {
+            ExtractedSegment meas;
+            if (!refitWallFromPoints(points, predicted[g.wall_idx], g, params_.match,
+                                     params_.extract.min_points, params_.match.gate_angle_rad,
+                                     &meas))
+            {
+                continue;
+            }
+            WallMatch m;
+            m.wall_idx = g.wall_idx;
+            m.ref_line_station = g.ref_line_station;
+            m.seg = meas;
+            matches.push_back(m);
+        }
         if (static_cast<int>(matches.size()) < params_.quality.min_walls)
         {
             res.reason = "insufficient_matches";
