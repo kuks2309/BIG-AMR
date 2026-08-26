@@ -1,0 +1,897 @@
+#!/usr/bin/env python3
+"""왕복 주행 실기 테스트 구동 UI — 탭① 패키지 구동(실행/중지), 탭② 왕복 실험.
+
+비-ROS colcon 독립 도구(python3 즉시 실행). 실행:
+    python3 Tools/drive_test_ui/drive_test_ui.py
+E-STOP(하드웨어 비상정지)은 이 UI 가 대체하지 않는다 — 항상 손 닿는 곳에 둘 것.
+"""
+import json
+import math
+import os
+import signal
+import subprocess
+import time
+
+from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt5.QtGui import QColor, QPainter, QPen
+from PyQt5.QtWidgets import (QApplication, QDoubleSpinBox, QGridLayout, QGroupBox,
+                             QHBoxLayout, QLabel, QMainWindow, QMessageBox,
+                             QPlainTextEdit, QPushButton, QSpinBox, QTabWidget,
+                             QVBoxLayout, QWidget)
+
+# can_relay 상주(systemd, 도메인 125) 모델 — 실험 스택 전체를 같은 도메인에 태운다
+os.environ.setdefault('ROS_DOMAIN_ID', '125')
+
+REPO = '/home/nvidia/Project/Ford-CATL-AMR/Big-AMR'
+SMAP = f'{REPO}/map/260709_test_2026-08-25_92e73074.smap'
+LOGDIR = f'{REPO}/Log'
+SRC = f'source /opt/ros/humble/setup.bash && source {REPO}/install/setup.bash 2>/dev/null'
+
+# 탭① 상주 항목: (키, 표시명, 명령)
+STACK_ITEMS = [
+    ('bringup', '측위 브링업 (라이다×2·병합·ICP·mcl·맵서버·RViz2)',
+     f'ros2 launch mcl2d_ros2 bringup.launch.py map_path:={SMAP} rviz:=true'),
+    ('seer_map', 'smap 마커 발행 (노드·경로·장애물 → RViz)',
+     f'python3 {REPO}/Tools/seer_viz/seer_map_viz.py --smap {SMAP} --no-tf'),
+    ('bridge', '/robot_pose 브리지 (mcl→PoseStamped)',
+     'ros2 run sil_pose_adapter sil_pose_adapter_node --ros-args '
+     '-r /rtabmap/localization_pose:=/mcl_pose'),
+    ('imu', 'IMU (iahrs)', 'ros2 launch iahrs_driver iahrs_driver.py'),
+    ('pgv', 'PGV 드라이버 (/dev/pgv, 보정 적용)',
+     'ros2 run pgv_driver pgv_driver_node --ros-args -p serial_port:=/dev/pgv '
+     '-p angle_offset_deg:=45.3 -p frame_rotation_deg:=-90.0'),
+    ('mux', '모션 mux', 'ros2 launch trnav_motion_mux trnav_motion_mux.launch.py'),
+    ('translator', '모터 지령 translator',
+     'ros2 run amr_motor_cmd_translator amr_motor_cmd_translator_node --ros-args '
+     f'--params-file {REPO}/install/amr_motor_cmd_translator/share/'
+     'amr_motor_cmd_translator/config/amr_motor_cmd_translator_qd.yaml'),
+    ('tf_srv', '전진 액션 서버', 'ros2 launch trnav_2ws_action_server translate_forward.launch.py'),
+    ('tr_srv', '후진 액션 서버', 'ros2 launch trnav_2ws_action_server translate_reverse.launch.py'),
+]
+
+# 탭① 단발 항목: (키, 표시명, 명령, 확인 다이얼로그 문구 또는 None)
+ONESHOT_ITEMS = [
+    ('engage', '제어권 획득 (engage)',
+     'ros2 service call /can_relay_node/engage std_srvs/srv/SetBool "{data: true}"', None),
+    ('home', '조향 호밍',
+     'ros2 service call /can_relay_node/home std_srvs/srv/Trigger "{}"',
+     '조향 양축이 100° 이상 물리 스윙합니다.\n로봇 주변 1 m 를 비웠습니까?'),
+    ('disengage', '제어권 반환 (disengage)',
+     'ros2 service call /can_relay_node/engage std_srvs/srv/SetBool "{data: false}"', None),
+]
+
+DEFAULTS = {'speed': 1.0, 'accel': 0.3, 'dist': 6.0, 'laps': 10}
+GOAL_TIMEOUT_S = 90.0
+
+# 버튼 배색 — 실행/중지/특수 명령을 색으로 구분
+STYLE_RUN = ('QPushButton{background:#1c7c39; color:white; font-weight:bold;'
+             ' padding:4px 12px; border-radius:3px}'
+             'QPushButton:pressed{background:#155d2b}')
+STYLE_RUNNING = ('QPushButton{background:#1c5d99; color:white; font-weight:bold;'
+                 ' padding:4px 12px; border-radius:3px}')
+STYLE_STOP = ('QPushButton{background:#b3372f; color:white; padding:4px 12px;'
+              ' border-radius:3px}'
+              'QPushButton:pressed{background:#8c2b25}')
+STYLE_KILL = ('QPushButton{background:#7a1f1a; color:white; font-weight:bold;'
+              ' padding:5px 12px; border-radius:3px}'
+              'QPushButton:pressed{background:#5c1713}')
+ONESHOT_STYLES = {
+    'engage': 'QPushButton{background:#1c5d99; color:white; padding:5px 10px; border-radius:3px}',
+    'home': 'QPushButton{background:#a35a00; color:white; padding:5px 10px; border-radius:3px}',
+    'disengage': 'QPushButton{background:#5a6570; color:white; padding:5px 10px; border-radius:3px}',
+}
+
+# kill all 소탕 보강 — launch 부모가 비정상 종료로 고아를 남겨도 자식 노드까지 잡는다
+EXTRA_KILL_MARKERS = [
+    'sick_safetyscanners2_node', 'dual_laser_merger_node', 'icp_odometry',
+    'mcl2d_localization_node', 'smap_map_server', 'rviz2',
+    'amr_translate_forward_node', 'amr_translate_reverse_node',
+    'trnav_motion_mux_node', 'iahrs_driver',
+]
+
+
+class ProcManager:
+    """상주 프로세스 기동/정지 — 프로세스 그룹 단위, 로그는 Log/ui_<키>.log."""
+
+    def __init__(self):
+        self.procs = {}
+
+    @staticmethod
+    def marker(cmd):
+        """중복 검사용 식별 토큰 — launch 파일명 > 실행 파일/스크립트명 순."""
+        for tok in cmd.split():
+            if tok.endswith('.launch.py') or tok.endswith('.py'):
+                return os.path.basename(tok)
+        parts = cmd.split()
+        return parts[3] if parts[:2] == ['ros2', 'run'] and len(parts) > 3 else parts[-1]
+
+    # launch 항목의 고아 '자식' 실행 파일까지 중복으로 판정하기 위한 부가 패턴
+    CHILD_PATTERNS = {
+        'bringup': ['sick_safetyscanners2_node', 'dual_laser_merger_node',
+                    'icp_odometry', 'mcl2d_localization_node', 'smap_map_server'],
+        'mux': ['trnav_motion_mux_node'],
+        'tf_srv': ['amr_translate_forward_node'],
+        'tr_srv': ['amr_translate_reverse_node'],
+        'imu': ['iahrs_driver'],
+    }
+
+    def start(self, key, cmd):
+        if self.alive(key):
+            return True
+        # 시스템 전역 중복 검사 — launch 부모 이름 + 고아 자식 실행 파일까지 본다
+        for mk in [self.marker(cmd)] + self.CHILD_PATTERNS.get(key, []):
+            if subprocess.run(['pgrep', '-f', mk], capture_output=True).returncode == 0:
+                return False
+        log = open(f'{LOGDIR}/ui_{key}.log', 'ab')
+        env = dict(os.environ)
+        env.setdefault('DISPLAY', ':0')   # RViz2 등 GUI 자식 프로세스용
+        p = subprocess.Popen(['bash', '-c', f'{SRC}; exec {cmd}'],
+                             stdout=log, stderr=log, preexec_fn=os.setsid, cwd=REPO,
+                             env=env)
+        self.procs[key] = p
+        return True
+
+    def stop(self, key):
+        p = self.procs.get(key)
+        if p is None or p.poll() is not None:
+            return
+        try:
+            # SIGINT → SIGTERM → SIGKILL 3단 — launch 자식까지 그룹 단위로 확실 종료
+            for sig, wait_s in ((signal.SIGINT, 3.0), (signal.SIGTERM, 2.0),
+                                (signal.SIGKILL, 1.0)):
+                os.killpg(p.pid, sig)
+                t0 = time.time()
+                while time.time() - t0 < wait_s:
+                    if p.poll() is not None:
+                        return
+                    time.sleep(0.1)
+        except ProcessLookupError:
+            pass
+
+    def alive(self, key):
+        p = self.procs.get(key)
+        return p is not None and p.poll() is None
+
+    def stop_all(self):
+        for key in list(self.procs):
+            self.stop(key)
+        # 잔존 소탕 — INT(정상 종료) 우선, 이후 TERM→KILL. can_relay 를 KILL 로
+        # 잡았다면 판다 USB 인터페이스가 물릴 수 있어 자동 리셋한다.
+        markers = {self.marker(cmd) for _, _, cmd in STACK_ITEMS} | set(EXTRA_KILL_MARKERS)
+        for sig, wait_s in (('-INT', 3.0), ('-TERM', 2.0)):
+            for mk in markers:
+                subprocess.run(['pkill', sig, '-f', mk], capture_output=True)
+            time.sleep(wait_s)
+        for mk in markers:
+            if subprocess.run(['pgrep', '-f', mk],
+                              capture_output=True).returncode == 0:
+                if 'can_relay' in mk:
+                    # can_relay 는 KILL 금지 — USB 를 쥔 채 죽으면 판다가 버스에서
+                    # 사라져 물리 재연결까지 필요해진다. 정상 종료 실패 시 사람이 처리.
+                    continue
+                subprocess.run(['pkill', '-9', '-f', mk], capture_output=True)
+
+
+def panda_usb_reset():
+    """판다 USB 소프트 리셋 — can_relay 를 강제 종료(-9)한 뒤 인터페이스 잠김 해제용."""
+    try:
+        out = subprocess.run(['lsusb'], capture_output=True, text=True).stdout
+        for line in out.splitlines():
+            if 'panda' in line.lower():
+                bus, dev = line.split()[1], line.split()[3].rstrip(':')
+                import fcntl
+                with open(f'/dev/bus/usb/{bus}/{dev}', 'w') as f:
+                    fcntl.ioctl(f, 21780)  # USBDEVFS_RESET
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def run_oneshot(cmd, timeout_s=120):
+    """단발 명령 동기 실행 — (성공여부, 마지막 출력 줄)."""
+    try:
+        r = subprocess.run(['bash', '-c', f'{SRC}; {cmd}'], capture_output=True,
+                           text=True, timeout=timeout_s, cwd=REPO)
+        out = (r.stdout + r.stderr).strip().splitlines()
+        return r.returncode == 0, (out[-1] if out else '')
+    except subprocess.TimeoutExpired:
+        return False, '시간 초과'
+
+
+class RosWorker(QThread):
+    """rclpy 백그라운드 — 자세/PGV 구독 + 왕복 루프 실행."""
+
+    sig_pose = pyqtSignal(float, float)
+    sig_wheels = pyqtSignal(float, float)   # 전륜·후륜 조향각 (deg)
+    sig_engaged = pyqtSignal(bool)          # can_relay 제어권 보유 여부
+    sig_pgv = pyqtSignal(str)
+    sig_lap = pyqtSignal(int, str, float, float, str)   # 회차, 구간, 소요s, 복귀오차mm, PGV
+    sig_nodes = pyqtSignal(float, float, float, float)  # 노드 A(x,y)·B(x,y) (실험 시작 시)
+    sig_arrival = pyqtSignal(int, float, float)         # 회차, 도착 PGV x/y (mm)
+    sig_msg = pyqtSignal(str)
+    sig_done = pyqtSignal(bool)
+
+    def __init__(self):
+        super().__init__()
+        self.pose = None
+        self.pgv = None
+        self.trip_req = None
+        self.cancel = False
+        self._gh = None
+
+    def run(self):
+        import rclpy
+        from geometry_msgs.msg import PoseStamped
+        from pgv_interfaces.msg import PgvPosition
+        from rclpy.action import ActionClient
+        from trnav_2ws_interfaces.action import (AMRMotionTranslateForward,
+                                                 AMRMotionTranslateReverse)
+        rclpy.init()
+        node = rclpy.create_node('drive_test_ui')
+        node.create_subscription(PoseStamped, '/robot_pose',
+                                 lambda m: self._on_pose(m), 10)
+        node.create_subscription(PgvPosition, '/pgv/position',
+                                 lambda m: self._on_pgv(m), 10)
+        from sensor_msgs.msg import JointState
+        node.create_subscription(JointState, '/joint_states',
+                                 lambda m: self._on_joints(m), 10)
+        from diagnostic_msgs.msg import DiagnosticArray
+        node.create_subscription(DiagnosticArray, '/diagnostics',
+                                 lambda m: self._on_diag(m), 10)
+        fwd = ActionClient(node, AMRMotionTranslateForward,
+                           'amr_motion_translate_forward_abstract')
+        rev = ActionClient(node, AMRMotionTranslateReverse,
+                           'amr_motion_translate_reverse_abstract')
+        self._ctx = (rclpy, node, fwd, rev,
+                     AMRMotionTranslateForward, AMRMotionTranslateReverse)
+        while not self.isInterruptionRequested():
+            rclpy.spin_once(node, timeout_sec=0.1)
+            if self.trip_req is not None:
+                req = self.trip_req
+                self.trip_req = None
+                self._run_trips(*req)
+        node.destroy_node()
+        rclpy.shutdown()
+
+    def _on_pose(self, m):
+        self.pose = (m.pose.position.x, m.pose.position.y)
+        self.sig_pose.emit(*self.pose)
+
+    def _on_diag(self, m):
+        for st in m.status:
+            if st.name.startswith('can_relay'):
+                for kv in st.values:
+                    if kv.key == 'engaged':
+                        self.sig_engaged.emit(kv.value == 'True')
+                        return
+
+    def _on_joints(self, m):
+        d = dict(zip(m.name, m.position))
+        if 'steer_3' in d and 'steer_4' in d:
+            self.sig_wheels.emit(math.degrees(d['steer_3']),
+                                 math.degrees(d['steer_4']))
+
+    def _on_pgv(self, m):
+        self.pgv = m
+        if m.tag_detected:
+            self.sig_pgv.emit(f'x {m.x_position_mm:+.1f} · y {m.y_offset_mm:+.1f} mm '
+                              f'· {m.angle_deg:+.1f}°')
+        else:
+            self.sig_pgv.emit('태그 없음' + (' (error %d)' % m.error_code if m.error else ''))
+
+    def _goal(self, cli, act, dist, speed, accel):
+        rclpy = self._ctx[0]
+        node = self._ctx[1]
+        cur = self.pose
+        g = act.Goal()
+        g.start_x = cur[0] - (0.02 if dist > 0 else -0.02)
+        g.start_y = cur[1]
+        g.end_x, g.end_y = cur[0] + dist, cur[1]
+        g.max_linear_speed, g.acceleration = speed, accel
+        g.hold_steer = False
+        g.exit_steer_angle = g.exit_speed = g.entry_speed = 0.0
+        g.has_next = False
+        g.control_mode = 0
+        g.enable_localization_watchdog = True
+        g.skip_initial_pose_check = False
+        if not cli.wait_for_server(timeout_sec=5.0):
+            self.sig_msg.emit('액션 서버 없음 — 탭①에서 서버를 실행하세요')
+            return None
+        fut = cli.send_goal_async(g)
+        rclpy.spin_until_future_complete(node, fut, timeout_sec=10.0)
+        gh = fut.result()
+        if gh is None or not gh.accepted:
+            self.sig_msg.emit('goal 거부')
+            return None
+        self._gh = gh
+        rfut = gh.get_result_async()
+        t0 = time.time()
+        while not rfut.done():
+            rclpy.spin_once(node, timeout_sec=0.1)
+            if self.cancel:
+                gh.cancel_goal_async()
+            if time.time() - t0 > GOAL_TIMEOUT_S:
+                gh.cancel_goal_async()
+                self.sig_msg.emit('goal 대기 초과 — 취소')
+                return None
+        self._gh = None
+        return rfut.result().result
+
+    def _pgv_txt(self):
+        m = self.pgv
+        if m is None or not m.tag_detected:
+            return '-'
+        return f'{m.x_position_mm:+.1f}/{m.y_offset_mm:+.1f}'
+
+    def _run_trips(self, dist, speed, accel, laps):
+        rclpy = self._ctx[0]
+        fwd, rev = self._ctx[2], self._ctx[3]
+        act_f, act_r = self._ctx[4], self._ctx[5]
+        self.cancel = False
+        if self.pose is None:
+            self.sig_msg.emit('/robot_pose 없음 — 측위·브리지를 먼저 실행하세요')
+            self.sig_done.emit(False)
+            return
+        out = time.strftime(f'{LOGDIR}/drive_trip_%Y%m%d_%H%M%S.jsonl')
+        home = self.pose
+        self.sig_nodes.emit(home[0], home[1], home[0] + dist, home[1])
+        ok_all = True
+        with open(out, 'w') as fp:
+            for lap in range(1, laps + 1):
+                for leg_name, cli, act, d in (('전진', fwd, act_f, dist),
+                                              ('후진', rev, act_r, -dist)):
+                    if self.cancel:
+                        self.sig_msg.emit('중지됨')
+                        self.sig_done.emit(False)
+                        return
+                    t0 = time.time()
+                    res = self._goal(cli, act, d, speed, accel)
+                    dt = time.time() - t0
+                    if res is None or res.status != 0:
+                        self.sig_msg.emit(f'{lap}회차 {leg_name} 실패 — 중단')
+                        self.sig_done.emit(False)
+                        return
+                    time.sleep(0.5)
+                    for _ in range(5):
+                        rclpy.spin_once(self._ctx[1], timeout_sec=0.1)
+                    ret_mm = 1000 * math.hypot(self.pose[0] - home[0],
+                                               self.pose[1] - home[1]) \
+                        if leg_name == '후진' else float('nan')
+                    self.sig_lap.emit(lap, leg_name, dt, ret_mm, self._pgv_txt())
+                    m = self.pgv
+                    if leg_name == '후진' and m is not None and m.tag_detected:
+                        self.sig_arrival.emit(lap, m.x_position_mm, m.y_offset_mm)
+                    fp.write(json.dumps({
+                        'lap': lap, 'leg': leg_name, 'elapsed_s': round(dt, 2),
+                        'pose': self.pose,
+                        'return_err_mm': None if math.isnan(ret_mm) else round(ret_mm, 1),
+                        'pgv': self._pgv_txt()}) + '\n')
+                    fp.flush()
+        self.sig_msg.emit(f'완료 — 기록 {out}')
+        self.sig_done.emit(ok_all)
+
+
+class StackTab(QWidget):
+    """탭① — 패키지 실행/중지 버튼과 상태 램프, 단발 명령, 로그."""
+
+    def __init__(self, pm, worker):
+        super().__init__()
+        self.pm = pm
+        self.lamps = {}
+        self.runbtns = {}
+        self.oneshot_btns = {}
+        root = QVBoxLayout(self)
+        grp = QGroupBox('상주 패키지')
+        grid = QGridLayout(grp)
+        for i, (key, label, cmd) in enumerate(STACK_ITEMS):
+            lamp = QLabel('●')
+            lamp.setStyleSheet('color:#999; font-size:16px')
+            self.lamps[key] = lamp
+            b_run = QPushButton('실행')
+            b_run.setStyleSheet(STYLE_RUN)
+            self.runbtns[key] = b_run
+            b_stop = QPushButton('중지')
+            b_stop.setStyleSheet(STYLE_STOP)
+            b_run.clicked.connect(lambda _, k=key, c=cmd: self._start(k, c))
+            b_stop.clicked.connect(lambda _, k=key: self._stop(k))
+            grid.addWidget(lamp, i, 0)
+            grid.addWidget(QLabel(label), i, 1)
+            grid.addWidget(b_run, i, 2)
+            grid.addWidget(b_stop, i, 3)
+        b_all = QPushButton('전체 순차 실행 (위에서 아래로)')
+        b_all.setStyleSheet(STYLE_RUN)
+        b_all.clicked.connect(self._start_all)
+        grid.addWidget(b_all, len(STACK_ITEMS), 1, 1, 1)
+        b_killall = QPushButton('전체 중지 (kill all)')
+        b_killall.setStyleSheet(STYLE_KILL)
+        b_killall.clicked.connect(self._kill_all)
+        grid.addWidget(b_killall, len(STACK_ITEMS), 2, 1, 2)
+        root.addWidget(grp)
+
+        grp2 = QGroupBox('단발 명령 (드라이버 준비) — can_relay 는 systemd 상주(도메인 125)')
+        h = QHBoxLayout(grp2)
+        self.svc_lamp = QLabel('●')
+        self.svc_lamp.setStyleSheet('color:#999; font-size:16px')
+        h.addWidget(self.svc_lamp)
+        h.addWidget(QLabel('can_relay 서비스'))
+        for key, label, cmd, warn in ONESHOT_ITEMS:
+            b = QPushButton(label)
+            b.setStyleSheet(ONESHOT_STYLES.get(key, ''))
+            b.clicked.connect(lambda _, l=label, c=cmd, w=warn: self._oneshot(l, c, w))
+            self.oneshot_btns[key] = b
+            h.addWidget(b)
+        # 제어권 없으면 호밍·반환 비활성 (첫 진단 수신 전 기본 비활성)
+        self.oneshot_btns['home'].setEnabled(False)
+        self.oneshot_btns['disengage'].setEnabled(False)
+        worker.sig_engaged.connect(self._on_engaged)
+        root.addWidget(grp2)
+
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setMaximumBlockCount(300)
+        root.addWidget(self.log, 1)
+        note = QLabel('⚠ E-STOP 은 하드웨어 버튼이 유일한 확실한 정지 수단입니다.')
+        note.setStyleSheet('color:#a33')
+        root.addWidget(note)
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._refresh)
+        self.timer.start(1000)
+
+    def _msg(self, s):
+        self.log.appendPlainText(time.strftime('[%H:%M:%S] ') + s)
+
+    def _start(self, key, cmd):
+        if self.pm.start(key, cmd):
+            self._msg(f'{key} 실행')
+        else:
+            self._msg(f'{key} 기동 거부 — 동일 프로세스가 이미 실행 중(외부/잔존). '
+                      f'정리 후 다시 시도')
+
+    def _stop(self, key):
+        self.pm.stop(key)
+        self._msg(f'{key} 중지')
+
+    def _start_all(self):
+        # HIL 실험 규칙: 실행 전 노드 정리 — 잔존·고아 전량 소탕 후 순차 기동
+        if QMessageBox.question(self, '전체 순차 실행',
+                                'HIL 규칙에 따라 기존 노드를 전부 정리한 뒤 순차 실행합니다.\n'
+                                '진행할까요?',
+                                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        self._msg('실행 전 정리 — 잔존 노드 전량 소탕')
+        self.pm.stop_all()
+        time.sleep(1.0)
+        for key, _, cmd in STACK_ITEMS:
+            if not self.pm.alive(key):
+                self._start(key, cmd)
+                time.sleep(2.0)
+        self._msg('전체 순차 실행 완료')
+
+    def _on_engaged(self, engaged):
+        self.oneshot_btns['home'].setEnabled(engaged)
+        self.oneshot_btns['disengage'].setEnabled(engaged)
+        self.oneshot_btns['engage'].setEnabled(not engaged)
+
+    def _kill_all(self):
+        if QMessageBox.question(self, '전체 중지',
+                                '전체 노드를 내립니다 (외부/잔존 포함 확실 종료).\n진행할까요?',
+                                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        self._msg('전체 중지 시작 — 3단 종료 + 잔존 소탕')
+        self.pm.stop_all()
+        self._msg('전체 중지 완료')
+
+    def _oneshot(self, label, cmd, warn):
+        if warn and QMessageBox.warning(self, label, warn,
+                                        QMessageBox.Ok | QMessageBox.Cancel) != QMessageBox.Ok:
+            return
+        ok, out = run_oneshot(cmd)
+        self._msg(f'{label}: {"성공" if ok else "실패"} — {out[:120]}')
+
+    def _refresh(self):
+        svc = subprocess.run(['systemctl', 'is-active', 'amr-can-relay.service'],
+                             capture_output=True, text=True).stdout.strip()
+        self.svc_lamp.setStyleSheet('color:%s; font-size:16px'
+                                    % ('#1c7c39' if svc == 'active' else '#b3372f'))
+        for key, lamp in self.lamps.items():
+            alive = self.pm.alive(key)
+            lamp.setStyleSheet('color:%s; font-size:16px'
+                               % ('#1c7c39' if alive else '#999'))
+            b = self.runbtns.get(key)
+            if b is not None:
+                b.setText('실행 중' if alive else '실행')
+                b.setStyleSheet(STYLE_RUNNING if alive else STYLE_RUN)
+
+
+class TrackGraph(QWidget):
+    """노드 A↔B 고정 좌표계 안에서 현재 위치를 원으로 표시.
+
+    좌표계는 노드 설정 시 고정된다: 가로 = A~B 구간(+여백), 세로 = 경로 기준 ±Y_HALF.
+    표시는 경로선·노드 A/B·현재 위치 원·횡편차 숫자뿐 — 궤적·자동 스케일 없음.
+    """
+
+    Y_HALF = 0.25   # 경로 기준 세로 표시 반폭 (m) — 고정
+
+    def __init__(self):
+        super().__init__()
+        self.setMinimumHeight(180)
+        self.nodes = None          # ((xa, ya), (xb, yb)) — 설정 후 고정
+        self.pose = None           # (x, y)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update)
+        self.timer.start(200)
+
+    def set_nodes(self, xa, ya, xb, yb):
+        self.nodes = ((xa, ya), (xb, yb))
+        self.update()
+
+    def set_pose(self, x, y):
+        self.pose = (x, y)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        p.fillRect(0, 0, w, h, QColor('#fafbfc'))
+        ml, mr, mt, mb = 64, 16, 14, 26
+        gw, gh = w - ml - mr, h - mt - mb
+        if gw <= 0 or gh <= 0:
+            return
+        if self.nodes is None:
+            p.setPen(QPen(QColor('#888')))
+            txt = '노드 미설정 — 실험 시작(또는 현재 위치 수신) 시 A·B 좌표계 고정'
+            if self.pose:
+                txt += f'\n현재 위치 ({self.pose[0]:+.3f}, {self.pose[1]:+.3f})'
+            p.drawText(self.rect(), Qt.AlignCenter, txt)
+            return
+        (xa, ya), (xb, yb) = self.nodes
+        xlo, xhi = min(xa, xb) - 0.3, max(xa, xb) + 0.3
+        yc = 0.5 * (ya + yb)
+        ylo, yhi = yc - self.Y_HALF, yc + self.Y_HALF
+
+        def px(x):
+            return ml + gw * (x - xlo) / (xhi - xlo)
+
+        def py(y):
+            return mt + gh * (1 - (y - ylo) / (yhi - ylo))
+
+        # 고정 y 눈금 5 cm — 경로 중심선 0 기준 상대 표기
+        gy = yc - self.Y_HALF
+        while gy <= yhi + 1e-9:
+            rel = gy - yc
+            p.setPen(QPen(QColor('#c9d4d2' if abs(rel) < 1e-9 else '#e3e8ec')))
+            p.drawLine(ml, int(py(gy)), w - mr, int(py(gy)))
+            p.setPen(QPen(QColor('#999')))
+            p.drawText(4, int(py(gy)) + 4, f'{100*rel:+.0f}cm')
+            gy += 0.05
+        # 경로선 + 노드 (고정)
+        p.setPen(QPen(QColor('#8fa5a2'), 2))
+        p.drawLine(int(px(xa)), int(py(ya)), int(px(xb)), int(py(yb)))
+        for (nx, ny), name, col in (((xa, ya), 'A', '#0d6a66'),
+                                    ((xb, yb), 'B', '#a35a00')):
+            p.setBrush(QColor(col))
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(int(px(nx)) - 9, int(py(ny)) - 9, 18, 18)
+            p.setPen(QPen(QColor('white')))
+            p.drawText(int(px(nx)) - 4, int(py(ny)) + 5, name)
+        # 현재 위치 — AMR 사각형(차체 상징, 고정 픽셀 크기) + 중심점 + 횡편차
+        if self.pose:
+            x, y = self.pose
+            cx = min(max(px(x), ml), w - mr)
+            cy = min(max(py(y), mt), h - mb)
+            p.setBrush(QColor(211, 51, 51, 60))
+            p.setPen(QPen(QColor('#d33'), 2))
+            p.drawRect(int(cx) - 16, int(cy) - 9, 32, 18)
+            p.setBrush(QColor('#d33'))
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(int(cx) - 3, int(cy) - 3, 6, 6)
+            p.setPen(QPen(QColor('#333')))
+            p.drawText(int(min(cx + 20, w - 190)), int(max(cy - 14, 16)),
+                       f'({x:+.3f}, {y:+.3f}) · 횡 {1000*(y-yc):+.0f} mm')
+        p.setPen(QPen(QColor('#777')))
+        p.drawText(ml, h - 8,
+                   f'A({xa:+.2f},{ya:+.2f}) ~ B({xb:+.2f},{yb:+.2f}) 고정 좌표계 · 세로 ±{self.Y_HALF:g} m')
+
+
+class PgvScatter(QWidget):
+    """도착 시 PGV 계산 위치의 2차원 산포도 — 공차 3 mm 원과 회차 점."""
+
+    def __init__(self):
+        super().__init__()
+        self.setMinimumSize(260, 220)
+        self.pts = []              # (lap, x_mm, y_mm)
+
+    def add(self, lap, x_mm, y_mm):
+        self.pts.append((lap, x_mm, y_mm))
+        self.update()
+
+    def clear(self):
+        self.pts = []
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        p.fillRect(0, 0, w, h, QColor('#fafbfc'))
+        cx, cy = w / 2, h / 2
+        rng = 5.0
+        if self.pts:
+            rng = max(rng, *(max(abs(x), abs(y)) for _, x, y in self.pts))
+        rng *= 1.15
+        scale = min(w, h) / 2 / rng * 0.9
+
+        def sx(v):
+            return cx + v * scale
+
+        def sy(v):
+            return cy - v * scale
+
+        # 격자 원(1 mm 간격)·공차 3 mm 원·축
+        step = 1.0 if rng <= 8 else 5.0
+        g = step
+        while g <= rng:
+            col = QColor('#c33') if abs(g - 3.0) < 1e-9 else QColor('#dde3e8')
+            p.setPen(QPen(col, 1))
+            p.setBrush(Qt.NoBrush)
+            r = g * scale
+            p.drawEllipse(int(cx - r), int(cy - r), int(2 * r), int(2 * r))
+            g += step
+        p.setPen(QPen(QColor('#b9c0c7'), 1))
+        p.drawLine(int(cx), 0, int(cx), h)
+        p.drawLine(0, int(cy), w, int(cy))
+        p.setPen(QPen(QColor('#777')))
+        p.drawText(int(cx) + 4, 12, '+x 전방 (mm)')
+        p.drawText(4, int(cy) - 4, '+y 좌')
+        p.drawText(w - 78, int(cy) + 14, f'공차 3 mm')
+        # 점 — 마지막 점 강조
+        for i, (lap, x, y) in enumerate(self.pts):
+            last = i == len(self.pts) - 1
+            p.setBrush(QColor('#d33') if last else QColor('#1c5d99'))
+            p.setPen(Qt.NoPen)
+            r = 5 if last else 3
+            p.drawEllipse(int(sx(x)) - r, int(sy(y)) - r, 2 * r, 2 * r)
+            p.setPen(QPen(QColor('#555')))
+            p.drawText(int(sx(x)) + 6, int(sy(y)) + 4, str(lap))
+
+
+class TripTab(QWidget):
+    """탭② — 위: 노드 간 실시간 위치 그래프 / 아래 왼쪽: 도착 PGV 산포, 오른쪽: 실험 제어."""
+
+    def __init__(self, worker):
+        super().__init__()
+        self.worker = worker
+        root = QVBoxLayout(self)
+
+        grp_top = QGroupBox('실시간 로봇 위치 — 노드 A ↔ 노드 B')
+        vt = QVBoxLayout(grp_top)
+        self.track = TrackGraph()
+        vt.addWidget(self.track)
+        self.lbl_pose = QLabel('pose: -    PGV: -')
+        vt.addWidget(self.lbl_pose)
+        root.addWidget(grp_top, 1)
+
+        grp_bot = QGroupBox('도착 정밀도 (PGV 계산 위치)')
+        hb = QHBoxLayout(grp_bot)
+        self.scatter = PgvScatter()
+        hb.addWidget(self.scatter, 2)
+
+        right = QVBoxLayout()
+        form = QGridLayout()
+
+        def spin(row, label, val, lo, hi, step, deci=2):
+            form.addWidget(QLabel(label), row, 0)
+            s = QDoubleSpinBox()
+            s.setRange(lo, hi)
+            s.setSingleStep(step)
+            s.setDecimals(deci)
+            s.setValue(val)
+            form.addWidget(s, row, 1)
+            return s
+
+        self.sp_speed = spin(0, '최대속도 m/s', DEFAULTS['speed'], 0.05, 1.2, 0.05)
+        self.sp_accel = spin(1, '가감속 m/s²', DEFAULTS['accel'], 0.05, 0.5, 0.05)
+        self.sp_dist = spin(2, '편도거리 m', DEFAULTS['dist'], 0.5, 12.0, 0.5, 1)
+        form.addWidget(QLabel('왕복수'), 3, 0)
+        self.sp_laps = QSpinBox()
+        self.sp_laps.setRange(1, 50)
+        self.sp_laps.setValue(DEFAULTS['laps'])
+        form.addWidget(self.sp_laps, 3, 1)
+        right.addLayout(form)
+
+        hbb = QHBoxLayout()
+        self.b_run = QPushButton('실행')
+        self.b_stop = QPushButton('중지')
+        self.b_run.setStyleSheet(STYLE_RUN)
+        self.b_stop.setStyleSheet(STYLE_STOP)
+        self.b_run.clicked.connect(self._run)
+        self.b_stop.clicked.connect(self._stop)
+        hbb.addWidget(self.b_run)
+        hbb.addWidget(self.b_stop)
+        right.addLayout(hbb)
+        self.lbl_msg = QLabel('대기')
+        self.lbl_msg.setWordWrap(True)
+        right.addWidget(self.lbl_msg)
+        self.lbl_last = QLabel('도착 기록 없음')
+        self.lbl_last.setWordWrap(True)
+        right.addWidget(self.lbl_last)
+        right.addStretch(1)
+        hb.addLayout(right, 1)
+        root.addWidget(grp_bot, 1)
+
+        worker.sig_pose.connect(self._on_pose)
+        worker.sig_pgv.connect(lambda s: self._set_status(pgv=s))
+        worker.sig_nodes.connect(self.track.set_nodes)
+        worker.sig_arrival.connect(self._on_arrival)
+        worker.sig_msg.connect(self.lbl_msg.setText)
+        worker.sig_done.connect(self._on_done)
+        self._pose_txt = '-'
+        self._pgv_txt = '-'
+
+    def _on_done(self, ok):
+        self.b_run.setEnabled(True)
+        self.b_run.setText('실행')
+        self.b_run.setStyleSheet(STYLE_RUN)
+
+    def _set_status(self, pose=None, pgv=None):
+        if pose is not None:
+            self._pose_txt = pose
+        if pgv is not None:
+            self._pgv_txt = pgv
+        self.lbl_pose.setText(f'pose: {self._pose_txt}    PGV: {self._pgv_txt}')
+
+    def _on_pose(self, x, y):
+        self.track.set_pose(x, y)
+        if self.track.nodes is None:
+            # 실험 전에도 좌표계를 고정: 현재 위치를 A, A+편도거리를 B 로 1회 설정
+            self.track.set_nodes(x, y, x + self.sp_dist.value(), y)
+        self._set_status(pose=f'({x:+.3f}, {y:+.3f})')
+
+    def _on_arrival(self, lap, x_mm, y_mm):
+        self.scatter.add(lap, x_mm, y_mm)
+        self.lbl_last.setText(f'최근 도착 {lap}회차: PGV ({x_mm:+.1f}, {y_mm:+.1f}) mm')
+
+    def _run(self):
+        self.scatter.clear()
+        self.b_run.setEnabled(False)
+        self.b_run.setText('실행 중')
+        self.b_run.setStyleSheet(STYLE_RUNNING)
+        self.lbl_msg.setText('실험 시작')
+        self.worker.trip_req = (self.sp_dist.value(), self.sp_speed.value(),
+                                self.sp_accel.value(), self.sp_laps.value())
+
+    def _stop(self):
+        self.worker.cancel = True
+        self.lbl_msg.setText('중지 요청 — 현재 구간 취소 중')
+
+
+class WheelTab(QWidget):
+    """탭③ — 바퀴 조향 방향 시각화 (2WS 인라인: 전륜·후륜 각각의 조향각).
+
+    상면도: 차체 사각형 위·아래에 전륜/후륜을 조향각만큼 회전시켜 그린다.
+    |각| < 1° 는 초록(직진), 그 외 주황. 각도 숫자 병기.
+    """
+
+    def __init__(self, worker):
+        super().__init__()
+        self.front = None
+        self.rear = None
+        worker.sig_wheels.connect(self._on_wheels)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update)
+        self.timer.start(200)
+
+    def _on_wheels(self, f, r):
+        self.front, self.rear = f, r
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        p.fillRect(0, 0, w, h, QColor('#fafbfc'))
+        if self.front is None:
+            p.setPen(QPen(QColor('#888')))
+            p.drawText(self.rect(), Qt.AlignCenter,
+                       '/joint_states 대기 — can_relay 상주 서비스 확인')
+            return
+        cx = w // 2
+        body_h = min(h - 120, 420)
+        body_w = body_h * 9 // 16
+        top = (h - body_h) // 2
+        # 차체 (전방 = 위)
+        p.setPen(QPen(QColor('#5a6570'), 2))
+        p.setBrush(QColor('#eef1f4'))
+        p.drawRoundedRect(cx - body_w // 2, top, body_w, body_h, 10, 10)
+        p.setPen(QPen(QColor('#999')))
+        p.drawText(cx - 14, top - 8, '전방 ↑')
+        # 바퀴 2개 (인라인: 차체 중심선 위·아래)
+        for angle, ny, name in ((self.front, top + body_h // 5, '전륜'),
+                                (self.rear, top + body_h * 4 // 5, '후륜')):
+            ok = abs(angle) < 1.0
+            col = QColor('#1c7c39') if ok else QColor('#a35a00')
+            p.save()
+            p.translate(cx, ny)
+            p.rotate(-angle)   # +각 = 좌조향 → 화면 반시계
+            p.setPen(QPen(col, 2))
+            p.setBrush(col)
+            p.drawRoundedRect(-9, -34, 18, 68, 6, 6)
+            p.setPen(QPen(QColor('white'), 2))
+            p.drawLine(0, -26, 0, 26)
+            p.restore()
+            p.setPen(QPen(col))
+            p.drawText(cx + body_w // 2 + 16, ny + 5,
+                       f'{name} {angle:+.2f}°' + ('  (직진)' if ok else ''))
+        p.setPen(QPen(QColor('#777')))
+        p.drawText(12, h - 10, '데이터: /joint_states (조향 실측각) · |각|<1° = 직진 판정')
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('왕복 주행 실기 테스트')
+        self.resize(860, 640)
+        self.pm = ProcManager()
+        self.worker = RosWorker()
+        self.worker.start()
+        tabs = QTabWidget()
+        tabs.addTab(StackTab(self.pm, self.worker), '① 패키지 구동')
+        tabs.addTab(TripTab(self.worker), '② 왕복 실험')
+        tabs.addTab(WheelTab(self.worker), '③ 바퀴 방향')
+        self.setCentralWidget(tabs)
+
+    def closeEvent(self, ev):
+        if QMessageBox.question(self, '종료', 'UI 로 실행한 패키지도 함께 중지할까요?\n'
+                                '(아니오 = 패키지는 그대로 두고 UI 만 종료)',
+                                QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+            self.pm.stop_all()
+        self.worker.requestInterruption()
+        self.worker.wait(2000)
+        ev.accept()
+
+
+def cleanup_previous_ui():
+    """기동 시 자기정리 — 기존 UI 인스턴스가 있으면 그 UI 와 관련 패키지를 모두 내린다.
+
+    상주 can_relay(systemd)는 건드리지 않는다. HIL 규칙(실행 전 잔존 정리)의 기동판.
+    """
+    me = os.getpid()
+    out = subprocess.run(['pgrep', '-f', 'drive_test_ui.py'],
+                         capture_output=True, text=True).stdout.split()
+    others = [int(pid) for pid in out if int(pid) != me]
+    if not others:
+        return
+    for pid in others:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    time.sleep(1.0)
+    for pid in others:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    # 이전 UI 의 스택 전량 정리 — INT(정상 종료) 우선, can_relay 계열은 목록에 없음
+    markers = ({ProcManager.marker(cmd) for _, _, cmd in STACK_ITEMS}
+               | set(EXTRA_KILL_MARKERS))
+    for sig_name, wait_s in (('-INT', 3.0), ('-TERM', 2.0)):
+        for mk in markers:
+            subprocess.run(['pkill', sig_name, '-f', mk], capture_output=True)
+        time.sleep(wait_s)
+    for mk in markers:
+        if subprocess.run(['pgrep', '-f', mk], capture_output=True).returncode == 0:
+            subprocess.run(['pkill', '-9', '-f', mk], capture_output=True)
+
+
+def main():
+    cleanup_previous_ui()
+    app = QApplication([])
+    w = MainWindow()
+    w.show()
+    app.exec_()
+
+
+if __name__ == '__main__':
+    main()
