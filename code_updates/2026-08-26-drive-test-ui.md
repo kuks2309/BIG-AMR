@@ -109,3 +109,54 @@ stop_all 소탕에서 can_relay 계열은 KILL 폴백 제외(INT/TERM 까지만,
 main() 진입 시 기존 UI 인스턴스를 감지하면 그 UI(TERM→KILL)와 관련 패키지 전부를
 INT 우선으로 내린 뒤 시작(cleanup_previous_ui) — 상주 can_relay 는 목록에 없어 보호.
 UI 교체 고아 사고를 원천 차단. 실기 검증: 신판 기동으로 구판 자동 정리·단일 인스턴스 확인.
+
+## 추가 — 비활성 버튼 시각화 수정 (같은 날 후속, 사용자 지적)
+
+engage 연동 비활성화가 동작해도 색 배경 스타일에 :disabled 상태가 없어 비활성
+버튼이 활성처럼 보이던 시각 결함 — 전 버튼 스타일(RUN/RUNNING/STOP/KILL/단발)에
+QPushButton:disabled 회색 규칙 추가. 확인: 당시 engaged=False 실측(호밍·반환은
+실제로 비활성이었고 표시만 오해 유발).
+
+## 추가 — 탭② 좌표계를 smap LocationMark 정본으로 고정 (같은 날 후속, RViz 대조 사용자 지적 2회)
+
+1차 증상: UI 기동 직후 mcl 수렴 전 초기 pose 로 A·B 임시 좌표계가 영구 고정돼
+실위치가 횡 +14 m 로 표시(1차 수정: 프레임 대탈선 시 재고정). 그러나 근본 원인은
+좌표계 기준 자체 — RViz 는 smap 의 실제 노드(LM1·LM2)를 그리는데 UI 는
+"현재 pose + 편도거리"라는 발명 좌표계를 썼다. 2차 수정으로 탭② 좌표계를
+smap 의 LocationMark 2점(LM2(-10.000,+13.931) ~ LM1(-3.743,+13.931), x 오름차순)
+으로 기동 시 1회 고정 — RViz 와 동일 지도 기준이라 두 화면이 항상 일치한다.
+
+- 신설 `smap_location_marks()`: SMAP 파일에서 LocationMark 2점 추출(정본).
+- `TrackGraph.set_nodes(..., names=)`: 노드 라벨을 A/B 대신 실명(LM2·LM1)으로 표기.
+- 실험 시작(sig_nodes)은 더 이상 좌표계를 옮기지 않는다(_on_exp_nodes 삭제).
+- pose 기반 임시 좌표계는 smap 미가용 시 대체 경로로만 잔존(대탈선 재고정 포함).
+- 검증: py_compile · smap 로더 실행(LM2/LM1 좌표 확인) · 실기 재기동 후 화면
+  캡처로 "LM2(-10.00,+13.93) ~ LM1(-3.74,+13.93) 고정 좌표계" 표기 확인.
+
+## 추가 — 왕복 순서를 후진→전진으로 반전 (실행 직전 사전점검에서 발견)
+
+실행 전 여유 실측: 전방(±0.5 m 폭) 4.46 m / 후방 11.93 m. 어제 데이터 대조로
+지형 확정 — 출발점이 도킹 노드(PGV 테이프, LM2~LM1 사이)이고 전방 4.46 m 는
+도킹 벽. 따라서 편도 6 m 왕복은 후진 이탈→전진 복귀 순서여야 하며(어제
+longleg 시험과 동일 방향), 복귀(전진) 도착 시 PGV 산포를 판정하도록
+_run_trips 의 레그 순서·도착 판정 조건(후진→전진)·sig_nodes 구간(home-dist ~
+home)을 반전. 어제 rosbag 은 부재(08-24 이후 metadata.yaml 0건) — 원자료는
+jsonl 3건이 전부.
+
+## 추가 — 어제 실기 방식으로 왕복 실험 재구성 (wall detection 누락 사용자 지적)
+
+왕복이 translate 만으로 끝나 복귀 오차가 65 mm 급이었다 — 어제 ±3 mm 33회의
+방식(후퇴 → 고속 직진 레그 → 게이트(타깃 앞 0.25 m) 정지 → /wall_pose 기반
+정밀 도킹 전환 → 도킹 완료 후 PGV 10샘플 평균)이 빠져 있었다(기록 미참조).
+
+- 스택에 wall_localizer(/wall_pose)·dock_approach 서버 2종 추가(중복 검사·kill
+  소탕 패턴 동반).
+- _run_trips: 후진(dist) → 전진(dist−gate) → dock_approach(공차 3/3/0.5°,
+  DOCK_TOL) → _pgv_avg(10샘플) → jsonl 행(어제 원자료와 동일 필드
+  srv_d_mm·srv_lat_mm·srv_yaw_deg·pgv{x,y,ang,n} + leg 시간·횡최대).
+- 주행 목표 ±15 mm 판정용으로 leg 중 최대 횡편차(fwd/rev_lat_max_mm)를 mcl
+  기준으로 계측·기록(사용자 목표: 주행 ±15 mm·도킹 ≤3 mm).
+- 도킹 목표 티치: /wall_pose 현재값 캡처 버튼 + Log/dock_target_teach.json
+  영속. 초기 목표는 어제 bag 2본(dock3mm·dockspeed)의 PGV 안정 도킹창 72개
+  평균(x −6.2705 y +13.9260 yaw +0.121°, σ 1.1/0.5 mm·0.017°)에서 추출해 저장.
+- 탭② 조건에 도킹 게이트(0.25 m)·도킹속도(0.6 m/s) 추가.
