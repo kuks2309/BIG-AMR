@@ -36,6 +36,8 @@ STACK_ITEMS = [
     ('bridge', '/robot_pose 브리지 (mcl→PoseStamped)',
      'ros2 run sil_pose_adapter sil_pose_adapter_node --ros-args '
      '-r /rtabmap/localization_pose:=/mcl_pose'),
+    ('wall', '벽 기준면 측위 (wall_localizer → /wall_pose)',
+     'ros2 launch wall_localizer_ros2 wall_localizer.launch.py'),
     ('imu', 'IMU (iahrs)', 'ros2 launch iahrs_driver iahrs_driver.py'),
     ('pgv', 'PGV 드라이버 (/dev/pgv, 보정 적용)',
      'ros2 run pgv_driver pgv_driver_node --ros-args -p serial_port:=/dev/pgv '
@@ -47,6 +49,8 @@ STACK_ITEMS = [
      'amr_motor_cmd_translator/config/amr_motor_cmd_translator_qd.yaml'),
     ('tf_srv', '전진 액션 서버', 'ros2 launch trnav_2ws_action_server translate_forward.launch.py'),
     ('tr_srv', '후진 액션 서버', 'ros2 launch trnav_2ws_action_server translate_reverse.launch.py'),
+    ('dock_srv', '정밀 도킹 서버 (dock_approach, /wall_pose 기준)',
+     'ros2 launch trnav_2ws_dock_ros dock_approach.launch.py'),
 ]
 
 # 탭① 단발 항목: (키, 표시명, 명령, 확인 다이얼로그 문구 또는 None)
@@ -60,25 +64,35 @@ ONESHOT_ITEMS = [
      'ros2 service call /can_relay_node/engage std_srvs/srv/SetBool "{data: false}"', None),
 ]
 
-DEFAULTS = {'speed': 1.0, 'accel': 0.3, 'dist': 6.0, 'laps': 10}
+DEFAULTS = {'speed': 1.0, 'accel': 0.3, 'dist': 6.0, 'laps': 10,
+            'gate': 0.25, 'dock_speed': 0.6}
 GOAL_TIMEOUT_S = 90.0
+DOCK_TEACH_FILE = f'{REPO}/Log/dock_target_teach.json'
+DOCK_TOL = (3.0, 3.0, 0.5)     # 종·횡 mm, 각 deg — 어제 33회 실기와 동일 공차
 
 # 버튼 배색 — 실행/중지/특수 명령을 색으로 구분
 STYLE_RUN = ('QPushButton{background:#1c7c39; color:white; font-weight:bold;'
              ' padding:4px 12px; border-radius:3px}'
-             'QPushButton:pressed{background:#155d2b}')
+             'QPushButton:pressed{background:#155d2b}'
+             'QPushButton:disabled{background:#c9ced4; color:#eef0f2}')
 STYLE_RUNNING = ('QPushButton{background:#1c5d99; color:white; font-weight:bold;'
-                 ' padding:4px 12px; border-radius:3px}')
+                 ' padding:4px 12px; border-radius:3px}'
+                 'QPushButton:disabled{background:#c9ced4; color:#eef0f2}')
 STYLE_STOP = ('QPushButton{background:#b3372f; color:white; padding:4px 12px;'
               ' border-radius:3px}'
-              'QPushButton:pressed{background:#8c2b25}')
+              'QPushButton:pressed{background:#8c2b25}'
+              'QPushButton:disabled{background:#c9ced4; color:#eef0f2}')
 STYLE_KILL = ('QPushButton{background:#7a1f1a; color:white; font-weight:bold;'
               ' padding:5px 12px; border-radius:3px}'
-              'QPushButton:pressed{background:#5c1713}')
+              'QPushButton:pressed{background:#5c1713}'
+              'QPushButton:disabled{background:#c9ced4; color:#eef0f2}')
 ONESHOT_STYLES = {
-    'engage': 'QPushButton{background:#1c5d99; color:white; padding:5px 10px; border-radius:3px}',
-    'home': 'QPushButton{background:#a35a00; color:white; padding:5px 10px; border-radius:3px}',
-    'disengage': 'QPushButton{background:#5a6570; color:white; padding:5px 10px; border-radius:3px}',
+    'engage': 'QPushButton{background:#1c5d99; color:white; padding:5px 10px; border-radius:3px}'
+        'QPushButton:disabled{background:#c9ced4; color:#eef0f2}',
+    'home': 'QPushButton{background:#a35a00; color:white; padding:5px 10px; border-radius:3px}'
+        'QPushButton:disabled{background:#c9ced4; color:#eef0f2}',
+    'disengage': 'QPushButton{background:#5a6570; color:white; padding:5px 10px; border-radius:3px}'
+        'QPushButton:disabled{background:#c9ced4; color:#eef0f2}',
 }
 
 # kill all 소탕 보강 — launch 부모가 비정상 종료로 고아를 남겨도 자식 노드까지 잡는다
@@ -87,6 +101,7 @@ EXTRA_KILL_MARKERS = [
     'mcl2d_localization_node', 'smap_map_server', 'rviz2',
     'amr_translate_forward_node', 'amr_translate_reverse_node',
     'trnav_motion_mux_node', 'iahrs_driver',
+    'wall_localizer_node', 'dock_approach_action_server',
 ]
 
 
@@ -113,6 +128,8 @@ class ProcManager:
         'tf_srv': ['amr_translate_forward_node'],
         'tr_srv': ['amr_translate_reverse_node'],
         'imu': ['iahrs_driver'],
+        'wall': ['wall_localizer_node'],
+        'dock_srv': ['dock_approach_action_server'],
     }
 
     def start(self, key, cmd):
@@ -188,6 +205,27 @@ def panda_usb_reset():
     return False
 
 
+def smap_location_marks():
+    """smap 의 LocationMark 2점을 x 오름차순으로 반환 — 탭② 고정 좌표계의 정본.
+
+    RViz(seer_map)와 같은 지도 노드를 쓰므로 두 화면의 위치 표시가 일치한다.
+    반환: (xa, ya, xb, yb, (nameA, nameB)) 또는 None(파일 없음·마크 2점 미만).
+    """
+    try:
+        with open(SMAP) as f:
+            d = json.load(f)
+        lm = [p for p in d.get('advancedPointList', [])
+              if p.get('className') == 'LocationMark']
+        lm.sort(key=lambda p: p['pos']['x'])
+        if len(lm) >= 2:
+            a, b = lm[0], lm[-1]
+            return (a['pos']['x'], a['pos']['y'], b['pos']['x'], b['pos']['y'],
+                    (a.get('instanceName', 'A'), b.get('instanceName', 'B')))
+    except Exception:
+        pass
+    return None
+
+
 def run_oneshot(cmd, timeout_s=120):
     """단발 명령 동기 실행 — (성공여부, 마지막 출력 줄)."""
     try:
@@ -216,21 +254,35 @@ class RosWorker(QThread):
         super().__init__()
         self.pose = None
         self.pgv = None
+        self.wall = None           # 최신 /wall_pose (x, y, yaw_deg)
         self.trip_req = None
+        self.teach_req = False
         self.cancel = False
         self._gh = None
+        self.dock_target = None    # (x, y, yaw_deg) — 스테이션 프레임 도킹 목표
+        self._lat_ref = None       # 주행 leg 횡편차 계측 기준 y (경로선)
+        self._lat_max = 0.0
+        try:
+            with open(DOCK_TEACH_FILE) as f:
+                d = json.load(f)
+            self.dock_target = (d['x_m'], d['y_m'], d['yaw_deg'])
+        except Exception:
+            pass
 
     def run(self):
         import rclpy
         from geometry_msgs.msg import PoseStamped
         from pgv_interfaces.msg import PgvPosition
         from rclpy.action import ActionClient
-        from trnav_2ws_interfaces.action import (AMRMotionTranslateForward,
+        from trnav_2ws_interfaces.action import (AMRMotionDockApproach,
+                                                 AMRMotionTranslateForward,
                                                  AMRMotionTranslateReverse)
         rclpy.init()
         node = rclpy.create_node('drive_test_ui')
         node.create_subscription(PoseStamped, '/robot_pose',
                                  lambda m: self._on_pose(m), 10)
+        node.create_subscription(PoseStamped, '/wall_pose',
+                                 lambda m: self._on_wall(m), 10)
         node.create_subscription(PgvPosition, '/pgv/position',
                                  lambda m: self._on_pgv(m), 10)
         from sensor_msgs.msg import JointState
@@ -243,10 +295,16 @@ class RosWorker(QThread):
                            'amr_motion_translate_forward_abstract')
         rev = ActionClient(node, AMRMotionTranslateReverse,
                            'amr_motion_translate_reverse_abstract')
+        dock = ActionClient(node, AMRMotionDockApproach,
+                            'amr_motion_dock_approach')
         self._ctx = (rclpy, node, fwd, rev,
-                     AMRMotionTranslateForward, AMRMotionTranslateReverse)
+                     AMRMotionTranslateForward, AMRMotionTranslateReverse,
+                     dock, AMRMotionDockApproach)
         while not self.isInterruptionRequested():
             rclpy.spin_once(node, timeout_sec=0.1)
+            if self.teach_req:
+                self.teach_req = False
+                self._do_teach()
             if self.trip_req is not None:
                 req = self.trip_req
                 self.trip_req = None
@@ -257,6 +315,23 @@ class RosWorker(QThread):
     def _on_pose(self, m):
         self.pose = (m.pose.position.x, m.pose.position.y)
         self.sig_pose.emit(*self.pose)
+
+    def _on_wall(self, m):
+        q = m.pose.orientation
+        yaw = math.degrees(math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                                      1.0 - 2.0 * (q.y * q.y + q.z * q.z)))
+        self.wall = (m.pose.position.x, m.pose.position.y, yaw)
+
+    def _do_teach(self):
+        if self.wall is None:
+            self.sig_msg.emit('티치 실패 — /wall_pose 없음 (wall_localizer·스테이션 시야 확인)')
+            return
+        self.dock_target = self.wall
+        with open(DOCK_TEACH_FILE, 'w') as f:
+            json.dump({'x_m': self.wall[0], 'y_m': self.wall[1],
+                       'yaw_deg': self.wall[2], 'source': 'ui-teach'}, f)
+        self.sig_msg.emit(f'도킹 목표 티치 완료: x {self.wall[0]:+.4f} m · '
+                          f'y {self.wall[1]:+.4f} m · yaw {self.wall[2]:+.2f}°')
 
     def _on_diag(self, m):
         for st in m.status:
@@ -309,6 +384,8 @@ class RosWorker(QThread):
         t0 = time.time()
         while not rfut.done():
             rclpy.spin_once(node, timeout_sec=0.1)
+            if self._lat_ref is not None and self.pose is not None:
+                self._lat_max = max(self._lat_max, abs(self.pose[1] - self._lat_ref))
             if self.cancel:
                 gh.cancel_goal_async()
             if time.time() - t0 > GOAL_TIMEOUT_S:
@@ -324,7 +401,59 @@ class RosWorker(QThread):
             return '-'
         return f'{m.x_position_mm:+.1f}/{m.y_offset_mm:+.1f}'
 
-    def _run_trips(self, dist, speed, accel, laps):
+    def _pgv_avg(self, n_target=10, timeout_s=2.5):
+        """도착 정지 상태에서 PGV n샘플 평균 — 어제 실기 계측 방식과 동일."""
+        rclpy, node = self._ctx[0], self._ctx[1]
+        xs, ys, angs = [], [], []
+        seen = None
+        t0 = time.time()
+        while len(xs) < n_target and time.time() - t0 < timeout_s:
+            rclpy.spin_once(node, timeout_sec=0.1)
+            m = self.pgv
+            if m is not None and m.tag_detected and m is not seen:
+                seen = m
+                xs.append(m.x_position_mm)
+                ys.append(m.y_offset_mm)
+                angs.append(m.angle_deg)
+        if not xs:
+            return None
+        return {'x_mm': sum(xs) / len(xs), 'y_mm': sum(ys) / len(ys),
+                'ang': sum(angs) / len(angs), 'n': len(xs)}
+
+    def _dock_goal(self, max_speed):
+        """정밀 도킹 액션 — 어제 33회와 동일 공차(DOCK_TOL), 접근축 전방 0°."""
+        dock, act = self._ctx[6], self._ctx[7]
+        g = act.Goal()
+        g.target_x_m, g.target_y_m, g.target_yaw_deg = self.dock_target
+        g.approach_axis_deg = 0.0
+        g.max_speed_mps = max_speed
+        g.tol_d_mm, g.tol_lat_mm, g.tol_yaw_deg = DOCK_TOL
+        g.timeout_s = 60.0
+        if not dock.wait_for_server(timeout_sec=5.0):
+            self.sig_msg.emit('도킹 서버 없음 — 탭①에서 정밀 도킹 서버를 실행하세요')
+            return None
+        rclpy, node = self._ctx[0], self._ctx[1]
+        fut = dock.send_goal_async(g)
+        rclpy.spin_until_future_complete(node, fut, timeout_sec=10.0)
+        gh = fut.result()
+        if gh is None or not gh.accepted:
+            self.sig_msg.emit('도킹 goal 거부')
+            return None
+        self._gh = gh
+        rfut = gh.get_result_async()
+        t0 = time.time()
+        while not rfut.done():
+            rclpy.spin_once(node, timeout_sec=0.1)
+            if self.cancel:
+                gh.cancel_goal_async()
+            if time.time() - t0 > GOAL_TIMEOUT_S:
+                gh.cancel_goal_async()
+                self.sig_msg.emit('도킹 대기 초과 — 취소')
+                return None
+        self._gh = None
+        return rfut.result().result
+
+    def _run_trips(self, dist, speed, accel, laps, gate, dock_speed):
         rclpy = self._ctx[0]
         fwd, rev = self._ctx[2], self._ctx[3]
         act_f, act_r = self._ctx[4], self._ctx[5]
@@ -333,41 +462,69 @@ class RosWorker(QThread):
             self.sig_msg.emit('/robot_pose 없음 — 측위·브리지를 먼저 실행하세요')
             self.sig_done.emit(False)
             return
+        if self.dock_target is None:
+            self.sig_msg.emit('도킹 목표 없음 — 티치 버튼 또는 teach 파일 필요')
+            self.sig_done.emit(False)
+            return
         out = time.strftime(f'{LOGDIR}/drive_trip_%Y%m%d_%H%M%S.jsonl')
         home = self.pose
-        self.sig_nodes.emit(home[0], home[1], home[0] + dist, home[1])
+        self.sig_nodes.emit(home[0] - dist, home[1], home[0], home[1])
         ok_all = True
         with open(out, 'w') as fp:
             for lap in range(1, laps + 1):
-                for leg_name, cli, act, d in (('전진', fwd, act_f, dist),
-                                              ('후진', rev, act_r, -dist)):
+                # 어제 실기 방식: 후진 이탈 → 고속 전진 레그(게이트 앞 정지)
+                # → 정밀 도킹 전환(/wall_pose) → 도착 PGV 평균 계측
+                legs = (('후진', rev, act_r, -dist),
+                        ('전진', fwd, act_f, dist - gate))
+                lap_row = {'lap': lap, 'speed': speed, 'accel': accel,
+                           'dist': dist, 'gate': gate, 'dock_speed': dock_speed}
+                for leg_name, cli, act, d in legs:
                     if self.cancel:
                         self.sig_msg.emit('중지됨')
                         self.sig_done.emit(False)
                         return
+                    self._lat_ref, self._lat_max = home[1], 0.0
                     t0 = time.time()
                     res = self._goal(cli, act, d, speed, accel)
                     dt = time.time() - t0
+                    self._lat_ref = None
                     if res is None or res.status != 0:
                         self.sig_msg.emit(f'{lap}회차 {leg_name} 실패 — 중단')
                         self.sig_done.emit(False)
                         return
-                    time.sleep(0.5)
-                    for _ in range(5):
-                        rclpy.spin_once(self._ctx[1], timeout_sec=0.1)
-                    ret_mm = 1000 * math.hypot(self.pose[0] - home[0],
-                                               self.pose[1] - home[1]) \
-                        if leg_name == '후진' else float('nan')
-                    self.sig_lap.emit(lap, leg_name, dt, ret_mm, self._pgv_txt())
-                    m = self.pgv
-                    if leg_name == '후진' and m is not None and m.tag_detected:
-                        self.sig_arrival.emit(lap, m.x_position_mm, m.y_offset_mm)
-                    fp.write(json.dumps({
-                        'lap': lap, 'leg': leg_name, 'elapsed_s': round(dt, 2),
-                        'pose': self.pose,
-                        'return_err_mm': None if math.isnan(ret_mm) else round(ret_mm, 1),
-                        'pgv': self._pgv_txt()}) + '\n')
-                    fp.flush()
+                    lat_mm = round(1000 * self._lat_max, 1)
+                    k = 'rev' if d < 0 else 'fwd'
+                    lap_row[f'{k}_s'] = round(dt, 2)
+                    lap_row[f'{k}_lat_max_mm'] = lat_mm   # 주행 목표 ±15 mm 판정용
+                    self.sig_lap.emit(lap, leg_name, dt, lat_mm, self._pgv_txt())
+                # 정밀 도킹 전환
+                if self.cancel:
+                    self.sig_msg.emit('중지됨')
+                    self.sig_done.emit(False)
+                    return
+                self.sig_msg.emit(f'{lap}회차 도킹 접근…')
+                t0 = time.time()
+                dres = self._dock_goal(dock_speed)
+                ddt = time.time() - t0
+                if dres is None or not dres.success:
+                    reason = '' if dres is None else f' (stop_reason {dres.stop_reason})'
+                    self.sig_msg.emit(f'{lap}회차 도킹 실패{reason} — 중단')
+                    self.sig_done.emit(False)
+                    return
+                time.sleep(0.5)
+                pv = self._pgv_avg()
+                lap_row.update({
+                    'success': True, 'stop_reason': int(dres.stop_reason),
+                    'srv_d_mm': dres.final_e_d_mm, 'srv_lat_mm': dres.final_e_lat_mm,
+                    'srv_yaw_deg': dres.final_e_yaw_deg, 'dock_s': round(ddt, 2),
+                    'pgv': pv})
+                ret_mm = abs(dres.final_e_d_mm)
+                self.sig_lap.emit(lap, '도킹', ddt, ret_mm, self._pgv_txt())
+                if pv is not None:
+                    self.sig_arrival.emit(lap, pv['x_mm'], pv['y_mm'])
+                lap_row['pose'] = self.pose
+                fp.write(json.dumps(lap_row) + '\n')
+                fp.flush()
         self.sig_msg.emit(f'완료 — 기록 {out}')
         self.sig_done.emit(ok_all)
 
@@ -518,13 +675,16 @@ class TrackGraph(QWidget):
         super().__init__()
         self.setMinimumHeight(180)
         self.nodes = None          # ((xa, ya), (xb, yb)) — 설정 후 고정
+        self.names = ('A', 'B')
         self.pose = None           # (x, y)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update)
         self.timer.start(200)
 
-    def set_nodes(self, xa, ya, xb, yb):
+    def set_nodes(self, xa, ya, xb, yb, names=None):
         self.nodes = ((xa, ya), (xb, yb))
+        if names:
+            self.names = names
         self.update()
 
     def set_pose(self, x, y):
@@ -569,13 +729,13 @@ class TrackGraph(QWidget):
         # 경로선 + 노드 (고정)
         p.setPen(QPen(QColor('#8fa5a2'), 2))
         p.drawLine(int(px(xa)), int(py(ya)), int(px(xb)), int(py(yb)))
-        for (nx, ny), name, col in (((xa, ya), 'A', '#0d6a66'),
-                                    ((xb, yb), 'B', '#a35a00')):
+        for (nx, ny), name, col in (((xa, ya), self.names[0], '#0d6a66'),
+                                    ((xb, yb), self.names[1], '#a35a00')):
             p.setBrush(QColor(col))
             p.setPen(Qt.NoPen)
             p.drawEllipse(int(px(nx)) - 9, int(py(ny)) - 9, 18, 18)
             p.setPen(QPen(QColor('white')))
-            p.drawText(int(px(nx)) - 4, int(py(ny)) + 5, name)
+            p.drawText(int(px(nx)) - 4 * len(name), int(py(ny)) + 5, name)
         # 현재 위치 — AMR 사각형(차체 상징, 고정 픽셀 크기) + 중심점 + 횡편차
         if self.pose:
             x, y = self.pose
@@ -592,7 +752,8 @@ class TrackGraph(QWidget):
                        f'({x:+.3f}, {y:+.3f}) · 횡 {1000*(y-yc):+.0f} mm')
         p.setPen(QPen(QColor('#777')))
         p.drawText(ml, h - 8,
-                   f'A({xa:+.2f},{ya:+.2f}) ~ B({xb:+.2f},{yb:+.2f}) 고정 좌표계 · 세로 ±{self.Y_HALF:g} m')
+                   f'{self.names[0]}({xa:+.2f},{ya:+.2f}) ~ {self.names[1]}({xb:+.2f},{yb:+.2f})'
+                   f' 고정 좌표계 · 세로 ±{self.Y_HALF:g} m')
 
 
 class PgvScatter(QWidget):
@@ -699,7 +860,20 @@ class TripTab(QWidget):
         self.sp_laps.setRange(1, 50)
         self.sp_laps.setValue(DEFAULTS['laps'])
         form.addWidget(self.sp_laps, 3, 1)
+        self.sp_gate = spin(4, '도킹 게이트 m', DEFAULTS['gate'], 0.1, 2.0, 0.05)
+        self.sp_dockv = spin(5, '도킹속도 m/s', DEFAULTS['dock_speed'], 0.05, 0.8, 0.05)
         right.addLayout(form)
+
+        self.b_teach = QPushButton('도킹 목표 티치 (현재 /wall_pose)')
+        self.b_teach.setStyleSheet(ONESHOT_STYLES['home'])
+        self.b_teach.clicked.connect(self._teach)
+        right.addWidget(self.b_teach)
+        self.lbl_teach = QLabel('도킹 목표: -')
+        self.lbl_teach.setWordWrap(True)
+        right.addWidget(self.lbl_teach)
+        self._teach_timer = QTimer(self)
+        self._teach_timer.timeout.connect(self._refresh_teach)
+        self._teach_timer.start(1000)
 
         hbb = QHBoxLayout()
         self.b_run = QPushButton('실행')
@@ -723,7 +897,11 @@ class TripTab(QWidget):
 
         worker.sig_pose.connect(self._on_pose)
         worker.sig_pgv.connect(lambda s: self._set_status(pgv=s))
-        worker.sig_nodes.connect(self.track.set_nodes)
+        # 좌표계는 smap 의 LocationMark 2점으로 고정(RViz 와 동일 기준).
+        # 실험 시작점(sig_nodes)은 좌표계를 옮기지 않는다.
+        lm = smap_location_marks()
+        if lm:
+            self.track.set_nodes(lm[0], lm[1], lm[2], lm[3], names=lm[4])
         worker.sig_arrival.connect(self._on_arrival)
         worker.sig_msg.connect(self.lbl_msg.setText)
         worker.sig_done.connect(self._on_done)
@@ -745,8 +923,14 @@ class TripTab(QWidget):
     def _on_pose(self, x, y):
         self.track.set_pose(x, y)
         if self.track.nodes is None:
-            # 실험 전에도 좌표계를 고정: 현재 위치를 A, A+편도거리를 B 로 1회 설정
+            # smap 미가용 시 대체: 현재 위치 기준 임시 좌표계(수신마다 갱신하지 않고
+            # 프레임을 크게 벗어날 때만 재고정 — mcl 초기 표류 박제 방지)
             self.track.set_nodes(x, y, x + self.sp_dist.value(), y)
+        elif self.track.names == ('A', 'B'):
+            (xa, ya), (xb, yb) = self.track.nodes
+            yc = 0.5 * (ya + yb)
+            if (abs(y - yc) > 0.5 or x < min(xa, xb) - 1.0 or x > max(xa, xb) + 1.0):
+                self.track.set_nodes(x, y, x + self.sp_dist.value(), y)
         self._set_status(pose=f'({x:+.3f}, {y:+.3f})')
 
     def _on_arrival(self, lap, x_mm, y_mm):
@@ -760,7 +944,17 @@ class TripTab(QWidget):
         self.b_run.setStyleSheet(STYLE_RUNNING)
         self.lbl_msg.setText('실험 시작')
         self.worker.trip_req = (self.sp_dist.value(), self.sp_speed.value(),
-                                self.sp_accel.value(), self.sp_laps.value())
+                                self.sp_accel.value(), self.sp_laps.value(),
+                                self.sp_gate.value(), self.sp_dockv.value())
+
+    def _teach(self):
+        self.worker.teach_req = True
+
+    def _refresh_teach(self):
+        t = self.worker.dock_target
+        self.lbl_teach.setText(
+            '도킹 목표: -' if t is None else
+            f'도킹 목표: x {t[0]:+.4f} · y {t[1]:+.4f} m · yaw {t[2]:+.2f}°')
 
     def _stop(self):
         self.worker.cancel = True
