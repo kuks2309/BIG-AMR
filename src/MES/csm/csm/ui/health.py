@@ -165,10 +165,18 @@ def _jobs_waiting(snapshot):
     """Work created and not yet moving — the flow-control gap.
 
     CCS caps work per line at `max_tasks` and stops posting when it is reached
-    (§2.15). We have no ceiling, so jobs accumulate against a fleet that cannot
-    take them. There is no threshold from the manual for OUR plant, so this
-    reports the number and the fleet size and lets a person judge; inventing a
-    limit here would be inventing the very parameter §2.15 configures.
+    (§2.15). `runtime.capacity.LineCapacity` implements that ceiling and the
+    monitor stops posting against it — but a ceiling bounds what is POSTED, not
+    what a fleet can physically carry, so work can still accumulate ahead of
+    robots that are all busy.
+
+    There is no threshold from the manual for OUR plant, so this reports the
+    number and the fleet size and lets a person judge; inventing a limit here
+    would be inventing the very parameter §2.15 configures.
+
+    ⚠ This docstring said "we have no ceiling" until 2026-08-28, which stopped
+    being true when capacity.py landed. A comment that describes an absence is
+    a comment that expires.
     """
     active = snapshot.get("jobs", {}).get("active", [])
     waiting = [j for j in active if j.get("state") in ("NEW", "WAITING",
@@ -176,11 +184,11 @@ def _jobs_waiting(snapshot):
     robots = len(snapshot.get("fleet", []))
     if not waiting:
         return Check("Work queue", OK, "nothing waiting to start",
-                     "CCS manual §2.15 (no ceiling implemented yet)")
+                     "CCS manual §2.15")
     status = WARN if robots and len(waiting) > robots * 3 else OK
     return Check("Work queue", status,
                  f"{len(waiting)} waiting to start, {robots} robots",
-                 "CCS manual §2.15 (no ceiling implemented yet)",
+                 "CCS manual §2.15",
                  [f"{j['job_id']} {j['from']} -> {j['to']}" for j in waiting[:12]])
 
 
