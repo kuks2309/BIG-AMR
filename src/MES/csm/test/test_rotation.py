@@ -132,3 +132,91 @@ def test_a_deliver_and_collect_visit_is_untouched():
     kinds = [t.kind for t in build_order(SamePort(), rotate=True).tasks]
 
     assert TaskKind.TURN not in kinds
+
+
+# ------------------------------- and the whole chain, source pick to task
+
+def monitor_with(profile, available):
+    """An EquipmentMonitorTask with only what `_claim_material` touches."""
+    from csm.runtime.tasks.equipment_monitor import EquipmentMonitorTask
+
+    class Records:
+        def ready_materials(self, location, at):
+            return list(available)
+        def register_material(self, **kw):
+            raise AssertionError("should have claimed, not minted")
+
+    class Store:
+        records = Records()
+        active = []
+        def clock(self):
+            return 0.0
+
+    task = object.__new__(EquipmentMonitorTask)
+    task.store = Store()
+    task.profile = profile
+    task.curing = None
+    return task
+
+
+class Roll:
+    kind = "roll"
+    def __init__(self, ref, attribute):
+        self.material_ref, self.attribute = ref, attribute
+
+
+def test_an_exact_match_is_preferred_over_one_needing_a_turn():
+    """A turn is a real task with a real cost. Taking the rotatable one while
+    an exact one sits beside it buys nothing."""
+    task = monitor_with(None, [Roll("needs-turn", BRIGHT_CCW),
+                               Roll("exact", BRIGHT_CW)])
+
+    ref, turn = task._claim_material("SRC", "roll", at=0.0, wants=BRIGHT_CW)
+
+    assert ref == "exact"
+    assert turn is False
+
+
+def test_a_rotatable_candidate_is_taken_when_there_is_no_exact_one():
+    task = monitor_with(None, [Roll("needs-turn", BRIGHT_CCW)])
+
+    ref, turn = task._claim_material("SRC", "roll", at=0.0, wants=BRIGHT_CW)
+
+    assert ref == "needs-turn"
+    assert turn is True, "the escape hatch was not used"
+
+
+def test_the_wrong_face_is_not_claimed_even_if_it_is_all_there_is():
+    """It cannot serve the requirement and no turn will fix it, so claiming it
+    would occupy a robot to deliver material the machine must refuse."""
+    task = monitor_with(None, [Roll("wrong-face", DARK_CW)])
+
+    ref, turn = task._claim_material("SRC", "roll", at=0.0, wants=BRIGHT_CW)
+
+    assert ref == "wrong-face", "no better candidate — still claimed"
+    assert turn is False, "a turn must not be claimed to fix a face"
+
+
+def test_with_no_requirement_configured_the_first_candidate_wins():
+    """What the code did before, and still right for a station nobody has
+    configured."""
+    task = monitor_with(None, [Roll("first", DARK_CCW), Roll("second", BRIGHT_CW)])
+
+    ref, turn = task._claim_material("SRC", "roll", at=0.0, wants=None)
+
+    assert ref == "first"
+    assert turn is False
+
+
+def test_the_decision_reaches_the_order():
+    """The job carries it, so build_order can place the TURN without asking
+    again — re-deriving it later would mean reading records that have moved on.
+    """
+    import inspect
+
+    from csm.adapters.sim_acs import SimAcs
+    from csm.job import Job
+
+    assert "rotate" in {f for f in Job.__dataclass_fields__}
+    src = inspect.getsource(SimAcs.submit_job)
+    assert 'build_order(job, rotate=' in src

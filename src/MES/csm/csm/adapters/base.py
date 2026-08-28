@@ -962,7 +962,8 @@ class AcsAdapter(ABC):
         §5), and it belongs here rather than in each adapter so that the
         deliver-and-collect single visit is expressed the same way everywhere.
         """
-        response = self.create_order(build_order(job))
+        response = self.create_order(
+            build_order(job, rotate=getattr(job, "rotate", False)))
         return classify_error_code(response.errorCode)
 
     @abstractmethod

@@ -2780,7 +2780,8 @@ class SimAcs(AcsAdapter):
         once — but they are already going through `create_order` from here, so
         the order path is what the simulator actually runs.
         """
-        response = self.create_order(build_order(job))
+        response = self.create_order(
+            build_order(job, rotate=getattr(job, "rotate", False)))
         return classify_error_code(response.errorCode, SIM_ERROR_CODES)
 
     def _dispatch(self, job_id, from_station, to_station, priority=0):

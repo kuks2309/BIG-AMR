@@ -48,6 +48,15 @@ class Job:
     #: computed from this, so every waiting state gets an escape hatch.
     state_since: float = 0.0
 
+    #: THE PALLET MUST BE TURNED 180° ON THE WAY. CCS manual §1.3, §3.8.
+    #:
+    #: Decided when the material is chosen, because that is the only moment
+    #: both halves are known — what we have and what the destination wants —
+    #: and carried on the job so `build_order` can place the TURN task without
+    #: asking again. Deciding it later would mean re-deriving it from records
+    #: that may have moved on.
+    rotate: bool = False
+
     #: Set when the job ends badly, so an operator sees *why* and not just that.
     failure_reason: str = ""
 

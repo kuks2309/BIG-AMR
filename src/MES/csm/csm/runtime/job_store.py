@@ -83,7 +83,7 @@ class JobStore:
     def create(self, from_station, to_station, priority=0, task_type=None,
                carries=Carried.ROLL, call_id=None, reason="",
                material_ref=None, attempt=1, retry_of=None,
-               requester=None):
+               requester=None, rotate=False):
         self._job_seq += 1
         now = self.clock()
         # THE ID IS THE WORKSHOP DECK'S NAME PLUS A COUNTER, so it explains
@@ -118,6 +118,7 @@ class JobStore:
             #: which therefore answers no call.
             call_id=call_id,
             material_ref=material_ref,
+            rotate=rotate,
             attempt=attempt,
             retry_of=retry_of,
         )

@@ -25,6 +25,7 @@ vendor for its minimum signal hold time. See debt-033.
 """
 
 from ...adapters.base import StationStatus, TaskType
+from ...material import attribute_matches, needs_rotation
 from ...job import Carried
 from ..fsm_task import FsmTask
 
@@ -124,7 +125,7 @@ class EquipmentMonitorTask(FsmTask):
         #: one is a supply problem upstream, the other is this line being full.
         self.at_ceiling = 0
 
-    def _claim_material(self, location, kind, at):
+    def _claim_material(self, location, kind, at, wants=None):
         """The material being collected from `location` — found, or minted.
 
         CLAIM BEFORE MINTING. Registering unconditionally would hand a roll a
@@ -151,18 +152,42 @@ class EquipmentMonitorTask(FsmTask):
           claimed the same material, because nothing recorded that the first
           one had taken it. Only one robot can carry it.
 
+        Returns `(material_ref, needs_turn)`. `needs_turn` is §1.3's escape
+        hatch: the face matched and the winding did not, and a 180° turn of the
+        pallet fixes it. It is decided HERE because this is the only moment
+        both halves are known — what we have and what the destination wants.
+
         Returns None only when there is nothing and nothing may be minted —
         never a reason to refuse the job. See ADR 2026-08-20, D5.
         """
         records = self.store.records
         taken = {r.job.material_ref for r in self.store.active
                  if r.job.material_ref}
-        for material in records.ready_materials(location, at):
-            if material.kind != kind:
-                continue
-            if material.material_ref in taken:
-                continue
-            return material.material_ref
+        available = [m for m in records.ready_materials(location, at)
+                     if m.kind == kind and m.material_ref not in taken]
+
+        # §1.3's MATCH, and the escape hatch that goes with it.
+        #
+        # The face must match; the winding need not, because a 180° turn of the
+        # pallet fixes it and that turn is a task. So candidates are tried in
+        # two passes: exact first, then rotatable. Preferring exact is not
+        # fussiness — a turn is a real task with a real cost, and taking the
+        # rotatable one while an exact one sits beside it buys nothing.
+        #
+        # With no requirement configured, `wants` is None and this falls
+        # through to the first available candidate — which is what the code did
+        # before and is still right for a station nobody has configured.
+        if wants is not None:
+            for m in available:
+                if attribute_matches(m.attribute, wants):
+                    if m.attribute is wants:
+                        return m.material_ref, False
+            for m in available:
+                if needs_rotation(m.attribute, wants):
+                    return m.material_ref, True
+
+        for material in available:
+            return material.material_ref, False
         # DESCRIBE IT AT BIRTH. A roll minted with a LOT id and nothing else
         # is a roll nobody can name, and CCS manual §1.3 refuses to feed a
         # machine from an area holding material whose type and attribute are
@@ -175,7 +200,9 @@ class EquipmentMonitorTask(FsmTask):
         described = self.profile.describe(location, kind) if self.profile else {}
         material = records.register_material(kind=kind, at=at,
                                              location=location, **described)
-        return material.material_ref
+        # Newly minted material is described by the station's own profile, so
+        # whether it needs turning is the same question asked of a fresh roll.
+        return material.material_ref, needs_rotation(material.attribute, wants)
 
     def _call_key(self, call):
         """Identity of a call across polls.
@@ -281,12 +308,19 @@ class EquipmentMonitorTask(FsmTask):
             # THE JOB NAMES WHAT IT IS CARRYING. Without this the material
             # moving through the plant has no identity, so B1-B4 answer
             # nothing and `move_material` on DONE never fires.
-            material_ref = self._claim_material(source, "roll",
-                                                self.store.clock())
+            # WHAT THE DESTINATION WANTS. §4.6.5 puts the required attribute
+            # in machine configuration and §1.3 reads it back before feeding.
+            # None where nothing is configured, which takes the first
+            # available candidate exactly as before.
+            wants = (self.profile.requires(call.station_id)
+                     if self.profile else None)
+            material_ref, turn = self._claim_material(
+                source, "roll", self.store.clock(), wants=wants)
             job = self.store.create(source, call.station_id,
                                     task_type=call.task_type,
                                     call_id=recorded.call_id,
                                     material_ref=material_ref,
+                                    rotate=turn,
                                     reason=f"nearest source that could supply "
                                            f"{call.station_id}")
             self.created += 1
@@ -423,8 +457,10 @@ class EquipmentMonitorTask(FsmTask):
         # An empty core is a tracked object in their model too — the return
         # flow is specified in pallets carrying DOUBLE empty bobbins (§1.2.2)
         # and `TrayStatus` tells them apart from material.
-        material_ref = self._claim_material(call.station_id, "bobbin",
-                                            self.store.clock())
+        # No `wants`: a bobbin is a bare core with no face, so there is
+        # nothing for §1.3 to match and nothing a turn could fix.
+        material_ref, _turn = self._claim_material(call.station_id, "bobbin",
+                                                   self.store.clock())
         job = self.store.create(call.station_id, destination,
                                 task_type=call.task_type,
                                 carries=Carried.BOBBIN,
@@ -497,7 +533,10 @@ class EquipmentMonitorTask(FsmTask):
                 # Through the same helper as every other path: a stranded roll
                 # that was already known keeps its identity instead of
                 # acquiring a second one.
-                material_ref = self._claim_material(source, "roll", now)
+                # No `wants`: a buffer rack holds material, it does not
+                # require a particular attribute. The turn is decided when the
+                # material later leaves for a machine.
+                material_ref, _turn = self._claim_material(source, "roll", now)
                 job = self.store.create(
                     source, port,
                     reason=f"every destination of segment {seg['name']} was "

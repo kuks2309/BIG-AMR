@@ -234,6 +234,10 @@ def _jobs(store):
             "priority": job.priority,
             "call_id": job.call_id,
             "material_ref": job.material_ref,
+            #: §1.3's escape hatch, decided when the material was chosen. Worth
+            #: seeing: it is the difference between a four-task order and a
+            #: five-task one, and the extra task is a robot turning on the spot.
+            "rotate": bool(getattr(job, "rotate", False)),
             "acs_order_id": job.acs_order_id,
             "created_at": job.created_at,
             "state_since": job.state_since,
