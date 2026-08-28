@@ -108,6 +108,62 @@ class Call:
     status: CallStatus = CallStatus.RAISED
 
 
+class RackMode(Enum):
+    """What CCS may do with a rack. CCS manual §2.2, the monitor screen icons.
+
+    THE RACK IS A STATEFUL OBJECT, not a bucket with a capacity. Every
+    selection rule in the manual asks about the rack before it asks about the
+    material on it: §1.3 wants "at least three auto-mode non-abnormal racks in
+    the loading area, at least one of them empty", and §1.2.1.1 rule 3 wants a
+    buffer rack "with no abnormality". Neither question can be asked of a
+    number.
+
+    Only AUTO is fully in the automatic flow. The others each mean a different
+    kind of "not now", and they are not interchangeable — a locked rack is
+    working and deliberately held back, an abnormal one is broken, and an
+    unavailable one is not there at all.
+    """
+
+    #: In the automatic flow. Everything else is an exclusion.
+    AUTO = "auto"
+    #: Operator handling only. A person may still put material here; CCS will
+    #: not move it.
+    MANUAL = "manual"
+    #: Grey icon — "locked in CCS, no automatic transport" (§2.2).
+    LOCKED = "locked"
+    #: A fault. See `holds_material`: an abnormal rack counts as holding
+    #: material even when it is empty.
+    ABNORMAL = "abnormal"
+    #: Yellow or red frame — "rack unavailable, CCS ignores it entirely".
+    UNAVAILABLE = "unavailable"
+
+
+class SlotStatus(Enum):
+    """What one slot is doing. CCS manual §2.2, the rack tile.
+
+    Separate from RackMode because they answer different questions: the mode is
+    about the RACK's availability to CCS, the status is about the MATERIAL on
+    one position. A perfectly healthy auto rack can hold a slot whose outbound
+    failed.
+    """
+
+    EMPTY = "empty"
+    #: Orange-red arrow — awaiting inbound. "If it persists, the material can
+    #: never ship", so it is worth being able to name.
+    AWAITING_INBOUND = "awaiting_inbound"
+    #: 待出库 — stocked, inventory normal. The ordinary resting state.
+    STOCKED = "stocked"
+    #: 已出库 — posted to a winding line, waiting for an AGV task. Committed to
+    #: a destination but not yet moving.
+    POSTED_OUT = "posted_out"
+    #: Yellow arrow — a task is executing on this slot.
+    IN_TASK = "in_task"
+    #: Red down arrow.
+    INBOUND_FAILED = "inbound_failed"
+    #: Red up arrow — "double-click for the reason".
+    OUTBOUND_FAILED = "outbound_failed"
+
+
 @dataclass
 class RackSlot:
     """One position on a WIP rack. Section 7's `rack_slot` record.
@@ -129,9 +185,38 @@ class RackSlot:
     parked_at: float = None
     retrieved_at: float = None
 
+    #: What is on the slot, recorded ON THE RACK rather than only on the
+    #: material. CCS manual §4.6.6: completing a task writes the material type,
+    #: attribute, bobbin type and roll number INTO THE TARGET RACK. The task is
+    #: the carrier of identity and delivery is what transfers it — so the rack
+    #: has to have somewhere to put it.
+    #:
+    #: §1.3 then reads it back: a machine may not be fed if a rack in its
+    #: loading area "already holds the required attribute", and a rack holding
+    #: material must have "both type and attribute recorded". A rack that
+    #: cannot answer those is excluded, which is why missing is None and not a
+    #: default.
+    material_type: str = None
+    material_attribute: object = None     # MaterialAttribute, 1-4
+    bobbin_type: int = None               # 360 / 430 / 500 / 580
+
+    status: SlotStatus = SlotStatus.EMPTY
+
     @property
     def occupied(self):
         return self.material_ref is not None and self.retrieved_at is None
+
+    @property
+    def described(self):
+        """Does this slot know what is on it? §1.3 asks before feeding.
+
+        Empty is not the same as undescribed: an empty slot has nothing to
+        describe, and a slot holding material with no recorded type or
+        attribute is the case the manual excludes.
+        """
+        if not self.occupied:
+            return True
+        return self.material_type is not None and self.material_attribute is not None
 
 
 @dataclass
@@ -515,12 +600,81 @@ class InMemoryRecords(Records):
         #: How many times a material was accepted without knowing whether it
         #: had rested. See `is_ready`.
         self.unrested_decisions = 0
+        #: Rack mode by name. Separate from `_racks` so that the slot list
+        #: stays a plain list and every existing reader of it keeps working.
+        self._rack_modes = {}
         for rack, size in (rack_sizes or {}).items():
             self.define_rack(rack, size)
 
-    def define_rack(self, rack, slots):
+    def define_rack(self, rack, slots, mode=RackMode.AUTO):
         self._racks[rack] = [RackSlot(rack=rack, slot=i)
                              for i in range(1, slots + 1)]
+        self._rack_modes[rack] = mode
+
+    # -- rack mode: what CCS may do with a rack (manual §2.2) -------------
+
+    def rack_mode(self, rack):
+        """A rack nobody has declared is AUTO. Racks arrive from configuration
+        already in service; a mode has to be set to take one OUT of service."""
+        return self._rack_modes.get(rack, RackMode.AUTO)
+
+    def set_rack_mode(self, rack, mode):
+        self._rack_modes[rack] = mode
+        return mode
+
+    def rack_usable(self, rack):
+        """May the AUTOMATIC flow use this rack at all?
+
+        Only AUTO. Note this is NOT what `park` asks — a person putting
+        material on a locked or manual rack is exactly what those modes are
+        for. This is the question the selection rules ask, and nothing else.
+        """
+        return self.rack_mode(rack) is RackMode.AUTO
+
+    def holds_material(self, rack):
+        """Does this rack count as holding material, for the line's quota?
+
+        AN ABNORMAL RACK COUNTS AS HOLDING MATERIAL EVEN WHEN IT IS EMPTY.
+        CCS manual §2.15: it counts as one task. Fail-safe — a broken rack
+        reduces the line's quota rather than being ignored, which is the
+        opposite of what an optimiser would do and is the right way round.
+        """
+        if self.rack_mode(rack) is RackMode.ABNORMAL:
+            return True
+        return any(s.occupied for s in self._racks.get(rack, []))
+
+    def racks_fit_to_feed(self, racks):
+        """The §1.3 loading-area test, over the racks of one machine.
+
+        ALL of these, and the manual states them together because any one of
+        them alone would let a machine be fed wrongly:
+
+          * at least three auto-mode, non-abnormal racks in the area
+          * at least one of them empty
+          * every rack holding material has its type AND attribute recorded
+          * no rack in the area has a task running
+          * no rack already holds the required attribute  <- the caller checks
+            this one, because only it knows what is required
+
+        Returns True if the area itself is fit. The attribute question needs
+        the machine's configuration and is asked by the caller.
+        """
+        usable = [r for r in racks if self.rack_usable(r)]
+        if len(usable) < 3:
+            return False
+        slots = [s for r in usable for s in self._racks.get(r, [])]
+        if not any(not s.occupied for s in slots):
+            return False
+        if not all(s.described for s in slots):
+            return False
+        if any(s.status is SlotStatus.IN_TASK for s in slots):
+            return False
+        return True
+
+    def holds_attribute(self, racks, attribute):
+        """Does any of these racks already hold that attribute? §1.3."""
+        return any(s.occupied and s.material_attribute == attribute
+                   for r in racks for s in self._racks.get(r, []))
 
     # -- calls -----------------------------------------------------------
 
@@ -575,15 +729,60 @@ class InMemoryRecords(Records):
 
     # -- rack slots ------------------------------------------------------
 
-    def park(self, rack, material_ref, job_id, at):
+    def park(self, rack, material_ref, job_id, at,
+             material_type=None, material_attribute=None, bobbin_type=None):
+        """Put material on the first free slot, and RECORD WHAT IT IS.
+
+        The three describing arguments are optional because the PDA path and
+        the equipment monitor both existed before the rack could hold them, and
+        a slot that does not know what it holds is a real state the manual has
+        a rule for (§1.3 excludes it from feeding). Unknown is therefore
+        modelled, not defaulted.
+
+        Deliberately NOT gated on `rack_usable`: a person may put material on a
+        locked or manual rack, and that is what those modes are for. The
+        automatic flow asks `rack_usable` before it gets here.
+        """
         for slot in self._racks.get(rack, []):
             if not slot.occupied:
                 slot.material_ref = material_ref
                 slot.parked_by_job = job_id
                 slot.parked_at = at
                 slot.retrieved_at = None
+                slot.material_type = material_type
+                slot.material_attribute = material_attribute
+                slot.bobbin_type = bobbin_type
+                slot.status = SlotStatus.STOCKED
                 return slot
         return None                      # full — the caller decides what that means
+
+    def describe_slot(self, rack, slot_no, material_type=None,
+                      material_attribute=None, bobbin_type=None):
+        """Write the carried identity into the rack. CCS manual §4.6.6.
+
+        This is what task COMPLETION does: "write the task's carried
+        information — material type, material attribute, bobbin type and roll
+        number — into the TARGET rack". Separate from `park` because the two
+        happen at different moments in the real system: the pallet is placed,
+        and the task then reports complete.
+        """
+        for s in self._racks.get(rack, []):
+            if s.slot == slot_no:
+                if material_type is not None:
+                    s.material_type = material_type
+                if material_attribute is not None:
+                    s.material_attribute = material_attribute
+                if bobbin_type is not None:
+                    s.bobbin_type = bobbin_type
+                return s
+        return None
+
+    def set_slot_status(self, rack, slot_no, status):
+        for s in self._racks.get(rack, []):
+            if s.slot == slot_no:
+                s.status = status
+                return s
+        return None
 
     def retrieve(self, rack, at, material_ref=None):
         """Oldest parked first, so FIFO falls out of the ordering.
@@ -597,6 +796,13 @@ class InMemoryRecords(Records):
             return None
         oldest = min(candidates, key=lambda s: s.parked_at)
         oldest.retrieved_at = at
+        # The slot is empty again, and an empty slot describes nothing. Leaving
+        # the old type and attribute behind would make `holds_attribute` answer
+        # about material that has gone.
+        oldest.material_type = None
+        oldest.material_attribute = None
+        oldest.bobbin_type = None
+        oldest.status = SlotStatus.EMPTY
         return oldest
 
     def slots(self, rack):

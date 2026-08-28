@@ -50,13 +50,31 @@ import sqlite3
 from .adapters.base import TaskType
 from .material import MaterialAttribute, MaterialState
 from .records import (Abnormal, Call, CallStatus, Decision, InMemoryRecords,
+                      RackMode, SlotStatus,
                       JobRecord, Location, LocationKind, Material,
                       MaterialMove, RackSlot, StationMap)
+
+def _attribute_from(text):
+    """A material attribute read back from the database.
+
+    Stored by NAME rather than by value, because the name is what a human
+    reading the file needs and the value is an integer that means nothing on
+    its own. Unknown names come back as the raw text rather than raising: a
+    store that refuses to open because of one unrecognised row is worse than
+    one that hands back what it found.
+    """
+    from .material import MaterialAttribute
+    try:
+        return MaterialAttribute[text]
+    except KeyError:
+        return text
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS racks (
     rack        TEXT PRIMARY KEY,
-    slot_count  INTEGER NOT NULL
+    slot_count  INTEGER NOT NULL,
+    mode        TEXT
 );
 CREATE TABLE IF NOT EXISTS calls (
     call_id         TEXT PRIMARY KEY,
@@ -80,12 +98,16 @@ CREATE TABLE IF NOT EXISTS decisions (
     reason         TEXT
 );
 CREATE TABLE IF NOT EXISTS rack_slots (
-    rack          TEXT NOT NULL,
-    slot          INTEGER NOT NULL,
-    material_ref  TEXT,
-    parked_by_job TEXT,
-    parked_at     REAL,
-    retrieved_at  REAL,
+    rack               TEXT NOT NULL,
+    slot               INTEGER NOT NULL,
+    material_ref       TEXT,
+    parked_by_job      TEXT,
+    parked_at          REAL,
+    retrieved_at       REAL,
+    material_type      TEXT,
+    material_attribute TEXT,
+    bobbin_type        INTEGER,
+    status             TEXT,
     PRIMARY KEY (rack, slot)
 );
 CREATE TABLE IF NOT EXISTS materials (
@@ -264,6 +286,8 @@ class SqliteRecords(InMemoryRecords):
         """
         for row in self.db.execute("SELECT * FROM racks"):
             existing = self._racks.get(row["rack"])
+            if row["mode"]:
+                self._rack_modes[row["rack"]] = RackMode(row["mode"])
             if existing is None or len(existing) != row["slot_count"]:
                 self._racks[row["rack"]] = [
                     RackSlot(rack=row["rack"], slot=i)
@@ -278,6 +302,13 @@ class SqliteRecords(InMemoryRecords):
             slot.parked_by_job = row["parked_by_job"]
             slot.parked_at = row["parked_at"]
             slot.retrieved_at = row["retrieved_at"]
+            slot.material_type = row["material_type"]
+            slot.bobbin_type = row["bobbin_type"]
+            if row["material_attribute"] is not None:
+                slot.material_attribute = _attribute_from(
+                    row["material_attribute"])
+            if row["status"]:
+                slot.status = SlotStatus(row["status"])
 
         for row in self.db.execute("SELECT * FROM calls"):
             self._calls[row["call_id"]] = Call(
@@ -402,10 +433,29 @@ class SqliteRecords(InMemoryRecords):
         # stop, is the wrong trade.
         self.db.commit()
 
-    def define_rack(self, rack, slots):
-        result = super().define_rack(rack, slots)
-        self._write("INSERT OR REPLACE INTO racks (rack, slot_count) "
-                    "VALUES (?, ?)", (rack, slots))
+    def define_rack(self, rack, slots, mode=RackMode.AUTO):
+        result = super().define_rack(rack, slots, mode)
+        # UPSERT THAT LEAVES THE MODE ALONE. The base constructor calls this
+        # for every configured rack BEFORE `_load` reads the file back, so an
+        # INSERT OR REPLACE here would write AUTO over a rack somebody had
+        # marked abnormal, and `_load` would then read its own clobbered row.
+        # A broken rack would come back in service after a restart, which is
+        # the one thing a persistent store exists to prevent.
+        #
+        # Slot count still follows configuration — that is the existing rule
+        # a few lines up in `_load`, and resizing a rack is deliberate.
+        self._write("INSERT INTO racks (rack, slot_count, mode) "
+                    "VALUES (?, ?, ?) ON CONFLICT(rack) DO UPDATE SET "
+                    "slot_count = excluded.slot_count",
+                    (rack, slots, mode.value))
+        return result
+
+    def set_rack_mode(self, rack, mode):
+        """A rack taken out of service MUST stay out of service across a
+        restart. An abnormal rack that came back as AUTO would be fed."""
+        result = super().set_rack_mode(rack, mode)
+        self._write("UPDATE racks SET mode = ? WHERE rack = ?",
+                    (mode.value, rack))
         return result
 
     # -- calls ------------------------------------------------------------
@@ -447,15 +497,35 @@ class SqliteRecords(InMemoryRecords):
     # -- rack slots -------------------------------------------------------
 
     def _save_slot(self, slot):
+        attribute = getattr(slot.material_attribute, "name",
+                            slot.material_attribute)
         self._write(
             "INSERT OR REPLACE INTO rack_slots (rack, slot, material_ref, "
-            "parked_by_job, parked_at, retrieved_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "parked_by_job, parked_at, retrieved_at, material_type, "
+            "material_attribute, bobbin_type, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (slot.rack, slot.slot, slot.material_ref, slot.parked_by_job,
-             slot.parked_at, slot.retrieved_at))
+             slot.parked_at, slot.retrieved_at, slot.material_type,
+             None if attribute is None else str(attribute), slot.bobbin_type,
+             slot.status.value))
         return slot
 
-    def park(self, rack, material_ref, job_id, at):
-        slot = super().park(rack, material_ref, job_id, at)
+    def park(self, rack, material_ref, job_id, at,
+             material_type=None, material_attribute=None, bobbin_type=None):
+        slot = super().park(rack, material_ref, job_id, at, material_type,
+                            material_attribute, bobbin_type)
+        return self._save_slot(slot) if slot else None
+
+    def describe_slot(self, rack, slot_no, material_type=None,
+                      material_attribute=None, bobbin_type=None):
+        """§4.6.6's identity transfer has to survive a restart — it IS the
+        record of what is on the rack."""
+        slot = super().describe_slot(rack, slot_no, material_type,
+                                     material_attribute, bobbin_type)
+        return self._save_slot(slot) if slot else None
+
+    def set_slot_status(self, rack, slot_no, status):
+        slot = super().set_slot_status(rack, slot_no, status)
         return self._save_slot(slot) if slot else None
 
     def retrieve(self, rack, at, material_ref=None):

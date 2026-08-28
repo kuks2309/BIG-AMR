@@ -163,11 +163,18 @@ def _from_memory(records, limit):
                 "job_id", "note"],
                [[m.material_ref, m.seq, _cell(m.at), m.from_location,
                  m.to_location, m.job_id, m.note] for m in moves], limit),
+        # The four describing columns are what CCS manual §4.6.6 writes into
+        # the target rack on completion, and what §1.3 reads back before it
+        # will feed a machine. Column order matches the SQLite schema so the
+        # two backends stay comparable.
         _table("rack_slots",
                ["rack", "slot", "material_ref", "parked_by_job", "parked_at",
-                "retrieved_at"],
+                "retrieved_at", "material_type", "material_attribute",
+                "bobbin_type", "status"],
                [[s.rack, s.slot, s.material_ref, s.parked_by_job,
-                 _cell(s.parked_at), _cell(s.retrieved_at)] for s in slots],
+                 _cell(s.parked_at), _cell(s.retrieved_at), s.material_type,
+                 getattr(s.material_attribute, "name", s.material_attribute),
+                 s.bobbin_type, s.status.value] for s in slots],
                limit),
         _table("stations",
                ["our_name", "instance", "customer_port_id"],
