@@ -303,6 +303,14 @@ class Material:
     #: "never expires".
     expires_at: float = None
 
+    #: A PERSON decided this expired material may be used after all. CCS
+    #: manual §4.6.11: expired material "will not be posted automatically and
+    #: needs a manual unlock". Held as who and when rather than a bare flag,
+    #: because the manual makes it a decision somebody took and a decision
+    #: with nobody's name on it is one nobody can be asked about.
+    unlocked_by: str = None
+    unlocked_at: float = None
+
     # -- what the routing rules read (see `csm/material.py`) ----------------
     #
     # NOT master data, which is why they are here despite the docstring above.
@@ -969,10 +977,45 @@ class InMemoryRecords(Records):
             return True
         return now >= material.ready_at
 
+    def is_expired(self, material_ref, now):
+        """Past its own expiry, and nobody has unlocked it. §4.6.11.
+
+        Unknown expiry is NOT expired. The same reasoning as `is_ready`'s
+        unknown-counts-as-ready: refusing material nobody has given us a
+        lifetime for would stop a line on our own assumption. Where `is_ready`
+        counts its blind decisions, this one has nothing to count — there is
+        no exposure in declining to expire something.
+        """
+        material = self._materials.get(material_ref)
+        if material is None or material.expires_at is None:
+            return False
+        if material.unlocked_by is not None:
+            return False
+        return now >= material.expires_at
+
+    def unlock_expired(self, material_ref, by, at):
+        """A person allows expired material to be used. §4.6.11.
+
+        Takes who and when because the manual makes this a human decision, and
+        a decision with nobody's name on it is one nobody can be asked about.
+        """
+        material = self._materials.get(material_ref)
+        if material is None:
+            return None
+        material.unlocked_by = by
+        material.unlocked_at = at
+        return material
+
     def ready_materials(self, location, now):
-        """What is at this place and may be used, oldest first — FIFO."""
+        """What is at this place and may be used, oldest first — FIFO.
+
+        Two gates, and they are opposite ends of the same axis: `is_ready` is
+        a MINIMUM age (curing, §4.6.12) and `is_expired` a MAXIMUM (§4.6.11).
+        Material must have rested long enough and not sat too long.
+        """
         here = [m for m in self.materials_at(location)
-                if self.is_ready(m.material_ref, now)]
+                if self.is_ready(m.material_ref, now)
+                and not self.is_expired(m.material_ref, now)]
         return sorted(here, key=lambda m: m.created_at)
 
     def expiring_first(self, location, now):
@@ -983,7 +1026,8 @@ class InMemoryRecords(Records):
         it should, rather than inventing an order out of missing data.
         """
         here = [m for m in self.materials_at(location)
-                if self.is_ready(m.material_ref, now)]
+                if self.is_ready(m.material_ref, now)
+                and not self.is_expired(m.material_ref, now)]
         return sorted(here, key=lambda m: (m.expires_at is None,
                                            m.expires_at or 0.0,
                                            m.created_at))

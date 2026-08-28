@@ -123,7 +123,9 @@ CREATE TABLE IF NOT EXISTS materials (
     material_type INTEGER,
     state         TEXT,
     cure_started_at REAL,
-    cure_seconds    REAL
+    cure_seconds    REAL,
+    unlocked_by     TEXT,
+    unlocked_at     REAL
 );
 CREATE TABLE IF NOT EXISTS material_moves (
     material_ref  TEXT NOT NULL,
@@ -220,6 +222,10 @@ LATE_COLUMNS = {
         # surviving is exactly what this table is for.
         ("cure_started_at", "REAL"),
         ("cure_seconds", "REAL"),
+        # Who allowed expired material to be used, and when. A decision that
+        # did not survive a restart would be taken again every restart.
+        ("unlocked_by", "TEXT"),
+        ("unlocked_at", "REAL"),
     ),
     "racks": (
         # RackMode, by value. An old database comes back with mode NULL, which
@@ -358,6 +364,8 @@ class SqliteRecords(InMemoryRecords):
                 location=row["location"], ready_at=row["ready_at"],
                 cure_started_at=row["cure_started_at"],
                 cure_seconds=row["cure_seconds"],
+                unlocked_by=row["unlocked_by"],
+                unlocked_at=row["unlocked_at"],
                 expires_at=row["expires_at"],
                 attribute=_enum_by_name(MaterialAttribute, row["attribute"]),
                 drum_type=row["drum_type"],
@@ -562,14 +570,15 @@ class SqliteRecords(InMemoryRecords):
             "INSERT OR REPLACE INTO materials (material_ref, lot_id, kind, "
             "created_at, location, ready_at, expires_at, attribute, "
             "drum_type, material_type, state, cure_started_at, "
-            "cure_seconds) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "cure_seconds, unlocked_by, unlocked_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (material.material_ref, material.lot_id, material.kind,
              material.created_at, material.location, material.ready_at,
              material.expires_at, _enum_name(material.attribute),
              material.drum_type, material.material_type,
              _enum_name(material.state), material.cure_started_at,
-             material.cure_seconds))
+             material.cure_seconds, material.unlocked_by,
+             material.unlocked_at))
         return material
 
     def _save_move(self, move):
@@ -610,6 +619,12 @@ class SqliteRecords(InMemoryRecords):
         """The elapsed time MUST survive a power cut ([HB] §3), which is the
         only reason the clock is a recorded start rather than a timer."""
         material = super().begin_curing(material_ref, at, seconds)
+        return self._save_material(material) if material else None
+
+    def unlock_expired(self, material_ref, by, at):
+        """A person's decision must survive a restart, or it is taken again
+        every restart — and the material expires again in front of them."""
+        material = super().unlock_expired(material_ref, by, at)
         return self._save_material(material) if material else None
 
     def set_ready_at(self, material_ref, when):

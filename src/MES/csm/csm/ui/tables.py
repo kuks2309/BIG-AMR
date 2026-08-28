@@ -155,12 +155,14 @@ def _from_memory(records, limit):
         _table("materials",
                ["material_ref", "lot_id", "kind", "created_at", "location",
                 "ready_at", "expires_at", "attribute", "drum_type",
-                "material_type", "state", "cure_started_at", "cure_seconds"],
+                "material_type", "state", "cure_started_at", "cure_seconds",
+                "unlocked_by", "unlocked_at"],
                [[m.material_ref, m.lot_id, m.kind, _cell(m.created_at),
                  m.location, _cell(m.ready_at), _cell(m.expires_at),
                  getattr(m.attribute, "name", m.attribute), m.drum_type,
                  m.material_type, getattr(m.state, "name", m.state),
-                 _cell(m.cure_started_at), m.cure_seconds]
+                 _cell(m.cure_started_at), m.cure_seconds,
+                 m.unlocked_by, _cell(m.unlocked_at)]
                 for m in materials], limit),
         _table("material_moves",
                ["material_ref", "seq", "at", "from_location", "to_location",
