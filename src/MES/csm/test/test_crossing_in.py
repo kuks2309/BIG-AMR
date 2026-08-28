@@ -669,3 +669,82 @@ def test_the_turn_hold_reaches_only_as_far_as_the_sweep():
     assert SimRobot.TURN_ROOM < HOLD_RADIUS
     assert 4.0 > SimRobot.TURN_ROOM
     assert far._held_for_a_leaver() is False
+
+
+# ------------------------- the 2026-08-28 CTR2_LD deadlock, and its cause
+
+def test_a_stopped_robot_does_not_claim_to_be_turning():
+    """MEASURED. `_note_turning` reads the heading error alone, so a robot
+    stopped by any OTHER rule while pointing the wrong way went on claiming a
+    turn it was not making — and a claimed turn holds everything within
+    TURN_ROOM.
+
+        amr8 stopped by the 3 m rule because amr9 is in front
+          -> still 93 deg off its goal, so it claims to be turning
+            -> amr9 is 1.69 m away, inside the 2.14 m sweep, so it is held
+              -> amr9 never moves, so amr8's path never clears
+
+    Both robots moved 3 cm in twenty seconds while 45 jobs finished elsewhere.
+    """
+    x = plant.DOCKS["CTR2_LD"][0]
+    turner_ = robot("amr8", x - 0.08, plant.AISLE_S_OUT + 0.11, math.pi)
+    turner_._goal = plant.JOINS_INNER["CTR2_LD"]
+    turner_._waypoints = [turner_._goal, (x - 4.0, plant.AISLE_S_IN)]
+    turner_._active_job = object()
+    turner_._leg, turner_._to = "deliver", "SLT_LD3"
+    turner_.crab_window = 0.5
+    together(turner_)
+
+    turner_._note_turning()
+    assert turner_._turning is True, "the geometry that produced the deadlock"
+
+    turner_._stop("3 m rule: amr9 is in front")
+
+    assert turner_._turning is False, \
+        "a robot that has been told to stand still is not turning"
+    assert turner_._pausing is False, "and so it holds nobody"
+
+
+def test_the_robot_in_front_is_released_once_the_turner_stops():
+    """The other end of the same cycle: with the turn claim gone, the robot
+    the turner is waiting for is free to drive away, which is the only thing
+    that can clear the turner's path."""
+    x = plant.DOCKS["CTR2_LD"][0]
+    turner_ = robot("amr8", x - 0.08, plant.AISLE_S_OUT + 0.11, math.pi)
+    turner_._goal = plant.JOINS_INNER["CTR2_LD"]
+    # Two waypoints, or `_final_leg` is true and the turn is pinned — which is
+    # correct behaviour and not the case under test.
+    turner_._waypoints = [turner_._goal, (x - 4.0, plant.AISLE_S_IN)]
+    turner_._active_job = object()
+    turner_._leg, turner_._to = "deliver", "SLT_LD3"
+    turner_.crab_window = 0.5
+    ahead = robot("amr9", x - 0.28, plant.AISLE_S_IN - 0.01, math.pi)
+    ahead._goal = (x - 4.3, plant.AISLE_S_IN)
+    together(turner_, ahead)
+
+    turner_._note_turning()
+    assert ahead._held_for_a_leaver() is True, "inside the sweep, so held"
+
+    turner_._stop("3 m rule: amr9 is in front")
+
+    assert ahead._held_for_a_leaver() is False, "the deadlock never breaks"
+
+
+def test_a_robot_that_really_is_turning_still_holds_the_road():
+    """The fix must not delete the rule. A turner that is actually turning —
+    not stopped — still sweeps 0.918 m and still needs the room."""
+    x = plant.DOCKS["CTR2_LD"][0]
+    turner_ = robot("amr8", x, plant.AISLE_S_IN, math.pi / 2)
+    turner_._goal = (x + 4.3, plant.AISLE_S_IN)
+    turner_._waypoints = [turner_._goal, (x + 8.0, plant.AISLE_S_IN)]
+    turner_._active_job = object()
+    turner_._leg, turner_._to = "deliver", "SLT_LD3"
+    turner_.crab_window = 0.5
+    near = robot("amr9", x + 1.5, plant.AISLE_S_IN)
+    near._goal = (x + 6.0, plant.AISLE_S_IN)
+    together(turner_, near)
+
+    turner_._note_turning()
+
+    assert turner_._turning is True
+    assert near._held_for_a_leaver() is True

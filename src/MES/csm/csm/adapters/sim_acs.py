@@ -1271,6 +1271,20 @@ class SimRobot:
 
         # THE HALT REASON IS THIS CYCLE'S, OR IT IS NOTHING.
         #
+        # It recorded the last rule that ever stopped this robot and was never
+        # cleared, so a robot that is DRIVING carries the reason it stopped
+        # minutes ago. Twice now that has turned a diagnosis into a guess: once
+        # when six robots displayed "holding" and two were actually held, and
+        # again on 2026-08-28 when it was impossible to tell a genuinely stuck
+        # robot from one driving into a paused world.
+        #
+        # Cleared here and set by whichever rule stops the robot later in the
+        # same cycle, so an empty reason means "nothing is stopping it" — which
+        # is a fact worth being able to read.
+        self._halt_reason = None
+
+        # THE HALT REASON IS THIS CYCLE'S, OR IT IS NOTHING.
+        #
         # It recorded the last rule that ever stopped the robot and was never
         # cleared, so a robot that had been held once went on displaying
         # "holding — a robot is coming out of a dock" for the rest of the run,
@@ -2500,6 +2514,26 @@ class SimRobot:
         stuck" into "it is stuck because".
         """
         self._halt_reason = why
+        # A STOPPED ROBOT IS NOT TURNING, whatever its heading error says.
+        #
+        # `_note_turning` reads the heading error alone, so a robot stopped by
+        # ANY other rule while pointing the wrong way went on claiming a turn
+        # it was not making — and a claimed turn holds everything within
+        # TURN_ROOM. That closes a circle:
+        #
+        #   amr8 stopped by the 3 m rule because amr9 is in front
+        #     -> amr8 still 93 deg off its goal, so it claims to be turning
+        #       -> amr9 is 1.69 m away, inside the 2.14 m sweep, so it is held
+        #         -> amr9 never moves, so amr8's path never clears
+        #
+        # Measured 2026-08-28 at the CTR2_LD spur: both robots moved 3 cm in
+        # twenty seconds while 45 jobs finished elsewhere in the plant.
+        #
+        # The honest rule is the simple one: you are turning only while you are
+        # actually turning. Cleared here rather than in `_note_turning` because
+        # this is the one place that knows the robot is not moving, and every
+        # rule that stops a robot comes through it.
+        self._turning = False
         self.pub_cmd.publish(Twist())
 
 
@@ -2942,8 +2976,14 @@ class SimAcs(AcsAdapter):
                 # sessions of guessing.
                 "crossing": (round(r._crossing()[1], 2)
                              if r._crossing() is not None else None),
+                # A TURNING ROBOT HOLDS THE ROAD TOO (`_pausing` is
+                # out-or-in-or-turning), so leaving it out of this field made a
+                # robot that was holding its neighbours look like one that was
+                # not — which is exactly the question this field exists to
+                # answer. Cost a diagnosis on 2026-08-28.
                 "pausing": ("out" if r._pausing_out else
-                            "in" if r._pausing_in else None),
+                            "in" if r._pausing_in else
+                            "turn" if r._turning else None),
                 "battery": round(r.battery, 1),
                 "charging_to": r._charging_to,
                 # Who it is negotiating with, and which side it is on. Absent
@@ -3058,7 +3098,11 @@ class SimAcs(AcsAdapter):
                  "post_task": t.post_task.value,
                  "in_flight": t.in_flight,
                  "may_cancel": t.may_cancel(),
-                 "ageing": t.ageing(now).value,
+                 # Only while it is still running. A task that has arrived
+                 # and closed is not silent, it is finished — reporting 预警
+                 # against it says the opposite of what it means.
+                 "ageing": (t.ageing(now).value if t.in_flight
+                            else Ageing.NORMAL.value),
                  "from": t.from_rack, "to": t.to_rack}
                 for t in self._tasks.values()]
 
