@@ -11,6 +11,12 @@ log/
 # 벤더 참조 자료 (독점·대용량, 공개 저장소 제외)
 References/
 
+# Work products derived from that customer material. They carry the CATL CCS
+# manual's own state names, section numbers, selection algorithms and parameter
+# names, so they belong outside a public repository for the same reason
+# References/ does. Shared by email instead.
+docs/job_model/
+
 # Claude Code 로컬 설정
 .claude/
 
