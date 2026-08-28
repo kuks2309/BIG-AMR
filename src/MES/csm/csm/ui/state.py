@@ -45,6 +45,7 @@ def collect(node):
     return {
         "plant": _plant(),
         "fleet": _fleet(node, store),
+        "tasks": _tasks(node),
         "jobs": _jobs(store),
         "calls": _calls(store),
         "materials": _materials(store),
@@ -183,6 +184,20 @@ def _payload(store, row):
         "attribute": getattr(getattr(m, "attribute", None), "value", None),
         "material_type": m.material_type,
     }
+
+
+def _tasks(node):
+    """The manual's task records — §2.3's four states and the post-task.
+
+    Separate from `jobs` because they answer different questions: a job is the
+    CSM's "did the work happen", a task is the ACS's "where is the vehicle in
+    this one transport". The manual keeps them apart and the view has to as
+    well, or the state that decides whether a cancel is legal is invisible.
+    """
+    acs = getattr(node, "acs", None)
+    if acs is None or not hasattr(acs, "task_status"):
+        return []
+    return _safe(acs.task_status, []) or []
 
 
 def _fleet(node, store=None):

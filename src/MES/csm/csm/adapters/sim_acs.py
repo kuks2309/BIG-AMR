@@ -35,6 +35,7 @@ from sensor_msgs.msg import JointState, LaserScan
 
 from . import docking, roads
 from .. import plant
+from ..transport_task import Ageing, TaskState, TransportTask
 from .base import (AcsAdapter, SimpleResponse, TaskKind, TransportResult,
                    build_order, classify_error_code)
 
@@ -2607,6 +2608,16 @@ class SimAcs(AcsAdapter):
             r.on_finished = self._on_robot_finished
             r.fleet = self
         self._results = {}
+        #: THE MANUAL'S TASK RECORD, one per transport. CCS manual §2.3 and
+        #: §4.6.6. Kept beside `_results` rather than inside it because they
+        #: answer different questions: `_results` is the CSM's "did the job
+        #: succeed", this is the ACS's "where is the vehicle in this one
+        #: transport, right now" — and three of the manual's rules can only be
+        #: stated with the second (see `transport_task`).
+        self._tasks = {}
+        #: The ageing level each task has already been reported at, so a
+        #: silent task is announced once per level and not four times a second.
+        self._aged = {}
         #: station_id -> robot holding it. One robot per bay.
         self._occupied = {}
         #: robot name -> the charging slot it holds. Five plugs, ten robots,
@@ -2884,7 +2895,22 @@ class SimAcs(AcsAdapter):
             return TransportResult.BUSY
 
         self._results[job.job_id] = TransportResult.IN_PROGRESS
+
+        # 中控已下发 — the task exists and a vehicle is about to be named.
+        # Created BEFORE `accept` so the DISPATCHED state is real rather than
+        # a state the code passes through too fast to observe.
+        now = self._now()
+        task = TransportTask(task_id=job.job_id,
+                             from_rack=job.from_station,
+                             to_rack=job.to_station,
+                             dispatched_at=now, last_report_at=now,
+                             material_ref=getattr(job, "material_ref", None))
+        self._tasks[job.job_id] = task
+
         robot.accept(job)
+        # 开始执行 — and the vehicle number appears at this step, which is
+        # exactly what §4.6.6 ② says and why it is set here and not earlier.
+        task.assign(robot.name, now)
         return TransportResult.ACCEPTED
 
     def fleet_status(self):
@@ -2928,6 +2954,28 @@ class SimAcs(AcsAdapter):
         return self._results.get(job_id, TransportResult.UNKNOWN)
 
     def cancel_job(self, job_id):
+        """CCS manual §5.12 — CANCELLATION IS STATE-DEPENDENT.
+
+        Legal while the task is 中控已下发 or 开始执行, because the vehicle has
+        not reached the source. REFUSED once 已装载: 取消的话 AGV 停在半路 —
+        the AGV would stop in the middle of the route holding a pallet.
+        Pointless once 已送达, and refused for that reason instead.
+
+        Returns False on refusal rather than raising. A refusal is the rule
+        working, and the caller has to hear it — the old version returned True
+        unconditionally, so a cancel at any moment reported success and
+        stranded a loaded robot.
+        """
+        task = self._tasks.get(job_id)
+        if task is not None and not task.may_cancel():
+            self.node.get_logger().warn(
+                f"{job_id}: cancel refused — task is {task.state.value}"
+                + (" (the AGV is loaded and would stop mid-route)"
+                   if task.state is TaskState.LOADED else ""))
+            return False
+
+        if task is not None:
+            task.cancel(self._now())
         for r in self.robots:
             if r._active_job == job_id:
                 r._finish(job_id, TransportResult.FAILED)
@@ -2936,11 +2984,82 @@ class SimAcs(AcsAdapter):
 
     # ------------------------------------------------------------ driving
 
+    def _now(self):
+        return self.node.get_clock().now().nanoseconds * 1e-9
+
     def drive(self):
         """One control cycle for every robot."""
         for r in self.robots:
             r.drive()
+        self._follow_tasks()
         self._log_state()
+
+    def _follow_tasks(self):
+        """Move each task through the manual's four states, from what the
+        vehicles are actually doing. CCS manual §4.6.6 ③ and ④.
+
+        Driven from the robot rather than announced by it: the vehicle layer
+        already knows it has loaded (`_loaded`) and already knows when its job
+        ends, and asking is one place where inventing an event stream would be
+        two places that can disagree.
+
+        A state is only ever advanced, never rewound. A robot that has put its
+        load down and picked up another is a NEW task with a new id — the old
+        one arrived, and no report can un-arrive it.
+        """
+        now = self._now()
+        for robot in self.robots:
+            task = self._tasks.get(robot._active_job)
+            if task is None:
+                continue
+            if robot._loaded and task.state is TaskState.EXECUTING:
+                task.loaded(now)                       # 已装载
+        for job_id, task in self._tasks.items():
+            # `TransportResult.ARRIVED` is the ACS's own success value and it
+            # already means what §4.6.6 ④ means — the pallet is placed at the
+            # target. The two vocabularies agreeing here is luck, but it is
+            # worth not translating what does not need translating.
+            if (self._results.get(job_id) is TransportResult.ARRIVED
+                    and task.state is not TaskState.ARRIVED):
+                task.arrived(now)                      # 已送达
+
+        # §2.3's ageing, said ONCE per task per level. A task that stops
+        # reporting is the failure the manual's whole troubleshooting section
+        # is about (§5.8-5.11 are four sections named after four states a task
+        # gets stuck in), and it is invisible in a log that only prints
+        # transitions — the whole point is that nothing is happening.
+        for task in self._tasks.values():
+            if not task.in_flight:
+                continue
+            level = task.ageing(now)
+            if level is Ageing.NORMAL or level is self._aged.get(task.task_id):
+                continue
+            self._aged[task.task_id] = level
+            silent = now - task.last_report_at
+            say = (self.node.get_logger().warn if level is Ageing.ABNORMAL
+                   else self.node.get_logger().info)
+            say(f"{task.task_id}: {level.value} — {silent:.0f}s with no status "
+                f"update, task is {task.state.value}"
+                + (f" on {task.vehicle}" if task.vehicle else ""))
+
+    def task(self, job_id):
+        """The manual's task record for one transport, or None."""
+        return self._tasks.get(job_id)
+
+    def task_status(self):
+        """One row per transport, for the view. §2.3's ageing is computed
+        here rather than stored, because it is a function of the clock and a
+        stored copy would be wrong the moment nobody looked at it."""
+        now = self._now()
+        return [{"task_id": t.task_id,
+                 "state": t.state.value,
+                 "vehicle": t.vehicle,
+                 "post_task": t.post_task.value,
+                 "in_flight": t.in_flight,
+                 "may_cancel": t.may_cancel(),
+                 "ageing": t.ageing(now).value,
+                 "from": t.from_rack, "to": t.to_rack}
+                for t in self._tasks.values()]
 
     def _log_state(self, period=2.0):
         """Print what every robot is doing, at a readable rate.
