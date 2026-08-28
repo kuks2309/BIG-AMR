@@ -149,14 +149,18 @@ def _from_memory(records, limit):
         # The four routing fields sit at the end, in the order the SQLite
         # schema declares them — the two backends must present the same table
         # or moving from memory to a database looks like the data changed.
+        # The curing clock is on the row on purpose: "why has this not been
+        # fed yet" is the question an operator asks, and a start plus a
+        # duration answers it where a deadline alone does not.
         _table("materials",
                ["material_ref", "lot_id", "kind", "created_at", "location",
                 "ready_at", "expires_at", "attribute", "drum_type",
-                "material_type", "state"],
+                "material_type", "state", "cure_started_at", "cure_seconds"],
                [[m.material_ref, m.lot_id, m.kind, _cell(m.created_at),
                  m.location, _cell(m.ready_at), _cell(m.expires_at),
                  getattr(m.attribute, "name", m.attribute), m.drum_type,
-                 m.material_type, getattr(m.state, "name", m.state)]
+                 m.material_type, getattr(m.state, "name", m.state),
+                 _cell(m.cure_started_at), m.cure_seconds]
                 for m in materials], limit),
         _table("material_moves",
                ["material_ref", "seq", "at", "from_location", "to_location",

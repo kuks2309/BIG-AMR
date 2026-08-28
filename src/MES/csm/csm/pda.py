@@ -160,8 +160,20 @@ class Pda:
                                             "attribute and bobbin type are "
                                             "required before inbound")
         now = self.store.clock()
-        slot = self.store.records.park(rack, material_ref=material_ref,
-                                       job_id=None, at=now)
+        # THE SUPPLEMENT GOES ONTO THE RACK, not only onto the material.
+        #
+        # This method already refuses to proceed without material type,
+        # attribute and bobbin type, so it holds precisely what CCS manual
+        # §4.6.6 says the target rack must record — and §1.3 later refuses to
+        # feed a machine from an area holding material it cannot name. Writing
+        # it to the material and not to the rack was how a rack ended up
+        # blocking its own machine over a roll a person had already described.
+        known = self.store.records.material(material_ref)
+        slot = self.store.records.park(
+            rack, material_ref=material_ref, job_id=None, at=now,
+            material_type=getattr(known, "material_type", None),
+            material_attribute=getattr(known, "attribute", None),
+            bobbin_type=getattr(known, "drum_type", None))
         if slot is None:
             return Inbound(ok=False, reason=f"{rack} is full")
         self.store.records.move_material(material_ref, rack, at=now,

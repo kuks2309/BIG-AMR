@@ -60,6 +60,11 @@ class EquipmentMonitorTask(FsmTask):
         #: Segments to run the diversion scan over. None disables it, which is
         #: the default so that every existing caller behaves exactly as before.
         self.divert_for = None
+        #: `curing.CuringPolicy`, or None for a line that does not cure.
+        #: Left None by default because CCS manual §4.6.12 says resting is a
+        #: non-standard feature normally set to 0 — so no policy is the
+        #: shipped behaviour, and a policy is something somebody configures.
+        self.curing = None
 
         #: callable(station_id) -> where that station's EMPTY BOBBIN goes, or
         #: None if it does not hand one back. Injected for the same reason
@@ -451,8 +456,16 @@ class EquipmentMonitorTask(FsmTask):
                 # Somewhere real to put it? Then this is not stranded.
                 if any(self._can_accept(d) for d in seg["to"]):
                     continue
+                # A RACK OUT OF SERVICE IS NOT SOMEWHERE TO PUT ANYTHING.
+                # CCS manual §1.2.1.1 rule 3 requires the buffer rack to have
+                # "no abnormality", and §2.2 has four separate ways a rack can
+                # be unavailable to the automatic flow. `_can_accept` asks the
+                # equipment whether the port is physically free; this asks
+                # whether CCS is allowed to use it, which is a different
+                # question and was not being asked at all.
                 port = next((b for b in seg["buffer"]
                              if self._can_accept(b)
+                             and self.store.records.rack_usable(b)
                              and not self.store.station_claimed(b)), None)
                 if port is None:
                     continue                      # rack full too — nothing to do
@@ -476,9 +489,31 @@ class EquipmentMonitorTask(FsmTask):
                     reason=f"every destination of segment {seg['name']} was "
                            f"full",
                     material_ref=material_ref)
-                self.store.records.park(port,
-                                        material_ref=material_ref,
-                                        job_id=job.job.job_id, at=now)
+                # WHAT THE RACK NOW HOLDS. CCS manual §4.6.6: completing a
+                # task writes the carried material type, attribute and bobbin
+                # type into the target rack. §1.3 then reads it back and
+                # refuses to feed a machine from an area holding material it
+                # cannot name — so a rack that does not record this is a rack
+                # that quietly blocks its own machine.
+                known = self.store.records.material(material_ref)
+                self.store.records.park(
+                    port, material_ref=material_ref,
+                    job_id=job.job.job_id, at=now,
+                    material_type=getattr(known, "material_type", None),
+                    material_attribute=getattr(known, "attribute", None),
+                    bobbin_type=getattr(known, "drum_type", None))
+
+                # AND THE CURING CLOCK STARTS HERE, if this place cures.
+                #
+                # `begin_curing` is idempotent, which is the whole reason it
+                # can be called from a divert: [HB] §3 says material routed
+                # elsewhere "must not cure twice", and a roll that arrives here
+                # having already rested somewhere else keeps its original
+                # start. Calling it is therefore always safe; not calling it is
+                # what loses the obligation.
+                seconds = self.curing.seconds_for(port) if self.curing else None
+                if seconds:
+                    self.store.records.begin_curing(material_ref, now, seconds)
                 self.diverted += 1
                 self.store.logger(
                     f"[{source}] all destinations full — diverted to {port}")

@@ -286,6 +286,19 @@ class Material:
     #: customer open decision #6, "who owns curing elapsed time".
     ready_at: float = None
 
+    #: WHEN THE CURING CLOCK STARTED, and how long it has to run. Recorded as
+    #: a start plus a duration rather than a deadline, because [HB] §3 requires
+    #: the ELAPSED time to survive a power cut and requires that material moved
+    #: to another rack MUST NOT CURE TWICE. A deadline cannot express either:
+    #: it has no memory of when it began, so a second placement recomputes it
+    #: and the material rests twice.
+    #:
+    #: `ready_at` is kept beside these and stays the authority when it is set
+    #: directly — somebody telling us a deadline outright is a different and
+    #: equally valid input, and it is the one the PDA path already uses.
+    cure_started_at: float = None
+    cure_seconds: float = None
+
     #: When it expires, for FEFO. None means unknown, and unknown is not
     #: "never expires".
     expires_at: float = None
@@ -896,6 +909,36 @@ class InMemoryRecords(Records):
             material.ready_at = when
         return material
 
+    def begin_curing(self, material_ref, at, seconds):
+        """Start the curing clock. IDEMPOTENT, and that is the whole point.
+
+        [HB] §3: "If the destination rack is full, the item is routed elsewhere
+        and cures there — and MUST NOT CURE TWICE." So the second call does not
+        restart the clock; it returns the material with the original start
+        intact. Getting this wrong costs six hours per affected roll, silently,
+        and only shows up as a line that is mysteriously slow.
+
+        A duration of 0 or None starts nothing: those mean "this process does
+        not cure" and "we were not told", and neither is a reason to hold
+        material. `curing.CuringPolicy` is where that distinction lives.
+        """
+        material = self._materials.get(material_ref)
+        if material is None or not seconds:
+            return material
+        if material.cure_started_at is not None:
+            return material               # already curing — do not restart it
+        material.cure_started_at = at
+        material.cure_seconds = seconds
+        return material
+
+    def cure_remaining(self, material_ref, now):
+        """Seconds still to rest. 0 when done, None when not curing at all."""
+        material = self._materials.get(material_ref)
+        if material is None or material.cure_started_at is None:
+            return None
+        done_at = material.cure_started_at + (material.cure_seconds or 0.0)
+        return max(0.0, done_at - now)
+
     def is_ready(self, material_ref, now):
         """May this be fed into a machine yet?
 
@@ -916,6 +959,11 @@ class InMemoryRecords(Records):
         material = self._materials.get(material_ref)
         if material is None:
             return False
+        # A RUNNING CLOCK IS THE BEST ANSWER WE HAVE, so it is asked first.
+        # This is knowledge, not a guess, and it must not be overridden by a
+        # `ready_at` somebody set earlier from a weaker source.
+        if material.cure_started_at is not None:
+            return self.cure_remaining(material_ref, now) <= 0.0
         if material.ready_at is None:
             self.unrested_decisions += 1
             return True

@@ -121,7 +121,9 @@ CREATE TABLE IF NOT EXISTS materials (
     attribute     TEXT,
     drum_type     INTEGER,
     material_type INTEGER,
-    state         TEXT
+    state         TEXT,
+    cure_started_at REAL,
+    cure_seconds    REAL
 );
 CREATE TABLE IF NOT EXISTS material_moves (
     material_ref  TEXT NOT NULL,
@@ -213,6 +215,25 @@ LATE_COLUMNS = {
         ("drum_type", "INTEGER"),
         ("material_type", "INTEGER"),
         ("state", "TEXT"),              # MaterialState, by NAME
+        # The curing clock. A start plus a duration rather than a deadline,
+        # because [HB] §3 needs the ELAPSED time to survive a power cut — and
+        # surviving is exactly what this table is for.
+        ("cure_started_at", "REAL"),
+        ("cure_seconds", "REAL"),
+    ),
+    "racks": (
+        # RackMode, by value. An old database comes back with mode NULL, which
+        # `_load` reads as "not set" and leaves at AUTO — the same answer a
+        # rack that has never been touched gives, and the right one.
+        ("mode", "TEXT"),
+    ),
+    "rack_slots": (
+        # What the rack knows about what it holds — CCS manual §4.6.6's
+        # identity transfer, and what §1.3 reads back before feeding.
+        ("material_type", "TEXT"),
+        ("material_attribute", "TEXT"),
+        ("bobbin_type", "INTEGER"),
+        ("status", "TEXT"),
     ),
 }
 
@@ -335,6 +356,8 @@ class SqliteRecords(InMemoryRecords):
                 material_ref=row["material_ref"], lot_id=row["lot_id"],
                 kind=row["kind"], created_at=row["created_at"],
                 location=row["location"], ready_at=row["ready_at"],
+                cure_started_at=row["cure_started_at"],
+                cure_seconds=row["cure_seconds"],
                 expires_at=row["expires_at"],
                 attribute=_enum_by_name(MaterialAttribute, row["attribute"]),
                 drum_type=row["drum_type"],
@@ -538,13 +561,15 @@ class SqliteRecords(InMemoryRecords):
         self._write(
             "INSERT OR REPLACE INTO materials (material_ref, lot_id, kind, "
             "created_at, location, ready_at, expires_at, attribute, "
-            "drum_type, material_type, state) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "drum_type, material_type, state, cure_started_at, "
+            "cure_seconds) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (material.material_ref, material.lot_id, material.kind,
              material.created_at, material.location, material.ready_at,
              material.expires_at, _enum_name(material.attribute),
              material.drum_type, material.material_type,
-             _enum_name(material.state)))
+             _enum_name(material.state), material.cure_started_at,
+             material.cure_seconds))
         return material
 
     def _save_move(self, move):
@@ -580,6 +605,12 @@ class SqliteRecords(InMemoryRecords):
         # later question is answered from.
         self._save_material(self.material(material_ref))
         return move
+
+    def begin_curing(self, material_ref, at, seconds):
+        """The elapsed time MUST survive a power cut ([HB] §3), which is the
+        only reason the clock is a recorded start rather than a timer."""
+        material = super().begin_curing(material_ref, at, seconds)
+        return self._save_material(material) if material else None
 
     def set_ready_at(self, material_ref, when):
         material = super().set_ready_at(material_ref, when)
