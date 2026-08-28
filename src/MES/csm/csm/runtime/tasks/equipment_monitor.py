@@ -60,6 +60,10 @@ class EquipmentMonitorTask(FsmTask):
         #: Segments to run the diversion scan over. None disables it, which is
         #: the default so that every existing caller behaves exactly as before.
         self.divert_for = None
+        #: `material_profile.MaterialProfile`, or None to mint material with
+        #: no description — which is what the code did before and is still a
+        #: real state, being the one §1.3 excludes.
+        self.profile = None
         #: `curing.CuringPolicy`, or None for a line that does not cure.
         #: Left None by default because CCS manual §4.6.12 says resting is a
         #: non-standard feature normally set to 0 — so no policy is the
@@ -159,8 +163,18 @@ class EquipmentMonitorTask(FsmTask):
             if material.material_ref in taken:
                 continue
             return material.material_ref
+        # DESCRIBE IT AT BIRTH. A roll minted with a LOT id and nothing else
+        # is a roll nobody can name, and CCS manual §1.3 refuses to feed a
+        # machine from an area holding material whose type and attribute are
+        # not recorded — so undescribed material makes that rule permanently
+        # answer "no" rather than ever being exercised.
+        #
+        # `profile` is None by default, which mints exactly as before. The
+        # simulator sets one; a real line gets it from machine configuration
+        # (§4.6.5) or from the PDA supplement.
+        described = self.profile.describe(location, kind) if self.profile else {}
         material = records.register_material(kind=kind, at=at,
-                                             location=location)
+                                             location=location, **described)
         return material.material_ref
 
     def _call_key(self, call):

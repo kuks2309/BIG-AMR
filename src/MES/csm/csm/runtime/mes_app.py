@@ -85,7 +85,8 @@ class MesApp:
 def build_mes(equipment, acs, source_for, clock=time.monotonic, logger=print,
               job_timeout_s=600.0, poll_seconds=None, install_supervisor=True,
               return_for=None, records=None, charging_thresholds=None,
-              capacity=None, leg_of=None, divert_for=None):
+              capacity=None, leg_of=None, divert_for=None, profile=None,
+              curing=None):
     """Assemble the CSM.
 
     :param equipment: EquipmentAdapter — mock, or the CATL one when it exists
@@ -116,6 +117,9 @@ def build_mes(equipment, acs, source_for, clock=time.monotonic, logger=print,
         most starved one (§3.2). Requires `leg_of`.
     :param leg_of: callable(station_id) -> leg name. Only used when `capacity`
         is supplied; `plant.segment_of_station` is the real implementation.
+    :param profile: `material_profile.MaterialProfile` giving newly minted
+        material a type, attribute and drum type. None mints it undescribed.
+    :param curing: `curing.CuringPolicy`, or None for a line that does not cure.
     :param divert_for: segments to run the stranded-material scan over —
         `plant.SEGMENTS` for the real plant. Left None the scan does not run at
         all, which is how it shipped: deliberately opt-in so no existing caller
@@ -137,6 +141,12 @@ def build_mes(equipment, acs, source_for, clock=time.monotonic, logger=print,
                                    period=periods.get("equipment_monitor"))
     monitor.return_for = return_for
     monitor.divert_for = divert_for
+    #: What newly minted material is. None mints it undescribed, which is what
+    #: happened before and is the state CCS manual §1.3 excludes from feeding.
+    monitor.profile = profile
+    #: How long material rests where it comes to rest. None means no curing,
+    #: which is the shipped CCS behaviour (§4.6.12).
+    monitor.curing = curing
     dispatcher = DispatcherTask(store, period=periods.get("dispatcher"))
 
     # The §2.15 ceiling, given to both tasks or to neither. The monitor uses it

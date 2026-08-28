@@ -260,6 +260,7 @@ class JobStore:
             self.records.move_material(job.material_ref, job.to_station,
                                        at=ctx.now(), job_id=job.job_id,
                                        note=f"{job.carries.value} delivered")
+            self._hand_identity_to(job, ctx.now())
 
         # AND THE JOB ITSELF. On transitions only — the tracker steps every job
         # four times a second, and writing that often would be all I/O and no
@@ -311,12 +312,94 @@ class JobStore:
                 ready.append(station_id)
         return ready
 
+    # ------------------------------------------------- where the material IS
+
+    def _hand_identity_to(self, job, now):
+        """CCS manual §4.6.6 — completion writes what was carried INTO THE
+        TARGET RACK.
+
+        "the task's carried information — material type, material attribute,
+        bobbin type and roll number — into the TARGET rack". The task is the
+        carrier of identity and delivery is what transfers it, which is why
+        this belongs on the DONE transition and nowhere else.
+
+        Only where the destination IS a rack. A machine port is not modelled
+        this way and deliberately so: the ACS team described their own system
+        the same way — carrier identity vanishes at an equipment station and
+        persists at the buffer.
+        """
+        if not self.records.slots(job.to_station):
+            return                          # not a rack; nothing to write to
+        known = self.records.material(job.material_ref)
+        if known is None:
+            return
+        slot = self.records.park(
+            job.to_station, material_ref=job.material_ref,
+            job_id=job.job_id, at=now,
+            material_type=known.material_type,
+            material_attribute=known.attribute,
+            bobbin_type=known.drum_type)
+        if slot is None:
+            # The rack filled between choosing it and arriving. Worth saying —
+            # the pallet is physically there and the record cannot show which
+            # slot, which is exactly the kind of silent divergence §5 is full of.
+            self.logger(f"[{job.job_id}] delivered to {job.to_station} but "
+                        f"every slot is taken — identity not recorded")
+
+
+    def _carrier_of(self, job_id):
+        """The robot that has this job on its deck right now, or None.
+
+        Asked of the ACS rather than remembered here, because which robot has
+        which job is the ACS's knowledge and it can reassign one. `loaded` is
+        the vehicle layer's own observation — the dwell at the source finished,
+        so the thing is physically on the deck.
+        """
+        acs = getattr(self, "acs", None)
+        if acs is None or not hasattr(acs, "fleet_status"):
+            return None
+        try:
+            rows = acs.fleet_status() or []
+        except Exception:
+            return None
+        for row in rows:
+            if row.get("job_id") == job_id and row.get("loaded"):
+                return row.get("name")
+        return None
+
+    def _follow_the_material(self, job):
+        """Put the material where it actually is: ON THE ROBOT, in transit.
+
+        THE RECORD USED TO BE FALSE FOR THE WHOLE JOURNEY. `move_material` was
+        called once, on DONE, so a roll sat in the records at its source while
+        a robot drove it across the plant, and then teleported. "Where is roll
+        X" had no true answer for minutes at a time, and the movement history
+        recorded a jump that never happened.
+
+        Called every tick and guarded on the location actually changing, so it
+        writes one move when the robot picks the material up and nothing
+        afterwards. The DONE handler still writes the arrival — this adds the
+        middle, it does not replace the end.
+        """
+        if not job.material_ref:
+            return
+        carrier = self._carrier_of(job.job_id)
+        if carrier is None:
+            return
+        known = self.records.material(job.material_ref)
+        if known is None or known.location == carrier:
+            return
+        self.records.move_material(job.material_ref, carrier, at=self.clock(),
+                                   job_id=job.job_id,
+                                   note=f"{job.carries.value} loaded")
+
     # ---------------------------------------------------------------- steps
 
     def step_all(self):
         """Advance every active job by one tick. Returns the records retired."""
         still_active, retired = [], []
         for record in self.active:
+            self._follow_the_material(record.job)
             record.fsm.step(record.ctx)
             if record.fsm.current.name in TERMINAL:
                 retired.append(record)

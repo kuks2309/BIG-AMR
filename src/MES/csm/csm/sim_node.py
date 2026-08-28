@@ -39,6 +39,7 @@ from rclpy.node import Node
 from .adapters.base import StationStatus
 from .adapters.mock import OpcUaEquipment
 from . import plant, records, records_sqlite
+from .material_profile import simulator_profile
 from .ui.server import UiServer
 from .adapters.sim_acs import SimAcs
 from .pda import Pda
@@ -376,6 +377,15 @@ class MesSimNode(Node):
             # ceiling loose, because material on a leg's racks is one of the
             # four terms that ceiling counts and ours was always zero.
             divert_for=plant.SEGMENTS,
+
+            # ⚠ INVENTED, and marked as such where it is built. Nobody has
+            # told us which machine requires which attribute, and without SOME
+            # description every roll in the plant is a thing nobody can name:
+            # §1.3 then refuses to feed every machine, the rotation rules have
+            # nothing to match on, and the map draws every payload the same
+            # grey. Replace wholesale when the real machine configuration
+            # arrives — nothing else changes.
+            profile=simulator_profile(plant.STATIONS),
         )
 
         # THE HANDHELD, so its state is visible rather than only testable.

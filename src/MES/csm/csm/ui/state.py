@@ -44,7 +44,7 @@ def collect(node):
     store = getattr(store, "store", None)
     return {
         "plant": _plant(),
-        "fleet": _fleet(node),
+        "fleet": _fleet(node, store),
         "jobs": _jobs(store),
         "calls": _calls(store),
         "materials": _materials(store),
@@ -120,12 +120,78 @@ def _family(name):
     return "other"
 
 
-def _fleet(node):
+#: How a drum type reads on the map. The customer's own four values, and the
+#: rule that comes with them: >= 500 is a single-bobbin pallet, < 500 is a
+#: dual-bobbin pallet (CCS manual §4.6.5, and the rack PLC table).
+_DRUM_SIZES = {360: 0.34, 430: 0.40, 500: 0.46, 580: 0.52}
+
+
+def _payload(store, row):
+    """What this robot is carrying, for the map to draw.
+
+    Joined by JOB ID, not held on the robot. The vehicle layer observes only
+    that something is on its deck (`loaded`); WHAT it is belongs to the CSM's
+    material record, and a second copy on the robot would be a second copy
+    that drifts.
+
+    Everything here degrades to None rather than guessing. A robot carrying
+    something we cannot describe still draws — as an unlabelled shape — because
+    "carrying something unknown" is a real and interesting state, and drawing
+    nothing would report an empty robot.
+    """
+    if not row.get("loaded"):
+        return None
+    #: Loaded, and we cannot say what. Every failure below lands here rather
+    #: than on None: the robot IS carrying something, and reporting an empty
+    #: robot because our own lookup failed is a worse answer than admitting we
+    #: do not know what is on the deck.
+    unknown = {"kind": "roll"}
+    if store is None:
+        return unknown
+    job_id = row.get("job_id")
+    if not job_id:
+        return unknown
+    # The active list is the only index there is, and it is short — ten robots
+    # means at most ten jobs in flight. A dict keyed by id would be faster and
+    # would be a second thing to keep in step with `active`.
+    job = _safe(lambda: next((r.job for r in store.active
+                              if r.job.job_id == job_id), None))
+    ref = getattr(job, "material_ref", None) if job else None
+    if not ref:
+        return unknown
+    m = _safe(lambda: store.records.material(ref))
+    if m is None:
+        return unknown
+    face = getattr(getattr(m, "attribute", None), "face", None)
+    return {
+        "ref": m.material_ref,
+        "kind": m.kind,                                  # roll | bobbin
+        "drum_type": m.drum_type,
+        "size": _DRUM_SIZES.get(m.drum_type, 0.40),
+        #: bright / dark. The attribute IS a face colour, which is why it is
+        #: what the map colours by — and it varies, where polarity in this
+        #: simulator does not (the whole line modelled is cathode).
+        "face": getattr(face, "value", face),
+        #: The other half of the attribute. Drawn as a clock hand rather than
+        #: a colour because it is the SOFT half: a 180° turn of the pallet
+        #: swaps it, and that turn is a first-class AGV task (§1.3, §3.8).
+        #: The face cannot be fixed by any manoeuvre, which is why the face
+        #: gets the colour.
+        "rotation": getattr(getattr(getattr(m, "attribute", None),
+                                    "rotation", None), "value", None),
+        #: The customer's 1-4, so a reader can name what they are looking at.
+        "attribute": getattr(getattr(m, "attribute", None), "value", None),
+        "material_type": m.material_type,
+    }
+
+
+def _fleet(node, store=None):
     acs = getattr(node, "acs", None)
     if acs is None or not hasattr(acs, "fleet_status"):
         return []
     rows = _safe(acs.fleet_status, []) or []
     for row in rows:
+        row["payload"] = _payload(store, row)
         # The page draws a heading, which fleet_status does not carry.
         robot = next((r for r in getattr(acs, "robots", [])
                       if r.name == row.get("name")), None)

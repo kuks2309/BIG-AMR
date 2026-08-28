@@ -554,6 +554,14 @@ class SimRobot:
         #: RULE 2, THE OTHER HALF. The same, crossing a lane on a spur —
         #: into a dock or bay, or out of one onto the road.
         self._pausing_in = False
+        #: IS THERE SOMETHING ON THE DECK RIGHT NOW.
+        #:
+        #: Set when loading at the source finishes and cleared when the job
+        #: ends. The robot does not know WHAT it carries — the material record
+        #: belongs to the CSM and copying it here would be a second copy that
+        #: drifts. It knows only that it is loaded, which is the one fact the
+        #: vehicle layer actually observes, and the CSM joins the two by job id.
+        self._loaded = False
         #: RULE 6. Until when this robot waits in the dock for its next job.
         #: None means it is not waiting.
         self._linger_until = None
@@ -2364,6 +2372,11 @@ class SimRobot:
                 return
             self._noted_hold = False
         self._dwell_until = None
+        # LOADED. This is the physical moment: the dwell at the source has
+        # finished, so the roll is on the deck. The CSM watches this to move
+        # the material's location onto the robot, which is what makes the
+        # record true DURING the journey instead of only at its ends.
+        self._loaded = True
         self._leg = "deliver"
         # HOLD THE SOURCE UNTIL WE ARE OUT OF IT. Releasing it here — the
         # moment loading finished — handed the bay to the next robot while
@@ -2457,6 +2470,7 @@ class SimRobot:
             self.fleet.release(self._holding_source, self.name or "robot")
         self._holding_source = None
 
+        self._loaded = False              # put down, whatever the outcome
         self._active_job = None
         self._goal = None
         self._waypoints = []
@@ -2890,6 +2904,9 @@ class SimAcs(AcsAdapter):
                 # Whether it is able to move at all, which is the thing an
                 # operator most wants to know when a leg has gone quiet.
                 "responsive": r.can_move,
+                #: Is there something on the deck. The CSM joins this to the
+                #: material by job id — see `ui/state._fleet`.
+                "loaded": bool(getattr(r, "_loaded", False)),
                 "halted_because": r._halt_reason,
                 # RULE 2, VISIBLE. A robot pausing at the edge of the road
                 # holds everything near it, so "why is nothing moving" is

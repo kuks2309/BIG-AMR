@@ -72,6 +72,16 @@ __NAVCSS__
   .park { fill:none; stroke:#39465a; stroke-dasharray:2 2; }
   .lbl  { fill:#6b7688; font-size:1.05px; }
   .rname{ fill:#dbe4f0; font-size:1.5px; font-weight:600; }
+  /* What a robot is carrying. Size is the drum type, colour is the face,
+     and an empty bobbin is hollow where a loaded roll is filled. */
+  .load        { stroke-width:0.10; }
+  .load.bright { fill:#e8c46a; stroke:#f0d9a0; }
+  .load.dark   { fill:#7a5cc4; stroke:#a68ee0; }
+  .load.plain  { fill:#5b6b80; stroke:#8a97ab; }
+  .load.hollow { fill:none; }
+  /* The winding direction, as a clock hand. The SOFT half of the attribute:
+     a 180 degree turn of the pallet swaps it. */
+  .spin { stroke:#0b0e13; stroke-width:0.09; stroke-linecap:round; }
 </style>
 </head>
 <body>
@@ -99,6 +109,14 @@ __NAVCSS__
         <span><i style="border-color:#d29922"></i>outer ring</span>
         <span><i style="border-color:#3fb950"></i>spur</span>
         <span><i style="border-color:#db61a2"></i>ring change</span>
+        <span style="margin-left:6px" title="The face is the half of the
+          material attribute that MUST match to feed a machine. Rotation need
+          not: a 180 degree turn of the pallet swaps it.">carried face &mdash;
+          must match:
+          <b style="color:#e8c46a">&#9679;</b> bright 亮面
+          <b style="color:#7a5cc4">&#9679;</b> dark 暗面
+          <b style="color:#8a97ab">&#9675;</b> empty core
+          &nbsp;|&nbsp; hand = winding, fixable by a 180&deg; turn</span>
       </span>
     </h2>
     <svg id="map" viewBox="0 0 100 60" preserveAspectRatio="xMidYMid meet"></svg>
@@ -256,6 +274,35 @@ function applyRoadToggle() {
   if (g && box) g.classList.toggle('off', !box.checked);
 }
 
+/* WHAT IS ON THE DECK. Drawn inside the robot's own transform, so it turns
+   with the body — which is what makes a crab across a lane read as a robot
+   carrying something sideways rather than two unrelated shapes.
+
+   Size is the drum type (360/430/500/580), colour is the bright or dark face,
+   and an EMPTY BOBBIN is hollow where a loaded roll is filled. That is three
+   facts in one shape and no legend: what, which way up, and whether it is
+   going somewhere full or coming back empty.
+
+   A robot carrying something we cannot describe still draws, in grey. "Loaded
+   with something unknown" is a real state and worth seeing; drawing nothing
+   would report an empty robot, which is worse than admitting ignorance. */
+function carried(r) {
+  const L = r.payload;
+  if (!L) return '';
+  const radius = L.size || 0.40;
+  const face = L.face === 'bright' ? 'bright' : (L.face === 'dark' ? 'dark' : 'plain');
+  const hollow = L.kind === 'bobbin' ? ' hollow' : '';
+  let out = `<circle class="load ${face}${hollow}" cx="0" cy="0" r="${radius}"/>`;
+  /* The winding direction as a clock hand: up-and-right for clockwise,
+     up-and-left for anticlockwise. Drawn only when we know it — an empty core
+     has no winding, and unknown must not look like a value. */
+  if (L.rotation === 'clockwise' || L.rotation === 'anticlockwise') {
+    const dx = (L.rotation === 'clockwise' ? 1 : -1) * radius * 0.62;
+    out += `<line class="spin" x1="0" y1="0" x2="${dx}" y2="${-radius*0.62}"/>`;
+  }
+  return out;
+}
+
 function drawRobots(fleet) {
   const p = PLANT, pad = 1.5;
   const X = x => x - p.hall.w + pad, Y = y => p.hall.n - y + pad;
@@ -272,6 +319,7 @@ function drawRobots(fleet) {
                   fill="${colour}" stroke="#0b0e13" stroke-width="0.12"/>
             <rect x="${rl/2-0.35}" y="${-0.12}" width="0.3" height="0.24"
                   fill="#0b0e13"/>
+            ${carried(r)}
           </g>
           <text class="rname" x="${X(x)}" y="${Y(y)-1.1}"
                 text-anchor="middle">${r.agv || r.name}</text>`;
