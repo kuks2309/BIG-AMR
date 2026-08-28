@@ -123,6 +123,33 @@ def attribute_matches(have, required, rotatable=True):
     return have.matches(required, rotatable=rotatable)
 
 
+def needs_rotation(have, required, rotatable=True):
+    """Must this pallet be TURNED 180° before it can serve `required`?
+
+    §1.3 and §3.8. True only when all three hold:
+
+      * it CAN serve the requirement — the face already matches, and nothing
+        turns a bright face into a dark one;
+      * the rotation differs, so it does not serve it as it stands;
+      * the material type is rotatable (§4.6.11 configures some as not).
+
+    FALSE WHEN IT ALREADY MATCHES, and false when it cannot serve the
+    requirement at all. "Needs rotating" is not the answer to "this is the
+    wrong material" — answering True there would send a robot to turn a pallet
+    that is still useless afterwards, which is the expensive kind of wrong: a
+    task, a docking and a machine still waiting.
+
+    Unknown on either side is False, for the same reason `attribute_matches`
+    refuses: an unrecorded attribute is not a wildcard, and we would be
+    rotating on a guess.
+    """
+    if have is None or required is None or not rotatable:
+        return False
+    if have is required:
+        return False                      # already exactly right
+    return have.matches(required, rotatable=True)
+
+
 #: At or above this drum type a pallet carries ONE bobbin; below it, two.
 #: `Rack_To_PCS[8]`: "360, 430, 500, 580 — ≥500 single-bobbin pallet, <500
 #: dual-bobbin pallet". The manual §4 says the same in the same words.

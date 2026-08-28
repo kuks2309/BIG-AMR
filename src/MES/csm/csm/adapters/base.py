@@ -871,13 +871,14 @@ def classify_error_code(code, table=None):
     return TransportResult.BUSY
 
 
-def build_order(job, requester="CSM"):
+def build_order(job, requester="CSM", rotate=False):
     """Turn a CSM job into an ACS order — an id and an ordered task list.
 
     The sequences are the specification's, rev01 §5:
 
         a roll delivery          MOVE -> LOAD -> MOVE -> UNLOAD
         deliver-and-collect      MOVE -> UNLOAD -> WAIT -> LOAD   (ONE visit)
+        needing a 180 deg turn   MOVE -> LOAD -> TURN -> MOVE -> UNLOAD
 
     The second is the one that matters, and it is why an order has to be a list
     at all. `Carried`'s docstring states the plant's actual shape: **every hop
@@ -911,6 +912,21 @@ def build_order(job, requester="CSM"):
             AcsTask(kind=TaskKind.MOVE, target=job.to_station),
             AcsTask(kind=TaskKind.UNLOAD, target=job.to_station),
         ]
+
+        # ROTATION IS THE ESCAPE HATCH, AND IT IS A TASK (§1.3, §3.8).
+        #
+        # The face must match and nothing turns a bright face into a dark one.
+        # The winding direction need not: a 180° turn of the pallet flips it,
+        # and that turn is a first-class AGV task rather than something the
+        # robot does implicitly. `material.needs_rotation` decides; this only
+        # places it.
+        #
+        # AFTER LOAD, BEFORE THE MOVE. The pallet has to be on the deck to be
+        # turned, and turning it at the destination would mean arriving with
+        # the wrong presentation and blocking the port while it spins.
+        if rotate:
+            tasks.insert(2, AcsTask(kind=TaskKind.TURN,
+                                    target=job.from_station))
 
     return AcsOrder(
         id=job.job_id,

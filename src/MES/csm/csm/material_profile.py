@@ -73,6 +73,24 @@ class MaterialProfile:
             return {"drum_type": found.get("drum_type")}
         return dict(found)
 
+    def requires(self, station):
+        """What material this station WANTS, or None if we were not told.
+
+        CCS manual §4.6.5 puts the requested material type and attribute in
+        MACHINE CONFIGURATION, and §1.3 reads it back before feeding: there
+        must be material "whose attribute has the same bright/dark face".
+
+        The same entry answers both questions, and that is not a shortcut. A
+        station's profile is what material belongs there — produced at an
+        unload port, required at a load port — so one description covers both
+        ends of the same machine. When the real configuration arrives it may
+        split them, and this is where it would.
+        """
+        found = self._by_station.get(station, self._default)
+        if not found:
+            return None
+        return found.get("attribute")
+
     def stations(self):
         return sorted(self._by_station)
 
