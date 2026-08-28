@@ -160,6 +160,113 @@ def overhead_camera(w, e, s, n):
     return OVERHEAD.format(cx=cx, cy=cy, height=height, fov=fov, far=height + 10.0)
 
 
+
+def strip(name, a, b, width, z, rgba):
+    """A thin flat box laid from a to b — one edge of the road graph, drawn.
+
+    VISUAL ONLY. Paint on the floor is paint: a marker with collision would be
+    a wall down the middle of every lane.
+    """
+    ax, ay = a
+    bx, by = b
+    length = math.hypot(bx - ax, by - ay)
+    if length < 1e-6:
+        return ""
+    yaw = math.atan2(by - ay, bx - ax)
+    r, g, bl, al = rgba
+    return f"""
+    <model name="{name}">
+      <static>true</static>
+      <pose>{(ax+bx)/2:.3f} {(ay+by)/2:.3f} {z:.3f} 0 0 {yaw:.4f}</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>{length:.3f} {width:.3f} 0.005</size></box></geometry>
+          <material>
+            <ambient>{r} {g} {bl} {al}</ambient>
+            <diffuse>{r} {g} {bl} {al}</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>"""
+
+
+def chevrons(name, a, b, z, rgba, every=2.0):
+    """Arrowheads along an edge, pointing the way the lane runs.
+
+    A one-way network is unreadable without them: two lanes 1.8 m apart look
+    identical from above, and which way each runs is the whole point.
+    """
+    ax, ay = a
+    bx, by = b
+    length = math.hypot(bx - ax, by - ay)
+    if length < 0.6:
+        return ""
+    ux, uy = (bx - ax) / length, (by - ay) / length
+    out = []
+    n = max(1, int(length // every))
+    for i in range(n):
+        # spaced along the edge, none right on top of a node
+        t = length * (i + 0.5) / n
+        tipx, tipy = ax + ux * t, ay + uy * t
+        for sign in (+1, -1):
+            back = 0.28
+            spread = 0.18 * sign
+            hx = tipx - ux * back - uy * spread
+            hy = tipy - uy * back + ux * spread
+            out.append(strip(f"{name}_c{i}{'p' if sign > 0 else 'm'}",
+                             (hx, hy), (tipx, tipy), 0.05, z, rgba))
+    return "".join(out)
+
+
+def road_graph():
+    """Paint the lane network the router actually uses, straight from roads.
+
+    Drawn from `roads.build()` rather than from plant geometry, so what is on
+    the floor IS the graph — if an edge is missing from the router it is
+    missing from the picture, which is exactly the fault this was built to
+    show. Colours separate the two one-way rings from the stubs that feed them
+    and from the four places the rings connect.
+    """
+    from csm.adapters import roads
+
+    net = roads.build()
+    INNER = (0.20, 0.55, 0.95, 1)      # blue   — inner ring
+    OUTER = (0.98, 0.60, 0.10, 1)      # orange — outer ring
+    SPUR = (0.25, 0.80, 0.35, 1)       # green  — dock and parking stubs
+    CROSS = (0.90, 0.20, 0.85, 1)      # pink   — where the rings connect
+    NODE = (0.10, 0.10, 0.12, 1)
+
+    def kind(a, b):
+        if a.startswith(net.TERMINAL) or b.startswith(net.TERMINAL):
+            return SPUR, 0.16
+        ai, bi = a.endswith("_inner"), b.endswith("_inner")
+        ao, bo = a.endswith("_outer"), b.endswith("_outer")
+        if (ai and bo) or (ao and bi):
+            return CROSS, 0.26
+        if ai and bi:
+            return INNER, 0.22
+        if ao and bo:
+            return OUTER, 0.22
+        return SPUR, 0.16
+
+    parts, drawn = [], set()
+    for a, outs in net.adjacency.items():
+        for b in outs:
+            if (a, b) in drawn:
+                continue
+            drawn.add((a, b))
+            rgba, width = kind(a, b)
+            pa, pb = net.nodes[a], net.nodes[b]
+            tag = f"road_{len(drawn):04d}"
+            parts.append(strip(tag, pa, pb, width, 0.010, rgba))
+            parts.append(chevrons(tag, pa, pb, 0.013, rgba))
+
+    for i, (name, (x, y)) in enumerate(sorted(net.nodes.items())):
+        parts.append(box(f"roadnode_{i:03d}", x, y, 0.012, 0.16, 0.16, 0.006,
+                         NODE, solid=False))
+    return "".join(parts), len(net.nodes), len(drawn)
+
+
 def main():
     w, e, s, n = plant.HALL_W, plant.HALL_E, plant.HALL_S, plant.HALL_N
     t, h = plant.WALL_T, 2.0
@@ -234,6 +341,14 @@ def main():
                 mx + nx * 0.04 + px * off, my + ny * 0.04 + py * off, MARKER_Z,
                 0.009, 0.005, 0.034, (0.97, 0.97, 0.97, 1), solid=False))
 
+    # THE ROAD GRAPH, painted on the floor. Off by default — it is a diagnostic
+    # overlay, not part of the plant — and switched on with `--roads`.
+    road_stats = None
+    if "--roads" in sys.argv:
+        painted, n_nodes, n_edges = road_graph()
+        parts.append(painted)
+        road_stats = (n_nodes, n_edges)
+
     parts.append(FTR)
 
     here = os.path.dirname(os.path.abspath(__file__))
@@ -244,6 +359,10 @@ def main():
     print(f"wrote {out}")
     print(f"  hall {e - w:.0f} x {n - s:.0f} m, {len(plant.OBSTACLES)} machines, "
           f"{len(plant.DOCKS)} docking ports")
+    if road_stats:
+        print(f"  road graph painted: {road_stats[0]} nodes, {road_stats[1]} directed edges")
+        print("    blue = inner ring | orange = outer ring | green = spurs | "
+              "pink = ring-to-ring links")
 
 
 if __name__ == "__main__":

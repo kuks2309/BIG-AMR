@@ -161,7 +161,41 @@ AISLE_W_X = _s(-22.0)                      # west cross aisle
 #: Moved east from 22.0 on 2026-08-21: `WIP_SLT_2` sat 1.80 m from the corner
 #: and two robots need 1.90 m. The same fault as the west end, mirrored, and
 #: found only because `_check_row` was written to look for it.
-AISLE_E_X = _s(22.2)                       # east cross aisle
+#:
+#: Moved east again, from 22.2, when the aisle became two lanes. Splitting the
+#: aisle puts the INNER lane 0.90 m nearer the hall centre than the centreline
+#: was, and on this side that is toward the WIP_SLT rack: the lane needed
+#: 3.16 m of clearance and had 2.94 m. The west side has no rack beside it and
+#: did not move, so the two cross aisles are no longer symmetric — the racks
+#: are not symmetric either.
+AISLE_E_X = _s(22.45)                      # east cross aisle
+
+#: Between the two lane centres.
+#:
+#: A FULL ROBOT WIDTH OF AIR between two robots passing in opposite directions,
+#: not the bare margin. 1.80 = 0.90 body + 0.90 gap.
+#:
+#: IT WAS ROBOT_W + 0.30, WHICH IS THE MARGIN EXACTLY AND SO NO MARGIN AT ALL.
+#: Measured 2026-08-26 on the first two-lane run: amr2 at (+10.22,-4.20) and
+#: amr4 at (+11.53,-3.00), both dead on their lane lines and both perfectly
+#: aligned, tripped the meter at 0.300 m. Nothing was wrong with either robot —
+#: two robots doing everything right sat exactly on the limit, so any wobble,
+#: yaw error or corner turn breached it.
+#:
+#: The same mistake as the parking bays the day before: sizing to the
+#: theoretical minimum and leaving nothing for reality. 0.90 m of air survives
+#: a robot 10 cm off its line, and the aisle has 4.20 m of clear floor beyond
+#: the outer lane, so the room costs nothing.
+LANE_GAP = 1.80
+
+#: INNER means nearer the middle of the hall, OUTER nearer the machine rows.
+#: A robot leaving a dock meets the outer lane first, which is why that is the
+#: one it backs out onto.
+AISLE_N_IN, AISLE_N_OUT = AISLE_N_Y - LANE_GAP / 2, AISLE_N_Y + LANE_GAP / 2
+AISLE_S_IN, AISLE_S_OUT = AISLE_S_Y + LANE_GAP / 2, AISLE_S_Y - LANE_GAP / 2
+AISLE_W_IN, AISLE_W_OUT = AISLE_W_X + LANE_GAP / 2, AISLE_W_X - LANE_GAP / 2
+AISLE_E_IN, AISLE_E_OUT = AISLE_E_X - LANE_GAP / 2, AISLE_E_X + LANE_GAP / 2
+
 #: THE ROBOT ITSELF, because the layout has to be big enough for it.
 #: 1.6 x 0.9 m is the simulated chassis. (The deck gives 1.3 x 1.9 m for the
 #: 1.5T and 1.6 x 2.0 m for the 3.5T; the sim models one body for all three,
@@ -186,9 +220,28 @@ ROBOT_L, ROBOT_W = 1.6, 0.9
 #: The clearance below is the gap between a PASSING robot's flank and a PARKED
 #: robot's tail, both bodies included — not centre to centre.
 PARK_CLEARANCE = 1.25
-PARK_SPUR = ROBOT_L / 2.0 + ROBOT_W / 2.0 + PARK_CLEARANCE      # 2.5 m
 
-PARK_X = [AISLE_W_X - PARK_SPUR, AISLE_E_X + PARK_SPUR]
+#: MEASURED FROM THE LANE THE ROBOT ACTUALLY DRIVES ON, NOT THE AISLE CENTRE.
+#:
+#: This was `AISLE_E_X + PARK_SPUR` while an aisle WAS a lane. Splitting each
+#: aisle into two one-way lanes moved the outer lane LANE_GAP/2 = 0.90 m
+#: outward — straight toward the bays — and nothing compensated. The constant
+#: still said 1.25 m; the real gap was 0.35 m.
+#:
+#: What that cost, measured 2026-08-26: amr4 moved 0.18 m out of leg C slot 2
+#: and was already 0.167 m from amr5 on the lane, which was itself 0.085 m from
+#: amr2 behind it. Three robots frozen on "layer 1", none able to move, and the
+#: same job failed three times at 600 s each because no leg C robot could leave
+#: its bay. A bay that close is not a bay off the road — it is the road.
+#:
+#: PARKED SIDEWAYS ON, nose along the aisle. Nose-in cannot fit: it needs
+#: x >= 30.34 for the clearance and the hall wall allows only x <= 30.22.
+#: Turned 90 degrees the robot presents its WIDTH to the lane, which fits with
+#: 0.58 m to spare, and it leaves the bay by crabbing straight out — the
+#: sideways move that is already allowed going in and out of a dock.
+PARK_SPUR = ROBOT_W / 2.0 + PARK_CLEARANCE + ROBOT_W / 2.0      # 2.15 m
+
+PARK_X = [AISLE_W_OUT - PARK_SPUR, AISLE_E_OUT + PARK_SPUR]
 
 #: Machine face y (the side the robot approaches from).
 _FACE_N = ROW_N_Y - MACHINE_D / 2.0
@@ -389,7 +442,89 @@ DOCK_MIN = DOCK_TARGET - 0.17
 #: by construction. The previous model put wait spots at a sideways offset that
 #: belonged to no lane at all, so every job ended with the robot leaving the road
 #: and driving cross-country to an unmapped point.
-JOINS = {n: (d[0], AISLE_N_Y if d[1] > 0 else AISLE_S_Y) for n, d in DOCKS.items()}
+# ------------------------------------------------------------ the two-lane road
+#
+# EVERY AISLE CARRIES TWO ONE-WAY LANES, one per direction. The rectangle and
+# the spurs are unchanged; only the number of lanes on each side of it.
+#
+# WHAT THIS BUYS. Two robots can no longer meet head-on, which is the meeting
+# the whole give-way system existed to resolve — who stands aside, where the
+# lay-by is, who may pass, and the 45-second timeout when none of it worked.
+# None of that has anything to do here. On 2026-08-25 a single shared lay-by
+# was still the ceiling on a five-robot fleet, costing three jobs in half an
+# hour; there is no lay-by in this road.
+#
+#: WHICH WAY EACH LANE RUNS. Two complete one-way rings, so a robot can reach
+#: anywhere on either of them and never has to turn round.
+#:
+#: The choice between them is symmetric — the user said either was fine — so it
+#: is written down here rather than inferred anywhere else.
+RING = {
+    "inner": {"north": "east", "east": "south", "south": "west", "west": "north"},
+    "outer": {"north": "west", "west": "south", "south": "east", "east": "north"},
+}
+
+#: Where each lane line sits, by ring and side.
+LANE_LINE = {
+    ("inner", "north"): ("y", AISLE_N_IN),
+    ("inner", "south"): ("y", AISLE_S_IN),
+    ("inner", "west"): ("x", AISLE_W_IN),
+    ("inner", "east"): ("x", AISLE_E_IN),
+    ("outer", "north"): ("y", AISLE_N_OUT),
+    ("outer", "south"): ("y", AISLE_S_OUT),
+    ("outer", "west"): ("x", AISLE_W_OUT),
+    ("outer", "east"): ("x", AISLE_E_OUT),
+}
+
+
+def join_for(station, ring):
+    """Where this station's spur meets one of the two lanes.
+
+    Every station has a junction on BOTH lanes, so a robot turns off the lane it
+    is already travelling and never crosses the opposing one to dock.
+    """
+    dx, dy = DOCKS[station]
+    if ring == "inner":
+        return (dx, AISLE_N_IN if dy > 0 else AISLE_S_IN)
+    return (dx, AISLE_N_OUT if dy > 0 else AISLE_S_OUT)
+
+
+JOINS_INNER = {n: join_for(n, "inner") for n in DOCKS}
+JOINS_OUTER = {n: join_for(n, "outer") for n in DOCKS}
+
+#: The historic single-lane name. It is the OUTER junction, because that is the
+#: one a robot backing out of a dock reaches first.
+JOINS = dict(JOINS_OUTER)
+
+
+def outer_lane_beyond(point):
+    """The outer lane a dead end sits BEYOND, or None if it sits on the road.
+
+    Every dock and every parking bay is outside both lanes, so the last thing
+    between a robot on the inner lane and the place it is going is the OUTER
+    lane, with traffic on it. This says which lane line that is, so a caller
+    can measure how far short of it a robot is without having to know whether
+    it is heading for a machine row (the line runs east-west) or a parking leg
+    (it runs north-south).
+
+    Returns ``(axis, value, outward)``: the coordinate the line is fixed in,
+    where it sits, and which sign of ``coordinate - value`` is the far side.
+    Nearest wins, and it has to: the leg C bays run 11 m south of the south
+    aisle, so a bay at (29.99, -15.75) is beyond the east lane by 2.15 m and
+    beyond the south lane by 11.25 m. Its spur crosses the east one.
+    """
+    best = None
+    for side in ("north", "south", "west", "east"):
+        axis, outer = LANE_LINE[("outer", side)]
+        _, inner = LANE_LINE[("inner", side)]
+        outward = 1.0 if outer > inner else -1.0
+        here = point[0] if axis == "x" else point[1]
+        past = (here - outer) * outward
+        if past <= 0.0:
+            continue                  # this lane is not between us and it
+        if best is None or past < best[3]:
+            best = (axis, outer, outward, past)
+    return best[:3] if best is not None else None
 
 
 # ------------------------------------------------------------ material flow
@@ -575,6 +710,43 @@ def parking_for(robot_name):
     return slots[index] if index < len(slots) else None
 
 
+#: WHICH AGV CLASS THE LEADING DIGIT MEANS. 1 = 1.5T Small, 3 = 3.5T Big.
+#:
+#: Taken from the customer's own rack-number convention rather than invented:
+#: system deck p84 splits the material-rack ranges 凹版 1.5T 001–100 · 101–199
+#: · 涂布 200–299 · **3.5T 300–399**.
+AGV_CLASS = 1
+
+
+def agv_number(robot_name):
+    """The AGV number as the customer would write it — `1A1`, `1C6`.
+
+    THERE IS NO DOCUMENTED AGV NAME. `AGV_Num` on the equipment wire is a
+    plain INT (PROJECT-HANDBOOK, glossary), and the JOB Description deck names
+    only the CLASS (`LOWSMALL` = 1.5T-Small). So this follows the shape the
+    deck does define — the machine code on p84, 厂房 ID · 機台 type letter ·
+    sequence — and reads it for vehicles:
+
+        1        A        1
+        class    leg      sequence within that leg
+
+    The leg is the meaningful part: it decides which end of the plant a robot
+    serves, and it already exists in `ROBOT_SEGMENT`.
+
+    ⚠ ONE THING TO ASK THE CUSTOMER. The deck's side table on that same page
+    lists "AGV 번호 `1A1`" — the identical example it gives for a MACHINE
+    code. Either AGVs share the machine scheme (in which case the leading
+    digit is 厂房, not class) or the example was reused by mistake. Until that
+    is answered this is our reading, not theirs.
+
+    Display only. ROS node names, topics and log lines stay `amr1`…`amr10`.
+    """
+    segment, index = parking_index(robot_name)
+    if segment is None:
+        return None
+    return f"{AGV_CLASS}{segment}{index + 1}"
+
+
 def parking_index(robot_name):
     """Which leg this robot parks on, and its place in that leg's queue.
 
@@ -633,14 +805,45 @@ def segment_for_job(from_station, to_station):
 FLEET = {"A": 2, "B": 2, "C": 6}
 
 #: SPACING BETWEEN QUEUE SLOTS, measured across the robots, not centre to
-#: centre. Slots sit side by side along the cross aisle, so what has to clear
-#: is the robot's WIDTH.
-PARK_PITCH = ROBOT_W + PARK_CLEARANCE
+#: centre.
+#:
+#: It was ROBOT_W + PARK_CLEARANCE, which was right while robots parked nose-in
+#: and presented their width along the queue. Turned sideways they present
+#: their LENGTH, so the width figure left 1.25 m where 1.25 m of clear air was
+#: needed between two 1.6 m bodies — 2.15 m of pitch for robots 1.6 m long is
+#: 0.55 m of gap, and two of them manoeuvring at once cannot both fit.
+PARK_PITCH = ROBOT_L + PARK_CLEARANCE
 
 #: Which end of the plant each leg parks at, and which way its queue grows.
 #: Away from y=0 in both cases, so the two east legs open out rather than
 #: growing into one another.
 _PARK_SIDE = {"A": (0, +1), "B": (1, +1), "C": (1, -1)}
+
+#: WHICH WAY A PARKED ROBOT FACES — derived from the ring, never chosen.
+#:
+#: The bays hang off the OUTER lane, so a robot leaves its bay by crabbing
+#: sideways onto that lane and must already be pointing the way that lane runs.
+#: Parked nose-in it would have to turn round in the road to set off, and
+#: turning in the road is the one thing the rules forbid away from a corner.
+#:
+#: Reading it off `RING` means moving a lane cannot leave the bays facing the
+#: wrong way: west outer runs south, east outer runs north, so leg A parks
+#: nose-south and legs B and C nose-north.
+_PARK_AISLE = {0: "west", 1: "east"}
+_HEADING_YAW = {"north": math.pi / 2.0, "south": -math.pi / 2.0,
+                "east": 0.0, "west": math.pi}
+
+
+def parking_yaw(segment):
+    """The heading a robot holds while parked on this leg."""
+    which, _ = _PARK_SIDE[segment]
+    return _HEADING_YAW[RING["outer"][_PARK_AISLE[which]]]
+
+
+def parked_yaw(robot_name):
+    """The heading THIS robot parks at, or None if it has no bay."""
+    segment, _ = parking_index(robot_name)
+    return None if segment is None else parking_yaw(segment)
 
 
 def parking_slots(segment):

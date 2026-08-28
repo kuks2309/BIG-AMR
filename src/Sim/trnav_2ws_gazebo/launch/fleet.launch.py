@@ -72,7 +72,11 @@ from launch_ros.substitutions import FindPackageShare
 #: — a hand-written tuple was the thing that capped the fleet at three.
 _FLEET_ORDER = tuple(
     sorted(plant.ROBOT_SEGMENT, key=lambda n: plant.robot_number(n) or 0))
-START_POSES = [plant.parking_for(n) + (0.0,) for n in _FLEET_ORDER]
+# Spawned facing the way its bay faces. This was 0.0 — every robot nose-east —
+# which was harmless while bays were nose-in off a single-lane aisle. With the
+# bays turned sideways on, a robot spawned nose-east starts across its own bay
+# and its neighbour's, and has to turn round in the road to set off.
+START_POSES = [plant.parking_for(n) + (plant.parked_yaw(n),) for n in _FLEET_ORDER]
 #: One pose per robot, and the count is clamped to len(START_POSES) — so this
 #: list, not FLEET_ROBOTS, is the ceiling on fleet size. Each pose must match
 #: the parking bay its robot's segment owns in csm/plant.py PARKING, because a

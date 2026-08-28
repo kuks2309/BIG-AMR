@@ -15,6 +15,19 @@ monitoring is not a monitor.
 """
 
 from .. import plant
+from ..adapters import roads
+
+#: The road graph, built once. It is static geometry — the same 119 nodes and
+#: 304 one-way lanes every time — and building it on every poll would cost a
+#: full clearance check twice a second for an answer that cannot change.
+#:
+#: `roads.build()` RAISES on an obstructed lane, and a view must never be the
+#: thing that stops the plant, so a failure here leaves the map roadless
+#: rather than taking the dashboard down with it.
+try:
+    _ROADS = roads.build()
+except Exception:                                   # pragma: no cover
+    _ROADS = None
 
 
 def _safe(fn, default=None):
@@ -62,7 +75,40 @@ def _plant():
                      "charger": xy in plant.CHARGERS.get(seg, [])}
                     for seg, slots in plant.PARKING_SLOTS.items()
                     for i, xy in enumerate(slots)],
+        "roads": _roads(),
     }
+
+
+def _roads():
+    """The lane network, as flat coordinate runs the page can draw directly.
+
+    RULE 1 IS "EVERY ROBOT FOLLOWS THE LINES", and until now the lines were
+    the one thing on the plant the map did not show. A robot standing still
+    beside a machine and a robot standing still ON a one-way lane look
+    identical without them.
+
+    Grouped by kind rather than sent as objects: 304 lanes as
+    ``{"x1":..,"y1":..}`` is three times the payload of four numbers each,
+    twice a second, for geometry that never changes. Two decimals is a
+    centimetre, which is finer than anything on a 64 m map can show.
+    """
+    if _ROADS is None:
+        return {}
+    out = {"inner": [], "outer": [], "spur": [], "cross": []}
+    for a, b in _ROADS.lanes:
+        (ax, ay), (bx, by) = _ROADS.nodes[a], _ROADS.nodes[b]
+        if a.startswith(("dock_", "park_")) or b.startswith(("dock_", "park_")):
+            kind = "spur"
+        elif a.endswith("_inner") and b.endswith("_inner"):
+            kind = "inner"
+        elif a.endswith("_outer") and b.endswith("_outer"):
+            kind = "outer"
+        else:
+            # One end on each ring: the cross-link that IS the ring change,
+            # and the only place a robot may change ring.
+            kind = "cross"
+        out[kind] += [round(ax, 2), round(ay, 2), round(bx, 2), round(by, 2)]
+    return out
 
 
 def _family(name):

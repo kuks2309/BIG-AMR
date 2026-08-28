@@ -196,8 +196,14 @@ def main():
                             f"{nb}({xb:+.2f},{yb:+.2f},yaw {wb:+.2f})")
                     else:
                         margin_breaches += 1
+                        # POSITIONS TOO. CONTACT lines carried them and MARGIN
+                        # lines did not, so a near miss could be seen but not
+                        # located — on 2026-08-25 that cost a wrong diagnosis
+                        # (blamed on dock spacing; it was the shared lay-by).
                         say(f"MARGIN   {na} <-> {nb}  gap {gap:.3f} m "
-                            f"(< {MARGIN_M:.2f})")
+                            f"(< {MARGIN_M:.2f})   "
+                            f"{na}({xa:+.2f},{ya:+.2f},yaw {wa:+.2f})  "
+                            f"{nb}({xb:+.2f},{yb:+.2f},yaw {wb:+.2f})")
 
         if time.time() >= next_report:
             next_report = time.time() + args.report

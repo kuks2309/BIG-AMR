@@ -110,9 +110,31 @@ def test_no_route_revisits_a_place_it_has_already_left():
                         f"{start} -> {station} revisits {here}"
 
 
+def _metres(route):
+    return sum(math.hypot(route[i + 1][0] - route[i][0],
+                          route[i + 1][1] - route[i][1])
+               for i in range(len(route) - 1))
+
+
+#: A nudge may legitimately cost this much and no more: HALF A LAP.
+#:
+#: MEASURED IN METRES, NOT HOPS. Hops were the right unit on a two-way road,
+#: where a metre sideways barely changed the plan. The lanes are 1.20 m apart
+#: and run OPPOSITE ways, so a 1 m nudge can put the robot on the lane going
+#: the other way — and if the destination is behind it, the honest route is
+#: most of the way round. Measured worst: 35.8 m, at (10.65, +4.20) nudged
+#: north off the westbound lane with GRV1_ULD behind it.
+#:
+#: Half the ring is the line that separates "crossed to the other lane", which
+#: is the road working, from "planned a lap it did not need", which is a bug.
+#: A full lap of this rectangle is about 120 m.
+NUDGE_ALLOWANCE = (plant.AISLE_E_X - plant.AISLE_W_X) + \
+                  (plant.AISLE_N_Y - plant.AISLE_S_Y)
+
+
 def test_a_nudge_sideways_does_not_reverse_the_plan():
-    """Give-way, avoidance and docking all leave a robot a metre off the lane.
-    None of them may turn the journey round."""
+    """Avoidance and docking both leave a robot a metre off the lane.
+    Neither may turn the journey round."""
     for station in ("CTR1_LD", "SLT_LD1", "GRV1_ULD"):
         for start in [plant.parking_for(n) for n in plant.ROBOT_SEGMENT]:
             for pos in walk(start, station)[:40]:
@@ -124,9 +146,10 @@ def test_a_nudge_sideways_does_not_reverse_the_plan():
                     after = NETWORK.route_from(nudged, station)
                     if not after:
                         continue
-                    assert len(after) <= len(straight) + 2, \
+                    added = _metres(after) - _metres(straight)
+                    assert added <= NUDGE_ALLOWANCE, \
                         (f"a 1 m nudge at {pos} toward {station} added "
-                         f"{len(after) - len(straight)} hops")
+                         f"{added:.1f} m — that is going round, not across")
 
 
 # --------------------------------------------- and the first hop stays short
@@ -134,28 +157,43 @@ def test_a_nudge_sideways_does_not_reverse_the_plan():
 def test_the_off_lane_hop_stays_short():
     """The on-ramp is the ONE leg no lane covers, so it must not grow.
 
-    A draft of this fix allowed 5 m of detour and picked a node 5.3 m away
-    diagonally across an aisle over one 0.5 m away, because it saved a little
-    lane distance. Trading off-lane metres for lane metres one-for-one is
-    exactly what this module exists to refuse — a clear line is clear of
-    MACHINES, not of other robots.
+    A draft allowed 5 m of detour and picked a node 5.3 m away diagonally
+    across an aisle over one 0.5 m away, because it saved a little lane
+    distance. Trading off-lane metres for lane metres one-for-one is exactly
+    what this module exists to refuse — a clear line is clear of MACHINES, not
+    of other robots.
+
+    THE BOUND IS NOW ABSOLUTE, AND LOOSER, AND THAT IS A REAL COST. It used to
+    be "no more than 1.5 m further than the nearest candidate". That window
+    slides with the robot and closes to nothing when it is almost standing on a
+    junction, so the genuinely cheapest on-ramp dropped in and out of range and
+    the plan alternated: 88 of 270 routes never arrived on the two-lane road.
+    Swept against the harness, only a cap of 6 m converged — 3.0 and 4.5 both
+    left 88 stranded.
+
+    What that buys in convergence it spends here. Measured over 10,002
+    samples: median hop 4.15 m, 90th 5.66 m, worst 6.00 m, where the old rule
+    kept almost everything under 2 m. Robots now cross open floor to join a
+    lane more often than they used to, and that floor is where no traffic rule
+    applies. This test records the number rather than asserting the old one, so
+    the cost is visible instead of forgotten.
     """
     starts = [plant.parking_for(n) for n in plant.ROBOT_SEGMENT]
     starts += [(-18.1, 1.9), (-17.2, 2.8), (0.0, 0.0), (10.0, -2.0)]
+    worst = 0.0
     for station in sorted(plant.DOCKS):
         for start in starts:
             for pos in walk(start, station)[:30]:
-                goal = f"dock_{station}"
-                node = NETWORK.entry_node_for(pos, goal)
+                node = NETWORK.entry_node_for(pos, f"dock_{station}")
                 hop = math.hypot(NETWORK.nodes[node][0] - pos[0],
                                  NETWORK.nodes[node][1] - pos[1])
-                nearest = min(
-                    math.hypot(NETWORK.nodes[n][0] - pos[0],
-                               NETWORK.nodes[n][1] - pos[1])
-                    for n in NETWORK.nodes
-                    if not n.startswith(NETWORK.TERMINAL))
-                assert hop <= nearest + NETWORK.ENTRY_DETOUR + 1e-6, \
-                    f"at {pos} the on-ramp is {hop:.1f} m, nearest {nearest:.1f} m"
+                worst = max(worst, hop)
+                assert hop <= NETWORK.MAX_ONRAMP + 1e-6, (
+                    f"at {pos} the on-ramp is {hop:.1f} m, over the "
+                    f"{NETWORK.MAX_ONRAMP:.1f} m limit")
+    assert worst > 3.0, (
+        "if the worst on-ramp has dropped below 3 m the cap can come down "
+        "again — re-run the convergence sweep before lowering it")
 
 
 def test_the_on_ramp_is_never_a_dock_or_a_parking_bay():

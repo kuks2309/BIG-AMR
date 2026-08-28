@@ -77,13 +77,45 @@ def test_a_slot_exists_for_every_robot_in_the_fleet_table():
         assert len(plant.PARKING_SLOTS[segment]) == count, segment
 
 
-def test_slots_are_spaced_by_the_robots_own_width():
-    """Derived, not chosen — slots sit side by side, so WIDTH is what clears."""
-    assert plant.PARK_PITCH == plant.ROBOT_W + plant.PARK_CLEARANCE
+def test_slots_are_spaced_by_the_robots_own_length():
+    """Derived, not chosen — and it is LENGTH now, not width.
+
+    Robots park sideways on, nose along the aisle, so the queue runs down the
+    robot's long axis. Spacing by width left 0.55 m of air between two 1.6 m
+    bodies: on 2026-08-26 amr4 moved 0.18 m out of leg C slot 2 and was
+    immediately 0.167 m from amr5, and three robots froze on "layer 1" with no
+    way to resolve it.
+    """
+    assert plant.PARK_PITCH == plant.ROBOT_L + plant.PARK_CLEARANCE
     for segment, slots in plant.PARKING_SLOTS.items():
         for a, b in zip(slots, slots[1:]):
-            gap = abs(b[1] - a[1]) - plant.ROBOT_W
+            gap = abs(b[1] - a[1]) - plant.ROBOT_L
             assert gap >= plant.PARK_CLEARANCE - 1e-9, (segment, gap)
+
+
+def test_a_bay_clears_the_lane_it_hangs_off_not_the_aisle_centre():
+    """The bays must clear the LANE, which is not where the centreline is.
+
+    Regression for the two-lane build: PARK_X was measured from the aisle
+    centreline, so splitting each aisle moved the outer lane 0.90 m toward the
+    bays and ate most of the clearance without changing the constant that
+    claimed to guarantee it.
+    """
+    for which, lane in ((0, plant.AISLE_W_OUT), (1, plant.AISLE_E_OUT)):
+        bay = plant.PARK_X[which]
+        gap = abs(bay - lane) - plant.ROBOT_W       # both bodies, sideways on
+        assert gap >= plant.PARK_CLEARANCE - 1e-9, (which, gap)
+
+
+def test_a_parked_robot_faces_the_way_its_lane_runs():
+    """It leaves by crabbing sideways, so it cannot be parked nose-in."""
+    import math
+    for segment in plant.PARKING_SLOTS:
+        which, _ = plant._PARK_SIDE[segment]
+        side = plant._PARK_AISLE[which]
+        expected = plant._HEADING_YAW[plant.RING["outer"][side]]
+        assert plant.parking_yaw(segment) == expected, segment
+        assert abs(math.cos(plant.parking_yaw(segment))) < 1e-9, segment
 
 
 def test_the_two_east_queues_grow_apart_not_into_each_other():
@@ -111,7 +143,9 @@ def test_every_slot_has_a_spur_on_the_network():
         for i in range(len(slots)):
             suffix = "" if i == 0 else str(i + 1)
             assert f"park_{segment}{suffix}" in net.nodes
-            assert f"join_park{segment}{suffix}" in net.nodes
+            for ring in ("inner", "outer"):
+                assert f"join_park{segment}{suffix}_{ring}" in net.nodes, \
+                    "a bay needs a junction on each lane, like any other spur"
 
 
 def test_slot_zero_keeps_its_historic_name():

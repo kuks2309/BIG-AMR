@@ -57,6 +57,18 @@ __NAVCSS__
   .mach.store { fill:#3a2f12; stroke:#7a6320; }
   .mach.rack  { fill:#2a2136; stroke:#4d3b63; }
   .dock { fill:#2b3442; }
+  /* RULE 1's lines, in the same colours the Gazebo world paints them. */
+  .lane      { fill:none; stroke-linecap:round; }
+  .lane.in   { stroke:#4c9aff; stroke-width:0.16; }
+  .lane.out  { stroke:#d29922; stroke-width:0.16; }
+  .lane.spur { stroke:#3fb950; stroke-width:0.11; opacity:.75; }
+  .lane.cross{ stroke:#db61a2; stroke-width:0.11; opacity:.75; }
+  .arrow.in  { fill:#4c9aff; } .arrow.out { fill:#d29922; }
+  #roads.off { display:none; }
+  .key { font-size:11px; color:var(--dim); display:inline-flex; gap:10px;
+         align-items:center; margin-left:10px; }
+  .key i { width:12px; height:0; border-top:2px solid; display:inline-block;
+           margin-right:4px; vertical-align:middle; }
   .park { fill:none; stroke:#39465a; stroke-dasharray:2 2; }
   .lbl  { fill:#6b7688; font-size:1.05px; }
   .rname{ fill:#dbe4f0; font-size:1.5px; font-weight:600; }
@@ -80,7 +92,15 @@ __NAVCSS__
 
 <main>
   <section class="wide">
-    <h2>plant <span id="m-note" class="muted"></span></h2>
+    <h2>plant <span id="m-note" class="muted"></span>
+      <span class="key">
+        <label><input type="checkbox" id="showroads" checked> road</label>
+        <span><i style="border-color:#4c9aff"></i>inner ring</span>
+        <span><i style="border-color:#d29922"></i>outer ring</span>
+        <span><i style="border-color:#3fb950"></i>spur</span>
+        <span><i style="border-color:#db61a2"></i>ring change</span>
+      </span>
+    </h2>
     <svg id="map" viewBox="0 0 100 60" preserveAspectRatio="xMidYMid meet"></svg>
   </section>
 
@@ -141,6 +161,7 @@ function plantStamp(p) {
   return [p.hall.w, p.hall.e, p.hall.s, p.hall.n,
           p.machine_size, p.robot_size,
           p.machines.length, p.docks.length, p.parking.length,
+          Object.entries(p.roads || {}).map(([k, v]) => k + v.length).join(','),
           p.machines.map(m => `${m.name}:${m.x},${m.y}`).join('|')].join(';');
 }
 
@@ -175,6 +196,39 @@ function drawPlant(p) {
   let s = `<rect x="0" y="0" width="${w}" height="${h}" fill="#0b0e13"/>`;
   s += `<rect x="${X(p.hall.w)}" y="${Y(p.hall.n)}" width="${p.hall.e-p.hall.w}"
         height="${p.hall.n-p.hall.s}" fill="none" stroke="#2a3341" stroke-width="0.25"/>`;
+  /* THE LINES, under everything else. A robot standing on a one-way lane and
+     a robot standing beside a machine look identical without them. Drawn once
+     and cached by plantStamp — this is 304 lanes of static geometry. */
+  s += '<g id="roads">';
+  const lanes = p.roads || {};
+  const draw = (key, cls, arrow) => {
+    const v = lanes[key] || [];
+    let d = '';
+    for (let i = 0; i < v.length; i += 4)
+      d += `M${X(v[i])} ${Y(v[i+1])}L${X(v[i+2])} ${Y(v[i+3])}`;
+    if (d) s += `<path class="lane ${cls}" d="${d}"/>`;
+    if (!arrow) return;
+    /* One chevron per lane, at the midpoint, pointing the way the traffic
+       goes. The rings are one-way and that is the whole point of them; the
+       spurs are driven both ways, so they get none. */
+    for (let i = 0; i < v.length; i += 4) {
+      const x1 = X(v[i]), y1 = Y(v[i+1]), x2 = X(v[i+2]), y2 = Y(v[i+3]);
+      const dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy);
+      if (L < 1.2) continue;
+      const ux = dx / L, uy = dy / L, px = -uy, py = ux;
+      const cx = x1 + dx * 0.5, cy = y1 + dy * 0.5, a = 0.42, b = 0.22;
+      s += `<polygon class="arrow ${cls}" points="`
+         + `${cx + ux*a},${cy + uy*a} `
+         + `${cx - ux*a + px*b},${cy - uy*a + py*b} `
+         + `${cx - ux*a - px*b},${cy - uy*a - py*b}"/>`;
+    }
+  };
+  draw('spur', 'spur', false);
+  draw('cross', 'cross', false);
+  draw('inner', 'in', true);
+  draw('outer', 'out', true);
+  s += '</g>';
+
   const [mw, md] = p.machine_size;
   for (const m of p.machines) {
     s += `<rect class="mach ${m.kind}" x="${X(m.x)-mw/2}" y="${Y(m.y)-md/2}"
@@ -194,6 +248,12 @@ function drawPlant(p) {
           text-anchor="middle" fill="#d29922">&#9889;</text>`;
   s += '<g id="robots"></g>';
   svg.innerHTML = s;
+  applyRoadToggle();
+}
+
+function applyRoadToggle() {
+  const g = $('roads'), box = $('showroads');
+  if (g && box) g.classList.toggle('off', !box.checked);
 }
 
 function drawRobots(fleet) {
@@ -214,7 +274,7 @@ function drawRobots(fleet) {
                   fill="#0b0e13"/>
           </g>
           <text class="rname" x="${X(x)}" y="${Y(y)-1.1}"
-                text-anchor="middle">${r.name}</text>`;
+                text-anchor="middle">${r.agv || r.name}</text>`;
     if (r.goal)
       s += `<line x1="${X(x)}" y1="${Y(y)}" x2="${X(r.goal[0])}" y2="${Y(r.goal[1])}"
              stroke="#4c9aff" stroke-width="0.08" stroke-dasharray="0.4 0.4"
@@ -305,7 +365,8 @@ async function refresh() {
 
   $('n-fleet').textContent = d.fleet.length;
   table($('t-fleet'), ['robot','leg','battery','busy','job','going to','at','responsive','halted because'],
-    d.fleet, r => [r.name, r.leg, battery(r),
+    d.fleet, r => [(r.agv ? `${r.agv} <span class="muted">${r.name}</span>`
+                          : r.name), r.leg, battery(r),
       r.busy ? 'yes' : '<span class="muted">idle</span>',
       r.job_id, r.leg_target,
       r.position ? `${n1(r.position[0])},${n1(r.position[1])}` : null,
@@ -356,6 +417,7 @@ async function refresh() {
   table($('t-dec'), ['job','source','dest','why'], d.decisions,
     x => [x.job_id, x.source, x.dest, x.reason]);
 }
+$('showroads').addEventListener('change', applyRoadToggle);
 tick(); setInterval(tick, 500);
 </script>
 </body>
