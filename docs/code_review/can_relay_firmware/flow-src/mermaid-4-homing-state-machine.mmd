@@ -1,0 +1,46 @@
+stateDiagram-v2
+    state "IDLE (0)" as H_IDLE
+    state "ENABLE (1): 0x6040 = 0x86 (fault reset + enable) to node3 and node4" as H_ENABLE
+    state "SET_SPEED (2): 0x6099 = seer_home_speed (default 2500 = 0.1 r/min units)" as H_SETSPEED
+    state "START (3): 0x60FB sub4 = 1 (RstStart); stage_reset(); 0x6098 deliberately not written" as H_START
+    state "WAIT (4): every 2nd tick (4 Hz) read 0x6041 and 0x6000.01; seen_active on bit15 == 0, done_mask on the 0 -> 1 transition" as H_WAIT
+    state "RESTORE (8): 0x6060 = 1 (PP), 0x6081 = 30000, 0x6083 = 250, 0x6084 = 250" as H_RESTORE
+    state "GOZERO (9): 0x607A = 7882020 (node3) / 7859062 (node4); 0x6040 = 0x3F" as H_GOZERO
+    state "GOZERO_W (11): every 2nd tick read 0x6064 and 0x6000.01; reached when abs(pos - target) < 57344 counts (1.0 deg)" as H_GOZERO_W
+    state "DONE (5) terminal" as H_DONE
+    state "ERR_TIMEOUT (6) terminal - homing search timed out" as H_ERR_TIMEOUT
+    state "ERR_ABORT (7) terminal - host abort or authority lost" as H_ERR_ABORT
+    state "ERR_GOZERO (10) terminal - origin found but 0 deg return not confirmed" as H_ERR_GOZERO
+    state "default: unknown state value" as H_DEFAULT
+    state "seer_homing_tick() entry: seer_home_is_terminal(state) -> return immediately (absorbing until 0xea)" as H_TICKGUARD
+    H_IDLE --> H_ENABLE : 0xea start=1 and pc_authority and safety_mode == 30 and is_terminal (safety_seer_gate.h:558-566)
+    H_DONE --> H_ENABLE : 0xea start=1 and pc_authority and safety_mode == 30 and is_terminal (safety_seer_gate.h:558-566)
+    H_ERR_TIMEOUT --> H_ENABLE : 0xea start=1 and pc_authority and safety_mode == 30 and is_terminal (safety_seer_gate.h:558-566)
+    H_ERR_ABORT --> H_ENABLE : 0xea start=1 and pc_authority and safety_mode == 30 and is_terminal (safety_seer_gate.h:558-566)
+    H_ERR_GOZERO --> H_ENABLE : 0xea start=1 and pc_authority and safety_mode == 30 and is_terminal (safety_seer_gate.h:558-566)
+    H_ENABLE --> H_SETSPEED : unconditional, next 8 Hz tick (safety_seer_gate.h:587)
+    H_SETSPEED --> H_START : unconditional, next tick (safety_seer_gate.h:594)
+    H_START --> H_WAIT : unconditional, next tick + stage_reset (safety_seer_gate.h:602-603)
+    H_WAIT --> H_RESTORE : done_mask == 0b11 (both steer nodes homed) (safety_seer_gate.h:630-632)
+    H_WAIT --> H_ERR_TIMEOUT : elapsed_s >= SEER_HOME_TIMEOUT_S = 120 s -> cancel frames (safety_seer_gate.h:635-641)
+    H_RESTORE --> H_GOZERO : unconditional, next tick (safety_seer_gate.h:654)
+    H_GOZERO --> H_GOZERO_W : unconditional, next tick + stage_reset (safety_seer_gate.h:663-664)
+    H_GOZERO_W --> H_DONE : reached_mask == 0b11 (safety_seer_gate.h:689-690)
+    H_GOZERO_W --> H_ERR_GOZERO : elapsed_s >= SEER_HOME_ZERO_TMO_S = 30 s, no cancel frames sent (safety_seer_gate.h:693-700)
+    H_ENABLE --> H_ERR_ABORT : !pc_authority or safety_mode != 30 -> cancel frames (safety_seer_gate.h:576-579), or 0xea start=0 (safety_seer_gate.h:550-551)
+    H_SETSPEED --> H_ERR_ABORT : !pc_authority or safety_mode != 30 -> cancel frames (safety_seer_gate.h:576-579), or 0xea start=0 (safety_seer_gate.h:550-551)
+    H_START --> H_ERR_ABORT : !pc_authority or safety_mode != 30 -> cancel frames (safety_seer_gate.h:576-579), or 0xea start=0 (safety_seer_gate.h:550-551)
+    H_WAIT --> H_ERR_ABORT : !pc_authority or safety_mode != 30 -> cancel frames (safety_seer_gate.h:576-579), or 0xea start=0 (safety_seer_gate.h:550-551)
+    H_RESTORE --> H_ERR_ABORT : !pc_authority or safety_mode != 30 -> cancel frames (safety_seer_gate.h:576-579), or 0xea start=0 (safety_seer_gate.h:550-551)
+    H_GOZERO --> H_ERR_ABORT : !pc_authority or safety_mode != 30 -> cancel frames (safety_seer_gate.h:576-579), or 0xea start=0 (safety_seer_gate.h:550-551)
+    H_GOZERO_W --> H_ERR_ABORT : !pc_authority or safety_mode != 30 -> cancel frames (safety_seer_gate.h:576-579), or 0xea start=0 (safety_seer_gate.h:550-551)
+    H_DEFAULT --> H_ERR_ABORT : default case of switch (safety_seer_gate.h:705-707)
+    H_IDLE --> H_TICKGUARD : tick does nothing
+    H_DONE --> H_TICKGUARD : tick does nothing
+    H_ERR_TIMEOUT --> H_TICKGUARD : tick does nothing
+    H_ERR_ABORT --> H_TICKGUARD : tick does nothing
+    H_ERR_GOZERO --> H_TICKGUARD : tick does nothing
+    H_DONE --> H_IDLE : 0xea start=0 -> terminal resets to IDLE (safety_seer_gate.h:548-554)
+    H_ERR_TIMEOUT --> H_IDLE : 0xea start=0 -> terminal resets to IDLE (safety_seer_gate.h:548-554)
+    H_ERR_ABORT --> H_IDLE : 0xea start=0 -> terminal resets to IDLE (safety_seer_gate.h:548-554)
+    H_ERR_GOZERO --> H_IDLE : 0xea start=0 -> terminal resets to IDLE (safety_seer_gate.h:548-554)

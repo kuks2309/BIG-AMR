@@ -1,0 +1,63 @@
+flowchart TD
+    T_MAIN(["main() for(;;): enable_can_transceivers(true); LED fade or __WFI - no CAN or homing work in the main loop"])
+    T_IRQ(["TICK_TIMER IRQ (8 Hz) -> tick_handler()"])
+    T_SR{"TICK_TIMER->SR != 0 ?"}
+    T_SIREN["set_siren((loop_counter and 1) and (siren_enabled or siren_countdown > 0))"]
+    T_HOMING["seer_homing_tick() - called every 8 Hz tick, unconditional"]
+    T_HOMEGUARD{"seer_homing_tick(): seer_home_is_terminal(state) -> return"}
+    T_HOMEAUTH{"!pc_authority or current_safety_mode != 30 ?"}
+    T_HOMEABORT["seer_home_cancel_frames() (0x60FB.4 = 0 to node3,4); state = ERR_ABORT; return"]
+    T_HOMESW["switch (seer_home_state) - one stage per tick (see homing state machine)"]
+    T_DEC{"loop_counter == 0 ? (decimate 8 Hz -> 1 Hz)"}
+    T_1HZ["1 Hz block: can_live = pending_can_live; usb_power_mode_tick(); fan_tick(); LED green = controls_allowed; LED blue = power save"]
+    T_HBINC["heartbeat_counter += 1 (capped at UINT32_MAX)"]
+    T_SIRENCD["siren_countdown > 0 -> siren_countdown -= 1"]
+    T_CA["controls_allowed ? controls_allowed_countdown = 30 : countdown -= 1"]
+    T_ENG["controls_allowed and !heartbeat_engaged -> mismatches += 1; >= 3 -> controls_allowed = 0"]
+    T_HBDIS{"heartbeat_disabled ?"}
+    T_HBLOST{"heartbeat_counter >= (check_started() ? HEARTBEAT_IGNITION_CNT_ON 5 : _OFF 2) ?"}
+    T_LOSTLOG["log; controls_allowed_countdown > 0 -> siren_countdown = 5, controls_allowed_countdown = 0"]
+    T_LOSTFLAG["is_car_safety_mode(current_safety_mode) -> heartbeat_lost = true"]
+    T_SILENT["current_safety_mode != SAFETY_SILENT -> set_safety_mode(SAFETY_SILENT, 0)"]
+    T_FAILSAFE["FAIL-SAFE: set_intercept_relay(false); pc_authority = false"]
+    T_PWRSAVE["power_save_status != ENABLED -> set_power_save_state(ENABLED); set_ir_power(0); fan = usb_enumerated ? 50 : 0"]
+    T_CDP["check_started() and (usb_power_mode != USB_POWER_CDP or !usb_enumerated) -> set_usb_power_mode(CDP)"]
+    T_REG["check_registers(); ignition_can_cnt > 2 -> ignition_can = false"]
+    T_CNT["uptime_cnt += 1; safety_mode_cnt += 1; ignition_can_cnt += 1"]
+    T_STICK["safety_tick(current_rx_checks) - seer gate uses default_rx_checks with len 0, so no lag check runs"]
+    T_LOOPC["loop_counter = (loop_counter + 1) % 8"]
+    T_CLR(["TICK_TIMER->SR = 0; ISR return"])
+    T_MAIN -->|"preempted by 8 Hz tick IRQ"| T_IRQ
+    T_IRQ --> T_SR
+    T_SR -->|"SR != 0"| T_SIREN
+    T_SR -->|"SR == 0 (body skipped)"| T_CLR
+    T_SIREN --> T_HOMING
+    T_HOMING --> T_HOMEGUARD
+    T_HOMEGUARD -->|"terminal state -> return"| T_DEC
+    T_HOMEGUARD -->|"running"| T_HOMEAUTH
+    T_HOMEAUTH -->|"yes"| T_HOMEABORT
+    T_HOMEAUTH -->|"no"| T_HOMESW
+    T_HOMEABORT -->|"return"| T_DEC
+    T_HOMESW -->|"stage advanced"| T_DEC
+    T_DEC -->|"yes"| T_1HZ
+    T_DEC -->|"no"| T_LOOPC
+    T_1HZ --> T_HBINC
+    T_HBINC --> T_SIRENCD
+    T_SIRENCD --> T_CA
+    T_CA --> T_ENG
+    T_ENG --> T_HBDIS
+    T_HBDIS -->|"true (0xf8 debug disable)"| T_REG
+    T_HBDIS -->|"false"| T_HBLOST
+    T_HBLOST -->|"yes (heartbeat lost)"| T_LOSTLOG
+    T_HBLOST -->|"no"| T_CDP
+    T_LOSTLOG --> T_LOSTFLAG
+    T_LOSTFLAG --> T_SILENT
+    T_SILENT --> T_FAILSAFE
+    T_FAILSAFE --> T_PWRSAVE
+    T_FAILSAFE -->|"next tick: pc_authority = false -> homing ERR_ABORT"| T_HOMEAUTH
+    T_PWRSAVE --> T_CDP
+    T_CDP --> T_REG
+    T_REG --> T_CNT
+    T_CNT --> T_STICK
+    T_STICK --> T_LOOPC
+    T_LOOPC --> T_CLR

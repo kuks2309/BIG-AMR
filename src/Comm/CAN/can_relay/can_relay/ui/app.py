@@ -33,6 +33,7 @@ import time
 from PyQt5.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPolygonF
 from PyQt5.QtWidgets import (QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout,
+                             QTabWidget,
                              QHeaderView, QLabel, QMessageBox, QPlainTextEdit,
                              QPushButton, QSlider, QSpinBox, QTableWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget)
@@ -46,16 +47,19 @@ STEER_LIMIT_DEG = 90
 # 조그 방향표 — 원본 `gui.py:85-94` 와 **같은 값**(직접 실측 2건 + 도출 6건).
 #   ① 조향 홈(0°) + raw 음수 → 전진(+x)   ② 조향 +90° + raw 양수 → 좌(IMU 실증)
 SEER_RESTORE_TIMEOUT_S = 20.0   # 반환 전 조향 복원 대기 한도
+SEER_MATCH_TOL_DEG = 3.0        # CAN 실측 ↔ Seer 판독 허용 차
+SEER_MATCH_STREAK = 5           # 이만큼 **연속** 어긋나야 경보 — 과도 표본으로 떠들지 않는다
+SEER_MATCH_REWARN_S = 30.0      # 같은 축 재경보 최소 간격
 
 JOG = {
     "전진":     (0.0,  -1, True),
     "후진":     (0.0,  +1, True),
     "좌 크랩":  (90.0, +1, True),
     "우 크랩":  (90.0, -1, True),
-    "좌전 45°": (-45.0, -1, False),
-    "우전 45°": (45.0,  -1, False),
-    "좌후 45°": (45.0,  +1, False),
-    "우후 45°": (-45.0, +1, False),
+    "좌전 45°": (-45.0, -1, True),  # 2026-08-04 밤 조그 실기에서 방향 확인(사용자 확인 2026-08-05)
+    "우전 45°": (45.0,  -1, True),  # 2026-08-04 밤 조그 실기에서 방향 확인(사용자 확인 2026-08-05)
+    "좌후 45°": (45.0,  +1, True),  # 2026-08-04 밤 조그 실기에서 방향 확인(사용자 확인 2026-08-05)
+    "우후 45°": (-45.0, +1, True),  # 2026-08-04 밤 조그 실기에서 방향 확인(사용자 확인 2026-08-05)
 }
 
 
@@ -175,9 +179,13 @@ class MainWindow(QWidget):
         self.be = backend
         self._seer_ip = seer_ip
         self._seer_gui_path = seer_gui_path
+        self._seer_enabled = bool(seer_enabled)
         self._seer_run = bool(seer_enabled)
         self._seer_deg = {}
         self._seer_at_take = {}   # 제어권 잡기 직전 Seer 조향각(반환 시 복원 기준)
+        self._steer_commanded = False   # 이번 세션에서 조향을 보냈는가(대조 중단 조건)
+        self._seer_mismatch_streak = {}
+        self._seer_mismatch_warned_at = {}
         self._alarm_tick = 0
         self._alarm_seen = set()
         self._jog_th = None
@@ -435,20 +443,53 @@ class MainWindow(QWidget):
         v.addWidget(g2, 1)
         return w
 
-    def _build_status(self) -> QLabel:
-        """하단 상태 바 — 원본과 같이 **Seer 접속 정보**를 보인다."""
+    def _build_status(self):
+        """하단 상태 바 — **백엔드 연결**과 **Seer 접속**을 나란히 보인다.
+
+        ⚠ 2026-08-05 사용자 지적: 「can relay 연결 확인이 없음 — 연결 표시되어야 함 화면에」.
+        예전에는 백엔드 상태가 **로그에만** 나가고 화면에는 Seer 정보뿐이라, 드라이버가 죽었는지
+        로봇이 이상한지 화면에서 구분할 수 없었다.
+        """
+        box = QWidget()
+        lay = QHBoxLayout(box)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        self.lab_link = QLabel("연결 확인 중…")
+        self.lab_link.setStyleSheet(
+            "padding:4px 8px; border-top:1px solid #cfd8e0; color:#5d6d7e;")
         self.lab_status = QLabel(f"Seer {self._seer_ip} · 접속 시도 중…")
         self.lab_status.setStyleSheet(
             "padding:4px 8px; border-top:1px solid #cfd8e0; color:#5d6d7e;")
-        return self.lab_status
+        lay.addWidget(self.lab_link, 1)
+        lay.addWidget(self.lab_status, 1)
+        return box
+
+    _LINK_OK_CSS = ("padding:4px 8px; border-top:1px solid #cfd8e0; "
+                    "color:#1e8449; font-weight:600;")
+    _LINK_BAD_CSS = ("padding:4px 8px; border-top:1px solid #cfd8e0; "
+                     "color:#c0392b; font-weight:600;")
+
+    def _refresh_link(self):
+        """백엔드 연결 표시 갱신 — 색으로도 드러낸다(초록=연결, 빨강=끊김)."""
+        try:
+            connected, text = self.be.link_status()
+        except Exception as exc:                       # 백엔드가 아직 안 붙었을 때
+            connected, text = False, f"연결 확인 실패: {type(exc).__name__}"
+        self.lab_link.setText(text)
+        self.lab_link.setStyleSheet(self._LINK_OK_CSS if connected else self._LINK_BAD_CSS)
 
     # ── 주기 갱신 ─────────────────────────────────────────────────────
     def _refresh(self):
         rows = self.be.motor_rows()
         for node in DRIVE_NODES + STEER_NODES:
             self._fill_row(self.tbl_motor, node, rows.get(node, (None, None, None)))
+        for node in STEER_NODES:                      # CAN ↔ Seer 연속 대조(원본과 같은 절차)
+            deg = self.be.meas_angle(node)
+            if deg is not None:
+                self._check_seer_agreement(node, deg)
         self._redraw_wheel()
 
+        self._refresh_link()          # 백엔드 연결 표시(화면)
         text, ok, engaged = self.be.status()
         if text != getattr(self, "_last_status", None):
             self._last_status = text
@@ -462,6 +503,42 @@ class MainWindow(QWidget):
     def _meas_angle(self, node):
         d = self.be.meas_angle(node)
         return d if d is not None else self._seer_deg.get(node)
+
+
+    def _check_seer_agreement(self, node: int, deg: float):
+        """CAN 실측과 Seer 판독이 같은 곳을 가리키는가 — **매 갱신 연속 대조**(원본 `gui.py` 와 동일).
+
+        한 번 읽고 판정하지 않는다. 2026-08-05 실기에서 획득 직후 첫 표본이 +0.00° 로 읽혔다가
+        곧 +15.807° 가 됐다(그 사이 조향 지령 없음). 과도 표본은 연속 조건이 걸러 낸다.
+        ⚠ **우리가 조향을 보낸 뒤에는 대조하지 않는다.** 제어권을 쥐면 Seer 는 모터 실측을
+        더 못 본다 — 2026-08-05 **API 1040 직접 호출**로 확인: 우리가 +20.000° 로 움직여도
+        API 는 -15.807° 에 고정, 반환 후에야 갱신된다. 그 상태로 대조하면 정상 조작마다
+        거짓 경보가 난다.
+        어긋나면 **알리기만 한다** — 판단은 운용자 몫이고, 조용히 진행하는 것만 피한다.
+        """
+        if self._steer_commanded:      # 우리가 움직인 뒤 — Seer 값은 굳어 있어 비교 의미 없음
+            return
+        ref = self._seer_deg.get(node)
+        if ref is None:
+            self._seer_mismatch_streak[node] = 0
+            return
+        diff = deg - ref
+        if abs(diff) <= SEER_MATCH_TOL_DEG:
+            if self._seer_mismatch_streak.get(node, 0) >= SEER_MATCH_STREAK:
+                self.log_line.emit(f"N{node} 조향 기준 회복 — Seer {ref:+.2f}° ↔ CAN {deg:+.2f}°")
+            self._seer_mismatch_streak[node] = 0
+            return
+        n = self._seer_mismatch_streak.get(node, 0) + 1
+        self._seer_mismatch_streak[node] = n
+        if n < SEER_MATCH_STREAK:
+            return
+        now = time.monotonic()
+        if now - self._seer_mismatch_warned_at.get(node, 0.0) < SEER_MATCH_REWARN_S:
+            return
+        self._seer_mismatch_warned_at[node] = now
+        self.log_line.emit(
+            f"⚠ N{node} 조향 기준 불일치 {n}회 연속 — Seer {ref:+.2f}° 인데 CAN 실측 "
+            f"{deg:+.2f}° (차 {diff:+.2f}°). 0° 기준이 서로 다릅니다 — 조작 전 확인하세요")
 
     def _redraw_wheel(self):
         """실측 우선. 실측이 없을 때만 슬라이더를 미리보기로 쓴다.
@@ -526,6 +603,7 @@ class MainWindow(QWidget):
         """
         self.btn_take.setText("제어권 해제" if on else "제어권 획득")
         if on:
+            self._steer_commanded = False   # 새 세션 — 대조를 다시 연다
             self._seer_at_take = {n: self._seer_deg.get(n) for n in STEER_NODES}
             have = {n: v for n, v in self._seer_at_take.items() if v is not None}
             self.log("인수인계 기준(Seer) — " +
@@ -546,6 +624,7 @@ class MainWindow(QWidget):
             self.log_line.emit("인수인계 복원 — " +
                                ", ".join(f"N{n} → {v:+.2f}°" for n, v in targets.items()))
             try:
+                self._steer_commanded = True   # 복원도 우리 조향 지령이다(대조 중단)
                 for n, v in targets.items():
                     self.be.steer_axis(n, v)
                 t0 = time.monotonic()
@@ -571,6 +650,7 @@ class MainWindow(QWidget):
     def _send_steer(self, node: int):
         deg = (self.sld_front if node == 3 else self.sld_rear).value()
         try:
+            self._steer_commanded = True      # 이 시점부터 Seer 판독은 굳는다(대조 중단)
             self.be.steer_axis(node, float(deg))
             self.log(f"조향 지령 N{node} → {deg:+d}°")
         except Exception as exc:
@@ -599,15 +679,33 @@ class MainWindow(QWidget):
             tol = float(self.spn_tol.value())
             mmps = float(self.spn_speed.value())
             self.be.drive(0.0)
+            self._steer_commanded = True   # 조그도 우리 조향 지령이다(대조 중단)
             self.be.steer_all(steer_deg)
             self.log_line.emit(f"조그 '{label}' — 조향 {steer_deg:+.0f}° 지령, 정착 대기")
             t0 = time.monotonic()
+            # ⚠ 대기 중 **진행 상황을 1초마다 남긴다.** 2026-08-05: 조그 첫 지령에서 N4 가
+            #   따라오지 않았는데, 사용자가 6초 타임아웃 전(5초)에 정지를 눌러 실패 판정
+            #   로그가 아예 남지 않았다 — 어느 축이 문제였는지 기록으로 알 수 없었다.
+            next_note = t0 + 1.0
             while time.monotonic() - t0 < 6.0:
                 if self._jog_stop:
                     self.be.drive(0.0)
+                    self.log_line.emit(
+                        f"조그 중단 — 정착 전 정지 (실측 "
+                        + " · ".join(f"N{n} {self.be.meas_angle(n)}" for n in STEER_NODES)
+                        + f" / 목표 {steer_deg:+.0f}°)")
                     return
                 if self.be.settled(steer_deg, tol, STEER_NODES):
                     break
+                now = time.monotonic()
+                if now >= next_note:
+                    next_note = now + 1.0
+                    self.log_line.emit(
+                        f"정착 대기 {now - t0:.0f}초 — "
+                        + " · ".join(
+                            f"N{n} {'—' if (a := self.be.meas_angle(n)) is None else f'{a:+.2f}°'}"
+                            for n in STEER_NODES)
+                        + f" (목표 {steer_deg:+.0f}°, 허용 {tol:.1f}°)")
                 time.sleep(0.05)
             else:
                 self.log_line.emit(
@@ -776,6 +874,27 @@ class MainWindow(QWidget):
         QTimer.singleShot(1500, lambda: self.btn_clear_fatal.setEnabled(True))
 
     # ── 종료 ──────────────────────────────────────────────────────────
+    def set_seer_polling(self, on: bool) -> None:
+        """Seer 폴링을 켜고 끈다 — **탭 구성에서 하나만 돌게** 하려고 둔다.
+
+        Seer API 를 두 창에서 동시에 두드릴 이유가 없고, 표는 **보이는 탭**만 필요하다.
+        `seer_enabled=False` 로 만든 창은 이 호출로도 켜지지 않는다.
+        """
+        on = bool(on) and self._seer_enabled
+        if on == self._seer_run:
+            return
+        self._seer_run = on
+        if on:
+            threading.Thread(target=self._seer_loop, daemon=True, name="seer").start()
+
+    def holds_hardware(self) -> bool:
+        """이 창이 **판다를 붙들고 있는가**(USB 개방 또는 제어권 보유).
+
+        탭 구성에서 다른 탭을 잠그는 판정에 쓴다 — 판다는 한 곳만 열 수 있고,
+        두 곳에서 열면 USB 가 연속 실패한다(2026-08-05 실측 36회).
+        """
+        return bool(self.btn_usb.isChecked() or self.btn_take.isChecked())
+
     def safe_release(self, reason: str = "") -> None:
         """모든 종료 경로가 공유하는 멱등 해제 — 백엔드에 위임한다."""
         if self._released:
@@ -787,6 +906,72 @@ class MainWindow(QWidget):
             self.be.shutdown(reason)
         except Exception as exc:
             print(f"[gui] ⚠ 종료 중 예외: {type(exc).__name__}: {exc}", flush=True)
+
+    def closeEvent(self, ev):
+        self.safe_release("창 닫기")
+        ev.accept()
+
+
+class RelayTabs(QWidget):
+    """**한 프로그램에 탭 2개** — ROS2(운용) · 판다 직결(시험).
+
+    사용자 요청(2026-08-05): 「지우지 말고 새로 만들면 되잖아... 탭을 2개로 해서」.
+    원본 `Tools/amr_test_gui/gui.py` 를 지우면 `test_port_equivalence`(44건)가 비교 대상을
+    잃으므로, 지우는 대신 **두 경로를 한 창에 담는다.**
+
+    ⚠ **판다는 한 곳만 열 수 있다.** ros2 탭은 드라이버가, direct 탭은 GUI 가 직접 연다.
+      두 곳이 동시에 잡으면 USB 가 연속 실패한다(2026-08-05 실측 36회 연속 timeout).
+      그래서 한 탭이 하드웨어를 붙들고 있으면 **다른 탭을 잠근다.**
+    ⚠ Seer 폴링은 **보이는 탭만** 돈다 — API 를 두 곳에서 두드릴 이유가 없다.
+    """
+
+    LOCK_NOTE = "다른 탭이 판다를 붙들고 있습니다 — 그 탭에서 제어권·USB 를 먼저 해제하세요"
+
+    def __init__(self, panels: dict):
+        super().__init__()
+        self.setWindowTitle("Tongyi 4축 AMR 구동 테스트 GUI [탭: ros2 · direct]")
+        self.resize(1240, 840)
+        self._panels = panels                      # {탭이름: MainWindow}
+        self.tabs = QTabWidget(self)
+        for name, panel in panels.items():
+            self.tabs.addTab(panel, name)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.tabs)
+
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        self._guard = QTimer(self)
+        self._guard.timeout.connect(self._apply_exclusive_lock)
+        self._guard.start(200)
+        self._on_tab_changed(self.tabs.currentIndex())
+
+    # ── 탭 전환 ───────────────────────────────────────────────────────
+    def _on_tab_changed(self, idx: int):
+        for i, panel in enumerate(self._panels.values()):
+            panel.set_seer_polling(i == idx)       # 보이는 탭만 Seer 를 본다
+        self._apply_exclusive_lock()
+
+    # ── 배타 잠금 ─────────────────────────────────────────────────────
+    def _apply_exclusive_lock(self):
+        """하드웨어를 붙든 탭이 있으면 **나머지 탭을 잠근다.**"""
+        holder = None
+        for i, panel in enumerate(self._panels.values()):
+            if panel.holds_hardware():
+                holder = i
+                break
+        for i, panel in enumerate(self._panels.values()):
+            locked = holder is not None and i != holder
+            if self.tabs.isTabEnabled(i) == (not locked):
+                continue
+            self.tabs.setTabEnabled(i, not locked)
+            if locked:
+                panel.log(f"⚠ 탭 잠금 — {self.LOCK_NOTE}")
+
+    # ── 종료 ─────────────────────────────────────────────────────────
+    def safe_release(self, reason: str = "") -> None:
+        """양쪽 패널을 모두 해제한다 — 종료 경로는 하나로 모은다."""
+        for panel in self._panels.values():
+            panel.safe_release(reason)
 
     def closeEvent(self, ev):
         self.safe_release("창 닫기")

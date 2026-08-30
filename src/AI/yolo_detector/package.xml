@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>yolo_detector</name>
+  <version>0.1.0</version>
+  <description>카메라 토픽을 구독해 YOLOv8 객체탐지 결과를 발행하는 노드. 카메라 장치를 직접 열지 않는다.</description>
+  <maintainer email="kukwonko@gmail.com">kuks</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>ai_msgs</exec_depend>
+  <!-- 추론 런타임. 코드가 직접 import 한다(detector_node.py 의 `from ultralytics import YOLO`,
+       `import torch`). 선언 없이는 rosdep 이 설치하지 않아 신규 호스트에서 기동 실패한다.
+       cv2·numpy 는 직접 import 하지 않으므로(cv_bridge 경유) 선언에서 뺐다. -->
+  <exec_depend>python3-ultralytics-pip</exec_depend>
+  <!-- ⚠ torch 는 rosdep 키가 없다(`rosdep resolve python3-torch-pip` → no rule).
+       Jetson 은 NVIDIA 휠(`torch 2.4.0a0+…nv24.07`)을 써야 하므로 rosdep 으로 설치할 수
+       없다 — JetPack 설치 시 함께 들어오며, 없으면 기동 시 ImportError 로 드러난다. -->
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

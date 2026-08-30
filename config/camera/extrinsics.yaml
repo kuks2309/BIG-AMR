@@ -1,0 +1,76 @@
+# Big-AMR surround depth 카메라 외부 파라미터 (extrinsic) — base_link 기준
+#
+# 좌표계: ROS REP-103 — +x 전방 / +y 좌측 / +z 상방, 오른손. 각도는 z축 반시계가 양(+).
+# 부모 프레임 base_link 의 원점: 두 구동 모듈 회전축 중점을 바닥면(z=0)에 투영한 점.
+#   (기존 기하 정본 src/Control/Motion_Control/2WS/trnav_2ws_core/config/robot_geometry_2ws.yaml:37-40
+#    의 전/후 모듈 x = +0.6039 / -0.5961 중점이 x ≈ +0.004 라 사실상 원점과 일치한다.)
+#
+# 자식 프레임은 <name>_link 다. 그 아래 <name>_depth_frame / <name>_depth_optical_frame 체인은
+# orbbec_camera 드라이버가 publish_tf=true 로 직접 발행한다(중복 발행 금지).
+#
+# 출처: 사용자 제공 도면 Ford_Camera_Test_260730.dwg / KakaoTalk_20260730_110243308.jpg (2026-07-30).
+#   평면도  1013.81 x2 = 전장 2027.62 mm (전·후면 카메라가 차체 끝면에 장착)
+#           720.74 x2 = 좌·우 카메라열 간격 1441.48 mm
+#           66.6   x2 = 측면 쌍의 종방향 간격 133.2 mm
+#           30°          측면 쌍이 측면 법선에서 벌어진 각
+#   정면도  12°          전·후면 카메라 하향 틸트 (측면 4대는 틸트 없음 — 사용자 확인 2026-07-31)
+#           348.42 mm    장착 높이
+#
+# ⚠ 본 값은 도면 판독값이며 실기 정합으로 검증되지 않았다. W5 캘리브(바닥 평면 정합 +
+#   인접 카메라 겹침 ICP)가 이 파일을 덮어쓰는 것이 산출 규약이다. 덮어쓸 때 아래
+#   'source' 를 'calibration'으로 바꾸고 잔차를 함께 기록할 것.
+source: drawing            # drawing | calibration
+frame_id: base_link        # 부모 프레임 (모든 카메라 공통)
+
+# 단위: 위치 m, 각도 deg (사람이 도면에서 옮겨 적는 파일이라 rad 대신 deg 를 쓴다)
+cameras:
+  - name: cam_f            # 전면 — 방위 0°
+    x: 1.01381
+    y: 0.0
+    z: 0.348
+    roll_deg: 0.0
+    pitch_deg: 12.0        # 하향 틸트 (ROS RPY 는 y축 양(+)이 하향)
+    yaw_deg: 0.0
+
+  - name: cam_lf           # 좌측 전방 — 방위 +60°
+    # x 부호(±0.0666)는 가정값이다. 도면의 측면 쌍은 광축이 교차하는 배치라
+    # 두 카메라 중 어느 쪽이 전방 섹터를 담당하는지 도면만으로 갈리지 않는다.
+    # 133 mm 차이는 19° 겹침 여유 안이라 W5 겹침 정합이 확정한다.
+    x: 0.0666
+    y: 0.72074
+    z: 0.348
+    roll_deg: 0.0
+    pitch_deg: 0.0
+    yaw_deg: 60.0
+
+  - name: cam_lr           # 좌측 후방 — 방위 +120°
+    x: -0.0666
+    y: 0.72074
+    z: 0.348
+    roll_deg: 0.0
+    pitch_deg: 0.0
+    yaw_deg: 120.0
+
+  - name: cam_r            # 후면 — 방위 180° (유지보수 조작 패널이 있는 면)
+    x: -1.01381
+    y: 0.0
+    z: 0.348
+    roll_deg: 0.0
+    pitch_deg: 12.0        # 하향 틸트 (ROS RPY 는 y축 양(+)이 하향)
+    yaw_deg: 180.0
+
+  - name: cam_rr           # 우측 후방 — 방위 -120°
+    x: -0.0666
+    y: -0.72074
+    z: 0.348
+    roll_deg: 0.0
+    pitch_deg: 0.0
+    yaw_deg: -120.0
+
+  - name: cam_rf           # 우측 전방 — 방위 -60°
+    x: 0.0666
+    y: -0.72074
+    z: 0.348
+    roll_deg: 0.0
+    pitch_deg: 0.0
+    yaw_deg: -60.0

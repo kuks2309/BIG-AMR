@@ -1,0 +1,127 @@
+flowchart TD
+    RX_BUS(["CAN frame on wire (bus0=Seer, bus2=Motor)"])
+    RX_ISR["CANx_RX0_IRQ_Handler -> can_rx(can_number)"]
+    RX_FMP{"while ((CAN->RF0R and CAN_RF0R_FMP0) != 0)"}
+    RX_EXIT(["ISR return"])
+    RX_BUILD["build CANPacket_t to_push: extended/rtr/addr/dlc/bus/data"]
+    RX_FWDHOOK["safety_fwd_hook(bus_number, to_push)"]
+    RX_RELAYMAL{"relay_malfunction ?"}
+    RX_FWD_NEG["return -1 (no forward)"]
+    GATE_ENTRY["seer_gate_fwd_hook(): addr=GET_ADDR(to_fwd); bus_fwd=-1"]
+    GATE_EDGE["pc_authority edge: rise -> seer_freeze_snapshot(); fall -> seer_frozen_valid=0"]
+    GATE_CACHE["cache update: 0x581-0x584 rtr=0 -> seer_cache_store_resp(); 0x701-0x704 rtr=0 -> guard cache"]
+    GATE_EMU["cover = (seer_cover_until_us - microsecond_timer_get()) > 0; emulate = cover or pc_authority"]
+    GATE_B0{"bus_num == 0 ? (Seer -> Motor)"}
+    B0_SDO{"emulate and 0x601 <= addr <= 0x604 and rtr == 0 ?"}
+    B0_ISREAD{"data[0] == 0x40 (SDO upload/read) ?"}
+    B0_CACHEREPLY["seer_cache_reply(): seer_cache match, or seer_frozen when pc_authority and motion obj; send only if found"]
+    B0_FWD2_RD["bus_fwd = 2 (read also forwarded to motor)"]
+    B0_FAKEACK["seer_fake_ack(): synth 0x60 idx sub -> bus0 (write/abort/segment all dropped)"]
+    B0_FWDNEG_W["bus_fwd = -1"]
+    B0_GUARD{"emulate and 0x701 <= addr <= 0x704 and rtr != 0 ?"}
+    B0_GUARD_SEND["seer_guard_valid[gn] ? seer_send_bus0(0x700+gn, guard cache)"]
+    B0_GUARD_FWD["bus_fwd = 2 (guard RTR also to motor)"]
+    B0_BLOCKHOME{"seer_block_homing and 0x601-0x604 and rtr==0 and seer_is_homing_write() ?"}
+    B0_HOME_ACK["seer_fake_ack(); bus_fwd = -1 (homing trigger dropped)"]
+    B0_TRANSPARENT["bus_fwd = 2 (transparent)"]
+    GATE_B2{"bus_num == 2 ? (Motor -> Seer)"}
+    B2_IS_ECHO{"0x600 <= addr <= 0x604 ?"}
+    B2_ECHO_BLOCK["bus_fwd = -1 (block PC command echo)"]
+    B2_IS_SUP{"emulate and (0x581-0x584 or 0x701-0x704) ?"}
+    B2_SUP_BLOCK["bus_fwd = -1 (suppress real motor response)"]
+    B2_TRANSPARENT["bus_fwd = 0 (motor/guard response -> Seer)"]
+    GATE_OTHERBUS["bus_fwd = -1 (any other bus)"]
+    GATE_RET["return bus_fwd"]
+    RX_FWDCHK{"bus_fwd_num != -1 ?"}
+    RX_COPY["copy to_push -> to_send (addr/rtr/dlc/data)"]
+    CAN_SEND["can_send(to_send, bus_fwd_num, skip_tx_hook = true)"]
+    SEND_TXHOOK{"skip_tx_hook or safety_tx_hook() != 0 ?"}
+    SEND_BUSCHK{"bus_number < BUS_CNT ?"}
+    SEND_GMLAN["bus 3 and can_num_lookup == 0xFF -> bitbang_gmlan(); gmlan_send_errs"]
+    SEND_PUSH["can_push(can_queues[bus]); can_fwd_errs += fail"]
+    SEND_PROC["process_can(CAN_NUM_FROM_BUS_NUM(bus_number))"]
+    SEND_REJECT["blocked_msg_cnt++; rejected=1; can_push(can_rx_q); can_send_errs"]
+    TX_IRQ(["CANx_TX_IRQ_Handler -> process_can(n)"])
+    PROC_ENTRY{"process_can(): can_number != 0xff ?"}
+    PROC_TME{"(CAN->TSR and CAN_TSR_TME0) == TME0 (mailbox 0 empty) ?"}
+    PROC_RQCP["TSR and RQCP0 -> can_txd_cnt++; TXOK0 -> push TX echo into can_rx_q; clear RQCP0"]
+    PROC_POP{"can_pop(can_queues[bus_number]) ?"}
+    PROC_TX["load sTxMailBox[0] TIR/TDTR/TDLR/TDHR (+RTR bit), set TXRQ"]
+    PROC_EP3["usb_cb_ep3_out_complete() -> resume USB OUT ep3 if paused"]
+    PROC_RET(["process_can() returns"])
+    RX_RXHOOK["safety_rx_hook(to_push) (seer gate uses default_rx_hook -> true); can_rx_errs += fail"]
+    RX_IGN["ignition_can_hook(): bus0 addr 0x160/0x348/0x9E only; ignition_can_cnt=0"]
+    RX_PUSHQ["can_push(can_rx_q) -> host USB; can_send_errs += fail"]
+    RX_RELEASE["CAN->RF0R or= CAN_RF0R_RFOM0 (release FIFO slot)"]
+    SCE_IRQ(["CANx_SCE_IRQ_Handler -> can_sce()"])
+    SCE_ERR["can_err_cnt += 1; llcan_clear_send(CAN)"]
+    RX_BUS --> RX_ISR
+    RX_ISR --> RX_FMP
+    RX_FMP -->|"FIFO not empty"| RX_BUILD
+    RX_FMP -->|"FIFO empty"| RX_EXIT
+    RX_BUILD --> RX_FWDHOOK
+    RX_FWDHOOK --> RX_RELAYMAL
+    RX_RELAYMAL -->|"true"| RX_FWD_NEG
+    RX_RELAYMAL -->|"false"| GATE_ENTRY
+    GATE_ENTRY --> GATE_EDGE
+    GATE_EDGE --> GATE_CACHE
+    GATE_CACHE --> GATE_EMU
+    GATE_EMU --> GATE_B0
+    GATE_B0 -->|"yes"| B0_SDO
+    GATE_B0 -->|"no"| GATE_B2
+    B0_SDO -->|"yes"| B0_ISREAD
+    B0_SDO -->|"no"| B0_GUARD
+    B0_ISREAD -->|"read"| B0_CACHEREPLY
+    B0_CACHEREPLY --> B0_FWD2_RD
+    B0_ISREAD -->|"else (write / abort / segment)"| B0_FAKEACK
+    B0_FAKEACK --> B0_FWDNEG_W
+    B0_GUARD -->|"yes"| B0_GUARD_SEND
+    B0_GUARD_SEND --> B0_GUARD_FWD
+    B0_GUARD -->|"no"| B0_BLOCKHOME
+    B0_BLOCKHOME -->|"yes"| B0_HOME_ACK
+    B0_BLOCKHOME -->|"no"| B0_TRANSPARENT
+    GATE_B2 -->|"yes"| B2_IS_ECHO
+    GATE_B2 -->|"no (bus 1)"| GATE_OTHERBUS
+    B2_IS_ECHO -->|"yes"| B2_ECHO_BLOCK
+    B2_IS_ECHO -->|"no"| B2_IS_SUP
+    B2_IS_SUP -->|"yes"| B2_SUP_BLOCK
+    B2_IS_SUP -->|"no"| B2_TRANSPARENT
+    B0_FWD2_RD --> GATE_RET
+    B0_FWDNEG_W --> GATE_RET
+    B0_GUARD_FWD --> GATE_RET
+    B0_HOME_ACK --> GATE_RET
+    B0_TRANSPARENT --> GATE_RET
+    B2_ECHO_BLOCK --> GATE_RET
+    B2_SUP_BLOCK --> GATE_RET
+    B2_TRANSPARENT --> GATE_RET
+    GATE_OTHERBUS --> GATE_RET
+    GATE_RET --> RX_FWDCHK
+    RX_FWD_NEG --> RX_FWDCHK
+    RX_FWDCHK -->|"!= -1"| RX_COPY
+    RX_FWDCHK -->|"== -1 (dropped)"| RX_RXHOOK
+    RX_COPY --> CAN_SEND
+    CAN_SEND --> SEND_TXHOOK
+    SEND_TXHOOK -->|"allowed"| SEND_BUSCHK
+    SEND_TXHOOK -->|"blocked"| SEND_REJECT
+    SEND_BUSCHK -->|"bus 3 gmlan"| SEND_GMLAN
+    SEND_BUSCHK -->|"normal bus"| SEND_PUSH
+    SEND_PUSH --> SEND_PROC
+    SEND_PROC --> PROC_ENTRY
+    SEND_GMLAN -->|"return"| RX_RXHOOK
+    SEND_REJECT -->|"return"| RX_RXHOOK
+    TX_IRQ --> PROC_ENTRY
+    PROC_ENTRY -->|"yes"| PROC_TME
+    PROC_ENTRY -->|"can_number == 0xff"| PROC_RET
+    PROC_TME -->|"empty"| PROC_RQCP
+    PROC_TME -->|"mailbox busy"| PROC_RET
+    PROC_RQCP --> PROC_POP
+    PROC_POP -->|"packet popped"| PROC_TX
+    PROC_POP -->|"tx queue empty"| PROC_RET
+    PROC_TX --> PROC_EP3
+    PROC_EP3 --> PROC_RET
+    PROC_RET -->|"return into can_rx"| RX_RXHOOK
+    RX_RXHOOK --> RX_IGN
+    RX_IGN --> RX_PUSHQ
+    RX_PUSHQ --> RX_RELEASE
+    RX_RELEASE -->|"next frame"| RX_FMP
+    SCE_IRQ -->|"bus error / error-passive"| SCE_ERR

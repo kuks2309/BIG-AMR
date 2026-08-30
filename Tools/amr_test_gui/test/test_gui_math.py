@@ -100,12 +100,51 @@ def test_every_jog_angle_is_inside_range():
         assert abs(deg) <= STEER_LIMIT_DEG, label
 
 
-def test_measured_entries_are_the_documented_two_pairs():
-    """직접 실측 근거 2건(과 그 부호 반전)만 verified=True 여야 한다."""
-    measured = {k for k, v in JOG.items() if v[2]}
-    assert measured == {"전진", "후진", "좌 크랩", "우 크랩"}
-    assert JOG["전진"][:2] == (0.0, -1)      # ① 조향 0° + raw 음수 → 전진
+def test_all_jog_directions_are_field_verified():
+    """8방향 **전부** 실기에서 방향이 확인돼야 한다.
+
+    ⚠ 2026-08-05 계약 변경: 예전에는 직접 실측 2쌍(전진·후진 / 좌·우 크랩)만 `verified=True`
+    였고 대각 4종은 모델에서 **도출**한 값이라 `False`(UI 에 ⚠ 표시)였다. 그 4종의 방향이
+    2026-08-04 밤 조그 실기에서 확인됐다(사용자 확인 2026-08-05) — 이제 전부 True 다.
+
+    **1차 근거 2건은 그대로 고정한다** — 이 둘이 나머지를 도출하는 앵커이기 때문이다.
+    """
+    unverified = {k for k, v in JOG.items() if not v[2]}
+    assert unverified == set(), f"방향 미확인이 남아 있다: {unverified}"
+    assert len(JOG) == 8, JOG.keys()
+    assert JOG["전진"][:2] == (0.0, -1)      # ① 조향 0° + raw 음수 → 전진 (직접 실측)
     assert JOG["좌 크랩"][:2] == (90.0, +1)  # ② 조향 +90° + raw 양수 → 좌 (IMU 실증)
+
+
+def test_every_direction_matches_its_label(label_expect=None):
+    """8방향 모두 **이름이 말하는 쪽**으로 지향해야 한다.
+
+    모델: 지향 = −sign(raw) × (cos θ, −sin θ) — 좌표는 +x 전방 · +y 좌.
+    앵커 ①(전진 = 조향 0° + raw 음수) ②(좌 = 조향 +90° + raw 양수) 에서 나온 것이며,
+    2026-08-04 밤 조그 실기에서 8방향 전부 방향이 확인됐다.
+
+    ⚠ 이 시험은 **부호를 실제로 본다.** 이전 판은 `got[1] == got[1]` 같은 항등식이 섞여 있어
+    통과해도 아무것도 검사하지 못했다(2026-08-05 자체 발견).
+    """
+    import math
+    EXPECT = {                       # (x 부호, y 부호) — 0 은 「그 축 성분이 없어야 함」
+        "전진":     (+1, 0), "후진":     (-1, 0),
+        "좌 크랩":  (0, +1), "우 크랩":  (0, -1),
+        "좌전 45°": (+1, +1), "우전 45°": (+1, -1),
+        "좌후 45°": (-1, +1), "우후 45°": (-1, -1),
+    }
+    assert set(EXPECT) == set(JOG), (set(EXPECT) ^ set(JOG))
+    for label, (want_x, want_y) in EXPECT.items():
+        deg, sign, _ = JOG[label]
+        th = math.radians(deg)
+        hx, hy = -sign * math.cos(th), -sign * (-math.sin(th))
+        for got, want, axis in ((hx, want_x, "x"), (hy, want_y, "y")):
+            if want == 0:
+                assert abs(got) < 1e-9, f"{label}: {axis} 성분이 있어야 하지 않는다 ({got:+.3f})"
+            else:
+                assert got * want > 0, f"{label}: {axis} 방향이 반대다 ({got:+.3f}, 기대 부호 {want:+d})"
+        if want_x and want_y:                       # 대각은 45° 여야 한다
+            assert abs(abs(hx) - abs(hy)) < 1e-9, f"{label}: 45° 대각이 아니다 ({hx:+.3f},{hy:+.3f})"
 
 
 @pytest.mark.parametrize("a,b", [("전진", "후진"), ("좌 크랩", "우 크랩"),

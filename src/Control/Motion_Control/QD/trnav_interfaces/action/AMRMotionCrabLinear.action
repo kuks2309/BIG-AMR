@@ -1,0 +1,45 @@
+# AMRMotionCrabLinear Action - target_yaw 능동 유지 + start↔end world-frame 직선 closed-loop 추종
+# trnav_interfaces/action/AMRMotionCrabLinear
+#
+# 알고리즘 (PathController + LocalizationMonitor 기반):
+#   매 cycle: theta_body = atan2(end-start) - robot_yaw  (path 방향을 body frame 으로 사영)
+#             omega_cmd  = PD(target_yaw_deg*π/180 - robot_yaw)
+#             VelocityCommand = {vx_profile * cos(theta_body), vx_profile * sin(theta_body), omega_cmd}
+#             → DualSteerIK.compute(...) → wheel cmd
+#   PathController 는 CTE 측정용 (projection / e_d / e_theta) 으로만 사용 — δ_f/δ_r 출력은 무시.
+#   heading abort: |target_yaw - robot_yaw| > crab_linear_heading_threshold_deg → status=-4.
+
+# Goal
+float64 start_x              # map frame start X (m)
+float64 start_y              # map frame start Y (m)
+float64 end_x                # map frame end X (m)
+float64 end_y                # map frame end Y (m)
+float64 target_yaw_deg       # deg: 유지할 절대 yaw (world frame)
+float64 max_linear_speed     # m/s (> 0)
+float64 acceleration         # m/s^2 (> 0)
+bool    hold_steer           # true: skip Phase 4 steer return
+float64 exit_steer_angle     # deg: Phase 4 target steer (ignored if hold_steer)
+float64 exit_speed           # m/s (0=완전정지, >0=이 속도로 종료, 기본=0)
+float64 entry_speed          # m/s (0=start from stop, >0=resume at this speed)
+bool    has_next             # true=다음 Segment 존재 → 감속 안 함
+# Per-goal Localization watchdog 토글 (acs_gui Link.enable_localization_watchdog 전파)
+# Effective = 본 필드 AND node param (crab_linear_enable_localization_watchdog). 둘 다 true 여야 작동.
+bool enable_localization_watchdog true
+---
+# Result
+int8    status               # 0=success, -1=cancelled, -2=invalid_param, -3=timeout, -4=heading_abort/loc_timeout, -5=loc_jump, -6=tf_lookup_fail
+float64 actual_distance      # m (achieved projection distance)
+float64 final_lateral_error  # m (final lateral error)
+float64 final_heading_error  # deg (final heading error = target_yaw - robot_yaw)
+float64 elapsed_time         # sec
+---
+# Feedback
+float64 current_distance     # m (projection distance along path)
+float64 current_lateral_error # m (cross-track error, + left, - right)
+float64 current_heading_error # deg (heading error = target_yaw - robot_yaw)
+float64 current_vx           # m/s (body-frame x velocity command)
+float64 current_vy           # m/s (body-frame y velocity command)
+float64 current_omega        # rad/s (angular velocity command)
+uint8   phase                # 0=steer_align, 1=accel, 2=cruise, 3=decel, 4=steer_return
+float64 w1_drive_rpm         # W1 drive motor RPM (+FWD/-REV)
+float64 w2_drive_rpm         # W2 drive motor RPM (+FWD/-REV)

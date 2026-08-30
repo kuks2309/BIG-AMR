@@ -1,0 +1,23 @@
+{
+  "_설명": "AMR 자원 감시 임계값. 값을 고쳐 저장하면 다음 기동부터 적용된다.",
+  "_provisional": [
+    "cpu_error_pct",
+    "cpu_warn_pct",
+    "temp_error_c",
+    "temp_warn_c"
+  ],
+  "_provisional_설명": "위 항목은 램프 시험 전 잠정치다 — 실측 후 확정할 것.",
+  "temp_warn_c": 75.0,
+  "temp_error_c": 85.0,
+  "cpu_warn_pct": 85.0,
+  "cpu_error_pct": 95.0,
+  "mem_available_warn_mb": 2000.0,
+  "mem_available_error_mb": 1000.0,
+  "swap_rate_warn_pages_s": 64.0,
+  "swap_rate_error_pages_s": 512.0,
+  "disk_free_warn_gb": 10.0,
+  "disk_free_error_gb": 6.0,
+  "gpu_warn_pct": null,
+  "gpu_error_pct": null,
+  "fan_daemon_name": "nvfancontrol"
+}

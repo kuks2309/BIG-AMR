@@ -1,0 +1,38 @@
+<mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1400" math="0" shadow="0">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+    <mxCell id="n1" value="/cmd_vel Twist (ext: nav stack)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;" vertex="1" parent="1"><mxGeometry x="40" y="40" width="220" height="40" as="geometry"/></mxCell>
+    <mxCell id="n2" value="_on_cmd_vel: clamp vmax/wmax" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="40" y="110" width="220" height="40" as="geometry"/></mxCell>
+    <mxCell id="n3" value="kinematics.twist_to_modules (DualSteer|DiffDrive)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="40" y="180" width="220" height="40" as="geometry"/></mxCell>
+    <mxCell id="n4" value="backend.set_command  [_lock: _vel_units/_steer_counts]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;" vertex="1" parent="1"><mxGeometry x="40" y="250" width="220" height="50" as="geometry"/></mxCell>
+    <mxCell id="n16" value="start(): _preflight_read -> _gate_homing_motion -> _write_init_sequence" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;" vertex="1" parent="1"><mxGeometry x="320" y="40" width="260" height="50" as="geometry"/></mxCell>
+    <mxCell id="n5" value="_tx_loop @50Hz (sole bus writer)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;" vertex="1" parent="1"><mxGeometry x="320" y="180" width="260" height="40" as="geometry"/></mxCell>
+    <mxCell id="n6" value="gate: estop|stale|settle -> vel=0" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="320" y="250" width="260" height="40" as="geometry"/></mxCell>
+    <mxCell id="n7" value="_send -> Frame -> CAN 0x600+N (+0x700 guard RTR 20Hz)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="320" y="320" width="260" height="50" as="geometry"/></mxCell>
+    <mxCell id="n8" value="CAN bus can1 (socketcan, 250k)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;" vertex="1" parent="1"><mxGeometry x="320" y="400" width="260" height="40" as="geometry"/></mxCell>
+    <mxCell id="n9" value="_rx_loop: parse_sdo_response (0x580+N)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;" vertex="1" parent="1"><mxGeometry x="320" y="470" width="260" height="40" as="geometry"/></mxCell>
+    <mxCell id="n10" value="_nodes state dict  [_state_lock]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;" vertex="1" parent="1"><mxGeometry x="320" y="540" width="260" height="40" as="geometry"/></mxCell>
+    <mxCell id="n11" value="_on_odom_timer @25Hz: snapshot" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="40" y="540" width="220" height="40" as="geometry"/></mxCell>
+    <mxCell id="n12" value="modules_to_twist LSQ + pose integrate" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="40" y="610" width="220" height="40" as="geometry"/></mxCell>
+    <mxCell id="n13" value="/odom + TF + /joint_states (ext)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;" vertex="1" parent="1"><mxGeometry x="40" y="680" width="220" height="40" as="geometry"/></mxCell>
+    <mxCell id="n14" value="_on_diag_timer @1Hz -> /diagnostics (ext)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;" vertex="1" parent="1"><mxGeometry x="620" y="540" width="200" height="50" as="geometry"/></mxCell>
+    <mxCell id="n15" value="/estop Bool (ext) -> _on_estop -> backend.estop [_lock]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;" vertex="1" parent="1"><mxGeometry x="40" y="320" width="220" height="60" as="geometry"/></mxCell>
+    <mxCell id="e1" style="endArrow=classic;html=1;" edge="1" parent="1" source="n1" target="n2"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e2" style="endArrow=classic;html=1;" edge="1" parent="1" source="n2" target="n3"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e3" style="endArrow=classic;html=1;" edge="1" parent="1" source="n3" target="n4"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e4" style="endArrow=classic;html=1;" edge="1" parent="1" source="n4" target="n5"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e5" style="endArrow=classic;html=1;" edge="1" parent="1" source="n5" target="n6"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e6" style="endArrow=classic;html=1;" edge="1" parent="1" source="n6" target="n7"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e7" style="endArrow=classic;html=1;" edge="1" parent="1" source="n7" target="n8"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e8" style="endArrow=classic;html=1;" edge="1" parent="1" source="n8" target="n9"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e9" style="endArrow=classic;html=1;" edge="1" parent="1" source="n9" target="n10"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e10" style="endArrow=classic;html=1;" edge="1" parent="1" source="n10" target="n11"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e11" style="endArrow=classic;html=1;" edge="1" parent="1" source="n11" target="n12"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e12" style="endArrow=classic;html=1;" edge="1" parent="1" source="n12" target="n13"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e13" style="endArrow=classic;html=1;" edge="1" parent="1" source="n10" target="n14"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e14" style="endArrow=classic;html=1;" edge="1" parent="1" source="n15" target="n5"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e15" style="endArrow=classic;html=1;" edge="1" parent="1" source="n16" target="n5"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e16" style="endArrow=classic;html=1;dashed=1;" edge="1" parent="1" source="n10" target="n6"><mxGeometry relative="1" as="geometry"/></mxCell>
+  </root>
+</mxGraphModel>

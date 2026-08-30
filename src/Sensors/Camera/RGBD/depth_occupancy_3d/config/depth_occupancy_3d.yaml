@@ -1,0 +1,100 @@
+# Big-AMR surround depth 융합 노드 파라미터
+#
+# 설계 근거: docs/adr/2026-07-31-surround-depth-occupancy.md
+#
+# ⚠ 아래 값은 실기 튜닝 전 초기값이다. decimation·rate_hz·grid.resolution 셋이
+#   CPU 부하를 지배하며, 이 장비는 이미 포화 상태(총 74.7~80.9%)라 W1 실측 후 조정한다.
+
+/**:
+  ros__parameters:
+    output_frame: base_link
+
+    # orbbec_multi_bringup 이 띄우는 카메라 이름과 같아야 한다
+    # (로스터 SSOT: config/camera/camera_common.yaml).
+    camera_names: [cam_f, cam_lf, cam_lr, cam_r, cam_rr, cam_rf]
+    depth_image_suffix: /depth/image_raw
+    depth_info_suffix: /depth/camera_info
+
+    # 융합 주기. 카메라 프레임률과는 독립 변수다 — 소비자(충돌 회피)가 얼마나 자주 갱신을
+    # 필요로 하는지와 CPU 예산으로 정하지, 가장 느린 카메라에 맞추지 않는다.
+    #
+    # 2026-07-31 실측: 6대 동시 구동 시 카메라별 10.25~25.14 fps (요청은 640x480@30).
+    # 가장 느린 카메라(10.25 fps)가 융합 주기보다 느린 구간이 생기지만, 최신 프레임
+    # 덮어쓰기 방식이라 그때는 직전 프레임을 다시 쓴다. 최대 100 ms 낡은 값이고 반경 2.5 m
+    # 근접 장애물 맵에서는 무시할 수 있다. 주기를 낮추면 재사용은 줄지만 갱신 지연이 늘어
+    # 오히려 손해다(충돌 회피에서 갱신 지연은 그 자체가 위험).
+    #
+    # 갱신이 '끊긴' 경우는 별개 문제이며 max_frame_age_s 가 처리한다.
+    rate_hz: 10.0
+
+    # 픽셀 솎음. 640x480 을 4로 줄이면 카메라당 19,200 픽셀 → 6대 10 Hz 에서 약 1.15 M pt/s.
+    decimation: 4
+
+    # Gemini E 사양 (Datasheet v1.1): depth 유효거리 0.2~2.5 m.
+    # 이 범위 밖 값은 신뢰할 수 없으므로 버린다.
+    min_range_m: 0.2
+    max_range_m: 2.5
+
+    # 장애물로 볼 높이 구간. 하한은 바닥면 제거용, 상한은 천장·구조물 제거용.
+    #
+    # ⚠ 2026-07-31 실측: 바닥이 z ≈ -0.03 m 로 읽힌다(장착 높이 0.348 m 가정의 약 3 cm
+    #   계통 오차). 하한 0.05 와 합치면 **실효 검출 문턱이 실제 바닥 위 약 8 cm** 다.
+    #   그보다 낮은 물체(파렛트 하단 날·케이블·문턱)는 장애물로 잡히지 않는다.
+    #   W5 캘리브가 마운트 오차를 잡은 뒤 하한을 낮출 수 있다.
+    obstacle_z_min_m: 0.05
+    obstacle_z_max_m: 1.8
+
+    # 바닥으로 분류된 점을 버리지 않고 ~/ground_points 로 따로 발행한다.
+    # 장애물 판정에는 관여하지 않으며(점유맵·가상 스캔 어디에도 안 들어간다),
+    # 눈으로 바닥을 확인하거나 음의 장애물·평면 정합에 쓰기 위한 것이다.
+    publish_ground: true
+
+    # 실사 색 입히기 — 점유 보셀에 컬러 카메라의 실제 색을 입힌다.
+    #
+    # 전제: orbbec_multi_bringup 의 surround_depth.yaml 에서 driver.enable_color 가 true 여야
+    #       한다. 컬러가 안 오면 전부 회색으로 나올 뿐 기능이 죽지는 않는다.
+    #
+    # 정합은 이 노드가 직접 한다 — 드라이버의 하드웨어 정합(depth_registration)은 이 모델에서
+    # depth·color 양쪽 camera_info 를 망가뜨린다(fx=-0.000, 2026-07-31 실측). 대신 정합을 끈
+    # 상태의 유효한 두 내부 파라미터와 드라이버가 발행하는 depth→color 외부 파라미터
+    # (베이스라인 12.5 mm)로 역투영 → 좌표 변환 → 투영을 수행한다.
+    #
+    # 대가: depth 총량이 92.4 → 62.1 fps 로 줄어든다(전 카메라 약 10 fps 유지).
+    #
+    # 이 값은 **launch 인자로 덮어쓴다** — 평소에는 여기를 고치지 말고 아래처럼 켠다:
+    #   ros2 launch orbbec_multi_bringup surround_depth.launch.py enable_color:=true
+    #   ros2 launch depth_occupancy_3d  depth_occupancy_3d.launch.py enable_color_skin:=true
+    enable_color_skin: false
+
+    transform_timeout_s: 0.05
+
+    # 프레임 나이 상한. 이보다 낡은 프레임은 융합에서 제외한다.
+    # 없으면 카메라가 죽어도 마지막 프레임이 영원히 재사용되어 그 방향 섹터에 유령
+    # 장애물이 남는다. 방위 60° 마다 카메라가 한 대뿐이라 다른 카메라가 덮어쓰지 못한다.
+    #
+    # 2026-07-31 실기: 융합 노드를 붙인 상태에서 카메라 7.8~10.5 fps(주기 95~128 ms),
+    # 최대 0.71 s 프레임 공백 관측. 0.5 s 로 두면 그 지터에도 게이트가 걸려 섹터가
+    # 깜빡였다. 관측 최대 공백의 약 1.4배로 올린다.
+    max_frame_age_s: 1.0
+
+    # 보셀 격자 — base_link 기준. 유효거리가 2.5 m 라 ±3 m 면 충분하다.
+    # 120x120x40 = 576,000 셀 = 576 KiB (셀당 1바이트). 생성자에서 한 번만 할당한다.
+    grid:
+      min_x: -3.0
+      max_x: 3.0
+      min_y: -3.0
+      max_y: 3.0
+      # 하한이 0 이면 바닥점(z ≈ -0.03)이 격자 밖으로 떨어져 ground_points 가 비어 버린다.
+      min_z: -0.2
+      max_z: 2.0
+      resolution: 0.05
+
+    scan:
+      bins: 360          # 1° 분해능
+
+    # 차체 풋프린트 반치수 — 점유맵에서 자기 차체를 걸러내는 무한 기둥 마스크.
+    # 출처: 도면 Ford_Camera_Test_260730.dwg (전장 2027.62 / 전폭 1441.48 mm).
+    # 전·후면 카메라가 차체 끝면에, 측면 카메라가 측면에 장착되므로 카메라 장착선이 곧 외곽이다.
+    footprint:
+      half_length: 1.01381
+      half_width: 0.72074

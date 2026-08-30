@@ -1,0 +1,56 @@
+[2026-07-26 19:50:02] SOAK START — 5-cam CCTV endurance, duration=43200s interval=60s publog=/tmp/claude-1000/-home-nvidia-Project-Ford-CATL-AMR-Big-AMR/6b4a302d-0627-4e3b-9621-bb7e4da3730b/scratchpad/cctv5.log
+[2026-07-26 20:32:07] ALERT cam0: LOW capture FPS 5.91 (<20.0) elapsed=2525s
+[2026-07-26 20:32:07] ALERT cam1: LOW capture FPS 5.71 (<20.0) elapsed=2525s
+[2026-07-26 20:32:07] ALERT cam2: LOW capture FPS 5.84 (<20.0) elapsed=2525s
+[2026-07-26 20:32:07] ALERT cam3: LOW capture FPS 5.48 (<20.0) elapsed=2525s
+[2026-07-26 20:36:36] ALERT cam0: LOW capture FPS 6.55 (<20.0) elapsed=2777s
+[2026-07-26 20:36:42] ALERT cam1: LOW capture FPS 9.63 (<20.0) elapsed=2777s
+[2026-07-26 20:36:48] ALERT cam2: LOW capture FPS 0.50 (<20.0) elapsed=2777s
+[2026-07-26 20:36:52] ALERT cam3: LOW capture FPS 2.63 (<20.0) elapsed=2777s
+[2026-07-26 20:36:56] ALERT cam4: LOW capture FPS 2.86 (<20.0) elapsed=2777s
+[2026-07-26 20:38:52] ALERT cam0: LOW capture FPS 15.00 (<20.0) elapsed=2901s
+[2026-07-26 20:39:20] ALERT cam1: LOW capture FPS 0.58 (<20.0) elapsed=2901s
+[2026-07-26 20:39:26] ALERT cam2: LOW capture FPS 1.32 (<20.0) elapsed=2901s
+[2026-07-26 20:39:29] ALERT cam3: LOW capture FPS 0.95 (<20.0) elapsed=2901s
+[2026-07-26 20:41:45] ALERT cam0: LOW capture FPS 1.49 (<20.0) elapsed=3101s
+[2026-07-26 20:41:47] ALERT cam1: LOW capture FPS 1.59 (<20.0) elapsed=3101s
+[2026-07-26 20:41:48] ALERT cam2: LOW capture FPS 10.10 (<20.0) elapsed=3101s
+[2026-07-26 20:43:54] ALERT cam0: LOW capture FPS 2.50 (<20.0) elapsed=3223s
+[2026-07-26 20:44:00] ALERT cam1: LOW capture FPS 1.92 (<20.0) elapsed=3223s
+[2026-07-26 20:44:08] ALERT cam2: LOW capture FPS 1.93 (<20.0) elapsed=3223s
+[2026-07-26 20:44:16] ALERT cam3: LOW capture FPS 2.14 (<20.0) elapsed=3223s
+[2026-07-26 20:44:26] ALERT cam4: LOW capture FPS 1.81 (<20.0) elapsed=3223s
+[2026-07-26 20:44:56] ALERT cam0: LOW capture FPS 1.75 (<20.0) elapsed=3287s
+[2026-07-26 20:45:01] ALERT cam1: LOW capture FPS 2.09 (<20.0) elapsed=3287s
+[2026-07-26 20:45:07] ALERT cam2: LOW capture FPS 2.16 (<20.0) elapsed=3287s
+[2026-07-26 20:45:12] ALERT cam3: LOW capture FPS 2.92 (<20.0) elapsed=3287s
+[2026-07-26 20:45:17] ALERT cam4: LOW capture FPS 2.37 (<20.0) elapsed=3287s
+[2026-07-26 20:45:53] ALERT cam0: LOW capture FPS 2.55 (<20.0) elapsed=3348s
+[2026-07-26 20:45:57] ALERT cam1: LOW capture FPS 3.33 (<20.0) elapsed=3348s
+[2026-07-26 20:46:02] ALERT cam2: LOW capture FPS 3.33 (<20.0) elapsed=3348s
+[2026-07-26 20:46:06] ALERT cam3: LOW capture FPS 3.48 (<20.0) elapsed=3348s
+[2026-07-26 20:47:19] ALERT cam3: LOW capture FPS 1.79 (<20.0) elapsed=3410s
+[2026-07-26 20:47:25] ALERT cam4: LOW capture FPS 1.85 (<20.0) elapsed=3410s
+[2026-07-26 20:48:05] ALERT cam1: LOW capture FPS 6.92 (<20.0) elapsed=3472s
+[2026-07-26 20:48:17] ALERT cam2: LOW capture FPS 6.59 (<20.0) elapsed=3472s
+[2026-07-26 20:48:33] ALERT cam4: LOW capture FPS 1.98 (<20.0) elapsed=3472s
+[2026-07-26 20:49:24] ALERT cam2: LOW capture FPS 17.66 (<20.0) elapsed=3534s
+[2026-07-26 20:49:35] ALERT cam3: LOW capture FPS 18.53 (<20.0) elapsed=3534s
+[2026-07-26 20:49:43] ALERT cam4: LOW capture FPS 1.87 (<20.0) elapsed=3534s
+[2026-07-26 20:49:59] ALERT cam0: LOW capture FPS 1.14 (<20.0) elapsed=3597s
+[2026-07-26 20:49:59] ALERT cam1: LOW capture FPS 1.14 (<20.0) elapsed=3597s
+[2026-07-26 20:49:59] ALERT cam2: LOW capture FPS 1.14 (<20.0) elapsed=3597s
+[2026-07-26 20:49:59] ALERT cam3: LOW capture FPS 0.72 (<20.0) elapsed=3597s
+[2026-07-26 20:49:59] ALERT cam4: LOW capture FPS 0.72 (<20.0) elapsed=3597s
+[2026-07-27 07:50:02] SOAK END — elapsed=43200s samples=717 total_alerts=43
+==== CCTV 5-cam 12h SOAK 최종 요약 ====
+start=2026-07-26 19:50:02  end=2026-07-27 07:50:02
+duration=43200s  samples=717  total_alerts=43
+
+  cam0: min_fps=1.14 max_grab_failures=0 stall_events=0 lowfps_events=8 gf_inc_events=0
+  cam1: min_fps=0.58 max_grab_failures=0 stall_events=0 lowfps_events=9 gf_inc_events=0
+  cam2: min_fps=0.50 max_grab_failures=0 stall_events=0 lowfps_events=10 gf_inc_events=0
+  cam3: min_fps=0.72 max_grab_failures=0 stall_events=0 lowfps_events=9 gf_inc_events=0
+  cam4: min_fps=0.72 max_grab_failures=0 stall_events=0 lowfps_events=7 gf_inc_events=0
+
+판정: 검토필요 — 알림 43건 (soak_alerts.log 확인)

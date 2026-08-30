@@ -1,0 +1,45 @@
+/trnav_yaw_control_reverse_node:
+  ros__parameters:
+    # ── Platform (trnav_motion_core::loadGeometry) ──
+    platform: "QD_DIAGONAL"
+
+    # ── 로봇 기하 (Carrier_AGV_기구LAYOUT Rev.1.3) ──
+    body_length: 1.1974
+    body_width: 0.648
+    w1_x: 0.330
+    w1_y: 0.135
+    w2_x: -0.330
+    w2_y: -0.135
+    wheel_radius: 0.080
+    steer_limit_deg: 90.0
+    gear_walk: 20.0
+
+    # ── ActionServerBase 공통 ──
+    control_rate_hz: 50.0
+    steer_tolerance_deg: 1.0
+    steer_timeout_sec: 5.0
+
+    # ── YawControlReverse 파라미터 (yaw_control 과 동일 구조, prefix 만 다름) ──
+    # vx_max 는 magnitude(>0) 로 받고 내부에서 항상 -vx 적용 — yaml 파라미터엔 영향 없음.
+    yaw_control_reverse_max_steer_deg: 25.0
+    yaw_control_reverse_i_max_deg: 10.0
+    yaw_control_reverse_max_timeout_sec: 60.0
+    yaw_control_reverse_walk_accel_limit: 0.5
+    yaw_control_reverse_walk_decel_limit: 1.0
+    yaw_control_reverse_steer_rate_limit: 0.35
+    yaw_control_reverse_min_vx: 0.02   # vx_profile floor magnitude (m/s) — 시작 시 정지 방지
+
+    # ── LocalizationMonitor ──
+    yaw_control_reverse_pose_topic: "/rtabmap/localization_pose"
+    yaw_control_reverse_pose_qos: 2                       # 0=default 1=reliable 2=sensor_data
+    yaw_control_reverse_localization_timeout_sec: 2.0
+    yaw_control_reverse_position_jump_threshold: 0.3
+    yaw_control_reverse_enable_localization_watchdog: true
+
+    # ── TransientGuard ──
+    transient_vy_rate_limit: 0.3
+    transient_omega_rate_limit: 0.5
+    transient_steer_gate_threshold_deg: 3.0
+    transient_steer_error_max_deg: 10.0
+    transient_enable_proportional_decel: true
+    transient_runtime_gate_threshold_deg: 15.0

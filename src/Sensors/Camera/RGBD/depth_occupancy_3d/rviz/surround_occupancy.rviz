@@ -1,0 +1,172 @@
+# Big-AMR surround depth 점유맵 보기 설정
+#
+# 주의: 발행자가 SensorDataQoS(best-effort) 라 각 표시의 Reliability Policy 를
+#       "Best Effort" 로 두어야 한다. RViz2 표시 기본값은 Reliable 이고, 그 상태로는
+#       QoS 불일치로 구독이 성립하지 않아 **아무것도 보이지 않는다**(토픽은 정상 발행 중인데도).
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Occupancy Voxels1
+        - /Virtual Scan1
+      Splitter Ratio: 0.5
+    Tree Height: 700
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Name: root
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 0.5
+      Plane Cell Count: 12
+      Color: 80; 80; 80
+      Line Style:
+        Value: Lines
+      Plane: XY
+      Reference Frame: base_link
+
+    # 차체 풋프린트를 눈으로 가늠하기 위한 축 표시 (2.028 x 1.441 m)
+    - Class: rviz_default_plugins/Axes
+      Name: base_link
+      Enabled: true
+      Length: 0.5
+      Radius: 0.02
+      Reference Frame: base_link
+
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Names: true
+      Show Axes: true
+      Show Arrows: false
+      Marker Scale: 0.3
+      Frame Timeout: 15
+
+    # 3D 점유 보셀 — 높이로 색을 준다. 실측 1,700~1,800 점 규모라 Boxes 로 그려도 가볍다.
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Occupancy Voxels
+      Enabled: true
+      Topic:
+        Value: /depth_occupancy_3d/occupancy_points
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Style: Boxes
+      Size (m): 0.05
+      Alpha: 0.9
+      # 높이로 색을 준다. 색 입히기(enable_color_skin)를 끈 기본 구성에서 쓰는 표시다.
+      # 실측 장애물 높이는 대체로 0.08~1.05 m 라 범위를 1.2 로 좁혔다 — 1.8 까지 늘리면
+      # 낮은 물체가 램프 최하단으로 몰려 배경과 구분이 어렵다.
+      Color Transformer: AxisColor
+      Axis: Z
+      Autocompute Value Bounds: false
+      Min Value: 0
+      Max Value: 1.2
+      Decay Time: 0
+      Position Transformer: XYZ
+      Queue Size: 5
+      Selectable: true
+
+    # 같은 토픽을 실사 색으로 보는 표시. **기본 꺼짐** —
+    # 색 입히기를 켜고 띄웠을 때만 이 항목을 체크하고 위 'Occupancy Voxels' 를 끈다.
+    #   ros2 launch orbbec_multi_bringup surround_depth.launch.py enable_color:=true
+    #   ros2 launch depth_occupancy_3d  depth_occupancy_3d.launch.py enable_color_skin:=true
+    # 색 입히기가 꺼져 있으면 클라우드에 rgb 필드가 없어 이 표시는 아무것도 그리지 못한다.
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Occupancy Voxels (RGB skin)
+      Enabled: false
+      Topic:
+        Value: /depth_occupancy_3d/occupancy_points
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Style: Boxes
+      Size (m): 0.05
+      Alpha: 1
+      Color Transformer: RGB8
+      Decay Time: 0
+      Position Transformer: XYZ
+      Queue Size: 5
+      Selectable: true
+
+    # 바닥면 — 장애물에서 제외된 점들. 판단에는 쓰이지 않고 확인용이다.
+    # 기본은 켜 두되 어둡고 작게 그려 장애물을 가리지 않게 한다.
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Ground
+      Enabled: true
+      Topic:
+        Value: /depth_occupancy_3d/ground_points
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Style: Points
+      Size (Pixels): 2
+      Alpha: 0.45
+      Color Transformer: FlatColor
+      Color: 110; 110; 130
+      Decay Time: 0
+      Position Transformer: XYZ
+      Queue Size: 5
+
+    # 360° 가상 스캔 — 라이다와 같은 형식이라 그대로 LaserScan 으로 그린다.
+    # 지어낸 값이 아니라 **실측을 방위 1° 마다 최근접 거리로 축약한 것**이다.
+    # 높이 정보가 사라지므로 판단 근거는 위 3D 점유맵 쪽이고, 이건 기존 2D 소비자
+    # (nav2 코스트맵 등) 호환용 파생물이다. 화면이 지저분하면 이 항목만 끄면 된다.
+    - Class: rviz_default_plugins/LaserScan
+      Name: Virtual Scan
+      Enabled: true
+      Topic:
+        Value: /depth_occupancy_3d/virtual_scan
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Style: Spheres
+      Size (m): 0.06
+      Alpha: 1
+      Color: 255; 85; 0
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Position Transformer: XYZ
+      Queue Size: 5
+
+  Global Options:
+    Background Color: 32; 32; 32
+    Fixed Frame: base_link
+    Frame Rate: 15
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+      Line color: 128; 128; 0
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Current View
+      Distance: 8
+      Pitch: 0.62
+      Yaw: 0.78
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Focal Shape Fixed Size: true
+      Near Clip Distance: 0.01
+      Target Frame: base_link
+    Saved: ~
+Window Geometry:
+  Height: 900
+  Width: 1400
+  Displays:
+    collapsed: false
+  Views:
+    collapsed: false

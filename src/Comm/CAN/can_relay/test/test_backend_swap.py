@@ -296,3 +296,217 @@ def test_port_take_path_records_baseline_and_release_path_uses_handover():
     src = inspect.getsource(A.MainWindow._on_take)
     assert "_seer_at_take" in src, "획득 시 Seer 기준을 기억하지 않는다"
     assert "_release_with_handover" in src, "반환이 인수인계 경로를 타지 않는다"
+
+
+def test_port_refresh_runs_the_agreement_check():
+    """이식본도 **주기 갱신마다** CAN ↔ Seer 를 대조해야 한다(원본과 같은 절차).
+
+    ⚠ 배선을 본다 — 오늘만 세 번, 함수는 있는데 호출이 없어 돌연변이를 못 잡았다.
+    """
+    import inspect
+    from can_relay.ui import app as A
+    src = inspect.getsource(A.MainWindow._refresh)
+    assert "_check_seer_agreement" in src, "주기 갱신이 대조를 부르지 않는다"
+    assert hasattr(A.MainWindow, "_check_seer_agreement")
+
+
+def test_every_steer_send_site_marks_the_flag():
+    """조향을 보내는 **모든 지점**이 `_steer_commanded` 를 세워야 한다.
+
+    ⚠ 2026-08-05: 축별 경로에만 넣고 조그 경로(`steer_all`)를 빠뜨렸다. 한 곳이라도 빠지면
+    그 경로로 움직인 뒤 대조가 계속 열려 거짓 경보가 난다.
+    """
+    import inspect, re
+    from can_relay.ui import app as A
+    src = inspect.getsource(A)
+    sites = [(i, ln) for i, ln in enumerate(src.splitlines())
+             if re.search(r"self\.be\.steer_(axis|all)\(", ln)]
+    assert sites, "조향 송신 지점을 찾지 못했다 — 이 시험을 갱신하라"
+    lines = src.splitlines()
+    for i, ln in sites:
+        window = "\n".join(lines[max(0, i - 4):i + 1])
+        assert "_steer_commanded = True" in window, (
+            f"{i+1}행 조향 송신에 `_steer_commanded = True` 가 없다: {ln.strip()}")
+
+
+def test_direct_backend_ttl_is_adjustable_like_ros2(monkeypatch):
+    """신선도 TTL 은 **백엔드와 무관하게 같은 방식으로 조정**돼야 한다(리뷰 Low ③).
+
+    ros2 는 ROS 파라미터를 매 호출 재조회해 `ros2 param set` 이 즉시 먹는다. direct 는
+    모듈 상수를 직접 읽어 런타임 조정이 불가능했다 — 같은 개념인데 한쪽만 바뀌었다.
+    """
+    import time as _t
+    from can_relay.ui.backend_direct import DirectBackend, MEAS_TTL_S
+
+    be = DirectBackend.__new__(DirectBackend)
+    be.meas_ttl_s = 10.0
+    be._meas_deg = {3: 5.0}
+    be._meas_at = {3: _t.monotonic() - 2.0}          # 2초 전 값
+    assert be.meas_angle(3) == 5.0, "TTL 10초인데 2초 된 값을 버렸다"
+
+    be.meas_ttl_s = 1.0                              # 런타임 조정
+    assert be.meas_angle(3) is None, "TTL 을 줄였는데 여전히 옛 값을 쓴다"
+
+    # 생성자 기본값은 모듈 상수와 같다(계약 유지)
+    import inspect
+    sig = inspect.signature(DirectBackend.__init__)
+    assert sig.parameters["meas_ttl_s"].default == MEAS_TTL_S
+
+
+# ── 백엔드 연결 표시 (2026-08-05 사용자 지적) ─────────────────────────────
+def test_both_backends_expose_link_status():
+    """두 백엔드 모두 `link_status()` 로 **연결 여부**를 내놔야 한다.
+
+    ⚠ 사용자 지적: 「can relay 연결 확인이 없음 — 연결 표시되어야 함 화면에」.
+    예전에는 백엔드 상태가 로그에만 나가 드라이버가 죽었는지 로봇이 이상한지 구분이 안 됐다.
+    `status()`(로봇이 정상인가) 와 `link_status()`(말이 통하는가) 는 다른 질문이다.
+    """
+    from can_relay.ui.backend_base import BackendBase
+    from can_relay.ui.backend_direct import DirectBackend
+    from can_relay.ui.backend_ros2 import Ros2Backend
+    assert hasattr(BackendBase, "link_status")
+    for cls in (DirectBackend, Ros2Backend):
+        assert cls.link_status is not BackendBase.link_status, f"{cls.__name__} 미구현"
+
+
+def test_direct_link_status_follows_the_panda():
+    be = DirectBackend.__new__(DirectBackend)
+    be.panda = None
+    ok, text = be.link_status()
+    assert ok is False and "미연결" in text, (ok, text)
+    be.panda = object(); be._serials = ["1e003e00"]
+    ok, text = be.link_status()
+    assert ok is True and "연결됨" in text and "1e003e00" in text, (ok, text)
+
+
+def test_ros2_link_status_follows_diagnostics_freshness():
+    from can_relay.ui.backend_ros2 import Ros2Backend
+    be = Ros2Backend.__new__(Ros2Backend)
+
+    class _Node:
+        cfg = {"driver_ns": "/can_relay_node"}
+        def __init__(self, fresh): self._fresh = fresh
+        def diagnostics(self): return (0, "ok", self._fresh, {})
+    be.node = _Node(True)
+    ok, text = be.link_status()
+    assert ok is True and "연결됨" in text and "/can_relay_node" in text, (ok, text)
+    be.node = _Node(False)
+    ok, text = be.link_status()
+    assert ok is False and "끊김" in text, (ok, text)
+
+
+def test_status_bar_shows_the_link():
+    """상태 바가 **화면에** 연결을 보여야 한다 — 로그에만 있으면 안 된다(배선)."""
+    import inspect
+    from can_relay.ui import app as A
+    assert "lab_link" in inspect.getsource(A.MainWindow._build_status)
+    assert "_refresh_link" in inspect.getsource(A.MainWindow._refresh), \
+        "주기 갱신이 연결 표시를 갱신하지 않는다"
+    assert "link_status" in inspect.getsource(A.MainWindow._refresh_link)
+
+
+# ── 탭 2개 구성 (2026-08-05 사용자 요청) ─────────────────────────────────
+@pytest.fixture(scope="module")
+def qapp():
+    """위젯을 만들려면 QApplication 이 **먼저** 있어야 한다 — 없으면 프로세스가 죽는다."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    QtWidgets = pytest.importorskip("PyQt5.QtWidgets")
+    yield QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+
+def _fake_panel(holds=False, seer_enabled=True):
+    """MainWindow 대신 쓰는 최소 대역 — 탭 컨테이너의 규칙만 본다."""
+    from PyQt5.QtWidgets import QWidget
+
+    class _P(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.seer_on = None
+            self.released = []
+            self._holds = holds
+        def set_seer_polling(self, on): self.seer_on = bool(on)
+        def holds_hardware(self): return self._holds
+        def log(self, msg): pass
+        def safe_release(self, reason=""): self.released.append(reason)
+    return _P()
+
+
+def test_tabs_poll_seer_only_on_the_visible_tab(qapp):
+    """Seer API 를 두 곳에서 두드리지 않는다 — **보이는 탭만** 폴링한다."""
+    from can_relay.ui.app import RelayTabs
+    a, b = _fake_panel(), _fake_panel()
+    tabs = RelayTabs({"A": a, "B": b})
+    assert (a.seer_on, b.seer_on) == (True, False), (a.seer_on, b.seer_on)
+    tabs.tabs.setCurrentIndex(1)
+    assert (a.seer_on, b.seer_on) == (False, True), (a.seer_on, b.seer_on)
+
+
+def test_tabs_lock_the_other_tab_while_one_holds_the_panda(qapp):
+    """**판다는 한 곳만 열 수 있다.** 한 탭이 붙들면 다른 탭을 잠근다.
+
+    ⚠ 근거: 2026-08-05 실기에서 다른 제어 주체와 겹쳐 USB 송신이 **36회 연속 실패**했다.
+    """
+    from can_relay.ui.app import RelayTabs
+    a, b = _fake_panel(holds=True), _fake_panel()
+    tabs = RelayTabs({"A": a, "B": b})
+    tabs._apply_exclusive_lock()
+    assert tabs.tabs.isTabEnabled(0) is True, "붙든 탭이 잠겼다"
+    assert tabs.tabs.isTabEnabled(1) is False, "다른 탭이 잠기지 않았다"
+    a._holds = False                                   # 해제하면 풀린다
+    tabs._apply_exclusive_lock()
+    assert tabs.tabs.isTabEnabled(1) is True
+
+
+def test_tabs_release_both_panels(qapp):
+    """종료는 한 곳으로 모으고 **양쪽을 다** 해제한다."""
+    from can_relay.ui.app import RelayTabs
+    a, b = _fake_panel(), _fake_panel()
+    RelayTabs({"A": a, "B": b}).safe_release("시험")
+    assert a.released == ["시험"] and b.released == ["시험"]
+
+
+def test_entry_point_defaults_to_two_tabs():
+    """진입점 기본이 탭 2개여야 한다(배선)."""
+    import inspect
+    from can_relay.ui import gui_node
+    src = inspect.getsource(gui_node.main)
+    assert 'default="both"' in inspect.getsource(gui_node) or '"both"' in src
+    assert "RelayTabs" in src, "진입점이 탭 컨테이너를 쓰지 않는다"
+
+
+# ── 조향 재송신 (2026-08-05 실기 관측) ───────────────────────────────────
+def test_direct_backend_resends_the_steer_target():
+    """조향 목표를 **상태로 남겨 재송신**해야 한다 — 단발이면 프레임 1장 유실이 지령 소실이다.
+
+    ⚠ 2026-08-05 실기: 조그 첫 지령에서 N4 가 움직이지 않았다(SDO 거부 없음, 코드 경로 정상).
+    마스터 Seer 는 조향 목표를 **28 ms 주기로 연속 재송신**한다(캡처 12,928회/180초).
+    구동은 이미 재송신하고 있었는데(원본 High ③ 조치) 조향만 빠져 있었다.
+    """
+    from can_relay.ui.backend_direct import DirectBackend
+    be = DirectBackend.__new__(DirectBackend)
+    be._steer_counts = {}
+    sent = []
+    be._send = lambda frames: sent.extend(frames)
+    be.steer_axis(3, 10.0)
+    assert be._steer_counts and 3 in be._steer_counts, "조향 목표를 상태로 남기지 않는다"
+    assert sent, "즉시 송신도 해야 한다"
+
+
+def test_direct_backend_releases_steer_target_on_stop():
+    """정지하면 조향 목표 **재송신을 멈춘다** — 안 멈추면 정지 후에도 계속 나간다."""
+    from can_relay.ui.backend_direct import DirectBackend
+    be = DirectBackend.__new__(DirectBackend)
+    be._steer_counts = {3: 1, 4: 2}
+    be._run = False                       # 제어권 없음 경로로 빠져도 해제는 먼저다
+    be.stop()
+    assert be._steer_counts == {}, "정지 후에도 조향 목표가 남아 재송신된다"
+
+
+def test_poll_loop_resends_steer_in_source():
+    """폴 루프가 실제로 재송신하는가(배선)."""
+    import inspect
+    from can_relay.ui import backend_direct as D
+    src = inspect.getsource(D.DirectBackend._loop)
+    assert "_steer_counts" in src and "steer_target_frames" in src, \
+        "폴 루프가 조향을 재송신하지 않는다"

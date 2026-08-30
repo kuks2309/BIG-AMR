@@ -1,0 +1,67 @@
+/trnav_translate_forward_node:
+  ros__parameters:
+    # ── Platform (trnav_motion_core::loadGeometry) ──
+    platform: "QD_DIAGONAL"
+
+    # ── 로봇 기하 (Carrier_AGV_기구LAYOUT Rev.1.3) ──
+    body_length: 1.1974
+    body_width: 0.648
+    w1_x: 0.330
+    w1_y: 0.135
+    w2_x: -0.330
+    w2_y: -0.135
+    wheel_radius: 0.080
+    steer_limit_deg: 90.0
+    gear_walk: 20.0
+
+    # ── ActionServerBase 공통 ──
+    control_rate_hz: 50.0
+    steer_tolerance_deg: 1.0
+    steer_timeout_sec: 5.0
+
+    # ── PathController(BICYCLE) ──
+    translate_Kp_heading: 0.7
+    translate_Kd_heading: 0.3
+    translate_K_stanley: 2.0
+    translate_K_soft: 1.0
+    translate_heading_threshold_deg: 90.0
+    translate_max_lateral_offset: 1.0
+    translate_heading_filter_window: 5
+    # heading yaw 소스: 0=robot_pose(기본) / 1=IMU(시작 RMA10 offset 후 고정). A/B 실험용. x,y(CTE)는 항상 pose.
+    translate_heading_source: 0
+    translate_cte_filter_window: 5
+    translate_max_delta_deg: 45.0
+
+    # Wave 4 default: BICYCLE(=1). Goal control_mode=0 → default, =1 → BICYCLE.
+    # Mode 2/3 은 후속 Wave 에서 활성화.
+    translate_control_mode: 1
+
+    # ── TransientGuard ──
+    transient_vy_rate_limit: 0.3
+    transient_omega_rate_limit: 0.5
+    transient_steer_gate_threshold_deg: 3.0
+    transient_steer_error_max_deg: 10.0
+    transient_enable_proportional_decel: true
+    transient_runtime_gate_threshold_deg: 90.0
+
+    # ── LocalizationMonitor ──
+    translate_pose_topic: "/rtabmap/localization_pose"
+    translate_pose_qos: 2                       # 0=default 1=reliable 2=sensor_data
+    translate_localization_timeout_sec: 2.0
+    translate_position_jump_threshold: 0.3
+    translate_enable_localization_watchdog: true
+
+    # ── Translate execute 파라미터 ──
+    translate_goal_reach_threshold: 0.05
+    translate_min_vx: 0.02
+    translate_behind_start_speed: 0.2
+    translate_vy_ramp_time: 1.0
+    translate_max_timeout_sec: 60.0
+    translate_steer_rate_static: 0.140
+    translate_steer_rate_dynamic: 0.350
+    translate_steer_rate_vx_threshold: 0.05
+    translate_walk_accel_limit: 0.5
+    translate_walk_decel_limit: 1.0
+    translate_steer_converge_err_low_deg: 3.0
+    translate_steer_converge_err_high_deg: 30.0
+    translate_steer_converge_min_scale: 0.3

@@ -110,11 +110,21 @@
     # 같은 문서의 3차 확인(2026-08-02 19:42)은 역산을 적용해 node4 0° = 7,840,085c 를
     # 얻고도 이를 "계통 편차 가능성(미판정)"으로 넘겼다 — 그 값이 정답이었다.
     #
-    # 실측 확정 (2026-08-03 11:44, `Tools/docking_field_kit/orin_steer_crosscheck.py`,
-    #   2회 독립 실행이 counts 단위까지 동일. 산출 Log/steer_xcheck_reboot_0deg*.jsonl):
-    #   조건 — 판다 SAFETY_SILENT·passthrough(제어권 미취득)라 CAN 과 Seer 가 독립 경로.
-    #          도구는 AST 구문트리 검사로 송신 API 호출 0건 확인.
-    #          **사용자 확인: Seer 표시 앞바퀴 2축 모두 0°**  ⇒ 외삽이 거의 없는 이상적 조건.
+    # 측정 (2026-08-03 11:44, `Tools/docking_field_kit/orin_steer_crosscheck.py`,
+    #   산출 Log/steer_xcheck_reboot_0deg*.jsonl). 조건 — 판다 SAFETY_SILENT·passthrough,
+    #   도구는 AST 구문트리 검사로 송신 API 호출 0건 확인.
+    #
+    # ❌ 정정 2026-08-06 — 「실측 확정」 라벨과 근거 3개는 반증됐다(값 채택은 유효).
+    #    Seer 1005·1040 은 판다가 엿듣는 바로 그 0x6064 의 아핀 변환이다
+    #    (1040 기울기 x57,344 = 1.000001 · 1005 = 1.000130). 따라서
+    #      - "제어권 미취득이라 CAN 과 Seer 가 독립 경로"  -> 거짓
+    #      - "사용자 확인 Seer 표시 0°"                     -> 역산 기여 0
+    #      - "2회 독립 실행이 counts 단위까지 동일"         -> 동어반복(정보량 0)
+    #    셋 다 인용 금지. 역산식은 항등식이라 자세와 무관하게 같은 값을 낸다.
+    #    유효한 것은 "송신 0건(AST)" 하나뿐이고, 값의 지위는 물리 0° 실측이 아니라
+    #    **Seer 좌표계의 조향 영점 + 공학적 채택**이다.
+    #    현행 정본 근거: docs/homing/2026-08-03-can-relay-homing-assets.md §0.
+    # 아래는 그 시점 판독값이다(이력 보존):
     #   node3  CAN 7,871,823c (sigma=3, n=3110) · Seer -0.000° (sigma=0.000) -> 0° = 7,871,816c
     #   node4  CAN 7,840,052c (sigma=2, n=3110) · Seer +0.001° (sigma=0.000) -> 0° = 7,840,087c
     #

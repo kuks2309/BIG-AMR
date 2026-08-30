@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>vision_guard</name>
+  <version>0.1.0</version>
+  <description>
+    AMR VisionGuard - PyQt5 CCTV-style multi-camera viewer. Subscribes to
+    usb_cam_publisher ROS2 image topics and renders them in a user-selectable
+    grid layout (1x1, 1x3, 2x3, ...). Part of the AMR USB CCTV monitoring system.
+  </description>
+  <maintainer email="trworker2@gmail.com">Ford_CATL_AMR</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-pyqt5</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -1,0 +1,56 @@
+/trnav_mpc_reverse_node:
+  ros__parameters:
+    # ── Platform ──
+    platform: "QD_DIAGONAL"
+
+    # ── 로봇 기하 ──
+    body_length: 1.1974
+    body_width: 0.648
+    w1_x: 0.330
+    w1_y: 0.135
+    w2_x: -0.330
+    w2_y: -0.135
+    wheel_radius: 0.080
+    steer_limit_deg: 90.0
+    gear_walk: 20.0
+
+    # ── ActionServerBase 공통 ──
+    control_rate_hz: 50.0
+    steer_tolerance_deg: 1.0
+    steer_timeout_sec: 5.0
+
+    # ── MPC 알고리즘 파라미터 (forward 와 동일) ──
+    mpc_lookahead_distance: 0.4
+    mpc_max_lateral_offset: 1.0
+    mpc_heading_threshold_deg: 90.0
+    mpc_cte_filter_window: 1
+    mpc_max_delta_deg: 45.0
+
+    # ── TransientGuard ──
+    transient_vy_rate_limit: 0.3
+    transient_omega_rate_limit: 0.5
+    transient_steer_gate_threshold_deg: 3.0
+    transient_steer_error_max_deg: 10.0
+    transient_enable_proportional_decel: true
+    transient_runtime_gate_threshold_deg: 90.0
+
+    # ── LocalizationMonitor ──
+    mpc_pose_topic: "/rtabmap/localization_pose"
+    mpc_pose_qos: 2
+    mpc_localization_timeout_sec: 2.0
+    mpc_position_jump_threshold: 0.3
+    mpc_enable_localization_watchdog: true
+
+    # ── execute 파라미터 ──
+    mpc_goal_reach_threshold: 0.05
+    mpc_min_vx: 0.02
+    mpc_behind_start_speed: 0.2
+    mpc_max_timeout_sec: 60.0
+    mpc_steer_rate_static: 0.140
+    mpc_steer_rate_dynamic: 0.350
+    mpc_steer_rate_vx_threshold: 0.05
+    mpc_walk_accel_limit: 0.5
+    mpc_walk_decel_limit: 1.0
+    mpc_steer_converge_err_low_deg: 3.0
+    mpc_steer_converge_err_high_deg: 30.0
+    mpc_steer_converge_min_scale: 0.3

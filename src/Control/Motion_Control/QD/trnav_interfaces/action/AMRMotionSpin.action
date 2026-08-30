@@ -1,0 +1,19 @@
+# AMRMotionSpin Action - Phase 1-2 (Spin in place)
+# trnav_interfaces/action/AMRMotionSpin
+
+# Goal
+float64 target_angle          # deg (+ CCW, - CW)
+float64 max_angular_speed     # deg/s (always > 0)
+float64 angular_acceleration  # deg/s² (always > 0)
+bool    hold_steer            # true: skip Phase 4, keep spin steer angle
+float64 exit_steer_angle      # deg: Phase 4 target steer (ignored if hold_steer)
+---
+# Result
+int8    status                # 0=success, -1=cancelled, -2=invalid_param, -3=timeout
+float64 actual_angle          # deg (achieved rotation)
+float64 elapsed_time          # sec
+---
+# Feedback
+float64 current_angle         # deg (accumulated so far)
+float64 current_speed         # deg/s (current angular speed)
+uint8   phase                 # 0=steer_align, 1=accel, 2=cruise, 3=decel, 4=steer_return

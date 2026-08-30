@@ -1,0 +1,91 @@
+flowchart TD
+    U_HOST(["Host: USB vendor control transfer (bRequest, wValue, wIndex)"])
+    U_IRQ["OTG_FS_IRQ_Handler -> usb_irqhandler()"]
+    U_SETUP{"usb_setup(): switch on setup packet"}
+    U_DEFAULT["default branch: resp_len = usb_cb_control_msg(setup ptr, resp)"]
+    U_SW{"usb_cb_control_msg(): switch (setup->b.bRequest)"}
+    U_E8["0xe8: set_intercept_relay(wValue != 0)"]
+    U_E8_COVER["seer_cover_until_us = microsecond_timer_get() + SEER_COVER_US (300 ms), set for BOTH engage and disengage"]
+    U_E9["0xe9: pc_authority = (wValue != 0)"]
+    U_EA["0xea: resp[0] = seer_homing_cmd(wValue != 0, wIndex); resp_len = 1"]
+    U_EA_STOPQ{"seer_homing_cmd(): start == false ?"}
+    U_EA_ABORT["non-terminal -> seer_home_cancel_frames() (0x60FB.4 = 0); state = ERR_ABORT; return true"]
+    U_EA_IDLE["terminal -> state = IDLE; return true"]
+    U_EA_INTERLOCK{"start: pc_authority and current_safety_mode == 30 and seer_home_is_terminal ?"}
+    U_EA_REJECT["return false (resp[0] = 0)"]
+    U_EA_START["speed = wIndex or 2500; stage_reset(); seen/done/reached masks = 0; state = SEER_HOME_ENABLE"]
+    U_EB["0xeb: resp = state, done_mask, seen_active, elapsed_s lo/hi, DI node3, DI node4, reached_mask (read only)"]
+    U_EB_DI["seer_home_digital_in(n): seer_home_cached_sub(n, 0x6000, 0x01) else 0xFF"]
+    U_EC["0xec: seer_block_homing = (wValue != 0); resp[0] = value"]
+    U_C3["0xc3: resp_len = get_can_health_pkt(resp, wValue)"]
+    U_C3_BUS{"bus < 3 and bus_config[bus].can_num_lookup < 3 ?"}
+    U_C3_ESR["esr = CANIF_FROM_CAN_NUM(can_num)->ESR (bxCAN F4); STM32H7 leaves esr = 0"]
+    U_C3_FILL["fill can_health_t: error_warning/passive, bus_off, LEC, REC, TEC (read only)"]
+    U_DC["0xdc: set_safety_mode(wValue, wIndex)"]
+    U_DC_MODE["set_safety_mode(): set_safety_hooks(); case SAFETY_SEER_GATE (30) -> heartbeat_counter=0, heartbeat_lost=false, can_silent=ALL_CAN_LIVE, relay NOT touched; can_init_all()"]
+    U_F3["0xf3: heartbeat_counter=0; heartbeat_lost=false; heartbeat_disabled=false; heartbeat_engaged=(wValue==1)"]
+    U_RESP(["return resp_len -> USB_WritePacket(resp, min(resp_len, wLength))"])
+    S_COVER[/"STATE seer_cover_until_us -> cover window"/]
+    S_AUTH[/"STATE pc_authority"/]
+    S_EMU[/"STATE emulate = cover or pc_authority -> SDO write drop + fake ack, read served from cache, bus2 real response suppressed"/]
+    S_FREEZE[/"STATE seer_frozen / seer_frozen_valid: set on pc_authority rising edge at next fwd frame, cleared on falling edge"/]
+    S_BLOCK[/"STATE seer_block_homing -> drop Seer homing writes in non-emulate window"/]
+    S_HOMESTATE[/"STATE seer_home_state (+ masks, elapsed) advanced by seer_homing_tick() at 8 Hz"/]
+    S_HOMEGATE{"seer_homing_tick() interlock: !pc_authority or current_safety_mode != 30 -> cancel frames + ERR_ABORT"}
+    S_HBEAT[/"STATE heartbeat_counter / heartbeat_lost / heartbeat_disabled / heartbeat_engaged"/]
+    S_MODE[/"STATE current_safety_mode + current_hooks (= seer_gate_hooks at mode 30)"/]
+    S_RELAY[/"STATE harness relay GPIO: intercept vs passthrough"/]
+    U_HOST --> U_IRQ
+    U_IRQ --> U_SETUP
+    U_SETUP -->|"vendor request (not std / WebUSB / MS)"| U_DEFAULT
+    U_DEFAULT --> U_SW
+    U_SW -->|"0xe8"| U_E8
+    U_SW -->|"0xe9"| U_E9
+    U_SW -->|"0xea"| U_EA
+    U_SW -->|"0xeb"| U_EB
+    U_SW -->|"0xec"| U_EC
+    U_SW -->|"0xc3"| U_C3
+    U_SW -->|"0xdc"| U_DC
+    U_SW -->|"0xf3"| U_F3
+    U_E8 --> U_E8_COVER
+    U_E8 -->|"writes"| S_RELAY
+    U_E8_COVER -->|"writes"| S_COVER
+    U_E8_COVER -->|"resp_len = 0"| U_RESP
+    S_COVER -->|"cover term"| S_EMU
+    U_E9 -->|"writes"| S_AUTH
+    U_E9 -->|"resp_len = 0"| U_RESP
+    S_AUTH -->|"pc_authority term"| S_EMU
+    S_AUTH -->|"edge detect"| S_FREEZE
+    S_AUTH -->|"read"| S_HOMEGATE
+    U_EA --> U_EA_STOPQ
+    U_EA_STOPQ -->|"start = 0, running"| U_EA_ABORT
+    U_EA_STOPQ -->|"start = 0, terminal"| U_EA_IDLE
+    U_EA_STOPQ -->|"start = 1"| U_EA_INTERLOCK
+    U_EA_INTERLOCK -->|"no"| U_EA_REJECT
+    U_EA_INTERLOCK -->|"yes"| U_EA_START
+    U_EA_START -->|"writes ENABLE"| S_HOMESTATE
+    U_EA_ABORT -->|"writes ERR_ABORT"| S_HOMESTATE
+    U_EA_IDLE -->|"writes IDLE"| S_HOMESTATE
+    U_EA_START -->|"resp[0] = 1"| U_RESP
+    U_EA_ABORT -->|"resp[0] = 1"| U_RESP
+    U_EA_IDLE -->|"resp[0] = 1"| U_RESP
+    U_EA_REJECT -->|"resp[0] = 0"| U_RESP
+    S_HOMEGATE -->|"ERR_ABORT"| S_HOMESTATE
+    U_EB --> U_EB_DI
+    U_EB_DI -->|"resp_len = 8"| U_RESP
+    S_HOMESTATE -->|"read by 0xeb"| U_EB
+    U_EC -->|"writes"| S_BLOCK
+    U_EC -->|"resp_len = 1"| U_RESP
+    U_C3 --> U_C3_BUS
+    U_C3_BUS -->|"yes"| U_C3_ESR
+    U_C3_BUS -->|"no (esr = 0)"| U_C3_FILL
+    U_C3_ESR --> U_C3_FILL
+    U_C3_FILL -->|"resp_len = sizeof(can_health_t)"| U_RESP
+    U_DC --> U_DC_MODE
+    U_DC_MODE -->|"writes"| S_MODE
+    U_DC_MODE -->|"resp_len = 0"| U_RESP
+    S_MODE -->|"read"| S_HOMEGATE
+    U_F3 -->|"writes"| S_HBEAT
+    U_F3 -->|"resp_len = 0"| U_RESP
+    S_HBEAT -->|"heartbeat lost -> pc_authority = false (main.c:263)"| S_AUTH
+    S_HBEAT -->|"heartbeat lost -> set_intercept_relay(false) (main.c:262)"| S_RELAY

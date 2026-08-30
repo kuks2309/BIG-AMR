@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>trnav_motion_qd</name>
+  <version>0.1.0</version>
+  <description>AMR Motion - QD (Quad-Drive diagonal) platform-specific library: PathController, MpcController, WheelSetPacker, QdActionServerBase. Kinematics (QdInverseKinematics/QdCrabInverseKinematics/QdBicycleModel) moved to trnav_qd_kinematics (src/Control/Kinematics/) per AD-012 amendment 2026-07-04. Depends on trnav_motion_core for platform-agnostic primitives.</description>
+  <maintainer email="amap@t-robotics.com">amap</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>trnav_qd_kinematics</depend>
+  <depend>trnav_motion_core</depend>
+  <depend>trnav_msgs</depend>
+  <depend>rclcpp</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <!-- System dep: NLopt (SLSQP solver) used by qd_mpc_controller. rosdep key 'nlopt' → libnlopt-cxx-dev/libnlopt-dev. Big-AMR 이식 시 명시(원본 미선언 보완). -->
+  <depend>nlopt</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

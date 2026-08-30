@@ -250,11 +250,6 @@ class CanRelayNode(Node):
         환산도 기구학도 하지 않는다. 그 둘은 상류(액션 서버 IK · translator SI→raw)가
         소유한다. 여기서는 안전 클램프만 raw 단위로 걸고 CAN 으로 내보낸다.
 
-        ⚠ 단 **조향 원점은 여기가 소유한다** — `target_pos` 는 홈(직진 0°) 기준 상대
-        counts 이고, `set_motor_cmds` 가 기체 캘리브레이션(`steer_home_counts`)을 더해
-        절대 counts 로 만든다. 피드백(`/motor/low_state`)도 같은 좌표계로 되돌린다.
-        홈 counts 의 정본은 `config/machine/<기체>.yaml` 하나이므로 상류에 복제하지 않는다.
-
         ⚠ 축별 조향각이 갈리는 지령(선회)은 **정상**이다 — bicycle 모델의 정의가
         `omega = vx(tan δf − tan δr)/L` 이라 전·후 각이 달라야 회전이 된다.
         구 `cmd_vel` 경로에 있던 1.0° 편차 거부 게이트는 그래서 제거했다.

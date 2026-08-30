@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>usb_cam_publisher</name>
+  <version>0.1.0</version>
+  <description>
+    V4L2/OpenCV USB RGB camera capture published as ROS2 sensor_msgs/Image.
+    One node instance per camera; capture-layer FPS/latency measurement for USB
+    performance testing. Part of the AMR USB CCTV monitoring system.
+  </description>
+  <maintainer email="trworker2@gmail.com">Ford_CATL_AMR</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>image_transport</depend>
+
+  <exec_depend>ros2launch</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

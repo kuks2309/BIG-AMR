@@ -1,0 +1,98 @@
+<mxfile host="app.diagrams.net" type="device">
+  <diagram id="canrelay-arch" name="CAN-Relay Architecture">
+    <mxGraphModel dx="1100" dy="850" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="CATL-Ford CAN-Relay — 시스템 아키텍처 (2026-06-27)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=18;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="700" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="acs" value="ACS&#10;(상위 관제·배차)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="80" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="plc" value="PLC&#10;(권한 마스터)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="180" width="130" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="seer" value="Seer (SEER SRC)&#10;레거시 내비게이션&#10;SLAM·경로·모션모델&#10;[동결, 분석가능]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="320" width="170" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="panda" value="Black Panda&#10;CAN relay (STM32F4)&#10;2-key inject · passthrough&#10;diverge·heartbeat·IWDG" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;fontStyle=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="380" y="320" width="210" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="tongy" value="Tongy 모터 드라이버&#10;AMR 휠 (CANopen CiA402)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="390" y="500" width="200" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pc" value="PC = Neousys NRU-156U3-FT&#10;(Jetson Orin NX, 100 TOPS)&#10;추가기능 + Seer감시 + inject" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="730" y="150" width="240" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cam" value="CAM1~6 = Orbbec Gemini E&#10;RGBD · USB2.0 ×6&#10;(3D 충돌회피·도킹)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="730" y="290" width="240" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="imu" value="IMU&#10;(PC 전용·diverse 감시)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="730" y="370" width="240" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="lidar" value="SICK 안전 Lidar (2D)&#10;① nav 데이터 (Seer·PC 공유)&#10;② OSSD 안전출력 → Safety PLC" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="730" y="435" width="240" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="safetyplc" value="Safety PLC&#10;(별도·독립 안전 PLC)&#10;안전 정지 체인" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="390" y="640" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_acs_plc" value="TCP/IP" style="endArrow=classic;html=1;fontSize=11;" edge="1" parent="1" source="acs" target="plc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_plc_pc" value="① TCP/IP&#10;명령·상태·heartbeat" style="endArrow=classic;startArrow=classic;html=1;fontSize=11;strokeColor=#6c8ebf;" edge="1" parent="1" source="plc" target="pc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_plc_panda" value="①' 여유 CAN (D14)&#10;권한/heartbeat (PC 비의존)" style="endArrow=classic;startArrow=classic;html=1;fontSize=11;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="plc" target="panda">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_plc_seer" value="권한행사(기존경로)" style="endArrow=classic;html=1;fontSize=10;dashed=1;" edge="1" parent="1" source="plc" target="seer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_seer_panda" value="CAN  × 절단&#10;릴레이 인라인 삽입" style="endArrow=classic;html=1;fontSize=11;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="seer" target="panda">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_panda_tongy" value="CANopen" style="endArrow=classic;html=1;fontSize=11;strokeWidth=2;" edge="1" parent="1" source="panda" target="tongy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_pc_panda" value="② USB&#10;inject 명령 + heartbeat" style="endArrow=classic;html=1;fontSize=11;strokeColor=#6c8ebf;" edge="1" parent="1" source="pc" target="panda">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_panda_pc" value="③ USB 버스 read (상시)" style="endArrow=open;html=1;fontSize=10;dashed=1;" edge="1" parent="1" source="panda" target="pc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_cam_pc" value="USB2.0 ×6" style="endArrow=classic;html=1;fontSize=11;" edge="1" parent="1" source="cam" target="pc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_imu_pc" value="" style="endArrow=classic;html=1;fontSize=11;" edge="1" parent="1" source="imu" target="pc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_lidar_pc" value="nav 데이터" style="endArrow=classic;html=1;fontSize=10;" edge="1" parent="1" source="lidar" target="pc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_lidar_seer" value="nav 공유" style="endArrow=classic;html=1;fontSize=10;dashed=1;" edge="1" parent="1" source="lidar" target="seer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_lidar_safetyplc" value="OSSD 안전출력 (인증)" style="endArrow=classic;html=1;fontSize=11;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1" source="lidar" target="safetyplc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_safetyplc_tongy" value="안전 정지 (하드와이어)" style="endArrow=classic;html=1;fontSize=11;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1" source="safetyplc" target="tongy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend" value="범례&#10;× = 기존 CAN 절단·릴레이 인라인 삽입    │    inject = 2-key (PLC CAN 허가 AND PC USB 명령)&#10;fail-safe(relay) = 무전원 → passthrough (normally-closed) + STM32 IWDG&#10;안전 정지(별도 체인) = SICK 안전 Lidar → Safety PLC → 모터 드라이버 정지  [Panda·연산과 독립, 인증]&#10;권한=PLC · 명령=PC · 감시(correctness)=엔코더 diverge + IMU · liveness=삼각 heartbeat&#10;Seer=기본내비(동결) · PC=추가기능+Seer감시+자율 시 주행대체&#10;※ Safety PLC = 권한 PLC 와 별도의 독립 안전 PLC (Q10 확정) — 안전 정지 체인은 제어/권한 체인과 물리 분리" style="text;html=1;align=left;verticalAlign=top;fillColor=#f5f5f5;strokeColor=#999999;fontSize=11;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="730" width="930" height="150" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

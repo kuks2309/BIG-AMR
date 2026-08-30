@@ -1,0 +1,55 @@
+# 공용 카메라 설정 — Python(캘리브레이션 UI)·C++(usb_cam_publisher) 공유 SSOT.
+#
+# 캡처 파라미터와 카메라 시리얼 로스터를 한 파일로 관리해 Python 도구와 C++
+# 퍼블리셔가 동일 값을 쓰도록 한다. 개별 코드 하드코딩 금지(이 파일이 단일 근원).
+#
+# 카메라 식별은 안정적인 V4L2 by-id 심링크(시리얼 기반):
+#   /dev/v4l/by-id/usb-<by_id_prefix>_<serial>-video-index0
+# 시리얼 목록: ls /dev/v4l/by-id/
+
+by_id_prefix: "Sonix_Technology_Co.__Ltd._Orbbec_Gemini_E_RGB_Camera"
+
+# 캡처 기본값(카메라 공통). Python·C++ 양쪽이 이 값을 적용한다.
+capture:
+  image_width: 1280
+  image_height: 720
+  framerate: 30.0
+  pixel_format: "MJPG"        # USB 2.0 대역 절감(무압축 YUYV 회피)
+  buffersize: 2               # V4L2 버퍼 >= 2 라야 풀 FPS (벤치 확인)
+  # 카메라가 준 MJPEG 를 디코드 없이 그대로 발행한다(compressed | raw | both).
+  # 실측(1대 1280x720@30, 2026-08-03): 디코드 6.55ms·2700KB/frame → 패스스루
+  # 0.15ms·131KB/frame. 6대 환산 대역 498 → 24 MB/s. 화면(UI)은 원본이 필요 없고
+  # 브라우저·뷰어가 JPEG 를 직접 읽으므로 기본값을 compressed 로 둔다.
+  publish_mode: "compressed"
+  power_line_frequency: 2     # 안티밴딩: 0=off, 1=50Hz, 2=60Hz (한국 전원 60Hz)
+
+# 카메라 시리얼 로스터. name=논리 이름(=토픽·frame_id·노드명의 근원), serial=by-id 시리얼 토큰.
+#
+# 이름은 **장착 위치**를 뜻한다(2026-07-30 개명, ADR: docs/adr/2026-07-30-camera-position-naming.md):
+#   cam_f=전면 · cam_r=후면 · cam_lf=좌전 · cam_lr=좌후 · cam_rf=우전 · cam_rr=우후
+# 종전 이름 대응: cam0→cam_rf · cam1→cam_lf · cam2→cam_rr · cam3→cam_f · cam4→cam_r · cam5→cam_lr
+#
+# 아래 **순서**는 뷰어 2x3 그리드의 그리는 순서다. 현재 순서는 물리 배치와 어긋나며
+# (화면: RF LF RR / F R LR) 사용자 결정으로 **향후 별건 수정**한다 — 이번 개명에서는 손대지 않았다.
+#
+# 장치 경로(/dev/videoN)는 재부팅·재연결마다 바뀌므로 주석에 적지 않는다. 식별은 by-id 시리얼이
+# 하며, 현재 매핑 확인은 `ls /dev/v4l/by-id/` 또는 `udevadm info -q property -n /dev/videoN`.
+cameras:
+  - name: "cam_rf"          # 우측 전방 (Right-Front)
+    serial: "AY4EC5400HL"
+  - name: "cam_lf"          # 좌측 전방 (Left-Front)
+    # 사용자 표(2026-07-30)에는 AY4EC5400HD 로 적혀 있으나 그 시리얼의 장치는 연결돼 있지 않다.
+    # by-id·udevadm 두 경로 판독이 모두 H0(숫자 영) — 브래킷 실물 표기 확인 대기.
+    serial: "AY4EC5400H0"
+  - name: "cam_rr"          # 우측 후방 (Right-Rear)
+    serial: "AY4EC5400NR"
+  - name: "cam_f"           # 전면 (Front)
+    serial: "AY4EC5401F4"
+  - name: "cam_r"           # 후면 (Rear) — 유지보수 조작 패널이 있는 면
+    serial: "AY4EC5400J3"
+  - name: "cam_lr"          # 좌측 후방 (Left-Rear)
+    serial: "AY4EC5401BT"
+    # 주의: tr-orin-22 "RGB 최대 4대"는 단일 USB2.0 컨트롤러 한계. tegra는
+    # 대부분 카메라가 독립 버스(003/005/007/009)라 대역 분리 → 6대 29.7fps 실측
+    # (docs/usb_cctv/performance/2026-07-28_soak_8h_issues.md, 8.4시간).
+    # cam_r·cam_lr 은 둘 다 Bus 001(usb1) 공유이므로 저하 시 이 두 대를 우선 관찰할 것.

@@ -69,6 +69,18 @@ class BackendBase:
         """`(텍스트, 정상인가, 제어권 보유인가)` — 하단 상태 바용."""
         raise NotImplementedError
 
+    def link_status(self) -> tuple:
+        """`(연결됨, 텍스트)` — **이 백엔드가 상대와 붙어 있는가**를 화면에 보이기 위한 것.
+
+        `status()` 와 다르다. `status()` 는 「로봇이 정상인가」이고 이것은 「**말이 통하는가**」다.
+        둘을 섞으면 드라이버가 죽었는지 로봇이 이상한지 화면에서 구분할 수 없다
+        (2026-08-05 사용자 지적: 「can relay 연결 확인이 없음 — 연결 표시되어야 함 화면에」).
+
+        - ros2  : 드라이버(`can_relay_node`) 진단이 신선한가
+        - direct: 판다가 열려 있는가
+        """
+        raise NotImplementedError
+
     def settled(self, target_deg: float, tol_deg: float, nodes) -> bool:
         """**모든 조향축**이 허용치 안인가. 실측 없는 축은 정착으로 치지 않는다."""
         for n in nodes:

@@ -1,0 +1,134 @@
+flowchart TD
+    C_MAIN(["ENTRY main()"])
+    C_TICK(["ENTRY tick_handler() - TICK_TIMER 8 Hz ISR"])
+    C_CANRX(["ENTRY can_rx() - CANx_RX0 ISR"])
+    C_CANTX(["ENTRY CANx_TX_IRQ_Handler"])
+    C_SCE(["ENTRY can_sce() - CANx_SCE ISR"])
+    C_USB(["ENTRY usb_cb_control_msg() - OTG_FS ISR"])
+    C_EXTI(["ENTRY EXTI_IRQ_Handler()"])
+    C_RTC(["ENTRY RTC_WKUP_IRQ_Handler()"])
+    C_FWDHOOK["safety_fwd_hook()"]
+    C_GATE["seer_gate_fwd_hook()"]
+    C_CACHESTORE["seer_cache_store_resp()"]
+    C_CACHEREPLY["seer_cache_reply()"]
+    C_FAKEACK["seer_fake_ack()"]
+    C_FREEZE["seer_freeze_snapshot()"]
+    C_MOTION["seer_is_motion_obj()"]
+    C_ISHOMEWR["seer_is_homing_write()"]
+    C_SENDB0["seer_send_bus0()"]
+    C_SENDB2["seer_send_bus2()"]
+    C_CANSEND["can_send()"]
+    C_CANPUSH["can_push() / can_pop()"]
+    C_PROCESS["process_can()"]
+    C_HOMETICK["seer_homing_tick()"]
+    C_HOMECMD["seer_homing_cmd()"]
+    C_HOMEWRITE["seer_home_sdo_write()"]
+    C_HOMEREAD["seer_home_sdo_read()"]
+    C_HOMECACHED["seer_home_cached() / _cached_sub()"]
+    C_HOMECANCEL["seer_home_cancel_frames()"]
+    C_HOMEDI["seer_home_digital_in()"]
+    C_ISTERM["seer_home_is_terminal()"]
+    C_STAGERESET["seer_home_stage_reset()"]
+    C_ZEROTGT["seer_home_zero_target()"]
+    C_SETMODE["set_safety_mode()"]
+    C_SETHOOKS["set_safety_hooks()"]
+    C_RELAY["set_intercept_relay()"]
+    C_USTIMER["microsecond_timer_get()"]
+    C_SAFETYTICK["safety_tick()"]
+    C_INITALL["can_init_all() -> can_init()"]
+    C_LLCLEAR["llcan_clear_send()"]
+    C_LED["current_board->set_led()"]
+    G_PCAUTH[/"GLOBAL pc_authority"/]
+    G_COVER[/"GLOBAL seer_cover_until_us"/]
+    G_CACHE[/"GLOBAL seer_cache[24]"/]
+    G_GUARD[/"GLOBAL seer_guard_data/len/valid[5]"/]
+    G_FROZEN[/"GLOBAL seer_frozen[24] + seer_frozen_valid"/]
+    G_BLOCK[/"GLOBAL seer_block_homing"/]
+    G_HOMEST[/"GLOBAL seer_home_state + speed/elapsed/tick/poll/seen/done/reached"/]
+    G_MODE[/"GLOBAL current_safety_mode"/]
+    G_HOOKS[/"GLOBAL current_hooks"/]
+    G_HB[/"GLOBAL heartbeat_counter / _lost / _disabled / _engaged"/]
+    G_QUEUES[/"GLOBAL can_rx_q + can_tx1/2/3_q + can_txgmlan_q"/]
+    C_CANRX -->|"calls"| C_FWDHOOK
+    C_FWDHOOK -->|"reads"| G_HOOKS
+    C_FWDHOOK -->|"dispatch at mode 30"| C_GATE
+    C_GATE -->|"pc_authority rising edge"| C_FREEZE
+    C_GATE -->|"calls"| C_CACHESTORE
+    C_GATE -->|"calls"| C_CACHEREPLY
+    C_GATE -->|"calls"| C_FAKEACK
+    C_GATE -->|"calls"| C_ISHOMEWR
+    C_GATE -->|"cover check"| C_USTIMER
+    C_GATE -->|"guard cache reply"| C_SENDB0
+    C_GATE -->|"reads"| G_PCAUTH
+    C_GATE -->|"reads"| G_COVER
+    C_GATE -->|"reads"| G_BLOCK
+    C_GATE -->|"reads/writes"| G_GUARD
+    C_CACHESTORE -->|"writes"| G_CACHE
+    C_CACHEREPLY -->|"reads"| G_CACHE
+    C_CACHEREPLY -->|"reads"| G_FROZEN
+    C_CACHEREPLY -->|"reads"| G_PCAUTH
+    C_CACHEREPLY -->|"calls"| C_MOTION
+    C_CACHEREPLY -->|"calls"| C_SENDB0
+    C_FAKEACK -->|"calls"| C_SENDB0
+    C_FREEZE -->|"reads"| G_CACHE
+    C_FREEZE -->|"writes"| G_FROZEN
+    C_SENDB0 -->|"calls (skip_tx_hook = true)"| C_CANSEND
+    C_SENDB2 -->|"calls (skip_tx_hook = true)"| C_CANSEND
+    C_CANSEND -->|"calls"| C_CANPUSH
+    C_CANSEND -->|"calls"| C_PROCESS
+    C_CANPUSH -->|"reads/writes"| G_QUEUES
+    C_PROCESS -->|"pops tx queue"| G_QUEUES
+    C_PROCESS -->|"can_pop / tx echo push"| C_CANPUSH
+    C_CANRX -->|"forward"| C_CANSEND
+    C_CANRX -->|"pushes can_rx_q"| G_QUEUES
+    C_CANTX -->|"calls"| C_PROCESS
+    C_SCE -->|"calls"| C_LLCLEAR
+    C_TICK -->|"calls 8 Hz"| C_HOMETICK
+    C_TICK -->|"heartbeat lost -> SILENT"| C_SETMODE
+    C_TICK -->|"fail-safe passthrough"| C_RELAY
+    C_TICK -->|"writes false on heartbeat loss"| G_PCAUTH
+    C_TICK -->|"reads/writes"| G_HB
+    C_TICK -->|"calls 1 Hz"| C_SAFETYTICK
+    C_TICK -->|"calls"| C_LED
+    C_HOMETICK -->|"calls"| C_ISTERM
+    C_HOMETICK -->|"reads"| G_PCAUTH
+    C_HOMETICK -->|"reads"| G_MODE
+    C_HOMETICK -->|"reads/writes"| G_HOMEST
+    C_HOMETICK -->|"calls"| C_HOMEWRITE
+    C_HOMETICK -->|"calls"| C_HOMEREAD
+    C_HOMETICK -->|"calls"| C_HOMECACHED
+    C_HOMETICK -->|"calls"| C_HOMECANCEL
+    C_HOMETICK -->|"calls"| C_STAGERESET
+    C_HOMETICK -->|"calls"| C_ZEROTGT
+    C_HOMECANCEL -->|"calls"| C_HOMEWRITE
+    C_HOMEWRITE -->|"calls"| C_SENDB2
+    C_HOMEREAD -->|"calls"| C_SENDB2
+    C_HOMECACHED -->|"reads"| G_CACHE
+    C_USB -->|"0xea"| C_HOMECMD
+    C_USB -->|"0xeb"| C_HOMEDI
+    C_USB -->|"0xeb reads"| G_HOMEST
+    C_USB -->|"0xe9 writes"| G_PCAUTH
+    C_USB -->|"0xe8 writes"| G_COVER
+    C_USB -->|"0xe8"| C_USTIMER
+    C_USB -->|"0xe8"| C_RELAY
+    C_USB -->|"0xec writes"| G_BLOCK
+    C_USB -->|"0xdc"| C_SETMODE
+    C_USB -->|"0xf3 writes"| G_HB
+    C_HOMECMD -->|"calls"| C_ISTERM
+    C_HOMECMD -->|"calls"| C_HOMECANCEL
+    C_HOMECMD -->|"calls"| C_STAGERESET
+    C_HOMECMD -->|"reads"| G_PCAUTH
+    C_HOMECMD -->|"reads"| G_MODE
+    C_HOMECMD -->|"writes"| G_HOMEST
+    C_HOMEDI -->|"calls"| C_HOMECACHED
+    C_SETMODE -->|"calls"| C_SETHOOKS
+    C_SETMODE -->|"calls"| C_RELAY
+    C_SETMODE -->|"calls"| C_INITALL
+    C_SETHOOKS -->|"writes"| G_HOOKS
+    C_SETHOOKS -->|"writes"| G_MODE
+    C_INITALL -->|"calls"| C_PROCESS
+    C_MAIN -->|"init SILENT"| C_SETMODE
+    C_MAIN -->|"calls"| C_INITALL
+    C_MAIN -->|"calls"| C_LED
+    C_EXTI -->|"heartbeat_counter = 0 (main.c:317)"| G_HB
+    C_RTC -->|"calls"| C_LED
