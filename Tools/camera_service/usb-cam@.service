@@ -1,5 +1,5 @@
 [Unit]
-# 카메라 1대당 인스턴스 하나 — %i 는 로스터의 논리 이름(cam0..cam5).
+# 카메라 1대당 인스턴스 하나 — %i 는 로스터의 논리 이름(cam_f·cam_r·cam_lf·cam_lr·cam_rf·cam_rr).
 # 카메라마다 독립 서비스라 한 대가 죽어도 나머지 다섯은 영향을 받지 않는다.
 # (종전 구조는 `ros2 launch` 한 프로세스가 6대를 모두 들고 있어 동반 사망했다.)
 Description=USB CCTV camera publisher (%i)

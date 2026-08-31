@@ -1,0 +1,21 @@
+[Unit]
+# 카메라 관리자 — 카메라별 프레임 생존 감시 + 정체 시 usb-cam@ 유닛 자동 재시작.
+# 감시 대상 유닛과 독립으로 상주한다(관리자가 죽어도 카메라는 계속 돈다).
+# 설계: docs/adr/2026-08-30-camera-management-mode.md
+Description=AMR camera manager (frame liveness watchdog, auto recovery)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=nvidia
+Group=nvidia
+Environment=REPO_ROOT=/home/nvidia/Project/Ford-CATL-AMR/Big-AMR
+ExecStart=/home/nvidia/Project/Ford-CATL-AMR/Big-AMR/Tools/camera_service/run_manager.sh
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
