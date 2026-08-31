@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>camera_manager</name>
+  <version>0.1.0</version>
+  <description>
+    카메라 관리 모드 — 카메라별 프레임 생존 감시·자동 복구(usb-cam@ systemd 유닛
+    재시작)와 camctl CLI. 설계: docs/adr/2026-08-30-camera-management-mode.md
+  </description>
+  <maintainer email="drko@knj-robotics.com">drko</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>std_srvs</depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

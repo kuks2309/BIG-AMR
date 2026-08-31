@@ -26,10 +26,12 @@
 
 | 파일 | 역할 |
 | --- | --- |
-| `usb-cam@.service` | 카메라 1대용 템플릿 유닛. `%i` = 로스터 이름(cam0..cam5) |
+| `usb-cam@.service` | 카메라 1대용 템플릿 유닛. `%i` = 로스터 이름(cam_f·cam_r·cam_lf·cam_lr·cam_rf·cam_rr) |
 | `usb-cam.target` | 6대 일괄 제어용 묶음 |
+| `amr-camera-manager.service` | **카메라 관리자** 상주 유닛 — 프레임 정체 감시·자동 재시작 (`src/Sensors/Camera/USB/camera_manager`) |
+| `sudoers-camera-manager` | `usb-cam@*` 3동사만 무암호 허용 (→ `/etc/sudoers.d/camera-manager`) |
 | `dataset-collector.service` | 수집기 유닛 (**기본 미등록** — 디스크 소모 때문) |
-| `run_camera.sh` | ROS 환경 source 후 진입점 실행 (systemd 는 환경이 비어 있다) |
+| `run_camera.sh` / `run_manager.sh` | ROS 환경 source 후 진입점 실행 (systemd 는 환경이 비어 있다) |
 | `exec_camera_node.py` | 카메라 1대 노드 실행. 장치 없으면 **비정상 종료** |
 | `camera_params.py` | 로스터 → 파라미터 해석 (순수 로직) |
 | `test_camera_params.py` | 단위 테스트 16개 |
@@ -38,9 +40,10 @@
 `install.sh` 의 인스턴스 `enable` 목록은 그 파일만 읽는다 — 카메라를 늘리면 `install.sh` 를
 다시 돌리면 된다.
 
-⚠ **예외**: `usb-cam.target` 의 `Wants=` 는 현재 `cam0..cam5` 를 하드코딩한다. 카메라를 늘리면
-부팅 자동기동은 되지만(`WantedBy=multi-user.target`) target 묶음에서는 빠지므로, `install.sh`
-재실행과 **별개로 이 파일을 직접 갱신**해야 한다.
+⚠ **예외**: `usb-cam.target` 의 `Wants=` 는 로스터 이름 6개를 하드코딩한다(2026-08-30 개명
+반영: cam_f·cam_r·cam_lf·cam_lr·cam_rf·cam_rr). 카메라를 늘리면 부팅 자동기동은 되지만
+(`WantedBy=multi-user.target`) target 묶음에서는 빠지므로, `install.sh` 재실행과 **별개로
+이 파일을 직접 갱신**해야 한다.
 
 ## 복구 동작
 
@@ -72,22 +75,27 @@ sudo ./install.sh --no-start   # 등록만
 ## 운용
 
 ```bash
-systemctl status 'usb-cam@*'        # 6대 상태 한눈에
-systemctl restart usb-cam@cam3      # 3번만 재시작
-systemctl stop usb-cam.target       # 전체 중지
-journalctl -u usb-cam@cam3 -f       # 특정 카메라 로그 추적
+camctl status                       # 장치·유닛·프레임 수신율·depth 점유 한눈에 (권장)
+camctl restart cam_f                # 한 대 재시작 (all = 전체)
+camctl auto off                     # 자동 재시작 잠시 끄기 (on 으로 복귀)
+
+systemctl status 'usb-cam@*'        # systemd 관점 상태
+systemctl stop usb-cam.target       # 전체 중지 (관리자는 의도적 정지로 보고 안 되살린다)
+journalctl -u usb-cam@cam_f -f      # 특정 카메라 로그 추적
+journalctl -u amr-camera-manager -f # 관리자(감시·자동 재시작) 로그
 
 systemctl enable --now dataset-collector   # 수집 상시화(디스크 주의)
 ```
 
-## 아직 덮지 못한 것 — 프레임 정체(stall)
+## 프레임 정체(stall) — 카메라 관리자가 덮는다 (2026-08-30)
 
-카메라가 **죽지 않고 프레임만 멈추는** 장애는 본 도구로 복구되지 않는다. 프로세스가 살아 있어
-systemd 가 개입할 근거가 없기 때문이다. 이걸 잡으려면 둘 중 하나가 필요하다:
-
-- `usb_cam_publisher_node.cpp` 캡처 루프에 연속 실패 임계 → `capture_.release()` + `openDevice()`
-  재시도 추가 (해당 패키지 수정)
-- 외부 감시자가 토픽 발행률을 보고 `systemctl restart usb-cam@<cam>` 호출
+카메라가 **죽지 않고 프레임만 멈추는** 장애(뽑았다 꽂음·펌웨어 wedge 포함)는 systemd 만으로는
+복구되지 않는다 — 프로세스가 살아 있어 개입 근거가 없다. 이를 외부 감시자
+`camera_manager`(`src/Sensors/Camera/USB/camera_manager`, `amr-camera-manager.service`)가 덮는다:
+카메라별 `<cam>/image_raw/compressed` 도착을 감시해 정체 지속 시
+`systemctl restart usb-cam@<cam>` 을 자동 실행한다(쿨다운·기동 유예 포함).
+depth 경로(OrbbecSDK) 점유 중·장치 부재·의도적 정지에는 개입하지 않는다.
+설계: [ADR 2026-08-30 카메라 관리 모드](../../docs/adr/2026-08-30-camera-management-mode.md)
 
 ## 검증 (2026-07-28)
 

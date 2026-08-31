@@ -1,0 +1,5 @@
+# 카메라 관리 모드 전용 sudo 허용 — usb-cam@ 유닛 3동사만, nvidia 계정만.
+# camera_manager 노드(자동 재시작)와 camctl CLI 가 쓴다.
+# 설치: Tools/camera_service/install.sh (visudo -cf 검증 후 /etc/sudoers.d/camera-manager)
+# 설계: docs/adr/2026-08-30-camera-management-mode.md §결정 5
+nvidia ALL=(root) NOPASSWD: /usr/bin/systemctl start usb-cam@*.service, /usr/bin/systemctl stop usb-cam@*.service, /usr/bin/systemctl restart usb-cam@*.service

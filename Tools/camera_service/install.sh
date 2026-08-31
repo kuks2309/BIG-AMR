@@ -36,14 +36,22 @@ echo "로스터 카메라 ${#CAMERAS[@]}대: ${CAMERAS[*]}"
 install -m 0644 "${HERE}/usb-cam@.service" "${UNIT_DIR}/usb-cam@.service"
 install -m 0644 "${HERE}/usb-cam.target"   "${UNIT_DIR}/usb-cam.target"
 install -m 0644 "${HERE}/dataset-collector.service" "${UNIT_DIR}/dataset-collector.service"
-chmod +x "${HERE}/run_camera.sh"
+install -m 0644 "${HERE}/amr-camera-manager.service" "${UNIT_DIR}/amr-camera-manager.service"
+chmod +x "${HERE}/run_camera.sh" "${HERE}/run_manager.sh"
+
+# 관리자·camctl 의 usb-cam@ 제어용 sudo 허용 — 설치 전 visudo 로 문법 검증한다
+# (문법 깨진 sudoers 는 sudo 전체를 잠근다).
+visudo -cf "${HERE}/sudoers-camera-manager"
+install -m 0440 "${HERE}/sudoers-camera-manager" /etc/sudoers.d/camera-manager
+
 systemctl daemon-reload
 
 for cam in "${CAMERAS[@]}"; do
   systemctl enable "usb-cam@${cam}.service"
 done
 systemctl enable usb-cam.target
-echo "부팅 자동기동 등록 완료(카메라 ${#CAMERAS[@]}대)."
+systemctl enable amr-camera-manager.service
+echo "부팅 자동기동 등록 완료(카메라 ${#CAMERAS[@]}대 + 관리자)."
 
 # 수집기는 디스크를 계속 먹으므로 기본 미등록 — 필요할 때 수동으로 enable 한다.
 echo "참고: dataset-collector.service 는 설치만 하고 enable 하지 않았다."
@@ -53,6 +61,7 @@ if [[ $START -eq 1 ]]; then
   for cam in "${CAMERAS[@]}"; do
     systemctl restart "usb-cam@${cam}.service"
   done
+  systemctl restart amr-camera-manager.service
   sleep 3
-  systemctl --no-pager --lines=0 status 'usb-cam@*' || true
+  systemctl --no-pager --lines=0 status 'usb-cam@*' amr-camera-manager || true
 fi
