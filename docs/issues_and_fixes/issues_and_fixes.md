@@ -45,6 +45,25 @@
 
 ---
 
+## 2026-08-30
+
+### [Fix] 카메라 systemd 래퍼의 `set -u` 가 ROS setup.bash 를 죽여 유닛 7개 크래시 루프
+
+- **문제**: `Tools/camera_service/install.sh` 첫 실기 설치 직후 유닛 7개(usb-cam@ 6 + amr-camera-manager) 전부
+  `activating`↔failed 5초 크래시 루프(기동 수 ms 만에 exit 1, 관리자 재시도 카운터 1,656회 도달).
+- **원인**: 래퍼의 `set -euo pipefail` 중 `-u`(nounset) — `run_camera.sh:7`·`run_manager.sh:4`.
+  ROS2 setup 스크립트는 nounset 비호환(journal 증거: `/opt/ros/humble/setup.bash: line 8:
+  AMENT_TRACE_SETUP_FILES: unbound variable`). ROS 커뮤니티에 널리 알려진 고전 함정.
+  `run_camera.sh` 는 2026-07-28 작성 후 systemd 실행이 이날 처음이라 잠복해 있었고,
+  `run_manager.sh`(2026-08-30 신설)가 같은 패턴을 복사했다.
+- **해결**: 두 래퍼에서 `-u` 만 제거(`set -eo pipefail`) + 금지 사유 주석. 2파일 × 1줄(+주석 2줄).
+  ExecStart 가 저장소 경로를 직접 가리켜 재설치 불요 — systemd 5초 재시도가 자동 반영.
+- **파일**: `Tools/camera_service/run_camera.sh`, `Tools/camera_service/run_manager.sh`
+- **상태**: 완료 — 수정 직후 장치 실재 4대 `active`·30Hz, 부재 2대(cam_lf·cam_lr)는 설계된 exit-3
+  대기 루프. 정체 주입(실노드 `kill -STOP`) 11초 만에 관리자가 감지·sudo 무암호 재시작·프레임
+  복귀까지 전 체인 실증(journal 21:02:06). 교훈: systemd 용 스크립트는 클린 환경(`systemd-run`
+  또는 `env -i`)에서 1회 실행 검증 후 출하할 것 — 대화형 셸(이미 ROS source 됨)의 성공은 증거가 아니다.
+
 ## 2026-08-16
 
 ### [Fix] translator 를 params 없이 띄워 조향 환산이 1.19배 어긋났다 — 정정된 결함의 재발
