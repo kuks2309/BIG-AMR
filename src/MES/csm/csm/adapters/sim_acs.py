@@ -26,7 +26,10 @@ jam is silent: the ACS keeps reporting IN_PROGRESS, and even the job timeout
 reads as "slow" rather than "wedged".
 """
 
+import json
 import math
+import os
+import time
 
 from geometry_msgs.msg import Twist
 from trnav_msgs.msg import WheelSet, WheelSetArray
@@ -233,6 +236,23 @@ ROAD_EDGE = plant.ROBOT_L / 2.0 + plant.ROBOT_W / 2.0 + STOP_GAP
 #: catch the next job for that cell, short enough that a machine is never
 #: blocked for long by a robot doing nothing.
 LINGER_SECONDS = 20.0
+
+#: RULE 7. HOW FAR FROM A PORT COUNTS AS HAVING DRIVEN AWAY FROM IT.
+#:
+#: "Finished" was the whole difficulty in this rule, and the first two answers
+#: were both too early. Measured against the 2026-08-31 deadlock, amr4 leaving
+#: SLT_LD2 while amr9 came in to SLT_LD3:
+#:
+#:      947.6   out of the bay                 amr9 asks at 955.9 -- 8 s late
+#:      952.4   on the road and moving         amr9 asks at 955.9 -- 3 s late
+#:      966.5   still 2.2 m from the crossing  DEADLOCK
+#:
+#: So it is neither of those. It is GONE: far enough from the port it left that
+#: its body cannot reach the neighbouring port's crossing. The ports are 2.4 m
+#: apart and a dock sits 2.10 m off the lane, so a robot standing exactly on
+#: the next port's crossing is 3.19 m from the dock it came out of. Five metres
+#: puts its whole 1.6 m body a metre clear of that line.
+CLEAR_OF_PORT = 5.0
 
 #: RULE 5. HOW FAR BEHIND THE ROBOT IN FRONT, IN YOUR OWN LANE.
 #:
@@ -549,6 +569,11 @@ class SimRobot:
         self._halt_reason = None
         #: Set while reversing out of a bay after finishing.
         self._exit_goal = None
+        #: RULE 7. The port this robot most recently came out of, kept until it
+        #: has driven away from it — `_exit_station` is cleared the moment the
+        #: bay is handed back, which is far too early to stop anyone entering
+        #: the port next door. See `CLEAR_OF_PORT`.
+        self._left_station = None
         #: RULE 2. Set while this robot is paused at the road edge on
         #: its way out of a dock, asking the robots near it to stop.
         self._pausing_out = False
@@ -820,6 +845,7 @@ class SimRobot:
         speed, steer, status = self._dock.step(obs, self._steer_actual,
                                                self._now())
         if status == docking.Result.DOCKED:
+            self._arrived_at_dock()          # RULE 7: no longer leaving
             self.node.get_logger().info(
                 f"{self._tag()}{self._active_job}: {self._dock.reason}")
             self._end_docking()
@@ -937,6 +963,7 @@ class SimRobot:
             if self._homing:
                 self._homing = False
                 self._home_waypoints = []
+                self._goal = None         # home: nothing to steer at any more
                 self._stop("homing: robot ahead")
             return
 
@@ -962,6 +989,23 @@ class SimRobot:
             self._home_waypoints.pop(0)
 
         goal = self._home_waypoints[0] if self._home_waypoints else bay
+
+        # A HOMING ROBOT HAS A GOAL LIKE EVERY OTHER ROBOT.
+        #
+        # It used to drive to `goal` without ever setting `_goal`, and half the
+        # rule set is written against that field:
+        #
+        #   `_travel_dir`        -> None, so `_could_still_reach` is False, so
+        #                           RULE 2 NEVER HELD A ROBOT DRIVING HOME
+        #   `_note_turning`      -> returns early, so it never claims a turn
+        #   the 3 m rule in drive() -> guarded by `_goal is not None`
+        #
+        # So a robot with no job obeyed fewer rules than one with a job, on the
+        # same road, which is not a distinction the plant makes. Setting it is
+        # enough to bring all three back — they were never homing-specific,
+        # they were just reading a field nobody filled in.
+        self._goal = goal
+
         # Layer 1 is not repeated here: drive() checks it for every robot before
         # dispatching to this path, which is the whole point of putting it in
         # one place. A second copy would drift.
@@ -987,6 +1031,33 @@ class SimRobot:
         m = math.hypot(vx, vy) or 1.0
         speed = min(self.max_speed, 0.8 * distance)
         cmd = Twist()
+
+        # THE SAME STEERING THE JOB LEG USES, and for the same reason: a robot
+        # follows the lane, and the lane only turns at the corners.
+        #
+        # This path commanded translation on both body axes and never any
+        # rotation, so a robot going home kept whatever heading it finished
+        # with and crabbed the whole way — backwards across the plant if its
+        # bay happened to be behind it. Two consequences, both measured:
+        #
+        #   - it arrives at its bay pointing anywhere, and the NEXT job starts
+        #     from that heading. 1C4 sat at 123 deg on the inner lane, 56 deg
+        #     across the road, with 1C1 queued behind it.
+        #   - the scanners and the docking cameras face forward and sideways,
+        #     so the direction of travel was the least observed direction.
+        #
+        # The exemptions are the job leg's, unchanged: rotating sweeps the
+        # half-diagonal (0.918 m against 0.450 m held flat), which is too much
+        # room to take in a bay, on a spur, or while crossing a lane.
+        if not (self._final_leg or self._in_a_bay() or self._on_a_spur()
+                or self._pausing_in):
+            heading_err = math.atan2(ay, ax)
+            cmd.angular.z = max(-self.max_turn,
+                                min(self.max_turn,
+                                    self.turn_gain * heading_err))
+            if abs(heading_err) > self.crab_window:
+                speed *= max(0.0, math.cos(heading_err))
+
         cmd.linear.x = vx / m * speed
         cmd.linear.y = vy / m * speed
         self.pub_cmd.publish(cmd)
@@ -1191,6 +1262,13 @@ class SimRobot:
         for the length of the drive, and fading avoidance out at an intermediate
         waypoint would blind the robot in open floor rather than at the machine.
         """
+        # A ROBOT DRIVING HOME HAS ITS OWN WAYPOINT LIST, and `_waypoints` is
+        # empty then — so this answered True for the whole trip home and
+        # pinned the heading the entire way. `_note_turning` reads it, which is
+        # why a homing robot never claimed a turn no matter how far round it
+        # swung.
+        if self._active_job is None and self._homing:
+            return len(self._home_waypoints) <= 1
         return len(self._waypoints) <= 1
 
     #: Sharper than this and the waypoint is a turn, not a corner to round.
@@ -1364,8 +1442,7 @@ class SimRobot:
         #
         # Fixing it per-state was tried and is the wrong shape: the rule would
         # then live in four places and the next state added would miss it again.
-        target = ((self._from if self._leg == "collect" else self._to)
-                  if self._active_job is not None else None)
+        target = self._target_station()
 
         # LAYER 1 — THE LAST WORD BEFORE ANY VELOCITY IS PUBLISHED.
         #
@@ -2196,6 +2273,42 @@ class SimRobot:
         self._pause_goal = goal
 
         self._pausing_in = True
+
+        # RULE 7. BEFORE COMMITTING, NOT AFTER.
+        #
+        # This has to be asked here and nowhere else. The robot commits to the
+        # crossing at ROAD_EDGE and from then on it does not stop, because
+        # stopping half way across is stopping in the road. For SLT_LD3 that
+        # commit is at y = -2.95 while the dock is at -6.60, so a check tied to
+        # the entry request 2.2 m from the dock (y = -4.40) runs a metre and a
+        # half after the decision it was meant to inform. Measured 2026-08-31:
+        # amr9 was at y = -3.61, 2.99 m out, already committed.
+        #
+        # Stopping here leaves the robot at ROAD_EDGE from the lane, straddling
+        # the ring it came in on. That is "in the road", and it has entered
+        # nothing.
+        # ONLY WHEN WE ARE GOING IN. `_crossing` also fires for a robot
+        # LEAVING its dock across both lanes, and holding that robot for its
+        # neighbour is not this rule — it is RULE 2's, and applying RULE 7
+        # there deadlocked two robots sitting at adjacent docks, each waiting
+        # for the other to drive away. Measured 2026-08-31 12:4x: amr4 at
+        # SLT_LD2 and amr8 at SLT_LD3, both stopped, permanently.
+        station = plant.port_at_join(goal)
+        going_in = station is not None and station == self._target_station()
+        leaver = self._neighbour_leaving(station) if going_in else None
+        if leaver is not None and gap > ROAD_EDGE:
+            # No log line here, deliberately: the other pause branches record
+            # themselves through `_stop`, which is what the dashboard reads,
+            # and a logger call would make this branch unreachable from the
+            # geometry tests — which build robots without a ROS node on
+            # purpose, so a rule can be proved in milliseconds.
+            self._reset_stall()
+            # The port it is leaving, not `_exit_station` — that is already
+            # None for a robot which is out of the bay but not yet away.
+            self._stop(f"rule 7: {leaver.name} is leaving "
+                       f"{leaver._exit_station or leaver._left_station}")
+            return True
+
         if gap <= ROAD_EDGE:
             return False              # committed: crossing now, still holding
 
@@ -2266,6 +2379,59 @@ class SimRobot:
         dy = point[1] - self.pose[1]
         return dx * direction[0] + dy * direction[1] > 0.0
 
+    def _target_station(self):
+        """The station this robot is driving to, or None if it has no job.
+
+        One copy, because RULE 7 and the entry interlock have to agree about
+        it: a robot that is held for a neighbour must be the same robot that
+        would then ask for the bay.
+        """
+        if self._active_job is None:
+            return None
+        return self._from if self._leg == "collect" else self._to
+
+    def _neighbour_leaving(self, station):
+        """RULE 7: the robot backing out of the port next to the one we want.
+
+        THE RULE (user, 2026-08-31): before a robot enters a docking point it
+        checks the ports either side of it. If one of them is being vacated it
+        waits ON THE ROAD until that robot is out, and only then goes in.
+
+        WHY THIS IS A STATION QUESTION AND NOT A GEOMETRY ONE. Every failure of
+        this kind so far has come from measuring: a corridor width, a clearance,
+        "am I on a spur". On 2026-08-31 amr4 backed out of SLT_LD2 while amr9
+        crossed in to SLT_LD3, and the two froze 1.84 m apart with nothing able
+        to break the tie. Both robots were obeying every rule they were given.
+
+        WHAT "FINISHED" MEANS, and it is the whole rule. Not "out of the bay":
+        `_exit_station` clears when the bay is handed back, and in the measured
+        case that was 8 seconds before the other robot even asked. Not "moving"
+        either — that was 3 seconds early. It means GONE: away from the port it
+        came out of by `CLEAR_OF_PORT`, so its body cannot reach the crossing
+        of the port next door.
+
+        NO TIMEOUT, by instruction. The wait ends when the other robot has
+        driven away, not on a clock. A robot leaving always does drive away:
+        it has a job to go to and RULE 3 keeps its destination free.
+
+        Returns the robot to wait for, or None.
+        """
+        if self.fleet is None or station is None:
+            return None
+        neighbours = set(plant.neighbour_ports(station))
+        if not neighbours:
+            return None
+        for other in self._fleet_others():
+            if other._exit_station in neighbours:
+                return other              # still reversing out of it
+            left = other._left_station
+            if left in neighbours and other.pose is not None:
+                dx, dy = plant.DOCKS[left]
+                if math.hypot(dx - other.pose[0],
+                              dy - other.pose[1]) < CLEAR_OF_PORT:
+                    return other         # out, but not yet away from it
+        return None
+
     def _held_for_a_leaver(self):
         """RULE 2: is a robot near here pausing at the edge of the road?
 
@@ -2318,6 +2484,53 @@ class SimRobot:
                 continue                  # we ARE the obstruction — clear it
             return True
         return False
+
+    def _arrived_at_dock(self):
+        """RULE 7: docking here ends any claim to be leaving somewhere else.
+
+        `_left_station` is cleared 5 m from the port it names, but a robot that
+        drives away, takes another job and comes back would arrive still
+        carrying the flag — and a parked robot that looks like a leaving one
+        holds its neighbours for ever. Measured 2026-08-31: amr4 and amr8 sat
+        at adjacent slitter docks, each held by the other, neither moving.
+        """
+        self._left_station = None
+
+    #: HOW NEAR THE DOCK COUNTS AS BEING IN IT.
+    #:
+    #: Generous on purpose. The question is not "have you docked precisely" —
+    #: it is "are you anywhere near this bay, or on the other side of the
+    #: plant". Half a robot length past the dock point is still in the bay;
+    #: forty-nine metres away is not, and that is the only case this has to
+    #: separate.
+    IN_THE_BAY = 3.0
+
+    def _standing_in(self, station):
+        """Is this robot actually in that bay?
+
+        A JOB CAN END WITHOUT THE ROBOT EVER GETTING THERE. It can fail, time
+        out, or be cancelled while the robot is still at the far end of the
+        plant — and `_finish` then claimed the exit anyway, so a robot that had
+        never moved began "backing out" of a dock it had never visited.
+
+        Measured 2026-08-31: amr8 sat in its parking bay at (+29.99, -10.5) for
+        the whole run — x never changed by a centimetre — and repeatedly took
+        `_exit_station = SLT_LD3` and `SLT_LD4`, both 49 m west. The exit leg
+        then set a pause goal at SLT_LD3's junction, which made a 49 m pause
+        corridor across the plant, and amr4 parked 33 m away fell inside it:
+
+            pausing before the road — amr4 in the way
+
+        Permanently. And `_pausing_out` also holds every robot within 6 m, so
+        amr9 and amr10 in the neighbouring bays were held by it too.
+        """
+        if self.pose is None:
+            return False
+        dock = plant.DOCKS.get(station)
+        if dock is None:
+            return False
+        return math.hypot(dock[0] - self.pose[0],
+                          dock[1] - self.pose[1]) <= self.IN_THE_BAY
 
     def _release_exit(self):
         """Let go of the bay and stop. The only way out of the exit leg."""
@@ -2476,8 +2689,9 @@ class SimRobot:
         # what this replaces: the round trip home and back is pure traffic, and
         # traffic is what breaks.
         station = self._to if self._leg == "deliver" else self._from
-        if station in EXIT_POSES:
+        if station in EXIT_POSES and self._standing_in(station):
             self._exit_station = station
+            self._left_station = station        # RULE 7: until we are gone
             self._linger_until = self._now() + LINGER_SECONDS
 
         # A job that ends — done or failed — never keeps a station claimed.
@@ -2642,6 +2856,32 @@ class SimAcs(AcsAdapter):
             r.on_finished = self._on_robot_finished
             r.fleet = self
         self._results = {}
+
+        # THE TRACE. One JSON line per control cycle, carrying everything the
+        # traffic rules read.
+        #
+        # WHY. The two jams on 2026-08-31 took 28.5 and 47 minutes of wall
+        # clock to appear, and neither is reproducible on demand — so every
+        # attempt to test a fix cost half an hour and might not reproduce at
+        # all. The STATE log is no substitute: it samples every 3.5 s and
+        # records position, goal and reason, none of which is enough to ask a
+        # rule what it would have decided.
+        #
+        # With this, `Tools/replay/replay.py` reloads any ten seconds of a run
+        # and puts the rules back through it in milliseconds, deterministically
+        # and as often as needed.
+        #
+        # About 10 KB/s for ten robots. Set CSM_TRACE=0 to turn it off.
+        self._trace_file = None
+        if os.environ.get("CSM_TRACE", "1") != "0":
+            path = ("Log/trace_"
+                    + time.strftime("%Y-%m-%d_%H%M%S") + ".jsonl")
+            try:
+                os.makedirs("Log", exist_ok=True)
+                self._trace_file = open(path, "w", buffering=1)
+                node.get_logger().info(f"trace -> {path}")
+            except OSError as exc:              # a trace is never worth a run
+                node.get_logger().warn(f"no trace: {exc}")
         #: THE MANUAL'S TASK RECORD, one per transport. CCS manual §2.3 and
         #: §4.6.6. Kept beside `_results` rather than inside it because they
         #: answer different questions: `_results` is the CSM's "did the job
@@ -3034,6 +3274,39 @@ class SimAcs(AcsAdapter):
             r.drive()
         self._follow_tasks()
         self._log_state()
+        self._write_trace()
+
+    #: Everything a traffic rule reads, and nothing else. Kept as a list so the
+    #: recorder and `Tools/replay/replay.py` cannot disagree about the shape.
+    TRACE_FIELDS = ("_leg", "_from", "_to", "_active_job", "_goal",
+                    "_waypoints", "_homing", "_home_waypoints",
+                    "_pausing_in", "_pausing_out", "_pause_goal",
+                    "_crossing_lane", "_turning", "_exit_goal",
+                    "_exit_station", "_left_station", "_loaded",
+                    "_halt_reason", "_dwell_until", "_linger_until")
+
+    def _write_trace(self):
+        """One line per cycle: the whole fleet, as the rules see it."""
+        if self._trace_file is None:
+            return
+        fleet = []
+        for r in self.robots:
+            if r.pose is None:
+                continue
+            row = {"name": r.name, "pose": list(r.pose), "vel": list(r.vel),
+                   "busy": bool(r.busy)}
+            for f in self.TRACE_FIELDS:
+                row[f] = getattr(r, f, None)
+            fleet.append(row)
+        try:
+            # BOTH CLOCKS. `_now()` is ROS time, which starts at zero under
+            # sim time; the fleet log stamps wall clock. Recording one only
+            # meant a jam found here could not be found there.
+            self._trace_file.write(
+                json.dumps({"t": self._now(), "wall": time.time(),
+                            "fleet": fleet}, default=list) + "\n")
+        except (OSError, TypeError):
+            self._trace_file = None           # never let a trace kill a run
 
     def _follow_tasks(self):
         """Move each task through the manual's four states, from what the
@@ -3128,17 +3401,34 @@ class SimAcs(AcsAdapter):
             x, y, _ = r.pose
             moved = math.hypot(x - r._log_x, y - r._log_y)
             r._log_x, r._log_y = x, y
-            if not r.busy:
+            # A ROBOT DRIVING HOME IS STILL DRIVING. It is not `busy`, and
+            # this used to print it as bare "idle" — no goal, no speed, no
+            # halt reason — so a homing robot stopped by a rule was
+            # indistinguishable from one parked in its bay.
+            #
+            # Measured 2026-08-31: amr3 drove home along the south outer lane,
+            # stopped dead at (+6.7,-4.5) at 152934 and stayed there. For 44
+            # seconds the log said only "idle", and it looked as though
+            # parking robots obeyed no rules at all. They do — the log was
+            # silent about them. Only when a job was handed to the already
+            # stuck robot at 152978 did a reason appear.
+            homing = getattr(r, "_homing", False)
+            if not r.busy and not homing:
                 parts.append(f"{r.name}({x:+.1f},{y:+.1f}) idle")
                 continue
             gx, gy = r._goal if r._goal else (x, y)
+            if homing and not r.busy:
+                gx, gy = (r._home_waypoints[0] if r._home_waypoints
+                          else (gx, gy))
             speed = moved / period
-            # A robot with a job that is not moving is the thing worth
-            # explaining, so say WHY rather than only that it is at v=0.00.
+            # A robot that is not moving is the thing worth explaining, so say
+            # WHY rather than only that it is at v=0.00.
             why = f" [{r._halt_reason}]" if speed < 0.02 and r._halt_reason else ""
+            where = ("home" if homing and not r.busy
+                     else (r._to if r._leg == "deliver" else r._from))
             parts.append(
                 f"{r.name}({x:+.1f},{y:+.1f})"
-                f"->{r._to if r._leg == 'deliver' else r._from}"
+                f"->{where}"
                 f" d={math.hypot(gx - x, gy - y):.1f}"
                 f" v={speed:.2f}{why}"
                 + (" HELD" if r._noted_hold else ""))

@@ -53,6 +53,8 @@ def robot(name, x, y, yaw=0.0):
     r._halt_reason = None
     r._stall_ref = r._stall_since = None
     r._exit_goal = None
+    r._exit_station = None
+    r._left_station = None
     r._active_job = None
     r._goal = None
     r._waypoints = []

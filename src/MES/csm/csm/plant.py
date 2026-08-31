@@ -647,6 +647,62 @@ def is_bobbin_return(from_station, to_station):
     return bobbin_return_for(from_station) == to_station
 
 
+#: THE PORTS OF ONE MACHINE, in the order they stand along the row.
+#:
+#: Read from the station table rather than written out: every port already
+#: records the machine body it belongs to, so ports of one machine are the
+#: ports that name the same body. The slitter has four; every other machine
+#: has an LD and a ULD.
+MACHINE_PORTS = {}
+_ports_by_machine = {}
+for _n, _s in STATIONS.items():
+    if _s["kind"] == "MACHINE":
+        continue
+    _ports_by_machine.setdefault(_s["machine"], []).append((_s["dock"][0], _n))
+for _body, _ports in _ports_by_machine.items():
+    _row = [n for _, n in sorted(_ports)]
+    for _name in _row:
+        MACHINE_PORTS[_name] = _row
+
+
+def port_at_join(point, tolerance=0.01):
+    """The port whose spur leaves the lane at this junction, or None.
+
+    `JOINS` maps a port to its junction; this is that read backwards, so a
+    robot that knows only the point it is steering at can name the port it is
+    about to drive in to. Matched by distance rather than by equality — the
+    points are derived arithmetic and a float key would work until the day the
+    plant is rescaled.
+    """
+    if point is None:
+        return None
+    best, best_d = None, tolerance
+    for name, (jx, jy) in JOINS.items():
+        d = math.hypot(jx - point[0], jy - point[1])
+        if d <= best_d:
+            best, best_d = name, d
+    return best
+
+
+def neighbour_ports(station):
+    """The ports either side of this one on the same machine.
+
+    SLT_LD2's neighbours are SLT_LD1 and SLT_LD3. SLT_LD1 sits at the end of
+    the row, so it has only SLT_LD2. An LD's neighbour is its machine's ULD.
+
+    WHY EITHER SIDE AND NOT THE WHOLE MACHINE. The ports are 2.4 m apart and a
+    robot is 1.6 m long, so a robot backing out of one sweeps the ground in
+    front of the next one and no further. Asking about the whole machine would
+    hold a robot at SLT_LD4 for something happening 7.2 m away.
+    """
+    row = MACHINE_PORTS.get(station)
+    if not row:
+        return []
+    i = row.index(station)
+    return [p for p in (row[i - 1] if i > 0 else None,
+                        row[i + 1] if i + 1 < len(row) else None) if p]
+
+
 def buffer_for(source):
     """The WIP rack that stranded material from this source should go to.
 
