@@ -407,11 +407,19 @@ class PandaLink(BaseLink):
             raise LinkError(
                 f"판다가 {len(serials)}대 보인다 {serials} — serial 파라미터로 "
                 f"명시하지 않으면 어느 쪽에 지령이 갈지 알 수 없다")
+        panda = None
         try:
-            self._panda = self._cls(self._serial) if self._serial else self._cls()
-            health = self._panda.health()
-        except Exception as exc:                       # pragma: no cover - 실기 전용
+            panda = self._cls(self._serial) if self._serial else self._cls()
+            health = panda.health()
+        except Exception as exc:
+            # 부분 생성 핸들은 공표하지 않는다 — 닫고, `_panda` 는 None 그대로 둔다.
+            if panda is not None:
+                try:
+                    panda.close()
+                except Exception:                      # pragma: no cover - 실기 전용
+                    pass
             raise LinkError(f"판다 개방 실패: {type(exc).__name__}: {exc}") from exc
+        self._panda = panda
         self._log(f"판다 개방 — health={health}")
 
     def acquire(self):
@@ -435,12 +443,14 @@ class PandaLink(BaseLink):
                 self._panda.set_can_enable(bus, True)
             self._ctrl(P_, REQ_AUTHORITY, 1)
             self._ctrl(P_, REQ_INTERCEPT, 1)
+            # 마지막 심박까지가 획득이다 — 여기서 실패하면 intercept 를 무장한 채 두지 않는다.
+            self._engaged = True
+            self.heartbeat()
         except Exception as exc:
             self._log(f"제어권 획득 실패 — 롤백: {type(exc).__name__}: {exc}")
             self._rollback()
+            self._engaged = False
             raise LinkError(f"제어권 획득 실패: {type(exc).__name__}: {exc}") from exc
-        self._engaged = True
-        self.heartbeat()
         self._log("제어권 획득 — intercept, fail-safe 무장")
 
     def release(self):

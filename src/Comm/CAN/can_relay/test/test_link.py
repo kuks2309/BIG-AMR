@@ -215,3 +215,94 @@ def test_can_health_fixture_roundtrip():
         m.can_health(2)                     # 픽스처 미설정이면 조용히 0 을 주지 않는다
     m.health_fixture = {2: L.decode_can_health(build_health(rec=7, tec=9))}
     assert m.can_health(2)["rec"] == 7
+
+
+# ── PandaLink 개방 원자성·획득 트랜잭션 ──────────────────────────────────
+class _FakeHandle:
+    """USB 제어 전송 대역. 지정한 request 의 controlWrite 만 실패시킨다."""
+
+    def __init__(self):
+        self.writes = []
+        self.write_fail_reqs = set()
+
+    def controlWrite(self, rt, req, val, idx, data):
+        self.writes.append((req, val))
+        if req in self.write_fail_reqs:
+            raise OSError("write fail 0x%02x" % req)
+
+
+class _FakePanda:
+    """`Panda()` 대역 — 생성·close 를 클래스 단위로 세고 acquire 경로 벤더 호출을 받는다."""
+
+    REQUEST_IN = 0xC0
+    REQUEST_OUT = 0x40
+    instances: list = []
+    fail_health_next = False        # True 면 다음 생성 인스턴스의 health() 가 예외
+
+    @staticmethod
+    def list():
+        return ["S"]
+
+    def __init__(self, serial=None):
+        self._handle = _FakeHandle()
+        self.closed = 0
+        self.fail_health = _FakePanda.fail_health_next
+        self.safety_calls = []
+        _FakePanda.instances.append(self)
+
+    def health(self):
+        if self.fail_health:
+            raise OSError("health fail")
+        return {"uptime": 1}
+
+    def close(self):
+        self.closed += 1
+
+    def set_safety_mode(self, mode, param):
+        self.safety_calls.append((mode, param))
+
+    def set_can_speed_kbps(self, bus, speed):
+        pass
+
+    def set_can_enable(self, bus, on):
+        pass
+
+
+@pytest.fixture
+def fake_panda(monkeypatch):
+    _FakePanda.instances = []
+    _FakePanda.fail_health_next = False
+    monkeypatch.setattr(L, "_panda_module", lambda: _FakePanda)
+    return _FakePanda
+
+
+def test_open_failure_is_atomic_no_partial_handle(fake_panda):
+    """`health()` 검증이 죽으면 부분 초기화 핸들을 공표하지 않는다.
+
+    실패 뒤 `_panda` 는 None·새 핸들은 close — 다음 `open()` 이 반드시 정식 개방을 한다.
+    (LGIT 실기에서 잡힌 경계 결함의 이식 회귀)
+    """
+    fake_panda.fail_health_next = True
+    link = L.PandaLink()
+    with pytest.raises(L.LinkError):
+        link.open()
+    assert link._panda is None
+    assert fake_panda.instances[0].closed == 1
+
+
+def test_acquire_rolls_back_when_final_heartbeat_fails(fake_panda):
+    """acquire 의 마지막 심박까지가 트랜잭션이다.
+
+    심박이 실패하면 intercept 를 무장한 채 두지 않는다 — rollback(0xE8→0, 0xE9→0, SILENT)
+    하고 `engaged` False 로 `LinkError` 를 올린다.
+    """
+    link = L.PandaLink()
+    link.open()
+    handle = fake_panda.instances[0]._handle
+    handle.write_fail_reqs = {L.REQ_HEARTBEAT}
+    with pytest.raises(L.LinkError):
+        link.acquire()
+    assert link.engaged is False
+    assert (L.REQ_INTERCEPT, 0) in handle.writes           # rollback 이 내렸다
+    assert (L.REQ_AUTHORITY, 0) in handle.writes
+    assert fake_panda.instances[0].safety_calls[-1] == (0, 0)   # SILENT 복귀

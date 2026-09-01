@@ -327,11 +327,21 @@ ROS·하드웨어·파일쓰기 무의존. `safety.py` ← `backend.py` 와 같�
 
 ---
 
+## 6. `link.py` — 판다 전송 계층 (부분 등재, 2026-09-02)
+
+> 등재 범위: LGIT 저장소에서 검증된 안전 수정 2건(획득 트랜잭션·개방 원자성)의 이식 대상 함수만.
+> 나머지는 미등재로 남는다. 줄번호는 이식 후 재확정한다.
+
+| # | 함수 | 입력 | 출력 | 기능 | 위치 |
+| --- | --- | --- | --- | --- | --- |
+| L1 | `PandaLink.open` | — | — | 열거 → 2대 이상·`serial` 없음 거부 → **지역 변수로 `Panda()`·`health()` 검증 후에만 공표**(실패 시 close·`_panda=None` — 부분 초기화 핸들 미공표). safety_mode 무접촉 | `link.py:394` |
+| L2 | `PandaLink.acquire` | — | — | safety_mode → 버스속도 → enable → auth(0xe9) → intercept(0xe8) → **heartbeat 까지 한 트랜잭션** — 어느 단계든 실패하면 `_rollback`+`engaged=False` 후 `LinkError`(intercept 를 무장한 채 두지 않는다) | `link.py:425` |
+
 ## 미등재 (본 표가 덮지 않는 범위)
 
 | 파일 | 규모 | 비고 |
 | --- | --- | --- |
-| `link.py` | 561줄 | 판다 전송·심박·호밍 시퀀서 USB 계약 |
+| `link.py`(§6 밖) | 589줄 중 §6 외 전부 | 판다 전송·심박·호밍 시퀀서 USB 계약 |
 | `protocol.py` | 271줄 | CAN 프레임 생성 28종 |
 | `safety.py` | 167줄 | 순수 안전 게이트 |
 | `ui/` 5파일 | 2,343줄 | GUI(별도 code_review 문서 보유) |
