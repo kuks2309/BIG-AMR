@@ -157,7 +157,17 @@ class SeerApi
     ///
     /// 반영 여부를 알아야 하면 getParam 으로 되읽는다 — 그 왕복을 하는 도구가 tools/param_probe 다.
     Json setParams(const Json &params, bool save = false);
-    Json reloadParams();
+    /// 지정한 파라미터를 **공장 기본값으로 되돌린다**. 이름이 reload 지만 재적재가 아니다 —
+    /// 벤더 원문 설명은 「重载参数, 恢复参数的出厂默认值」다.
+    ///
+    /// `targets` 는 `[{"plugin": "MoveFactory", "params": ["MaxAcc"]}, ...]` 형태의 JSON 배열이다.
+    /// 원소의 `params` 가 빈 배열이면 그 플러그인 **전체**가 기본값으로 돌아간다.
+    ///
+    /// **빈 배열은 받지 않는다.** 로봇은 `[]` 를 「전 플러그인 전 파라미터 공장 초기화」로 읽는다 —
+    /// 이 함수로 그 요청을 만들 수 없게 막는다. 정말 필요하면 호출자가 `call()` 로 직접 보낸다.
+    ///
+    /// @throws ProtocolError `targets` 가 배열이 아니거나, 비었거나, 원소에 `plugin` 이 없을 때
+    Json restoreFactoryParams(const Json &targets);
     Json clearFatal();
     Json uploadMap(const Json &smap);
 

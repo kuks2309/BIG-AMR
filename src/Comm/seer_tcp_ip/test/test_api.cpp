@@ -272,6 +272,29 @@ int main()
         CHECK(r.lastBody().find("\"move_task_list\"") != std::string::npos);
     }
     {
+        CASE("restoreFactoryParams 는 전체 공장초기화 요청을 만들 수 없다");
+        {
+            Rig r(true);
+            // 빈 배열 = 로봇이 「전 플러그인 전 파라미터 초기화」로 읽는 형태
+            CHECK_THROWS_MSG(r.api->restoreFactoryParams(Json::array()), ProtocolError,
+                             "공장 초기화");
+            // 객체를 보내면 로봇이 ret_code 60002 로 거부한다 — 보내기 전에 막는다
+            CHECK_THROWS_MSG(r.api->restoreFactoryParams(Json::object()), ProtocolError,
+                             "JSON 배열");
+            // plugin 이 비면 로봇이 그 원소를 조용히 무시한다
+            CHECK_THROWS_MSG(r.api->restoreFactoryParams(Json::array({{{"plugin", ""}}})),
+                             ProtocolError, "plugin");
+            CHECK_THROWS_MSG(r.api->restoreFactoryParams(Json::array({{{"params", Json::array()}}})),
+                             ProtocolError, "plugin");
+        }
+        {
+            Rig r(true);
+            r.api->restoreFactoryParams(Json::array({{{"plugin", "NetProtocol"},
+                                                      {"params", Json::array({"RobotNote"})}}}));
+            CHECK_EQ(r.lastApi(), std::uint16_t(4102));
+            CHECK_EQ(r.lastPort(), ports::kConfig);
+        }
+
         CASE("setParams 는 save 로 4100/4101 을 가른다");
         Rig r(true);
         const Json body{{"MoveFactory", {{"MaxAcc", 1.0}}}};
