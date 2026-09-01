@@ -1,9 +1,9 @@
-// 파라미터 쓰기 경로를 실기로 확인한다 — 4001(휘발) 로 썼다가 원래 값으로 되돌린다.
+// 파라미터 쓰기 경로를 실기로 확인한다 — 4100(휘발) 로 썼다가 원래 값으로 되돌린다.
 //
-// 확인하는 것: 1400 읽기 → 4001 쓰기 → 1400 되읽기(바뀌었는가) → 4001 원복 → 1400 확인(돌아왔는가).
+// 확인하는 것: 1400 읽기 → 4100 쓰기 → 1400 되읽기(바뀌었는가) → 4100 원복 → 1400 확인(돌아왔는가).
 // SeerApi::setParams(save=false) 와 getParam 의 계약이 실기에서 성립하는지 본다.
 //
-// 왜 4001 인가 — 4002 는 디스크에 저장한다. 4001 은 휘발이라 전원을 다시 넣으면 원래 값으로
+// 왜 4100 인가 — 4101 은 디스크에 저장한다. 4100 은 휘발이라 전원을 다시 넣으면 원래 값으로
 // 돌아온다. 원복에 실패해도 영구 손상이 남지 않는 쪽을 고른다.
 //
 // 안전 설계:
@@ -20,7 +20,7 @@
 // 종료 코드:
 //   0 왕복 성공(썼고, 보였고, 되돌아왔다)   1 통신·프로토콜 실패
 //   2 허용 목록 밖 파라미터                 3 문자열이 아닌 파라미터
-//   4 4001 이 수리됐는데 1400 이 옛 값       5 원복 실패(원래 값을 화면에서 확인할 것)
+//   4 4100 이 수리됐는데 1400 이 옛 값       5 원복 실패(원래 값을 화면에서 확인할 것)
 #include <cstdio>
 #include <cstdlib>
 #include <set>
@@ -96,7 +96,7 @@ int main(int argc, char **argv)
 
         api.setParams(seer_tcp_ip::Json{{plugin, {{param, probeValue}}}}, /*save=*/false);
         wrote = true;
-        std::printf("4001 쓰기 : value=\"%s\" (휘발 — 전원 재인가로 원복)\n", probeValue.c_str());
+        std::printf("4100 쓰기 : value=\"%s\" (휘발 — 전원 재인가로 원복)\n", probeValue.c_str());
 
         const auto after = readValue(api, plugin, param);
         std::printf("1400 확인 : value=%s → %s\n", after.dump().c_str(),
@@ -105,7 +105,7 @@ int main(int argc, char **argv)
         if (after != seer_tcp_ip::Json(probeValue))
         {
             std::fprintf(stderr,
-                         "✗ 4001 이 ret_code 0 을 냈는데 1400 이 옛 값을 보인다 — "
+                         "✗ 4100 이 ret_code 0 을 냈는데 1400 이 옛 값을 보인다 — "
                          "「수리됨」과 「반영됨」이 다르다.\n");
             api.setParams(seer_tcp_ip::Json{{plugin, {{param, original}}}}, false);
             return 4;
@@ -114,7 +114,7 @@ int main(int argc, char **argv)
         api.setParams(seer_tcp_ip::Json{{plugin, {{param, original}}}}, /*save=*/false);
         const auto restored = readValue(api, plugin, param);
         wrote = (restored != original);
-        std::printf("4001 원복 : value=%s → %s\n", restored.dump().c_str(),
+        std::printf("4100 원복 : value=%s → %s\n", restored.dump().c_str(),
                     wrote ? "✗ 원복 실패" : "원래 값으로 돌아왔다 ✓");
         if (wrote)
         {
@@ -123,8 +123,8 @@ int main(int argc, char **argv)
             return 5;
         }
 
-        std::printf("\n파라미터 쓰기 경로 실기 확인 완료 — 1400 → 4001 → 1400 → 4001 → 1400.\n");
-        std::printf("⚠ 4002(디스크 저장)·모션 파라미터는 여전히 미검증이다.\n");
+        std::printf("\n파라미터 쓰기 경로 실기 확인 완료 — 1400 → 4100 → 1400 → 4100 → 1400.\n");
+        std::printf("⚠ 4101(디스크 저장)·모션 파라미터는 여전히 미검증이다.\n");
         return 0;
     }
     catch (const std::exception &e)

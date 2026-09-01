@@ -70,10 +70,10 @@ inline constexpr std::uint16_t kTaskGoTargetList = 3066;  // {"move_task_list":[
 
 // 설정 — 19207 Config
 inline constexpr std::uint16_t kConfigSetMode = 4000;
-inline constexpr std::uint16_t kConfigSetParams = 4001;   // 설정만 (저장 안 함)
-inline constexpr std::uint16_t kConfigSaveParams = 4002;  // 설정 + 저장
-inline constexpr std::uint16_t kConfigReloadParams = 4003;
-inline constexpr std::uint16_t kConfigClearFatal = 4004;
+inline constexpr std::uint16_t kConfigSetParams = 4100;   // 설정만 (저장 안 함)
+inline constexpr std::uint16_t kConfigSaveParams = 4101;  // 설정 + 저장
+inline constexpr std::uint16_t kConfigReloadParams = 4102;
+inline constexpr std::uint16_t kConfigClearFatal = 4300;
 inline constexpr std::uint16_t kConfigSeizeControl = 4005;   // {"nick_name":…}
 inline constexpr std::uint16_t kConfigReleaseControl = 4006;  // 무파라미터
 inline constexpr std::uint16_t kConfigUploadMap = 4010;   // 요청 본문이 smap JSON 전체
@@ -152,12 +152,10 @@ class SeerApi
     Json seizeControl(const std::string &nickName);
     Json releaseControl();
     Json setMode(const Json &body);
-    /// 파라미터 설정. save=false 는 4001(휘발), true 는 4002(저장까지).
+    /// 파라미터 설정. save=false 는 4100(휘발), true 는 4101(저장까지).
     /// 본문은 {플러그인: {키: 값}} — 예: {"MoveFactory": {"MaxAcc": 1.0}}.
     ///
-    /// **ret_code 0 은 반영을 뜻하지 않는다.** 실기에서 4001 이 0 을 돌려주고도 값이 그대로인
-    /// 경우가 관측됐다(NetProtocol.RobotNote). 반영 여부를 알아야 하면 getParam 으로 되읽는다.
-    /// 그 왕복을 그대로 하는 도구가 tools/param_probe 다.
+    /// 반영 여부를 알아야 하면 getParam 으로 되읽는다 — 그 왕복을 하는 도구가 tools/param_probe 다.
     Json setParams(const Json &params, bool save = false);
     Json reloadParams();
     Json clearFatal();

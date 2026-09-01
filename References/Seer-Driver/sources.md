@@ -101,13 +101,18 @@ PC(Personal Computer) ───────────────────�
 - SRC-3000FS (안전, 8-core ARM 명시): https://seer-robotics.ai/amr-controllers/SRC-3000FS
 - SRC 코어 컨트롤러 소개(마케팅): https://seer-robotics.ai/media/5.0
 
-### 3-1a. 사용자 제공 — SEER 공식 헬프센터(Feishu 위키), 로그인 필요 (2026-07-25)
+### 3-1a. 사용자 제공 — SEER 공식 RoboKit API 위키(Feishu), **Public access·로그인 불요** (2026-07-25 최초, 2026-09-02 재확인)
 - **SEER RoboKit 문서(Feishu/Lark 위키)**: https://seer-group.feishu.cn/wiki/BAKswyH5biNRHgk2piNcULZWnZd
   - 사용자(kukwonko)가 lidar 멀티캐스트/API 확인용으로 제시(2026-07-25, sess:54fbef84).
   - ✅ **2026-07-25 판독 완료** — computer-use 로 guest 열람(Public access). "Robokit API Protocol" 위키.
   - 발췌 산출물: **[robokit_tcp_api_laser.md](robokit_tcp_api_laser.md)** — 레이저 포인트클라우드 TCP API(1009/11009), 포트 매핑(Status 19204·Push 19301 등), 프로토콜 헤더·운영 주의.
   - 핵심: **Seer가 레이저(lidar) 포인트클라우드를 TCP API(port 19204, API 1009)로 제공 → 이 PC는 SICK 직접 tap 없이 Seer에서 pull 가능(유니캐스트 충돌 해소).**
   - 하위 페이지 URL: Laser=`/wiki/SZcywRZC5ievYhkWQ8hc2ekCnod`, API Introduction(Port)=`/wiki/EJ9QwJUIfiIDMQk3OKfcNbHlnZf`, Overview=`/wiki/MiuMwbcaTiDofPkyMTRcAE9fnUf`.
+  - ✅ **2026-09-02 재열람** — 같은 URL, 여전히 **Public access**(로그인 불요, "Guest User" 워터마크로 표시).
+  - **열람 방법이 브라우저에 갈린다**: **Chromium 은 정상 렌더**, **Firefox 는 "This browser is not supported" 로 본문이 빈 화면**. WebFetch 는 로그인 리다이렉트로 여전히 불가. → 이 위키를 볼 때는 **Chromium + computer-use**.
+  - 좌측 목차 경로: `API > TCP/IP API > {Overview · API Usage Tutorial · API Overview · Robot Status API · Robot Control API · Robot Navigation API · Robot Configuration API · Other API · Robot Push API · Appendix} > Best Practices`.
+  - 하위 페이지 URL 추가: **Set Robot Params Temporarily**(=4100) = `/wiki/VpJmwnxheibbKvk3xvjcvUZinVe`.
+  - **편호 정본으로 쓸 것** — 이 위키가 `Set Robot Params Temporarily = API number 4100 (0x1004)` 라 적는다. 동봉 PDF v1.2.1 추출본(`github_sdk/robotkit-netprotocol-l-1.2.1.txt:3320,3401`)도 같다. 파생 정리본 [robokit_tcp_api.md](robokit_tcp_api.md) 는 2026-09-02 이전까지 이 4종을 `4001/4002/4003/4004` 로 잘못 적고 있었고 그 오류가 코드로 전파됐다(debt-095·debt-126). **파생본과 원문이 갈리면 원문이 이긴다.**
 
 ### 3-1b. 사용자 제공 — GitHub 공개 SDK 우선 수집 (2026-07-26, sess:e717f1dd) ✓
 - **github.com/seer-robotics** (SEER 공식 조직). Feishu 는 WebFetch 로그인 리다이렉트로 프로그램 수집 불가 → GitHub 공개 코드/PDF 로 정본 확보.

@@ -31,7 +31,7 @@ const std::set<std::uint16_t> &guardedPorts()
     static const std::set<std::uint16_t> kSet = {
         kCtrl,    // 2000 정지 · 2002 재측위 · 2010 개루프 주행
         kTask,    // 3051 자율 주행
-        kConfig,  // 4002 파라미터 쓰기 · 4005 제어권 (4011 맵 다운로드는 읽기지만 포트 단위로 묶는다)
+        kConfig,  // 4100 파라미터 쓰기 · 4005 제어권 (4011 맵 다운로드는 읽기지만 포트 단위로 묶는다)
         kOther,   // 6001 DO 출력 · 6004 소프트 비상정지
     };
     return kSet;
