@@ -272,6 +272,36 @@ int main()
         CHECK(r.lastBody().find("\"move_task_list\"") != std::string::npos);
     }
     {
+        CASE("translateBy·turnBy 는 부호 규약을 강제한다");
+        {
+            Rig r(true);
+            // dist·angle 은 절대값 — 방향은 vx·vw 의 부호가 정한다
+            CHECK_THROWS_MSG(r.api->translateBy(-1.0, 0.1), ProtocolError, "절대값");
+            CHECK_THROWS_MSG(r.api->turnBy(-0.5, 0.1), ProtocolError, "절대값");
+            // 속도 0 은 무동작이므로 보내지 않는다
+            CHECK_THROWS_MSG(r.api->translateBy(1.0, 0.0), ProtocolError, "vx=0");
+            CHECK_THROWS_MSG(r.api->turnBy(0.5, 0.0), ProtocolError, "vw=0");
+        }
+        {
+            Rig r(true);
+            r.api->translateBy(0.5, -0.1);   // 후진 0.5 m
+            CHECK_EQ(r.lastApi(), std::uint16_t(3055));
+            CHECK_EQ(r.lastPort(), ports::kTask);
+            CHECK(r.lastBody().find("\"dist\":0.5") != std::string::npos);
+            CHECK(r.lastBody().find("\"vx\":-0.1") != std::string::npos);
+            // mode 는 보내지 않는다 — 자기측위 모드는 벤더가 「현재 사용 불가」로 명시한다
+            CHECK(r.lastBody().find("mode") == std::string::npos);
+        }
+        {
+            Rig r(true);
+            r.api->turnBy(1.5, 0.2);
+            CHECK_EQ(r.lastApi(), std::uint16_t(3056));
+            CHECK_EQ(r.lastPort(), ports::kTask);
+            CHECK(r.lastBody().find("\"angle\":1.5") != std::string::npos);
+            CHECK(r.lastBody().find("\"vw\":0.2") != std::string::npos);
+            CHECK(r.lastBody().find("mode") == std::string::npos);
+        }
+
         CASE("restoreFactoryParams 는 전체 공장초기화 요청을 만들 수 없다");
         {
             Rig r(true);

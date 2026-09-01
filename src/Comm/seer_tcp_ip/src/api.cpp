@@ -312,6 +312,32 @@ Json SeerApi::softEstop(bool on)
     return call(ports::kOther, api::kOtherSoftEstop, Json{{"status", on}});
 }
 
+Json SeerApi::translateBy(double distM, double vxMps)
+{
+    if (distM < 0.0)
+    {
+        throw ProtocolError("3055 의 dist 는 절대값이다 — 방향은 vx 의 부호로 준다");
+    }
+    if (vxMps == 0.0)
+    {
+        throw ProtocolError("3055 에 vx=0 은 보내지 않는다 — 로봇이 움직이지 않는다");
+    }
+    return call(ports::kTask, api::kTaskTranslate, Json{{"dist", distM}, {"vx", vxMps}});
+}
+
+Json SeerApi::turnBy(double angleRad, double vwRadPerSec)
+{
+    if (angleRad < 0.0)
+    {
+        throw ProtocolError("3056 의 angle 은 절대값이다 — 방향은 vw 의 부호로 준다");
+    }
+    if (vwRadPerSec == 0.0)
+    {
+        throw ProtocolError("3056 에 vw=0 은 보내지 않는다 — 로봇이 돌지 않는다");
+    }
+    return call(ports::kTask, api::kTaskTurn, Json{{"angle", angleRad}, {"vw", vwRadPerSec}});
+}
+
 Json SeerApi::speaker(const Json &body) { return call(ports::kOther, api::kOtherSpeaker, body); }
 
 Json SeerApi::setDo(int doId, bool status)
