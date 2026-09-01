@@ -34,11 +34,16 @@ target_link_libraries(seer_param PRIVATE seer_tcp_ip)
 add_executable(control_probe tools/control_probe.cpp)
 target_link_libraries(control_probe PRIVATE seer_tcp_ip)
 
+# 파라미터 쓰기 경로 실기 확인 — 4001(휘발)로 썼다 되돌린다. 허용 목록 밖은 거부.
+add_executable(param_probe tools/param_probe.cpp)
+target_link_libraries(param_probe PRIVATE seer_tcp_ip)
+
 install(DIRECTORY include/ DESTINATION include)
 install(TARGETS seer_tcp_ip
   EXPORT export_seer_tcp_ip
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
-install(TARGETS read_lidar_install seer_param control_probe DESTINATION lib/${PROJECT_NAME})
+install(TARGETS read_lidar_install seer_param control_probe param_probe
+        DESTINATION lib/${PROJECT_NAME})
 ament_export_targets(export_seer_tcp_ip HAS_LIBRARY_TARGET)
 ament_export_dependencies(nlohmann_json)
 

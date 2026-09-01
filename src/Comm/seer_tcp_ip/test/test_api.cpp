@@ -137,6 +137,7 @@ int main()
         CHECK_EQ(api::kOtherSoftEstop, 6004);
         CHECK_EQ(ports::kControlPreemptedRetCode, 40020);
         CHECK_EQ(ports::kConnectionLimitRetCode, 61001);
+        CHECK_EQ(ports::kDispatchingRetCode, 40012);
     }
 
     // ---------- 조회 배선 ----------

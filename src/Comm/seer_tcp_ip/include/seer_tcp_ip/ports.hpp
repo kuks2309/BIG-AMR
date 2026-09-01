@@ -39,6 +39,11 @@ inline constexpr int kConnectionLimitRetCode = 61001;
 /// 제어권 없이 지령했을 때 로봇이 내는 ret_code. 4005 를 먼저 잡아야 한다.
 inline constexpr int kControlPreemptedRetCode = 40020;
 
+/// 로봇이 배차 문맥에 있어 단독 조작을 거부할 때의 ret_code.
+/// err_msg 는 "dispatching... , can't execute any standalone operation".
+/// 제어권(4005)을 쥐어도 풀리지 않는다 — 40020 과 다른 조건이다.
+inline constexpr int kDispatchingRetCode = 40012;
+
 /// 포트 → 한도 파라미터 이름 (API 1400 으로 조회).
 const std::map<std::uint16_t, std::string> &maxConnectionParam();
 

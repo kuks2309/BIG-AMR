@@ -179,3 +179,27 @@
   재사용했다. `python -B` + `PYTHONDONTWRITEBYTECODE` + 캐시 삭제로 닫았다.
   ② 그러자 드러난 `A5` 미검출의 원인은 **기대값에 상수 자신을 쓴 시험** — 편호·포트를
   리터럴로 고정하는 시험을 추가해 닫았다.
+
+## 2026-08-24 — 설정 쓰기 경로 실기 확인, 그리고 `ret_code 0` 이 반영이 아니라는 발견
+
+`tools/param_probe` 를 신설했다. `NetProtocol.RobotNote` 한 칸을 4001(휘발)로 썼다가 되돌리는
+왕복 도구다 — 로봇을 움직이지 않고, 쓰기 허용 목록 밖의 파라미터는 거부한다.
+
+**결과가 통과가 아니었다.** 4001 은 `{"ret_code":0}` 을 돌려줬는데 직후 1400 되읽기가 옛 값
+그대로였다. 제어권(4005)을 쥐고 다시 써도 같았다. 같은 조회에서 4003 은 `ret_code 40012`
+`"dispatching... , can't execute any standalone operation"` 으로 거부됐다 — 로봇은 유휴인데도
+(1020 `task_status=0`·`running_status=0`) 배차 문맥을 주장한다.
+
+기전은 규명하지 못했다(`debt-126`). 규명 여부와 무관하게 계약에 반영해야 할 사실은 하나다 —
+**4001 의 `ret_code 0` 은 반영을 뜻하지 않는다.** `SeerApi::setParams` 헤더에 그 문장과 되읽기
+지침을 넣었다. 관측된 거부 코드는 `ports::kDispatchingRetCode`(40012)로 상수화하고 시험에 고정했다.
+
+| 변경 | 내용 |
+|---|---|
+| `tools/param_probe.cpp` (신설) | 1400 → 4001 → 1400 → 4001 원복 → 1400. 허용 목록(`NetProtocol.RobotNote`) 밖은 거부. 쓰기 뒤 실패 시 원래 값을 크게 출력 |
+| `include/seer_tcp_ip/ports.hpp` | `kDispatchingRetCode = 40012` 추가 |
+| `include/seer_tcp_ip/api.hpp` | `setParams` 계약 명시 — `ret_code 0` ≠ 반영, 필요하면 `getParam` 으로 되읽을 것 |
+| `test/test_api.cpp` | 40012 를 리터럴로 고정 |
+| `CMakeLists.txt` | `param_probe` 빌드·설치 등록 |
+
+부채: `debt-111` 부분 상환(4001·4003 도달·응답 확인), `debt-126` 신설(4001 값 미반영, 기전 미규명).

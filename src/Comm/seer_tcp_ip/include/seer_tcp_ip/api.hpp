@@ -152,6 +152,12 @@ class SeerApi
     Json seizeControl(const std::string &nickName);
     Json releaseControl();
     Json setMode(const Json &body);
+    /// 파라미터 설정. save=false 는 4001(휘발), true 는 4002(저장까지).
+    /// 본문은 {플러그인: {키: 값}} — 예: {"MoveFactory": {"MaxAcc": 1.0}}.
+    ///
+    /// **ret_code 0 은 반영을 뜻하지 않는다.** 실기에서 4001 이 0 을 돌려주고도 값이 그대로인
+    /// 경우가 관측됐다(NetProtocol.RobotNote). 반영 여부를 알아야 하면 getParam 으로 되읽는다.
+    /// 그 왕복을 그대로 하는 도구가 tools/param_probe 다.
     Json setParams(const Json &params, bool save = false);
     Json reloadParams();
     Json clearFatal();
