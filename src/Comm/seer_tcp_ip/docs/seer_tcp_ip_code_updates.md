@@ -180,26 +180,41 @@
   ② 그러자 드러난 `A5` 미검출의 원인은 **기대값에 상수 자신을 쓴 시험** — 편호·포트를
   리터럴로 고정하는 시험을 추가해 닫았다.
 
-## 2026-08-24 — 설정 쓰기 경로 실기 확인, 그리고 `ret_code 0` 이 반영이 아니라는 발견
+## 2026-09-02 — 설정 편호 4종 정정(4100/4101/4102/4300) + 설정 쓰기 실기 왕복
 
-`tools/param_probe` 를 신설했다. `NetProtocol.RobotNote` 한 칸을 4001(휘발)로 썼다가 되돌리는
+`tools/param_probe` 를 신설했다. `NetProtocol.RobotNote` 한 칸을 휘발 쓰기로 썼다가 되돌리는
 왕복 도구다 — 로봇을 움직이지 않고, 쓰기 허용 목록 밖의 파라미터는 거부한다.
 
-**결과가 통과가 아니었다.** 4001 은 `{"ret_code":0}` 을 돌려줬는데 직후 1400 되읽기가 옛 값
-그대로였다. 제어권(4005)을 쥐고 다시 써도 같았다. 같은 조회에서 4003 은 `ret_code 40012`
-`"dispatching... , can't execute any standalone operation"` 으로 거부됐다 — 로봇은 유휴인데도
-(1020 `task_status=0`·`running_status=0`) 배차 문맥을 주장한다.
+**그 왕복이 편호 오류를 잡았다.** 처음 실행에서 로봇이 `{"ret_code":0}` 을 돌려줬는데 1400
+되읽기는 옛 값 그대로였다. 원인은 편호였다 — 우리 `kConfigSetParams` 는 4001 이었고 공식 편호는
+**4100**(`robot_config_setparams_req`, 응답 14100)이다. 저장·재적재·Fatal 해제도 같은 폭으로
+틀려 있었다.
 
-기전은 규명하지 못했다(`debt-126`). 규명 여부와 무관하게 계약에 반영해야 할 사실은 하나다 —
-**4001 의 `ret_code 0` 은 반영을 뜻하지 않는다.** `SeerApi::setParams` 헤더에 그 문장과 되읽기
-지침을 넣었다. 관측된 거부 코드는 `ports::kDispatchingRetCode`(40012)로 상수화하고 시험에 고정했다.
+| 항목 | 종전(틀림) | 공식 |
+|---|---|---|
+| setparams | 4001 | **4100** |
+| saveparams | 4002 | **4101** |
+| reloadparams | 4003 | **4102** |
+| clearfatal | 4004 | **4300** |
+
+근거는 저장소가 이미 갖고 있던 것 두 곳이 일치한다 —
+`References/Seer-Driver/github_sdk/robotkit-netprotocol-l-1.2.1.txt:3320,3401`(공식 PDF 추출본)과
+SEER RoboKit 위키 `Set Robot Params Temporarily`(API number 4100 (0x1004)).
+틀린 편호를 준 것은 파생 정리본 `References/Seer-Driver/robokit_tcp_api.md` 였고, 같이 정정했다.
+
+정정 후 재실행 결과 **PASS** — `1400 ""` → `4100` 쓰기 → `1400` 에 반영 확인 → `4100` 원복 →
+`1400` 원복 확인.
 
 | 변경 | 내용 |
 |---|---|
-| `tools/param_probe.cpp` (신설) | 1400 → 4001 → 1400 → 4001 원복 → 1400. 허용 목록(`NetProtocol.RobotNote`) 밖은 거부. 쓰기 뒤 실패 시 원래 값을 크게 출력 |
-| `include/seer_tcp_ip/ports.hpp` | `kDispatchingRetCode = 40012` 추가 |
-| `include/seer_tcp_ip/api.hpp` | `setParams` 계약 명시 — `ret_code 0` ≠ 반영, 필요하면 `getParam` 으로 되읽을 것 |
-| `test/test_api.cpp` | 40012 를 리터럴로 고정 |
+| `include/seer_tcp_ip/api.hpp` | 설정 편호 4종 정정 |
+| `tools/param_probe.cpp` (신설) | 1400 → 4100 → 1400 → 4100 원복 → 1400. 허용 목록(`NetProtocol.RobotNote`) 밖은 거부. 쓰기 뒤 실패 시 원래 값을 크게 출력 |
+| `test/test_api.cpp` | 편호를 리터럴로 고정 |
 | `CMakeLists.txt` | `param_probe` 빌드·설치 등록 |
 
-부채: `debt-111` 부분 상환(4001·4003 도달·응답 확인), `debt-126` 신설(4001 값 미반영, 기전 미규명).
+**교훈이 도구에 남았다** — 「응답했다」와 「반영됐다」를 같은 칸에 넣지 않는다. 되읽기 없는
+쓰기 시험이었으면 `ret_code 0` 만 보고 통과로 기록했을 것이다.
+
+⚠ 4101(디스크 저장)은 시도하지 않았다 — 원복 실패가 영구가 된다.
+
+부채: `debt-126` 해결, `debt-095` ④ 상환, `debt-111` 부분 상환(4100).

@@ -168,10 +168,10 @@ def unpackHead(data):                    # 응답 16B 헤더 파싱
 | ID | 이름 | 설명 |
 |---|---|---|
 | 4000 | robot_config_setmode_req | 운행 모드 전환 |
-| 4001 | robot_config_setparams_req | **파라미터 설정** |
-| 4002 | robot_config_saveparams_req | **파라미터 설정+저장** |
-| 4003 | robot_config_reloadparams_req | 파라미터 재로드 |
-| 4004 | robot_config_clearfatal_req | Fatal 에러코드 클리어 |
+| 4100 | robot_config_setparams_req | **파라미터 설정** |
+| 4101 | robot_config_saveparams_req | **파라미터 설정+저장** |
+| 4102 | robot_config_reloadparams_req | 파라미터 재로드 |
+| 4300 | robot_config_clearfatal_req | Fatal 에러코드 클리어 |
 
 ### 4-5. Robot Core/Kernel API (port 19208)
 | ID | 설명 |

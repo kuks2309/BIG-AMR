@@ -128,16 +128,15 @@ int main()
         CHECK_EQ(api::kTaskGoTarget, 3051); CHECK_EQ(api::kTaskPatrol, 3052);
         CHECK_EQ(api::kTaskTranslate, 3055); CHECK_EQ(api::kTaskTurn, 3056);
         CHECK_EQ(api::kTaskGoTargetList, 3066);
-        CHECK_EQ(api::kConfigSetMode, 4000); CHECK_EQ(api::kConfigSetParams, 4001);
-        CHECK_EQ(api::kConfigSaveParams, 4002); CHECK_EQ(api::kConfigReloadParams, 4003);
-        CHECK_EQ(api::kConfigClearFatal, 4004); CHECK_EQ(api::kConfigSeizeControl, 4005);
+        CHECK_EQ(api::kConfigSetMode, 4000); CHECK_EQ(api::kConfigSetParams, 4100);
+        CHECK_EQ(api::kConfigSaveParams, 4101); CHECK_EQ(api::kConfigReloadParams, 4102);
+        CHECK_EQ(api::kConfigClearFatal, 4300); CHECK_EQ(api::kConfigSeizeControl, 4005);
         CHECK_EQ(api::kConfigReleaseControl, 4006); CHECK_EQ(api::kConfigUploadMap, 4010);
         CHECK_EQ(api::kConfigDownloadMap, 4011);
         CHECK_EQ(api::kOtherSpeaker, 6000); CHECK_EQ(api::kOtherSetDo, 6001);
         CHECK_EQ(api::kOtherSoftEstop, 6004);
         CHECK_EQ(ports::kControlPreemptedRetCode, 40020);
         CHECK_EQ(ports::kConnectionLimitRetCode, 61001);
-        CHECK_EQ(ports::kDispatchingRetCode, 40012);
     }
 
     // ---------- 조회 배선 ----------
@@ -273,13 +272,13 @@ int main()
         CHECK(r.lastBody().find("\"move_task_list\"") != std::string::npos);
     }
     {
-        CASE("setParams 는 save 로 4001/4002 를 가른다");
+        CASE("setParams 는 save 로 4100/4101 을 가른다");
         Rig r(true);
         const Json body{{"MoveFactory", {{"MaxAcc", 1.0}}}};
         r.api->setParams(body, false);
-        CHECK_EQ(r.lastApi(), std::uint16_t(4001));
+        CHECK_EQ(r.lastApi(), std::uint16_t(4100));
         r.api->setParams(body, true);
-        CHECK_EQ(r.lastApi(), std::uint16_t(4002));
+        CHECK_EQ(r.lastApi(), std::uint16_t(4101));
     }
     {
         CASE("소프트 비상정지는 6004");
@@ -317,7 +316,7 @@ int main()
             {[](SeerApi &a) { a.cancelTask(); }, ports::kTask, "3003 작업"},
             {[](SeerApi &a) { a.seizeControl("x"); }, ports::kConfig, "4005 설정"},
             {[](SeerApi &a) { a.releaseControl(); }, ports::kConfig, "4006 설정"},
-            {[](SeerApi &a) { a.clearFatal(); }, ports::kConfig, "4004 설정"},
+            {[](SeerApi &a) { a.clearFatal(); }, ports::kConfig, "4300 설정"},
             {[](SeerApi &a) { a.setDo(1, true); }, ports::kOther, "6001 기타"},
             {[](SeerApi &a) { a.softEstop(true); }, ports::kOther, "6004 기타"},
             {[](SeerApi &a) { a.speaker(Json::object()); }, ports::kOther, "6000 기타"},
