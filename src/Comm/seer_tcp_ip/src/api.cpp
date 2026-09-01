@@ -238,7 +238,28 @@ Json SeerApi::setParams(const Json &params, bool save)
     return call(ports::kConfig, save ? api::kConfigSaveParams : api::kConfigSetParams, params);
 }
 
-Json SeerApi::reloadParams() { return call(ports::kConfig, api::kConfigReloadParams); }
+Json SeerApi::restoreFactoryParams(const Json &targets)
+{
+    if (!targets.is_array())
+    {
+        throw ProtocolError("4102 본문은 JSON 배열이어야 한다 — 객체를 보내면 ret_code 60002 로 거부된다");
+    }
+    if (targets.empty())
+    {
+        throw ProtocolError(
+            "4102 에 빈 배열은 보내지 않는다 — 로봇이 전 플러그인 전 파라미터 공장 초기화로 읽는다");
+    }
+    for (const auto &e : targets)
+    {
+        if (!e.is_object() || !e.contains("plugin") || !e["plugin"].is_string() ||
+            e["plugin"].get<std::string>().empty())
+        {
+            throw ProtocolError("4102 원소에는 비어 있지 않은 plugin 이 있어야 한다 — "
+                                "없으면 로봇이 그 원소를 무시한다");
+        }
+    }
+    return call(ports::kConfig, api::kConfigReloadParams, targets);
+}
 Json SeerApi::clearFatal() { return call(ports::kConfig, api::kConfigClearFatal); }
 Json SeerApi::uploadMap(const Json &smap) { return call(ports::kConfig, api::kConfigUploadMap, smap); }
 
