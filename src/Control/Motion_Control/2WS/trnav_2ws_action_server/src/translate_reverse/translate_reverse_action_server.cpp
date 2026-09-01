@@ -97,6 +97,7 @@ TranslateReverseActionServer::TranslateReverseActionServer(rclcpp::Node::SharedP
     tg_params.omega_rate_limit = safeParam("transient_omega_rate_limit", 0.5);
     tg_params.steer_gate_threshold = safeParam("transient_steer_gate_threshold_deg", 3.0);
     tg_params.steer_error_max = safeParam("transient_steer_error_max_deg", 10.0);
+    tg_params.steer_error_deadband = safeParam("transient_steer_error_deadband_deg", 0.0);
     tg_params.enable_proportional_decel = safeParam("transient_enable_proportional_decel", true);
     tg_params.runtime_gate_threshold = safeParam("transient_runtime_gate_threshold_deg", 15.0);
     guard_ = std::make_unique<TransientGuard>(tg_params);
