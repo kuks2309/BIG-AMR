@@ -20,6 +20,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "trnav_2ws_interfaces/action/amr_motion_dock_approach.hpp"
+#include <atomic>
+
 #include "trnav_msgs/msg/wheel_set_array.hpp"
 #include "trnav_msgs/srv/select_motion_source.hpp"
 
@@ -53,6 +55,18 @@ class DockApproachServer : public rclcpp::Node
 
         cmd_pub_ = create_publisher<trnav_msgs::msg::WheelSetArray>(
             "/motion/wheel_cmd/dock", rclcpp::QoS(10).reliable());
+        // mux 최종 출력의 실측 지령속도 — armed 인수 순간 슬루 시작점으로 써서
+        // 주행 속도가 goal 상한보다 높아도 지령이 계단 없이 이어진다
+        bus_cmd_sub_ = create_subscription<trnav_msgs::msg::WheelSetArray>(
+            "/motor/wheel_cmd", rclcpp::QoS(10),
+            [this](trnav_msgs::msg::WheelSetArray::SharedPtr m) {
+                double v = 0.0;
+                for (const auto &w : m->wheels)
+                {
+                    v = std::max(v, std::fabs(w.velocity));
+                }
+                last_bus_speed_.store(v);
+            });
         pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
             "/wall_pose", 10, [this](geometry_msgs::msg::PoseStamped::SharedPtr m) {
                 std::lock_guard<std::mutex> lk(pose_mtx_);
@@ -114,6 +128,18 @@ class DockApproachServer : public rclcpp::Node
         spin_w_max_dps_ = declare_parameter<double>("spin_w_max_dps", 5.0);
         spin_w_min_dps_ = declare_parameter<double>("spin_w_min_dps", 0.8);
         settle_s_ = declare_parameter<double>("steer_settle_s", 2.0);
+        // 무정지 전환(주행 체이닝) — yaw 공차 내 + 스핀 미경유로 진입하면 settle 을
+        // 생략하고 즉시 접근한다. 직진 주행 직후는 조향이 접근축에 정착해 있어 쓸림이
+        // 없고 속도 연속(출구속도=진입 PID 지령)이 유지된다. 미정렬·스핀 경유 진입은
+        // settle-then-drive 경로를 탄다.
+        skip_settle_if_aligned_ = declare_parameter<bool>("skip_settle_if_aligned", false);
+        // 접근 속도 슬루 한계(m/s²) — 무정지 진입 시 지령을 goal 속도에서 시작해
+        // 이 감속률로만 낮춘다(속도 절벽 제거). 0 = 미적용(즉시 목표 속도).
+        approach_decel_mps2_ = declare_parameter<double>("approach_decel_mps2", 0.0);
+        // 사전 대기(armed) 인수 거리(m) — >0 이면 goal 을 수락해도 mux 를 바로 뺏지
+        // 않고, wall 관측 잔거리 |e_d| 가 이 값 이내로 들어온 순간 인수한다(주행
+        // 액션과의 무공백 전환). 0 = 수락 즉시 인수. goal 수락 시점 값으로 재독.
+        arm_engage_dist_m_ = declare_parameter<double>("arm_engage_dist_m", 0.0);
         // 접근 중 d·lat 만 수렴하고 yaw 미달이 지속되면 행 방지로 VERIFY 로 넘긴다
         approach_stuck_cycles_ =
             static_cast<int>(declare_parameter<int64_t>("approach_stuck_cycles", 60));
@@ -175,6 +201,9 @@ class DockApproachServer : public rclcpp::Node
         phase_ = kPreYaw;
         settle_until_.reset();
         spin_ready_ = false;
+        // 슬루 필터 초기값 — 무정지 진입 계약(출구속도=goal 속도)에 맞춰 goal 속도에서
+        // 시작해야 이어받는 첫 지령이 연속이다. settle 경로로 빠지면 정지 시작이므로 0.
+        v_slew_ = skip_settle_if_aligned_ ? g.max_speed_mps : 0.0;
         yaw_stuck_ = 0;
         reapproach_count_ = 0;
         verify_left_ = 0;
@@ -189,11 +218,19 @@ class DockApproachServer : public rclcpp::Node
         have_steer_ = false;
         start_time_ = now();
 
-        // mux 전환 — 응답은 루프에서 확인(실행기 블로킹 금지). 승인 전 지령은 내지 않는다.
-        auto req = std::make_shared<trnav_msgs::srv::SelectMotionSource::Request>();
-        req->source_id = mux_source_id_;
-        mux_future_ = select_client_->async_send_request(req).future.share();
+        // 사전 대기(armed) — 게이트 도달까지 mux 를 뺏지 않는다. 0 이면 즉시 인수.
+        arm_engage_dist_m_ = get_parameter("arm_engage_dist_m").as_double();
+        armed_ = arm_engage_dist_m_ > 0.0;
         mux_ok_ = false;
+        if (!armed_)
+        {
+            requestMux();
+        }
+        else
+        {
+            RCLCPP_INFO(get_logger(), "armed — 잔거리 %.2f m 이내에서 mux 인수 예정",
+                        arm_engage_dist_m_);
+        }
         RCLCPP_INFO(get_logger(),
                     "도킹 시작 — 목표 (%.3f, %.3f, %.1f°) 접근축 %.0f° 허용 (%.0f/%.0f mm, %.1f°)",
                     target_.x_m, target_.y_m, target_.yaw_rad / kDegToRad,
@@ -222,6 +259,49 @@ class DockApproachServer : public rclcpp::Node
             return;
         }
 
+        // 사전 대기(armed) — 주행 액션이 몰고 오는 동안 관측만 보다가 게이트 진입
+        // 순간 mux 를 인수한다. 대기 중에는 지령·정지 아무것도 내지 않는다.
+        if (armed_)
+        {
+            geometry_msgs::msg::PoseStamped ap;
+            rclcpp::Time at;
+            {
+                std::lock_guard<std::mutex> lk(pose_mtx_);
+                if (!last_pose_)
+                {
+                    return;
+                }
+                ap = *last_pose_;
+                at = last_pose_time_;
+            }
+            if ((now() - at).seconds() > obs_max_age_s_)
+            {
+                return;
+            }
+            const double ayaw = 2.0 * std::atan2(ap.pose.orientation.z, ap.pose.orientation.w);
+            const dock_control::StationPose acur{ap.pose.position.x, ap.pose.position.y, ayaw};
+            const auto aobs = dock_control::wallPoseToDockObs(acur, target_, approach_axis_rad_);
+            // 인수 거리는 설정값과 «실측 진입속도의 제동거리+여유» 중 큰 쪽 — 게이트가
+            // 짧아도 목표를 지나치지 않는 지점에서 이어받는다 (v²/2a + 0.2 m)
+            double engage = arm_engage_dist_m_;
+            if (approach_decel_mps2_ > 0.0)
+            {
+                const double vb = last_bus_speed_.load();
+                engage = std::max(engage, vb * vb / (2.0 * approach_decel_mps2_) + 0.2);
+            }
+            if (!aobs.valid || std::fabs(aobs.e_d_m) > engage)
+            {
+                return;
+            }
+            armed_ = false;
+            requestMux();
+            // 슬루 시작점 = 인수 직전 버스 실측 지령속도(주행 순항이 goal 상한보다
+            // 높으면 그 값부터 0.3 m/s² 로 내려온다)
+            v_slew_ = std::max(g.max_speed_mps, last_bus_speed_.load());
+            RCLCPP_INFO(get_logger(), "게이트 진입(잔거리 %.3f m, 버스 %.2f m/s) — mux 인수",
+                        aobs.e_d_m, last_bus_speed_.load());
+        }
+
         // mux 승인 확인 — 승인 전에는 지령을 내지 않는다(다른 소스가 활성일 수 있다)
         if (!mux_ok_)
         {
@@ -237,7 +317,7 @@ class DockApproachServer : public rclcpp::Node
                 }
                 mux_ok_ = true;
             }
-            else if (elapsed > 2.0)
+            else if ((now() - mux_req_time_).seconds() > 2.0)
             {
                 finish(5 /*MUX_DENIED*/, false, "mux 응답 없음");
                 return;
@@ -301,12 +381,27 @@ class DockApproachServer : public rclcpp::Node
         const double dt = 1.0 / control_rate_hz_;
         dock_control::DockWheelCommand cmd;  // 기본 0 — holdSteer 로 채운다
 
+        // 전방 전이(kPreYaw→kPreAlign→kApproach)는 같은 틱 안에서 재실행해 지령을
+        // 이어간다 — 전이 틱마다 기본 0 이 나가면 무정지 전환에 지령 공백이 생긴다.
+        bool rerun = true;
+        while (rerun)
+        {
+        rerun = false;
         switch (phase_)
         {
         case kPreYaw:
         {
             if (std::fabs(obs.e_yaw_deg) <= 0.7 * g.tol_yaw_deg)
             {
+                if (skip_settle_if_aligned_ && !spin_ready_)
+                {
+                    // 무정지 전환: 스핀을 거치지 않은 정렬 진입 — 조향이 이미
+                    // 접근축이므로 정착 대기 없이 바로 접근한다 (스핀 경유 시
+                    // 조향이 ±90° 라 이 분기에 들어오지 않는다)
+                    phase_ = kPreAlign;
+                    rerun = true;
+                    break;
+                }
                 // 접근 조향으로 되돌리며 정착 — 정착 전 전진하면 ±90° 잔류 조향이 쓸린다
                 if (!settle_until_)
                 {
@@ -358,6 +453,7 @@ class DockApproachServer : public rclcpp::Node
             if (need <= 0.0)
             {
                 phase_ = kApproach;
+                rerun = true;
                 break;
             }
             // 도크면과 평행(접근축 직교) crab — 접근 여유를 잠식하지 않고 수평만 줄인다
@@ -424,6 +520,13 @@ class DockApproachServer : public rclcpp::Node
             {
                 v = std::clamp(v, -creep_v_mps_, creep_v_mps_);
             }
+            if (approach_decel_mps2_ > 0.0)
+            {
+                // 속도 절벽 방지 — 지령 감소를 감속률로 제한 (증가·역전은 즉시 허용:
+                // near-zone 진입·크립 전환도 이 슬루를 타고 내려간다)
+                v = std::max(v, v_slew_ - approach_decel_mps2_ * dt);
+            }
+            v_slew_ = v;
             const double delta = dock_control::geomEntryDeltaBiased(
                 obs.e_lat_m, obs.e_d_m, delta_max_rad_, entry_bias_rad_);
             const double steer = dock_control::wrapPm180(
@@ -505,9 +608,19 @@ class DockApproachServer : public rclcpp::Node
             break;
         }
         }
+        }
 
         publishCmd(cmd);
         publishFeedback(obs, cmd.vf);
+    }
+
+    // mux 인수 요청 — 응답은 onTick 의 승인 확인 블록이 mux_req_time_ 기준으로 본다
+    void requestMux()
+    {
+        auto req = std::make_shared<trnav_msgs::srv::SelectMotionSource::Request>();
+        req->source_id = mux_source_id_;
+        mux_future_ = select_client_->async_send_request(req).future.share();
+        mux_req_time_ = now();
     }
 
     // ── 지령·정지·종료 ─────────────────────────────────────────────────────────
@@ -611,6 +724,14 @@ class DockApproachServer : public rclcpp::Node
     double yaw_split_kp_deg_per_deg_{0.3}, yaw_split_max_deg_{5.0};
     double spin_kp_dps_per_deg_{1.0}, spin_w_max_dps_{5.0}, spin_w_min_dps_{0.8};
     double settle_s_{2.0};
+    bool skip_settle_if_aligned_{false};
+    double approach_decel_mps2_{0.0};
+    double v_slew_{0.0};
+    double arm_engage_dist_m_{0.0};
+    bool armed_{false};
+    rclcpp::Time mux_req_time_;
+    rclcpp::Subscription<trnav_msgs::msg::WheelSetArray>::SharedPtr bus_cmd_sub_;
+    std::atomic<double> last_bus_speed_{0.0};
     int approach_stuck_cycles_{60};
     std::optional<rclcpp::Time> settle_until_;
     bool spin_ready_{false};
