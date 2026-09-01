@@ -64,8 +64,8 @@ inline constexpr std::uint16_t kTaskCancel = 3003;
 inline constexpr std::uint16_t kTaskGoPoint = 3050;
 inline constexpr std::uint16_t kTaskGoTarget = 3051;   // {"id","source_id",…}
 inline constexpr std::uint16_t kTaskPatrol = 3052;
-inline constexpr std::uint16_t kTaskTranslate = 3055;  // 필드명 미확인 — 저수준 dict 만 받는다
-inline constexpr std::uint16_t kTaskTurn = 3056;       // 필드명 미확인 — 저수준 dict 만 받는다
+inline constexpr std::uint16_t kTaskTranslate = 3055;  // {"dist","vx","mode"}
+inline constexpr std::uint16_t kTaskTurn = 3056;       // {"angle","vw","mode"}
 inline constexpr std::uint16_t kTaskGoTargetList = 3066;  // {"move_task_list":[…]}
 
 // 설정 — 19207 Config
@@ -194,6 +194,26 @@ class SeerApi
     Json patrol(const Json &body);
     Json translate(const Json &body);
     Json turn(const Json &body);
+
+    /// 평동 — 고정 속도로 직선 고정 거리를 간다. `dist` 는 **절대값**(m)이고 방향은 `vx` 의 부호가
+    /// 정한다(양수 전진, 음수 후진, m/s).
+    ///
+    /// `mode` 는 보내지 않는다 — 벤더가 `1`(자기측위 모드)을 「현재 사용 불가」로 명시하므로
+    /// 기본값 `0`(오도메트리 모드)만 쓴다. 따라서 이 기동은 **측위 폐루프가 아니다**:
+    /// 거리가 커질수록 오차가 커진다. 측위 폐루프가 필요하면 내비게이션(3050/3051)을 쓴다.
+    ///
+    /// ⚠ 3055 와 3056 은 **동시 수행 불가**다.
+    ///
+    /// @throws ProtocolError `distM` 이 음수이거나, `vxMps` 가 0 일 때
+    Json translateBy(double distM, double vxMps);
+
+    /// 전동 — 고정 각속도로 고정 각도를 돈다. `angle` 은 **절대값**(rad, 2π 를 넘어도 된다)이고
+    /// 방향은 `vw` 의 부호가 정한다(양수 반시계, 음수 시계, rad/s).
+    ///
+    /// `mode`·개루프 성질·동시 수행 제약은 `translateBy` 와 같다.
+    ///
+    /// @throws ProtocolError `angleRad` 가 음수이거나, `vwRadPerSec` 가 0 일 때
+    Json turnBy(double angleRad, double vwRadPerSec);
     Json pauseTask();
     Json resumeTask();
     Json cancelTask();
