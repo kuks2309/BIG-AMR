@@ -37,7 +37,10 @@ STACK_ITEMS = [
      'ros2 run sil_pose_adapter sil_pose_adapter_node --ros-args '
      '-r /rtabmap/localization_pose:=/mcl_pose'),
     ('wall', '벽 기준면 측위 (wall_localizer → /wall_pose)',
-     'ros2 launch wall_localizer_ros2 wall_localizer.launch.py'),
+     'ros2 run wall_localizer_ros2 wall_localizer_node --ros-args '
+     '-r /scan:=/scan_merged '
+     f'--params-file {REPO}/Tools/wall_teach/walls_lm1_live.yaml '
+     '-p initial_x_m:=-6.40 -p initial_y_m:=13.95 -p initial_yaw_deg:=0.0'),
     ('imu', 'IMU (iahrs)', 'ros2 launch iahrs_driver iahrs_driver.py'),
     ('pgv', 'PGV 드라이버 (/dev/pgv, 보정 적용)',
      'ros2 run pgv_driver pgv_driver_node --ros-args -p serial_port:=/dev/pgv '
@@ -64,8 +67,10 @@ ONESHOT_ITEMS = [
      'ros2 service call /can_relay_node/engage std_srvs/srv/SetBool "{data: false}"', None),
 ]
 
+# gate 는 도킹 PID(kp 0.8)가 진입 속도를 그대로 이어받는 거리 이상이어야
+# 속도 저크가 없다: gate ≥ dock_speed/0.8 (dock_speed 0.6 이면 0.75 m 이상 필요)
 DEFAULTS = {'speed': 1.0, 'accel': 0.3, 'dist': 6.0, 'laps': 10,
-            'gate': 0.25, 'dock_speed': 0.6}
+            'gate': 1.0, 'dock_speed': 0.6, 'pause': 1.0}
 GOAL_TIMEOUT_S = 90.0
 DOCK_TEACH_FILE = f'{REPO}/Log/dock_target_teach.json'
 DOCK_TOL = (3.0, 3.0, 0.5)     # 종·횡 mm, 각 deg — 어제 33회 실기와 동일 공차
@@ -355,7 +360,7 @@ class RosWorker(QThread):
         else:
             self.sig_pgv.emit('태그 없음' + (' (error %d)' % m.error_code if m.error else ''))
 
-    def _goal(self, cli, act, dist, speed, accel):
+    def _goal(self, cli, act, dist, speed, accel, exit_speed=0.0, handoff_fut=None):
         rclpy = self._ctx[0]
         node = self._ctx[1]
         cur = self.pose
@@ -364,8 +369,11 @@ class RosWorker(QThread):
         g.start_y = cur[1]
         g.end_x, g.end_y = cur[0] + dist, cur[1]
         g.max_linear_speed, g.acceleration = speed, accel
-        g.hold_steer = False
-        g.exit_steer_angle = g.exit_speed = g.entry_speed = 0.0
+        # 체이닝 leg(출구속도>0)는 조향 복귀(Phase 4)를 건너뛴다 — 그 루프가 속도 0
+        # 지령을 반복 발행해 전환 단절(실측 0.22 s)을 만들고, 조향은 도킹이 이어받는다
+        g.hold_steer = exit_speed > 0.0
+        g.exit_steer_angle = g.entry_speed = 0.0
+        g.exit_speed = exit_speed
         g.has_next = False
         g.control_mode = 0
         g.enable_localization_watchdog = True
@@ -386,6 +394,14 @@ class RosWorker(QThread):
             rclpy.spin_once(node, timeout_sec=0.1)
             if self._lat_ref is not None and self.pose is not None:
                 self._lat_max = max(self._lat_max, abs(self.pose[1] - self._lat_ref))
+            if handoff_fut is not None and handoff_fut.done():
+                # 도킹(armed)이 게이트에서 인수해 먼저 종료 — 주행 goal 은 회수
+                gh.cancel_goal_async()
+                t1 = time.time()
+                while not rfut.done() and time.time() - t1 < 5.0:
+                    rclpy.spin_once(node, timeout_sec=0.1)
+                self._gh = None
+                return 'HANDOFF'
             if self.cancel:
                 gh.cancel_goal_async()
             if time.time() - t0 > GOAL_TIMEOUT_S:
@@ -420,8 +436,8 @@ class RosWorker(QThread):
         return {'x_mm': sum(xs) / len(xs), 'y_mm': sum(ys) / len(ys),
                 'ang': sum(angs) / len(angs), 'n': len(xs)}
 
-    def _dock_goal(self, max_speed):
-        """정밀 도킹 액션 — 어제 33회와 동일 공차(DOCK_TOL), 접근축 전방 0°."""
+    def _dock_send(self, max_speed):
+        """정밀 도킹 goal 발행(armed 사전 대기) — 수락까지만 확인, 결과는 _dock_wait."""
         dock, act = self._ctx[6], self._ctx[7]
         g = act.Goal()
         g.target_x_m, g.target_y_m, g.target_yaw_deg = self.dock_target
@@ -439,8 +455,11 @@ class RosWorker(QThread):
         if gh is None or not gh.accepted:
             self.sig_msg.emit('도킹 goal 거부')
             return None
-        self._gh = gh
-        rfut = gh.get_result_async()
+        return gh, gh.get_result_async()
+
+    def _dock_wait(self, gh, rfut):
+        """armed 도킹의 결과 대기 — 공차(DOCK_TOL) 판정은 서버 소관."""
+        rclpy, node = self._ctx[0], self._ctx[1]
         t0 = time.time()
         while not rfut.done():
             rclpy.spin_once(node, timeout_sec=0.1)
@@ -450,10 +469,9 @@ class RosWorker(QThread):
                 gh.cancel_goal_async()
                 self.sig_msg.emit('도킹 대기 초과 — 취소')
                 return None
-        self._gh = None
         return rfut.result().result
 
-    def _run_trips(self, dist, speed, accel, laps, gate, dock_speed):
+    def _run_trips(self, dist, speed, accel, laps, gate, dock_speed, pause):
         rclpy = self._ctx[0]
         fwd, rev = self._ctx[2], self._ctx[3]
         act_f, act_r = self._ctx[4], self._ctx[5]
@@ -466,45 +484,64 @@ class RosWorker(QThread):
             self.sig_msg.emit('도킹 목표 없음 — 티치 버튼 또는 teach 파일 필요')
             self.sig_done.emit(False)
             return
+        # armed 인수 거리 = 게이트 — 서버가 goal 수락 시점 값으로 재독한다
+        run_oneshot(f'ros2 param set /dock_approach_server arm_engage_dist_m {gate}')
         out = time.strftime(f'{LOGDIR}/drive_trip_%Y%m%d_%H%M%S.jsonl')
         home = self.pose
         self.sig_nodes.emit(home[0] - dist, home[1], home[0], home[1])
         ok_all = True
         with open(out, 'w') as fp:
             for lap in range(1, laps + 1):
-                # 어제 실기 방식: 후진 이탈 → 고속 전진 레그(게이트 앞 정지)
-                # → 정밀 도킹 전환(/wall_pose) → 도착 PGV 평균 계측
-                legs = (('후진', rev, act_r, -dist),
-                        ('전진', fwd, act_f, dist - gate))
+                # 사이클: 후진 이탈(정지) → 대기 → [도킹 armed 발행 → 전진 전 구간
+                # → 게이트에서 서버가 mux 인수(무정지) → 도킹 완료] → PGV 평균 → 대기
                 lap_row = {'lap': lap, 'speed': speed, 'accel': accel,
-                           'dist': dist, 'gate': gate, 'dock_speed': dock_speed}
-                for leg_name, cli, act, d in legs:
-                    if self.cancel:
-                        self.sig_msg.emit('중지됨')
-                        self.sig_done.emit(False)
-                        return
-                    self._lat_ref, self._lat_max = home[1], 0.0
-                    t0 = time.time()
-                    res = self._goal(cli, act, d, speed, accel)
-                    dt = time.time() - t0
-                    self._lat_ref = None
-                    if res is None or res.status != 0:
-                        self.sig_msg.emit(f'{lap}회차 {leg_name} 실패 — 중단')
-                        self.sig_done.emit(False)
-                        return
-                    lat_mm = round(1000 * self._lat_max, 1)
-                    k = 'rev' if d < 0 else 'fwd'
-                    lap_row[f'{k}_s'] = round(dt, 2)
-                    lap_row[f'{k}_lat_max_mm'] = lat_mm   # 주행 목표 ±15 mm 판정용
-                    self.sig_lap.emit(lap, leg_name, dt, lat_mm, self._pgv_txt())
-                # 정밀 도킹 전환
+                           'dist': dist, 'gate': gate, 'dock_speed': dock_speed,
+                           'pause': pause}
                 if self.cancel:
                     self.sig_msg.emit('중지됨')
                     self.sig_done.emit(False)
                     return
+                self._lat_ref, self._lat_max = home[1], 0.0
+                t0 = time.time()
+                res = self._goal(rev, act_r, -dist, speed, accel)
+                dt = time.time() - t0
+                self._lat_ref = None
+                if res is None or res.status != 0:
+                    self.sig_msg.emit(f'{lap}회차 후진 실패 — 중단')
+                    self.sig_done.emit(False)
+                    return
+                lap_row['rev_s'] = round(dt, 2)
+                lap_row['rev_lat_max_mm'] = round(1000 * self._lat_max, 1)
+                self.sig_lap.emit(lap, '후진', dt, lap_row['rev_lat_max_mm'],
+                                  self._pgv_txt())
+                time.sleep(pause)   # 정지 후 재출발 대기 — 모터 부담 완화
+                if self.cancel:
+                    self.sig_msg.emit('중지됨')
+                    self.sig_done.emit(False)
+                    return
+                sent = self._dock_send(dock_speed)
+                if sent is None:
+                    self.sig_done.emit(False)
+                    return
+                gh_d, rfut_d = sent
+                self._lat_ref, self._lat_max = home[1], 0.0
+                t0 = time.time()
+                res = self._goal(fwd, act_f, dist, speed, accel,
+                                 exit_speed=dock_speed, handoff_fut=rfut_d)
+                dt = time.time() - t0
+                self._lat_ref = None
+                if res is None:
+                    gh_d.cancel_goal_async()
+                    self.sig_msg.emit(f'{lap}회차 전진 실패 — 중단')
+                    self.sig_done.emit(False)
+                    return
+                lap_row['fwd_s'] = round(dt, 2)
+                lap_row['fwd_lat_max_mm'] = round(1000 * self._lat_max, 1)
+                self.sig_lap.emit(lap, '전진', dt, lap_row['fwd_lat_max_mm'],
+                                  self._pgv_txt())
                 self.sig_msg.emit(f'{lap}회차 도킹 접근…')
                 t0 = time.time()
-                dres = self._dock_goal(dock_speed)
+                dres = self._dock_wait(gh_d, rfut_d)
                 ddt = time.time() - t0
                 if dres is None or not dres.success:
                     reason = '' if dres is None else f' (stop_reason {dres.stop_reason})'
@@ -525,6 +562,8 @@ class RosWorker(QThread):
                 lap_row['pose'] = self.pose
                 fp.write(json.dumps(lap_row) + '\n')
                 fp.flush()
+                if lap < laps:
+                    time.sleep(pause)   # 도킹 정지 후 다음 후진까지 대기
         self.sig_msg.emit(f'완료 — 기록 {out}')
         self.sig_done.emit(ok_all)
 
@@ -537,6 +576,7 @@ class StackTab(QWidget):
         self.pm = pm
         self.lamps = {}
         self.runbtns = {}
+        self.cmds = {}
         self.oneshot_btns = {}
         root = QVBoxLayout(self)
         grp = QGroupBox('상주 패키지')
@@ -545,6 +585,7 @@ class StackTab(QWidget):
             lamp = QLabel('●')
             lamp.setStyleSheet('color:#999; font-size:16px')
             self.lamps[key] = lamp
+            self.cmds[key] = cmd
             b_run = QPushButton('실행')
             b_run.setStyleSheet(STYLE_RUN)
             self.runbtns[key] = b_run
@@ -652,8 +693,18 @@ class StackTab(QWidget):
                              capture_output=True, text=True).stdout.strip()
         self.svc_lamp.setStyleSheet('color:%s; font-size:16px'
                                     % ('#1c7c39' if svc == 'active' else '#b3372f'))
+        # 외부(CLI 등)에서 기동한 동일 노드도 실행 중으로 표시 — 전역 중복 검사와 같은 눈
+        try:
+            pslist = subprocess.run(['ps', '-eo', 'args'], capture_output=True,
+                                    text=True).stdout
+        except Exception:
+            pslist = ''
         for key, lamp in self.lamps.items():
             alive = self.pm.alive(key)
+            if not alive and pslist:
+                pats = [ProcManager.marker(self.cmds[key])] \
+                    + ProcManager.CHILD_PATTERNS.get(key, [])
+                alive = any(p in pslist for p in pats)
             lamp.setStyleSheet('color:%s; font-size:16px'
                                % ('#1c7c39' if alive else '#999'))
             b = self.runbtns.get(key)
@@ -807,11 +858,12 @@ class PgvScatter(QWidget):
         p.drawText(int(cx) + 4, 12, '+x 전방 (mm)')
         p.drawText(4, int(cy) - 4, '+y 좌')
         p.drawText(w - 78, int(cy) + 14, f'공차 3 mm')
-        # 점 — 마지막 점 강조
+        # 점 — 공차 3 mm 원 기준 판정색(안=초록·밖=빨강), 마지막 점은 테두리 강조
         for i, (lap, x, y) in enumerate(self.pts):
             last = i == len(self.pts) - 1
-            p.setBrush(QColor('#d33') if last else QColor('#1c5d99'))
-            p.setPen(Qt.NoPen)
+            ok = math.hypot(x, y) <= 3.0
+            p.setBrush(QColor('#1c7c39' if ok else '#b3372f'))
+            p.setPen(QPen(QColor('#222'), 2) if last else Qt.NoPen)
             r = 5 if last else 3
             p.drawEllipse(int(sx(x)) - r, int(sy(y)) - r, 2 * r, 2 * r)
             p.setPen(QPen(QColor('#555')))
@@ -862,6 +914,7 @@ class TripTab(QWidget):
         form.addWidget(self.sp_laps, 3, 1)
         self.sp_gate = spin(4, '도킹 게이트 m', DEFAULTS['gate'], 0.1, 2.0, 0.05)
         self.sp_dockv = spin(5, '도킹속도 m/s', DEFAULTS['dock_speed'], 0.05, 0.8, 0.05)
+        self.sp_pause = spin(6, '정지 대기 s', DEFAULTS['pause'], 0.0, 5.0, 0.5, 1)
         right.addLayout(form)
 
         self.b_teach = QPushButton('도킹 목표 티치 (현재 /wall_pose)')
@@ -945,7 +998,8 @@ class TripTab(QWidget):
         self.lbl_msg.setText('실험 시작')
         self.worker.trip_req = (self.sp_dist.value(), self.sp_speed.value(),
                                 self.sp_accel.value(), self.sp_laps.value(),
-                                self.sp_gate.value(), self.sp_dockv.value())
+                                self.sp_gate.value(), self.sp_dockv.value(),
+                                self.sp_pause.value())
 
     def _teach(self):
         self.worker.teach_req = True

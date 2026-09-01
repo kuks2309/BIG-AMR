@@ -92,3 +92,11 @@ launch 아래 확인, `/map 발행: 1652x1095 셀` + `loaded map` + mode 로그 
   (`init_dist_scatter = 0.3`, `init_angle_scatter = 0.1`), 장비에 흐르던 실 /odom·/scan_merged 로
   **활성 상태 실데이터 처리 확인**(mode=4 진단 로그, stopped 0↔1 전환)
 - 회귀: `compare_impls 260709_test.smap` → `[PASS] 원본↔non-ROS↔ROS2 일관 (배관 무손실, ≤1e-9)`
+
+## 2026-08-27 — bringup 의 rviz 설정을 src 원본 직독으로
+
+rviz 설정을 install share 사본으로 읽으면 RViz 안에서 저장한 표시 설정이
+재빌드 때 증발한다는 사용자 지적에 따라, bringup.launch.py 의 rviz2 인자를
+`src/Navigation/mcl2d_ros2/config/mcl2d_check.rviz` 절대경로 직독으로 교체
+(단일 기체 고정 배치 전제). 검증: colcon build --packages-select mcl2d_ros2
+후 install 판 launch 에 src 경로 반영 확인. 다음 브링업 재기동부터 적용.

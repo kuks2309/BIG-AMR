@@ -814,3 +814,14 @@ mux yaml source_id 재할당 (`docs/abstraction/motion_source_id_contract.md` SS
 참조 원본: `/home/tc/T-Robot_nav_ros2_ws/src/Control/AMR-Motion-Control/amr_motion_control/src/translate_action_server.{hpp,cpp}`
 계획: `docs/plan/2026-04-24_amr_translate_port.md`
 결정 기록: `docs/request/2026-04-24_amr_translate_port.md`
+
+## 2026-08-28 — TransientGuard 비례 감쇠에 불감대 신설 (순항 속도 유지)
+
+1.0 m/s 순항이 0.90~0.99 로 물결치는 원인을 bag(run_090917) 실증 — 측위 잡음이
+Stanley 조향 지령을 ±1.5° 흔들고, 실조향 추종 지연 오차(0.5~1°)에 가드 비례
+감쇠(1−err/10°, 0°부터 시작)가 1°당 10% 를 깎고 있었다. 필터 확대(감도 저하)는
+사용자 반려 — 대신 코어 `TransientGuard::Params.steer_error_deadband`(기본 0 =
+종전 동작) 신설: 감쇠를 불감대~max 선형으로 바꿔 잡음 대역(≤2°)은 무감쇠,
+max(10°)에서 0 유지. 전·후진 서버에 `transient_steer_error_deadband_deg` 배관,
+본 기체 yaml 2.0. 검증: 단위시험 3케이스 추가(불감대 이하 1.0·중간 0.5·max 0)
+포함 147/147 PASS. 실주행 순항 평탄화는 후속 확인.

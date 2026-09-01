@@ -31,6 +31,9 @@ dock_approach_server:
     spin_w_max_dps: 5.0
     spin_w_min_dps: 0.8
     steer_settle_s: 2.0
+    skip_settle_if_aligned: true   # 무정지 전환 — 정렬(스핀 미경유) 진입 시 settle 생략
+    approach_decel_mps2: 0.3       # 접근 지령 감속 슬루(주행 감가속과 동일) — 속도 절벽 제거
+    arm_engage_dist_m: 1.0         # 사전 대기(armed) 인수 거리 — 주행 중 goal 수락, 게이트에서 mux 인수
     approach_stuck_cycles: 60  # d·lat 수렴+yaw 미달 지속 시 VERIFY 이관 (행 방지)
 
     # 근접 감속 (ANT adjusted stop 대응)

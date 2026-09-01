@@ -56,7 +56,11 @@ TransientGuard::GuardOutput TransientGuard::apply(const GuardInput &input)
     // 3. Proportional decel
     if (params_.enable_proportional_decel)
     {
-        out.drive_scale = clamp(1.0 - input.steer_error_deg / params_.steer_error_max, 0.0, 1.0);
+        const double band =
+            std::max(1e-9, params_.steer_error_max - params_.steer_error_deadband);
+        const double eff =
+            std::max(0.0, input.steer_error_deg - params_.steer_error_deadband);
+        out.drive_scale = clamp(1.0 - eff / band, 0.0, 1.0);
     }
     else
     {

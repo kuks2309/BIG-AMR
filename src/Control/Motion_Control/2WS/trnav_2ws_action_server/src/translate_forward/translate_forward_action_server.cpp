@@ -110,6 +110,7 @@ TranslateForwardActionServer::TranslateForwardActionServer(rclcpp::Node::SharedP
     tg_params.steer_gate_threshold = gate_thresh_deg;
     double err_max_deg = safeParam("transient_steer_error_max_deg", 10.0);
     tg_params.steer_error_max = err_max_deg;
+    tg_params.steer_error_deadband = safeParam("transient_steer_error_deadband_deg", 0.0);
     tg_params.enable_proportional_decel = safeParam("transient_enable_proportional_decel", true);
     double runtime_gate_deg = safeParam("transient_runtime_gate_threshold_deg", 15.0);
     tg_params.runtime_gate_threshold = runtime_gate_deg;

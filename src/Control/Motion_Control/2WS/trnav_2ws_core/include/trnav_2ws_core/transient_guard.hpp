@@ -16,6 +16,9 @@ class TransientGuard
         double omega_rate_limit = 0.5;     // rad/s per cycle
         double steer_gate_threshold = 3.0; // deg, Phase 0->1 gate
         double steer_error_max = 10.0;     // deg, proportional decel range
+        // deg — 이 값 이하의 조향 오차는 감쇠하지 않는다(측위 잡음발 소진동에
+        // 구동을 깎지 않기 위한 불감대). 감쇠는 deadband~max 구간 선형, max 에서 0.
+        double steer_error_deadband = 0.0;
         bool enable_proportional_decel = true;
         double runtime_gate_threshold = 15.0; // deg, runtime emergency gate
     };
