@@ -170,3 +170,21 @@ TEST(TransientGuard, ResetClearsRateLimitState)
     EXPECT_NEAR(g.apply(i).vy_limited, 0.1, 1e-9)
         << "reset 후에도 이전 vy 상태가 남아 있다 — 다음 goal 이 전 goal 속도에서 출발한다";
 }
+
+TEST(TransientGuard, DeadbandSkipsNoiseLevelError)
+{
+    trnav_2ws_core::TransientGuard::Params p;
+    p.steer_error_max = 10.0;
+    p.steer_error_deadband = 2.0;
+    p.enable_proportional_decel = true;
+    p.runtime_gate_threshold = 90.0;
+    trnav_2ws_core::TransientGuard g(p);
+    trnav_2ws_core::TransientGuard::GuardInput in{};
+    in.is_phase0 = false;
+    in.steer_error_deg = 1.5;   // 불감대 이하 — 무감쇠
+    EXPECT_DOUBLE_EQ(g.apply(in).drive_scale, 1.0);
+    in.steer_error_deg = 6.0;   // 불감대~max 중간 — (6-2)/(10-2)=0.5
+    EXPECT_NEAR(g.apply(in).drive_scale, 0.5, 1e-9);
+    in.steer_error_deg = 10.0;  // max — 0 유지
+    EXPECT_NEAR(g.apply(in).drive_scale, 0.0, 1e-9);
+}

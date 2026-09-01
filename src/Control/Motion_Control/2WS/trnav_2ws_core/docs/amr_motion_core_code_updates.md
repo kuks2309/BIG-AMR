@@ -318,3 +318,10 @@ B patch: 6 action server 가 goal->enable_localization_watchdog 를 받아 execu
 참조 원본: `/home/tc/T-Robot_nav_ros2_ws/src/Control/AMR-Motion-Control/amr_motion_control/src/bicycle_model.cpp`
 계획: `docs/plan/2026-04-24_amr_translate_port.md`
 결정 기록: `docs/request/2026-04-24_amr_translate_port.md`
+
+## 2026-08-28 — TransientGuard.steer_error_deadband 신설
+
+비례 감쇠(1−err/steer_error_max)가 0°부터 걸려 측위 잡음발 조향 오차(0.5~1°)에
+구동을 1°당 10% 깎던 것을, 불감대(기본 0 = 종전 동작) 이상 구간만 선형 감쇠로
+변경 — `1 − max(0, err−dead)/(max−dead)`, max 에서 0 유지. 호출측 배관·yaml 은
+trnav_2ws_action_server 소관(같은 날 entry). 단위시험 3케이스 추가, 147/147 PASS.
