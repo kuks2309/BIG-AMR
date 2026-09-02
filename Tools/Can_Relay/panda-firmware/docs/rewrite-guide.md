@@ -130,7 +130,7 @@ Seer ──bus0(CAN1)── [판다 릴레이] ──bus2(CAN3)── 드라이�
 | `0x60FB.4 = 0` | 진행 중 모션 효과 **원문 미기재**, 실측 발행 0건 | Handbook + 캡처 327,945 프레임 |
 | 릴레이 전환 갭 | engage **11.6 ms** / disengage **10.2 ms** | `orin_gap_measure.py` 2회 |
 | 전환 커버 | 300 ms, 경계 정확 (마지막 판다 응답 +299.5 ms) | 같은 도구 |
-| 버스 트래픽 | SDO 요청·응답 + node guarding **셋뿐**. PDO·NMT·SYNC·EMCY **0건** | 캡처 5종 전수 분류 |
+| 버스 트래픽 | SDO 요청·응답 + node guarding **셋뿐**. PDO·NMT·EMCY **0건**(데이터 프레임이라 캡처됨). **SYNC 는 「0건」이 아니라 계측 불가** — 캡처 도구가 DLC 0 프레임을 폐기하므로(orin_homing_capture.py:180 `or not dat: continue`) SYNC·Guard RTR 폴(둘 다 DLC 0)은 관측 자체가 안 됨 | 데이터(DLC≥1) 프레임 전수 분류 |
 | 앱 영역 한도 | 49,152 B | 플래셔가 섹터 1–3 만 지움 |
 
 ### 미검증 — 아직 실기로 보지 않은 것

@@ -2,7 +2,7 @@
 
 정본: `docs/code_review/can_relay_ui/` · 병기: `src/Comm/CAN/can_relay/docs/code_review/can_relay_ui/`
 
-대상: `src/Comm/CAN/can_relay/can_relay/ui/` — 백엔드 교체형 시험 GUI(5 파일 1,634줄).
+대상: `src/Comm/CAN/can_relay/can_relay/ui/` — 백엔드 교체형 시험 GUI(5 파일, 2026-08-04 최초 인벤토리 기준 1,634줄).
 `--backend ros2`(드라이버 경유) · `--backend direct`(판다 직결) 가 **같은 위젯 트리**를 쓴다.
 
 | 날짜 | 코드 버전 | Verdict | 핵심 |

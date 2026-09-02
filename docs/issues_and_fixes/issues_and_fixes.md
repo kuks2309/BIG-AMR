@@ -7,7 +7,7 @@
 > - 조향 0° = **`[7871815, 7840086]`** — ⚠ **Seer 좌표계 기준**이며 **물리적 직진은 미확인**이다.
 > - **`7882020 / 7859062` 는 0° 가 아니다** — 「**호밍 후 정착값**」이며 0° 에서
 >   **+0.178° / +0.331°** 벗어나 있다. 호밍 10회 실측 정착값은 node3 **7,882,021**(σ≈2.8c) ·
->   node4 **7,859,065**(σ≈3.2c) 로 σ≈3 counts 에 재현된다 ⇒ **결함이 아니라 설계 동작**이다.
+>   node4 **7,859,065**(σ≈3.2c) 로 σ≈3 counts 에 재현된다 ⇒ 펌웨어 상수 `SEER_HOME_ZERO_N3/N4` 에 재현성 있게 정착하는 동작이다(상수 적정성은 별건 — **debt-016**). 「**설계 동작·결함 아님**」 단정은 **[E7](2026-08-03 17:00) 재정정으로 철회**됨.
 > - `counts/°` = **57,344**(지령각→CAN 기울기 실측 1.000000) · `0x6098` 호밍 방식 = **1**(−리밋) ·
 >   리밋 스위치 **실재** · 호밍 성공률 **10/10**, 소요 **35.0 s**.
 >
@@ -44,6 +44,87 @@
 >   (node3 +10,204 c / node4 +18,975 c @ 57,344 c/°)이다. 「0° 에 정확히 놓지 않는다」는 결론은 불변.
 
 ---
+
+## 2026-09-02
+
+### [Fix] system_health GPU 사용률이 버스트 부하에서 0% 로 표시 (표본 에일리어싱)
+
+- **문제**: T3-1 에서 yolo 6캠 배치 추론으로 GPU 가 실제 일하는 중(20Hz 직접 표본 평균
+  40.5%, 90% 초과 22/60)인데 대시보드 GPU 타일·그래프가 대부분 0.0% 표시. 온도(+4°C)·
+  입력 전류(480→768mA)·클럭(306→510MHz) 상승과 모순되는 표시라 사용자 혼선.
+- **원인**: 부하 레지스터는 순간값인데 sampler 가 5초에 1회 한 번만 읽음 —
+  `system_health/sysfs.py:519`(수정 전 `read_gpu` 단발 `_read_int`). 배치 추론 부하는
+  0↔99% 를 초당 5~7회 오가는 사각파라 5초 순간 표본 대부분이 유휴 골에 떨어짐(에일리어싱).
+- **해결**: `read_gpu` 부하 읽기를 **1초 창 20표본 평균**으로 변경(상수
+  `_GPU_LOAD_SAMPLES`·`_GPU_LOAD_WINDOW_S` 신설, +14줄/-3줄). sampler 주기는 고정
+  격자(기준선+n×interval)라 수집 1초 소요가 표본 시각을 밀지 않음(sampler.py:423-426 확인).
+  freq/max_freq 읽기는 불변. 시그니처·스키마 불변(trivial fast-path).
+- **파일**: `src/Safety/system_health/system_health/sysfs.py`
+- **상태**: 완료 — 테스트 226 전부 PASS(45.1s), 로컬 실호출 0.96s 소요 확인. T3-1 배포·
+  sampler 재시작 후 실부하에서 42.2/38.9/44.0% 기록 확인(직접 표본 40.5% 와 정합).
+  Big-AMR 로컬 sampler 재시작은 sudo 필요로 보류(사용자: `sudo systemctl restart
+  amr-health-sampler`).
+
+### [진단] amr_test_gui engage 후 조향 137°+Seer 52106/52111 — 원인은 "intercept 중 구동"(heartbeat/바운스 아님)
+
+- **문제**: amr_test_gui 로 engage(제어권 획득) 후 조향 137° 물리 스윙 + Seer `52106`(odo data
+  lost)·`52111`(motor driver connection/timeout)·`54301`(calibrating). 초기엔 "heartbeat 버그"로 의심.
+- **원인 (재현+코드 근거로 확정)**: heartbeat/fail-safe·전환 바운스 **아님**(아래 재현으로 배제).
+  실제 원인 = **intercept 중 실제 구동(drive)**. 전환 커버는 `pc_authority` 중 Seer 가 읽는 모터 motion
+  객체를 **engage 시점 동결값으로 응답**한다 — `board/safety/safety_seer_gate.h:64-69`
+  (`seer_freeze_snapshot`, pc_authority 상승에지에 동결)·`:71-74`(동결 대상 `0x6064`위치·`0x606C`속도·
+  `0x6078`전류·`0x6041`statusword)·`:88-96`(pc_authority 중 이 객체 읽기에 동결값 응답). ⇒ **정차·호밍은
+  동결값이 현실과 안 어긋나 클린이지만, 구동하면 실제 위치·속도가 변하는데 Seer 는 동결(정지)값을 봐**
+  모터-오도가 Seer 레이저-localization(실이동)과 불일치 → `52106`/`52111`.
+- **재현 (2026-09-02 실기, 정차·E-STOP·3m 여유)**:
+  - 정적 hold(`orin_hold_intercept`)·펌웨어 호밍(`orin_homing_run` 0xea) = **Seer 알람 0 (클린)**.
+  - char(heartbeat+읽기·무구동·12s) = safety_mode 30 유지·heartbeat_lost 0·**fail-safe 0** → heartbeat 가설 **반증**.
+  - 전진 30mm/s×1.5s(≈5mm, `docking_drive.DockingDriver` 재사용) = t≈4s에 **52106+52111 발현**,
+    release 후 **즉시 소멸(transient)**. Seer localization dist 3.7→5.1mm(레이저는 이동 추적).
+- ⚠ **실용상 결함 아님**: 알람은 **transient(자동 소멸)** 이고, intercept-drive 로 **도킹은 지금까지
+  문제없이 사용**돼 왔다. 동결-커버 방식의 알려진 특성이며 "고칠 버그"가 아니다.
+- **파일**: 코드 무변경(원인 규명). 근거 `Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h:64-74,88-96`.
+  재현 도구 `Tools/docking_field_kit/{orin_hold_intercept,orin_homing_run,docking_drive}.py`.
+- **상태**: 완료 (원인 규명·재현·코드 근거 확정, 수정 불요).
+
+### [Fix] can_relay systemd 유닛이 ROS 언더레이 미source 로 기동 실패 (`ros2: not found`)
+
+- **문제**: `amr-can-relay`·`amr-can-relay-supervisor` 두 유닛이 부팅 이래 기동 실패 —
+  `/bin/bash: line 1: exec: ros2: not found`(status 127) 반복 후 StartLimitBurst 초과로 failed.
+  ⚠ `systemctl is-active` 가 auto-restart 순간엔 `active` 로 보여 오인하기 쉽다(실제 MainPID=0·failed).
+- **원인**: 유닛 템플릿 ExecStart 가 워크스페이스 오버레이(`install/setup.bash`)만 source 하고
+  **ROS 언더레이(`/opt/ros/humble/setup.bash`)를 안 걸었다** — 오버레이만으로는 `ros2` CLI 가 PATH 에
+  없다. 대화형 셸에선 `~/.bashrc:124` 가 언더레이를 걸어 가려졌으나, systemd 의 `bash -lc` 는
+  **비대화형**이라 `.bashrc` 가 `case $- in *i*) ;; *) return` 로 조기 return → 언더레이 미적용.
+  ⚠ 진단 중 **오염된 셸(이미 ROS source 됨)로 "재기동하면 된다"고 오판 1회** — clean-env(`env -i`)
+  재현으로 정정(A: 오버레이만 NOT_FOUND / B: 언더레이+오버레이 FOUND).
+- **해결**: `Big-AMR-deploy` 템플릿 `systemd/amr-can-relay*.service` 두 ExecStart 에
+  `source /opt/ros/humble/setup.bash &&` 선행 추가 → `install_service.sh --apply` 재설치.
+- **검증(실기, 2026-09-02 12:18)**: 두 유닛 active/running·MainPID≠0·NRestarts 0·`can_relay_node`
+  (pid 56594) 실기동·machine config(foil_a082) 로드·`can_relay 대기 — 제어권 미획득`(idle, engage 안 함).
+  `ros2 not found` 소멸.
+- **잔여**: 이 수정은 **배포 repo 로컬 템플릿** — 정본 origin/main 템플릿에도 반영해야 redeploy 시 유실
+  안 된다. can_relay 05c77ed(USB 링크 안전수정)는 이 기동으로 런타임 반영됐고, 롤백 경로(심박
+  실패→passthrough) 실기 검증은 별건으로 열려 있음.
+
+## 2026-08-30
+
+### [Fix] 카메라 systemd 래퍼의 `set -u` 가 ROS setup.bash 를 죽여 유닛 7개 크래시 루프
+
+- **문제**: `Tools/camera_service/install.sh` 첫 실기 설치 직후 유닛 7개(usb-cam@ 6 + amr-camera-manager) 전부
+  `activating`↔failed 5초 크래시 루프(기동 수 ms 만에 exit 1, 관리자 재시도 카운터 1,656회 도달).
+- **원인**: 래퍼의 `set -euo pipefail` 중 `-u`(nounset) — `run_camera.sh:7`·`run_manager.sh:4`.
+  ROS2 setup 스크립트는 nounset 비호환(journal 증거: `/opt/ros/humble/setup.bash: line 8:
+  AMENT_TRACE_SETUP_FILES: unbound variable`). ROS 커뮤니티에 널리 알려진 고전 함정.
+  `run_camera.sh` 는 2026-07-28 작성 후 systemd 실행이 이날 처음이라 잠복해 있었고,
+  `run_manager.sh`(2026-08-30 신설)가 같은 패턴을 복사했다.
+- **해결**: 두 래퍼에서 `-u` 만 제거(`set -eo pipefail`) + 금지 사유 주석. 2파일 × 1줄(+주석 2줄).
+  ExecStart 가 저장소 경로를 직접 가리켜 재설치 불요 — systemd 5초 재시도가 자동 반영.
+- **파일**: `Tools/camera_service/run_camera.sh`, `Tools/camera_service/run_manager.sh`
+- **상태**: 완료 — 수정 직후 장치 실재 4대 `active`·30Hz, 부재 2대(cam_lf·cam_lr)는 설계된 exit-3
+  대기 루프. 정체 주입(실노드 `kill -STOP`) 11초 만에 관리자가 감지·sudo 무암호 재시작·프레임
+  복귀까지 전 체인 실증(journal 21:02:06). 교훈: systemd 용 스크립트는 클린 환경(`systemd-run`
+  또는 `env -i`)에서 1회 실행 검증 후 출하할 것 — 대화형 셸(이미 ROS source 됨)의 성공은 증거가 아니다.
 
 ## 2026-08-16
 
@@ -780,6 +861,8 @@ yaw_control 실패 건   ω ≈ 0.6 °/s    ✘   ← 조향 14° = 유효반경
   오늘 쓴 R=1.0 m 조합은 안전 구간이다. 큰 반경 `turn` 은 미검증이므로 그때 확인한다.
 
 ### [Trap] `yaw_control_reverse` 는 **존재하지 않는 토픽**을 구독한다 — 실행하면 pose 를 못 받는다
+
+> ❌ 정정 2026-08-10: 본 [Trap]은 반증됐다 — `yaw_control_reverse_pose_topic` 은 코드가 읽지 않는 죽은 yaml 키였고, 실제로는 `LocalizationMonitor` 기본값 `/robot_pose` 로 pose 를 정상 수신한다(현행 `yaw_control_reverse_action_server.cpp:77`, `yaml:52`). 상세: 위 [Retract→Fix] debt-050 절.
 
 ```
 yaw_control          yaw_control_pose_topic:         "/robot_pose"                  발행자 1 (정상)
@@ -3188,6 +3271,8 @@ JSON 본문을 헤더로 읽고 있었다. 이 프로토콜에는 **요청 ID �
 서버 매핑은 `−4`(측위 갱신 없음)이되 로그 문자열로 구분한다. 7개 서버 일괄 적용 —
 `LocalizationMonitor` 에 넣었으므로 `mpc` 포함 전 소비자가 함께 닫힌다.
 
+> ❌ 정정 2026-08-11: 이 일괄 적용은 `mpc` 에서 발화하지 못했다 — `mpc` 는 바닥값(`behind_start_speed` 0.2) 적용 전에 `setMaxCmdSpeed` 를 불러 감시기에 0 을 넣었고 `max_cmd_speed_ <= 0.01` 조기반환으로 우회됐다(사고 서버가 열려 있었다). 5개 서버의 `setMaxCmdSpeed` 를 바닥값 뒤로 옮겨 상환. 상세: 2026-08-11 11인 배타 감사 절.
+
 **작성 중 오탐 1건을 냈다**: 처음에는 **연속 두 메시지**의 변화량과 임계(2 mm)를 비교했다.
 0.05 m/s · 50 Hz 면 메시지당 1 mm 라 임계를 영원히 못 넘어 **정상 주행이 STUCK 으로
 잡혔다**(SIL 실측: `dist=0.079 m` 에서 발화). **기준점에서의 누적** 비교로 정정했다.
@@ -3249,7 +3334,9 @@ SIL 에 `yaw_frozen_pose` 케이스 신설 — 값은 얼리고 **stamp 만 신�
 | 결과 | −3, 충돌 직전 | 0, 종점오차 11 mm |
 
 **지령의 2배로 나가는 `vx` 가 얼어붙은 자세로 제어가 발산한다는 신호였다.**
-피드백에 그 숫자가 찍히고 있었는데 읽지 못했다. 이후 감시 도구는 이 모순
+피드백에 그 숫자가 찍히고 있었는데 읽지 못했다.
+
+> ❌ 정정 2026-08-11: `vx` 0.200 은 제어 발산 신호가 아니라 설계된 바닥값(`behind_start_speed` 0.2 m/s)이다 — 얼어붙은 pose 로 진행이 0 으로 읽혀 바닥값이 걸린 것. '2배=발산' 해석은 무효. 상세: 2026-08-11 감사 절. 이후 감시 도구는 이 모순
 (진행 0 인데 속도 지령이 나감)을 자동 판정 조건에 넣었다.
 
 가드는 한 번도 발화하지 않았다 — 값-정지·여유·이동량 모두 **오탐 0**.
