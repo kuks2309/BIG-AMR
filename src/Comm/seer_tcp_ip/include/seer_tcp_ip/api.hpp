@@ -55,7 +55,9 @@ inline constexpr std::uint16_t kCtrlStop = 2000;
 inline constexpr std::uint16_t kCtrlGyro = 2001;
 inline constexpr std::uint16_t kCtrlReloc = 2002;
 inline constexpr std::uint16_t kCtrlConfirmLoc = 2003;
-inline constexpr std::uint16_t kCtrlMotion = 2010;     // {"vx","vy","w","duration"}
+inline constexpr std::uint16_t kCtrlMotion = 2010;
+inline constexpr std::uint16_t kCtrlLoadMap = 2022;    // {"map_name"} — 로봇이 쓸 지도를 전환
+inline constexpr std::uint16_t kCtrlLoadMapObj = 2023;     // {"vx","vy","w","duration"}
 
 // 작업 — 19206 Task/Nav
 inline constexpr std::uint16_t kTaskPause = 3001;
@@ -170,6 +172,15 @@ class SeerApi
     Json restoreFactoryParams(const Json &targets);
     Json clearFatal();
     Json uploadMap(const Json &smap);
+
+    /// 로봇이 쓸 지도를 `mapName` 으로 전환한다(2022). 4010 업로드는 파일을 올릴 뿐 활성 지도를
+    /// 바꾸지 않으므로, 올린 지도를 쓰려면 이것을 보내야 한다 — 벤더 자신의 순서도 그렇다.
+    ///
+    /// ⚠ 이름이 `robot_control_scan_req` 가 아니다. 저장소 파생 문서가 한때 2022 를 「스캔 시작」
+    ///   으로 적었으나 실제 스캔은 6100/6101@19210 이다(debt-095).
+    ///
+    /// @throws ProtocolError `mapName` 이 비었을 때
+    Json loadMap(const std::string &mapName);
 
     // ---- Control (19205, 게이트) ----
     Json stop();

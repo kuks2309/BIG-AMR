@@ -272,6 +272,16 @@ int main()
         CHECK(r.lastBody().find("\"move_task_list\"") != std::string::npos);
     }
     {
+        CASE("loadMap 은 2022 를 제어 포트로 보내고 빈 이름을 막는다");
+        {
+            Rig r(true);
+            CHECK_THROWS_MSG(r.api->loadMap(""), ProtocolError, "빈 map_name");
+            r.api->loadMap("260709_test");
+            CHECK_EQ(r.lastApi(), std::uint16_t(2022));
+            CHECK_EQ(r.lastPort(), ports::kCtrl);
+            CHECK(r.lastBody().find("\"map_name\":\"260709_test\"") != std::string::npos);
+        }
+
         CASE("translateBy·turnBy 는 부호 규약을 강제한다");
         {
             Rig r(true);

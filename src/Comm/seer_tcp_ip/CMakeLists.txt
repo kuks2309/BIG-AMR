@@ -38,11 +38,15 @@ target_link_libraries(control_probe PRIVATE seer_tcp_ip)
 add_executable(param_probe tools/param_probe.cpp)
 target_link_libraries(param_probe PRIVATE seer_tcp_ip)
 
+# 편집한 .smap 업로드 — 백업 성공 전에는 올리지 않고, 경로 외 변경은 거부한다.
+add_executable(map_upload tools/map_upload.cpp)
+target_link_libraries(map_upload PRIVATE seer_tcp_ip)
+
 install(DIRECTORY include/ DESTINATION include)
 install(TARGETS seer_tcp_ip
   EXPORT export_seer_tcp_ip
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
-install(TARGETS read_lidar_install seer_param control_probe param_probe
+install(TARGETS read_lidar_install seer_param control_probe param_probe map_upload
         DESTINATION lib/${PROJECT_NAME})
 ament_export_targets(export_seer_tcp_ip HAS_LIBRARY_TARGET)
 ament_export_dependencies(nlohmann_json)

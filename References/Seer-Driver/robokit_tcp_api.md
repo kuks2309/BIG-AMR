@@ -130,8 +130,8 @@ def unpackHead(data):                    # 응답 16B 헤더 파싱
 | 2002 | robot_control_reloc_req | **재측위(reloc)** — 파라미터 x,y |
 | 2003 | robot_control_confirmloc_req | 측위 정확 확인 |
 | 2010 | robot_control_motion_req | **개루프 운동**(vx,vy,w 직접) |
-| 2022 | robot_control_scan_req | 스캔 시작 |
-| 2023 | robot_control_stopscan_req | 스캔 정지 |
+| 2022 | robot_control_loadmap_req | **지도 전환** — `{"map_name"}`. 4010 업로드 뒤 이것으로 활성화한다 |
+| 2023 | robot_control_loadmapobj_req | 지도 요소 재적재 |
 | 2024 | robot_control_loadmap_req | 로드 지도 전환 |
 | 2025 | robot_control_reloadmap_req | 지도 요소 재로드 |
 
@@ -172,6 +172,15 @@ def unpackHead(data):                    # 응답 16B 헤더 파싱
 | 4101 | robot_config_saveparams_req | **파라미터 설정+저장** |
 | 4102 | robot_config_reloadparams_req | 파라미터 재로드 |
 | 4300 | robot_config_clearfatal_req | Fatal 에러코드 클리어 |
+| 4010 | robot_config_uploadmap_req | **지도 업로드** — 데이터부가 `.smap` JSON 전문. 활성 지도는 바꾸지 않는다(전환은 2022) |
+| 4011 | robot_config_downloadmap_req | **지도 다운로드** — `{"map_name"}`, 응답 데이터부가 `.smap` JSON 전문 |
+
+> ⚠ **스캔(SLAM) 은 이 표에 없다.** 실제 스캔 시작·정지는 **`6100`/`6101` @19210**(Other) 이다.
+> 동봉 PDF v1.2.1 에는 `6100/6101` 이 0건이고 구 `2020/2021` 이 `(DEPRECATED)` 로 남아 있어,
+> 그 PDF 만 보면 2022 를 스캔으로 오인하기 쉽다(debt-095).
+>
+> **2022 = 지도 전환**은 2026-09-02 실기로 확인했다 — 4010 업로드 직후 2022 를 보내
+> `1300 current_map_md5` 가 새 값으로 바뀌고 `1022 loadmap_status=1` 을 유지했다.
 
 ### 4-5. Robot Core/Kernel API (port 19208)
 | ID | 설명 |

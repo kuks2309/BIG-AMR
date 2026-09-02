@@ -263,6 +263,15 @@ Json SeerApi::restoreFactoryParams(const Json &targets)
 Json SeerApi::clearFatal() { return call(ports::kConfig, api::kConfigClearFatal); }
 Json SeerApi::uploadMap(const Json &smap) { return call(ports::kConfig, api::kConfigUploadMap, smap); }
 
+Json SeerApi::loadMap(const std::string &mapName)
+{
+    if (mapName.empty())
+    {
+        throw ProtocolError("2022 에 빈 map_name 은 보내지 않는다");
+    }
+    return call(ports::kCtrl, api::kCtrlLoadMap, Json{{"map_name", mapName}});
+}
+
 // ---- Control ----
 Json SeerApi::stop() { return call(ports::kCtrl, api::kCtrlStop); }
 
