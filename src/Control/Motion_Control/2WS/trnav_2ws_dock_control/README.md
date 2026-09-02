@@ -19,7 +19,7 @@ cmake -B build -S . && cmake --build build -j6 && ctest --test-dir build
 
 ## 이 패키지가 아직 아닌 것
 
-- 관측(`/wall_pose` → 거리·수평·자세축) 어댑터 — W2
+- 관측(`/feature_pose` → 거리·수평·자세축) 어댑터 — W2
 - 2WS IK steer-hold 어댑터(`trnav_2ws_kinematics` 기반, 원본 `dock_ik` 대응) — W2
 - 액션 서버·지령 체인 결합 — W3
 - 게인·`arm_m` 은 QD 기체 값 — 2WS 실기 재튜닝 전 미검증

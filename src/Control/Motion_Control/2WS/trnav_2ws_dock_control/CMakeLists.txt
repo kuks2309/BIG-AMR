@@ -45,7 +45,7 @@ target_include_directories(dock_ik_2ws PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include ${KIN}/include)
 target_link_libraries(dock_ik_2ws PUBLIC dock_control_core)
 
-# 관측 어댑터 — /wall_pose 자세 → 코어 관측 3축
+# 관측 어댑터 — /feature_pose 자세 → 코어 관측 3축
 add_library(dock_obs_2ws STATIC src/dock_obs.cpp)
 target_include_directories(dock_obs_2ws PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(dock_obs_2ws PUBLIC dock_control_core)

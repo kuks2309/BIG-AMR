@@ -36,10 +36,10 @@ STACK_ITEMS = [
     ('bridge', '/robot_pose 브리지 (mcl→PoseStamped)',
      'ros2 run sil_pose_adapter sil_pose_adapter_node --ros-args '
      '-r /rtabmap/localization_pose:=/mcl_pose'),
-    ('wall', '벽 기준면 측위 (wall_localizer → /wall_pose)',
-     'ros2 run wall_localizer_ros2 wall_localizer_node --ros-args '
+    ('wall', '특징면 측위 (feature_localizer → /feature_pose)',
+     'ros2 run feature_localizer_ros2 feature_localizer_node --ros-args '
      '-r /scan:=/scan_merged '
-     f'--params-file {REPO}/Tools/wall_teach/walls_lm1_live.yaml '
+     f'--params-file {REPO}/Tools/feature_teach/features_lm1_live.yaml '
      '-p initial_x_m:=-6.40 -p initial_y_m:=13.95 -p initial_yaw_deg:=0.0'),
     ('imu', 'IMU (iahrs)', 'ros2 launch iahrs_driver iahrs_driver.py'),
     ('pgv', 'PGV 드라이버 (/dev/pgv, 보정 적용)',
@@ -52,7 +52,7 @@ STACK_ITEMS = [
      'amr_motor_cmd_translator/config/amr_motor_cmd_translator_qd.yaml'),
     ('tf_srv', '전진 액션 서버', 'ros2 launch trnav_2ws_action_server translate_forward.launch.py'),
     ('tr_srv', '후진 액션 서버', 'ros2 launch trnav_2ws_action_server translate_reverse.launch.py'),
-    ('dock_srv', '정밀 도킹 서버 (dock_approach, /wall_pose 기준)',
+    ('dock_srv', '정밀 도킹 서버 (dock_approach, /feature_pose 기준)',
      'ros2 launch trnav_2ws_dock_ros dock_approach.launch.py'),
 ]
 
@@ -106,7 +106,7 @@ EXTRA_KILL_MARKERS = [
     'mcl2d_localization_node', 'smap_map_server', 'rviz2',
     'amr_translate_forward_node', 'amr_translate_reverse_node',
     'trnav_motion_mux_node', 'iahrs_driver',
-    'wall_localizer_node', 'dock_approach_action_server',
+    'feature_localizer_node', 'dock_approach_action_server',
 ]
 
 
@@ -133,7 +133,7 @@ class ProcManager:
         'tf_srv': ['amr_translate_forward_node'],
         'tr_srv': ['amr_translate_reverse_node'],
         'imu': ['iahrs_driver'],
-        'wall': ['wall_localizer_node'],
+        'wall': ['feature_localizer_node'],
         'dock_srv': ['dock_approach_action_server'],
     }
 
@@ -259,7 +259,7 @@ class RosWorker(QThread):
         super().__init__()
         self.pose = None
         self.pgv = None
-        self.wall = None           # 최신 /wall_pose (x, y, yaw_deg)
+        self.wall = None           # 최신 /feature_pose (x, y, yaw_deg)
         self.trip_req = None
         self.teach_req = False
         self.cancel = False
@@ -286,7 +286,7 @@ class RosWorker(QThread):
         node = rclpy.create_node('drive_test_ui')
         node.create_subscription(PoseStamped, '/robot_pose',
                                  lambda m: self._on_pose(m), 10)
-        node.create_subscription(PoseStamped, '/wall_pose',
+        node.create_subscription(PoseStamped, '/feature_pose',
                                  lambda m: self._on_wall(m), 10)
         node.create_subscription(PgvPosition, '/pgv/position',
                                  lambda m: self._on_pgv(m), 10)
@@ -329,7 +329,7 @@ class RosWorker(QThread):
 
     def _do_teach(self):
         if self.wall is None:
-            self.sig_msg.emit('티치 실패 — /wall_pose 없음 (wall_localizer·스테이션 시야 확인)')
+            self.sig_msg.emit('티치 실패 — /feature_pose 없음 (feature_localizer·스테이션 시야 확인)')
             return
         self.dock_target = self.wall
         with open(DOCK_TEACH_FILE, 'w') as f:
@@ -917,7 +917,7 @@ class TripTab(QWidget):
         self.sp_pause = spin(6, '정지 대기 s', DEFAULTS['pause'], 0.0, 5.0, 0.5, 1)
         right.addLayout(form)
 
-        self.b_teach = QPushButton('도킹 목표 티치 (현재 /wall_pose)')
+        self.b_teach = QPushButton('도킹 목표 티치 (현재 /feature_pose)')
         self.b_teach.setStyleSheet(ONESHOT_STYLES['home'])
         self.b_teach.clicked.connect(self._teach)
         right.addWidget(self.b_teach)

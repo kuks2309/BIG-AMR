@@ -1,12 +1,12 @@
-// AMRMotionDockApproach 액션 서버 — 벽 3면 측위(/wall_pose) 기준 정밀 도킹 접근.
+// AMRMotionDockApproach 액션 서버 — 벽 3면 측위(/feature_pose) 기준 정밀 도킹 접근.
 //
 // 제어는 이식 코어(trnav_2ws_dock_control)의 순수 함수만 쓴다 — 이 파일은 조립이다:
-// 관측(/wall_pose) → wallPoseToDockObs → 페이즈 로직 → composePhase4Wheels →
+// 관측(/feature_pose) → featurePoseToDockObs → 페이즈 로직 → composePhase4Wheels →
 // WheelSetArray(/motion/wheel_cmd/dock, mux source 40).
 //
 // 안전 규약: 어떤 종료 경로(성공·중단·취소·예외)든 «정지 지령 → mux 원복» 순서.
 // 관측이 낡으면 유예 동안 steer-hold 정지(눈 감고 대기), 초과 시 OBS_LOST 중단.
-// yaw runaway 는 /wall_pose yaw 누적(imuAccumStep 재사용)으로 감시한다.
+// yaw runaway 는 /feature_pose yaw 누적(imuAccumStep 재사용)으로 감시한다.
 
 #include <algorithm>
 #include <cmath>
@@ -68,7 +68,7 @@ class DockApproachServer : public rclcpp::Node
                 last_bus_speed_.store(v);
             });
         pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
-            "/wall_pose", 10, [this](geometry_msgs::msg::PoseStamped::SharedPtr m) {
+            "/feature_pose", 10, [this](geometry_msgs::msg::PoseStamped::SharedPtr m) {
                 std::lock_guard<std::mutex> lk(pose_mtx_);
                 last_pose_ = *m;
                 last_pose_time_ = now();
@@ -280,7 +280,7 @@ class DockApproachServer : public rclcpp::Node
             }
             const double ayaw = 2.0 * std::atan2(ap.pose.orientation.z, ap.pose.orientation.w);
             const dock_control::StationPose acur{ap.pose.position.x, ap.pose.position.y, ayaw};
-            const auto aobs = dock_control::wallPoseToDockObs(acur, target_, approach_axis_rad_);
+            const auto aobs = dock_control::featurePoseToDockObs(acur, target_, approach_axis_rad_);
             // 인수 거리는 설정값과 «실측 진입속도의 제동거리+여유» 중 큰 쪽 — 게이트가
             // 짧아도 목표를 지나치지 않는 지점에서 이어받는다 (v²/2a + 0.2 m)
             double engage = arm_engage_dist_m_;
@@ -361,7 +361,7 @@ class DockApproachServer : public rclcpp::Node
 
         const double yaw = 2.0 * std::atan2(pose.pose.orientation.z, pose.pose.orientation.w);
         const dock_control::StationPose cur{pose.pose.position.x, pose.pose.position.y, yaw};
-        const auto obs = dock_control::wallPoseToDockObs(cur, target_, approach_axis_rad_);
+        const auto obs = dock_control::featurePoseToDockObs(cur, target_, approach_axis_rad_);
         if (!obs.valid)
         {
             holdStill();
@@ -680,7 +680,7 @@ class DockApproachServer : public rclcpp::Node
             {
                 const double yaw = 2.0 * std::atan2(last_pose_->pose.orientation.z,
                                                     last_pose_->pose.orientation.w);
-                const auto obs = dock_control::wallPoseToDockObs(
+                const auto obs = dock_control::featurePoseToDockObs(
                     {last_pose_->pose.position.x, last_pose_->pose.position.y, yaw}, target_,
                     approach_axis_rad_);
                 res->final_e_d_mm = 1e3 * obs.e_d_m;

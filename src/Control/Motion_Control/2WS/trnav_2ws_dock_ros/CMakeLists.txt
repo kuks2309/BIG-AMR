@@ -16,7 +16,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(trnav_msgs REQUIRED)
 find_package(trnav_2ws_interfaces REQUIRED)
 
-# 이식 코어(형제 디렉터리, colcon 무시) 소스 직접 컴파일 — mcl2d/wall_localizer 관례
+# 이식 코어(형제 디렉터리, colcon 무시) 소스 직접 컴파일 — mcl2d/feature_localizer 관례
 set(DOCK ${CMAKE_CURRENT_SOURCE_DIR}/../trnav_2ws_dock_control)
 add_library(dock_core_lib STATIC
   ${DOCK}/src/dock_core.cpp

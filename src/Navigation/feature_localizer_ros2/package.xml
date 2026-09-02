@@ -1,12 +1,12 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>trnav_2ws_dock_ros</name>
+  <name>feature_localizer_ros2</name>
   <version>0.1.0</version>
   <description>
-    벽 3면 측위(/feature_pose) 기준 정밀 도킹 액션 서버. 이식 코어(trnav_2ws_dock_control,
-    LGIT dock_control 무수정 이식)를 조립해 /motion/wheel_cmd/dock(mux source 40)으로 낸다.
-    근거: docs/adr/2026-08-23-2ws-dock-ros-w3.md
+    벽 3면 라이다 정밀 측위 ROS2 어댑터. 프레임워크-독립 코어(feature_localizer_core)를
+    rclcpp 노드로 감싼다. LaserScan → 스테이션 프레임 PoseStamped(/feature_pose) + 진단.
+    근거: docs/adr/2026-08-18-wall3-precision-localizer.md
   </description>
   <maintainer email="kukwonko@gmail.com">Big-AMR</maintainer>
   <license>Proprietary</license>
@@ -14,10 +14,12 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
-  <depend>rclcpp_action</depend>
+  <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
-  <depend>trnav_msgs</depend>
-  <depend>trnav_2ws_interfaces</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>visualization_msgs</depend>
 
   <export>
     <build_type>ament_cmake</build_type>
