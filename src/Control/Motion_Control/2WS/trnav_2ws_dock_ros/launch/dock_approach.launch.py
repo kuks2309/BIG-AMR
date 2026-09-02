@@ -1,6 +1,6 @@
-# 도킹 접근 액션 서버만 띄운다. 선행: wall_localizer(측위)·trnav_motion_mux·translator 체인.
+# 도킹 접근 액션 서버만 띄운다. 선행: feature_localizer(측위)·trnav_motion_mux·translator 체인.
 #
-# 입력  : /wall_pose (wall_localizer) · 액션 goal (amr_motion_dock_approach)
+# 입력  : /feature_pose (feature_localizer) · 액션 goal (amr_motion_dock_approach)
 # 출력  : /motion/wheel_cmd/dock (mux source 40) · 액션 feedback/result
 # 주의  : goal 수락 시 /select_motion_source(40) 전환, 종료 시 mux_restore_id 로 복원.
 

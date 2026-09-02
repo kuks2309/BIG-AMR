@@ -1,7 +1,7 @@
-// dock_obs — 벽 3면 측위(/wall_pose)의 자세를 도킹 코어 관측으로 변환한다.
+// dock_obs — 벽 3면 측위(/feature_pose)의 자세를 도킹 코어 관측으로 변환한다.
 //
 // 원본(LGIT)의 관측은 측면 카메라 마커(err_px)+라이다 거리+IMU 3원이었다. 이 기체는
-// wall_localizer 가 스테이션 프레임 자세 T_station_base(x·y·yaw)를 단일 소스로 주므로,
+// feature_localizer 가 스테이션 프레임 자세 T_station_base(x·y·yaw)를 단일 소스로 주므로,
 // 목표 자세와의 차를 base_link 프레임의 접근축/직교축 성분으로 분해해 코어에 먹인다.
 // 단위: m·rad 내부 단일, 출력 yaw 오차만 deg(코어 규약).
 //
@@ -12,7 +12,7 @@
 namespace dock_control
 {
 
-/// 스테이션 프레임 자세 — wall_localizer `/wall_pose` 출력 규약(T_station_base)과 동형.
+/// 스테이션 프레임 자세 — feature_localizer `/feature_pose` 출력 규약(T_station_base)과 동형.
 struct StationPose
 {
     double x_m{0.0};
@@ -46,7 +46,7 @@ struct DockObservation
 /// +π/2 = 좌측(+y). 접근 방향은 실기 검증으로 확정한다(설정 주입).
 /// 좌표 변환: e_station = target − cur (스테이션 프레임) → e_base = R(−yaw_cur)·e_station
 /// → e_d = u·e_base, e_lat = n·e_base (u = 접근축 단위벡터, n = u 의 +90° 회전).
-DockObservation wallPoseToDockObs(const StationPose &cur, const DockTargetPose &target,
+DockObservation featurePoseToDockObs(const StationPose &cur, const DockTargetPose &target,
                                   double approach_axis_rad);
 
 }  // namespace dock_control

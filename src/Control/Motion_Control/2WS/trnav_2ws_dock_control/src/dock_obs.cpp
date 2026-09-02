@@ -7,7 +7,7 @@
 namespace dock_control
 {
 
-DockObservation wallPoseToDockObs(const StationPose &cur, const DockTargetPose &target,
+DockObservation featurePoseToDockObs(const StationPose &cur, const DockTargetPose &target,
                                   double approach_axis_rad)
 {
     DockObservation obs;

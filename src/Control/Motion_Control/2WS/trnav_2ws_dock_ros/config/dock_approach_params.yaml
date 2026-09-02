@@ -3,7 +3,7 @@
 dock_approach_server:
   ros__parameters:
     control_rate_hz: 30.0
-    obs_max_age_s: 0.2        # /wall_pose 신선도 상한 (34 Hz 기준 여유 6프레임)
+    obs_max_age_s: 0.2        # /feature_pose 신선도 상한 (34 Hz 기준 여유 6프레임)
     obs_grace_s: 1.0          # 유예 — 이 동안은 steer-hold 정지로 복귀를 기다린다
     default_timeout_s: 60.0
     runaway_yaw_deg: 15.0     # 시작 이후 누적 회전 상한 (최후 방어선)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """도킹 폐루프 SIL 플랜트 — 지령 소비 → 가상 로봇 적분 → 벽 스캔 재생성.
 
-전 체인: 본 플랜트(/dock_sil/scan) → wall_localizer(/dock_sil/wall_pose)
+전 체인: 본 플랜트(/dock_sil/scan) → feature_localizer(/dock_sil/feature_pose)
        → dock_approach_action_server(/dock_sil/wheel_cmd) → 본 플랜트.
 전 토픽·서비스가 /dock_sil/* — 실기 체인과 격리(리맵은 run_dock_sil.sh 소관).
 

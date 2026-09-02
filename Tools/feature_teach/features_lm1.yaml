@@ -1,0 +1,11 @@
+# feature_localizer 기준 특징면 — teach_features.py 가 라이다 실측 맵에서 생성
+# 소스 맵: 260709_test (맵 프레임 좌표, station_frame=map)
+# 초기 추정(initial_x_m 등)은 스테이션 진입 지점의 맵 좌표로 별도 설정할 것.
+feature_localizer:
+  ros__parameters:
+    station_frame: "map"
+    feature_names: ['left', 'front']
+    # left: 점 1596개, rms 14.3mm, 길이 14.48m
+    features.left: [-8.9820, 17.9477, 5.5000, 17.9834]
+    # front: 점 210개, rms 19.5mm, 길이 1.66m
+    features.front: [1.3748, 12.1660, 1.3960, 10.5053]

@@ -6,7 +6,7 @@
           → crab_linear(map 프레임 현재→노드 직선, target_yaw 유지, 레그별 속도)
   경로 끝  dock 스펙이 있으면 AMRMotionDockApproach 로 정밀 도킹 전환
           (⚠ dock.target 은 스테이션 프레임 — 노드의 map 프레임과 다르다.
-           전환 성립 조건: 마지막 노드가 wall_localizer 초기 게이트 ±0.3 m/±10° 안)
+           전환 성립 조건: 마지막 노드가 feature_localizer 초기 게이트 ±0.3 m/±10° 안)
 
 노드 소스: Seer smap advancedPointList(LocationMark) 기본, route yaml 의 nodes 로 오버라이드.
 자세 소스: /robot_pose (실기: mcl2d → sil_pose_adapter 리맵 브리지 / SIL: 공유 플랜트).
