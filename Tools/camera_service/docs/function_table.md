@@ -10,6 +10,7 @@
 | `load_roster` | `load_roster(config_path: str) -> dict` | 공용 yaml 파싱(`by_id_prefix`·`cameras` 필수 키 검증) | camera_params.py:30 |
 | `device_path` | `device_path(by_id_prefix: str, serial: str) -> str` | 시리얼 → by-id 심링크 경로 | camera_params.py:51 |
 | `camera_names` | `camera_names(config: dict) -> list[str]` | 로스터의 논리 이름 목록(install.sh 의 인스턴스 enable 근원) | camera_params.py:60 |
+| `flipped_cameras` | `flipped_cameras(config: dict) -> list[str]` | 로스터 `flip: true` 카메라 목록 — 180° 장착 보정은 디코드하는 소비자(webview CSS·yolo cv2.flip) 몫 | camera_params.py:65-73 |
 | `camera_params` | `camera_params(config: dict, name: str) -> dict` | 카메라 1대분 파라미터 해석(capture 기본값 + 행 재정의) | camera_params.py:65 |
 | `ros_run_argv` | `ros_run_argv(name: str, params: dict) -> list[str]` | `ros2 run usb_cam_publisher …` argv 조립 | camera_params.py:95 |
 | (내부) `_literal` | `_literal(value) -> str` | 파라미터 값 → ros2 CLI 리터럴 표기 | camera_params.py:111 |
@@ -33,4 +34,4 @@
 | `amr-camera-manager.service` | 카메라 관리자 상주 유닛 — 감시 대상과 독립 | amr-camera-manager.service:1 |
 | `sudoers-camera-manager` | `usb-cam@*` 3동사만 무암호 허용(→ /etc/sudoers.d/camera-manager, visudo 검증 후) | sudoers-camera-manager:1 |
 | `dataset-collector.service` | 수집기 유닛(기본 미등록 — 디스크 소모) | dataset-collector.service:1 |
-| `test_camera_params.py` | camera_params 단위 테스트 16개 | test_camera_params.py:1 |
+| `test_camera_params.py` | camera_params 단위 테스트 18개 | test_camera_params.py:1 |

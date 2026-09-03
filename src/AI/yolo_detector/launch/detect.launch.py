@@ -56,6 +56,21 @@ def _camera_topics():
     return topics or _FALLBACK_TOPICS
 
 
+def _flipped_cameras():
+    """로스터에서 `flip: true` 인 카메라 이름 — 디코드 직후 180° 회전 대상.
+
+    빈 목록이면 [""] sentinel(rclpy 빈 리스트 타입 추론 불가) — 노드가 걸러낸다.
+    """
+    path = _find_shared_config()
+    if not path:
+        return [""]
+    with open(path, "r") as handle:
+        config = yaml.safe_load(handle) or {}
+    flipped = [cam["name"] for cam in (config.get("cameras") or [])
+               if cam.get("name") and cam.get("flip", False)]
+    return flipped or [""]
+
+
 def generate_launch_description():
     args = [
         DeclareLaunchArgument("model_path", default_value="/home/nvidia/models/yolov8n.pt",
@@ -79,6 +94,7 @@ def generate_launch_description():
         output="screen",
         parameters=[{
             "camera_topics": _camera_topics(),
+            "flipped_cameras": _flipped_cameras(),
             "model_path": LaunchConfiguration("model_path"),
             "classes": LaunchConfiguration("classes"),
             "confidence": LaunchConfiguration("confidence"),

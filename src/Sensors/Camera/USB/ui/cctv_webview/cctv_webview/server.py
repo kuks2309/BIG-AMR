@@ -28,12 +28,15 @@ LAYOUT_AREAS = {
 }
 
 
-def _tile(name, area=None):
+def _tile(name, area=None, flip=False):
     style = f' style="grid-area:{area}"' if area else ""
+    # flip: 장착이 180° 뒤집힌 카메라 — 원본 바이트는 그대로 두고 표시만 CSS 로 돌린다.
+    # 검출 좌표는 AI 노드가 회전된(정립) 프레임 기준으로 내므로 오버레이는 돌리지 않는다.
+    img_cls = ' class="flip"' if flip else ""
     return (f'      <figure{style}><figcaption>{display_name(name)} '
             f'<span class="topic">{name}</span>'
             f'<span class="det" data-det="{name}"></span></figcaption>'
-            f'<div class="frame"><img src="/stream/{name}" alt="{name}">'
+            f'<div class="frame"><img{img_cls} src="/stream/{name}" alt="{name}">'
             f'<div class="ov" data-ov="{name}"></div></div></figure>')
 
 
@@ -98,7 +101,7 @@ _OVERLAY_JS = """
 """
 
 
-def build_index_html(names, stream_hz):
+def build_index_html(names, stream_hz, flipped=()):
     """카메라 타일 페이지. 이미지 자체는 브라우저가 각 스트림에서 직접 받는다.
 
     로스터가 여섯 장착 위치를 모두 담고 있으면 **차량 배치대로** 놓고, 그렇지 않으면
@@ -108,12 +111,12 @@ def build_index_html(names, stream_hz):
     positioned = all(n in LAYOUT_AREAS for n in names) and len(names) == len(LAYOUT_AREAS)
     if positioned:
         order = ["cam_f", "cam_lf", "cam_rf", "cam_lr", "cam_rr", "cam_r"]
-        tiles = "\n".join(_tile(n, LAYOUT_AREAS[n]) for n in order)
+        tiles = "\n".join(_tile(n, LAYOUT_AREAS[n], flip=n in flipped) for n in order)
         body = ('      <div class="body" aria-hidden="true">'
                 '<span class="arrow">▲</span><span>Big AMR</span></div>\n')
         grid_class = "grid vehicle"
     else:
-        tiles = "\n".join(_tile(n) for n in names)
+        tiles = "\n".join(_tile(n, flip=n in flipped) for n in names)
         body = ""
         grid_class = "grid flow"
 
@@ -150,6 +153,8 @@ def build_index_html(names, stream_hz):
   .det {{ color:#3fb950; font-size:11px; margin-left:6px; }}
   .frame {{ position:relative; line-height:0; }}
   img {{ width:100%; display:block; background:#000; }}
+  /* 장착이 180° 뒤집힌 카메라(로스터 flip: true) — 표시만 돌린다(원본 바이트 불변). */
+  img.flip {{ transform: rotate(180deg); }}
   .ov {{ position:absolute; inset:0; pointer-events:none; }}
   /* 신선한 검출은 초록 실선, 낡은 검출은 노란 점선 — Qt 뷰어와 같은 기준. */
   .box {{ position:absolute; border:2px solid #3fb950; border-radius:2px; }}
@@ -184,6 +189,7 @@ class _Handler(BaseHTTPRequestHandler):
     detections = None
     stream_hz = 10.0
     camera_names = ()
+    flipped = ()
     log = None
 
     def log_message(self, fmt, *args):  # noqa: A003 - BaseHTTPRequestHandler 규약
@@ -194,7 +200,8 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler 규약
         path = urlparse(self.path).path
         if path in ("/", "/index.html"):
-            self._send_html(build_index_html(self.camera_names, self.stream_hz))
+            self._send_html(build_index_html(
+                self.camera_names, self.stream_hz, flipped=self.flipped))
         elif path.startswith("/stream/"):
             self._send_stream(path[len("/stream/"):])
         elif path.startswith("/snapshot/"):
@@ -272,13 +279,14 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def make_server(store, camera_names, port=8080, bind="0.0.0.0", stream_hz=10.0,
-                log=None, detections=None):
+                log=None, detections=None, flipped=()):
     """설정을 주입한 ThreadingHTTPServer. 시청자마다 스레드 하나."""
     handler = type("CctvHandler", (_Handler,), {
         "store": store,
         "detections": detections,
         "camera_names": tuple(camera_names),
         "stream_hz": stream_hz,
+        "flipped": tuple(flipped),
         "log": log,
     })
     server = ThreadingHTTPServer((bind, port), handler)

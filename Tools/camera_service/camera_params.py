@@ -62,6 +62,16 @@ def camera_names(config: dict) -> list[str]:
     return [cam["name"] for cam in config["cameras"]]
 
 
+def flipped_cameras(config: dict) -> list[str]:
+    """로스터에서 `flip: true` 인 카메라 이름 목록(등재 순).
+
+    장착이 180° 뒤집힌 카메라의 표기다. 퍼블리셔는 MJPEG 패스스루라 픽셀을 만지지
+    않으므로, 뒤집기는 **디코드하는 소비자**(웹 뷰어 CSS 회전·AI 노드 디코드 직후
+    회전)가 이 목록을 근거로 수행한다. 필드 부재 = 정상 장착(false).
+    """
+    return [cam["name"] for cam in config["cameras"] if cam.get("flip", False)]
+
+
 def camera_params(config: dict, name: str) -> dict:
     """카메라 한 대의 노드 파라미터. 카메라별 값이 공통 기본값을 덮어쓴다.
 

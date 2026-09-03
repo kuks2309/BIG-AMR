@@ -8,7 +8,8 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from camera_params import (camera_names, camera_params, default_config_path,
-                           device_path, load_roster, ros_run_argv)
+                           device_path, flipped_cameras, load_roster,
+                           ros_run_argv)
 
 # <repo>/Tools/camera_service/test_camera_params.py → 세 단계 위가 저장소 루트
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,6 +29,21 @@ def write_roster(tmp_path, data):
     path = tmp_path / "camera_common.yaml"
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
     return str(path)
+
+
+# ── flipped_cameras ─────────────────────────────────────────────────────────
+def test_flipped_cameras_empty_when_field_absent():
+    assert flipped_cameras(ROSTER) == []
+
+
+def test_flipped_cameras_lists_only_true_in_order():
+    config = {"by_id_prefix": "P", "cameras": [
+        {"name": "cam0", "serial": "A", "flip": True},
+        {"name": "cam1", "serial": "B"},
+        {"name": "cam2", "serial": "C", "flip": False},
+        {"name": "cam3", "serial": "D", "flip": True},
+    ]}
+    assert flipped_cameras(config) == ["cam0", "cam3"]
 
 
 # ── load_roster ─────────────────────────────────────────────────────────────

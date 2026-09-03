@@ -51,11 +51,15 @@ class CctvWebview(Node):
     def __init__(self):
         super().__init__("cctv_webview")
         self.declare_parameter("camera_topics", DEFAULT_TOPICS)
+        # 장착이 180° 뒤집힌 카메라(로스터 flip: true). 서버는 픽셀을 만지지 않으므로
+        # 대문 페이지가 CSS 로 돌린다. [""] 은 launch 의 빈 목록 sentinel — 걸러낸다.
+        self.declare_parameter("flipped_cameras", [""])
         self.declare_parameter("port", 8080)
         self.declare_parameter("bind", "0.0.0.0")
         self.declare_parameter("stream_hz", 10.0)
 
         topics = list(self.get_parameter("camera_topics").value)
+        flipped = [n for n in self.get_parameter("flipped_cameras").value if n]
         port = int(self.get_parameter("port").value)
         bind = str(self.get_parameter("bind").value)
         stream_hz = float(self.get_parameter("stream_hz").value)
@@ -85,7 +89,10 @@ class CctvWebview(Node):
 
         self._server = make_server(
             self._store, self._names, port=port, bind=bind,
-            stream_hz=stream_hz, log=self.get_logger(), detections=self._detections)
+            stream_hz=stream_hz, log=self.get_logger(), detections=self._detections,
+            flipped=flipped)
+        if flipped:
+            self.get_logger().info(f"180° 회전 표시: {', '.join(flipped)}")
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         self.get_logger().info(

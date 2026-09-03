@@ -48,6 +48,22 @@ def _camera_topics():
     return topics or _FALLBACK
 
 
+def _flipped_cameras():
+    """로스터에서 `flip: true` 인 카메라 이름 — 대문 페이지가 CSS 로 180° 돌린다.
+
+    빈 목록이면 [""] 를 돌려준다 — rclpy 는 빈 리스트 파라미터의 타입을 추론하지
+    못하므로 빈 문자열 1개를 sentinel 로 쓰고 노드가 걸러낸다.
+    """
+    path = _find_shared_config()
+    if not path:
+        return [""]
+    with open(path, "r") as handle:
+        config = yaml.safe_load(handle) or {}
+    flipped = [cam["name"] for cam in (config.get("cameras") or [])
+               if cam.get("name") and cam.get("flip", False)]
+    return flipped or [""]
+
+
 def generate_launch_description():
     args = [
         DeclareLaunchArgument("port", default_value="8080",
@@ -64,6 +80,7 @@ def generate_launch_description():
         output="screen",
         parameters=[{
             "camera_topics": _camera_topics(),
+            "flipped_cameras": _flipped_cameras(),
             "port": LaunchConfiguration("port"),
             "bind": LaunchConfiguration("bind"),
             "stream_hz": LaunchConfiguration("stream_hz"),
