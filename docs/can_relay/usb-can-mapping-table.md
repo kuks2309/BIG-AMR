@@ -212,7 +212,7 @@
 | **PC→모터 명령** | PC `CAN_TX`(속도·위치·controlword) | — | (미사용) | **모터 bus 로 송신** |
 | PC 명령 에코 차단 | `0x600~604`·NMT 역방향 | — | — | 모터→Seer 방향 **비전달**(에코 은폐) |
 
-- **가짜 ack 필수**: 차단만 하면 Seer 재초기화 루프(~68s 지연) — 실측 확정.
+- **가짜 ack — 예방적 2단계 보완으로 채택(미검증)**. Seer 는 읽기·guard 응답만 유지되면 단절 미인지(field-record:211-212). ~68s 재초기화 지연은 1차 출처 없음 — 벤치 판별(가짜 ack만 OFF) 전까지 「필수」·「실측 확정」으로 쓰지 말 것.
   - > **⚠ 2026-07-27 미판정 모순 — 위 "실측 확정" 라벨을 '미검증'으로 낮춘다.**
     > **주장 A(본 줄)**: 가짜 ack 는 **필수**, 없으면 Seer 재초기화 루프 ~68s 지연.
     > **주장 B(동일 영역 실측 기록)**: `docs/can_relay/field-record-orin-nx-2026-07-25.md:47` "**Seer 단절 감지 모델**: STM32 Seer 는 고정레이트 fire-and-forget 폴링(조향 0x6064 읽기 100Hz·guard RTR 80Hz 불변, 쓰기만 47→8/s 축소). → **읽기·guard 응답만 유지되면 Seer 는 단절 미인지·재호밍 안 함.**", 같은 파일 `:48` "가짜 ack 는 Seer 가 자기 쓰기 ack 소실을 감시할 **경우 대비한 2단계 보완**으로 실제 채택." (= 필수가 아니라 예방적 채택)
@@ -422,6 +422,8 @@
 - 수신 시 `returned` → `bus += 128`, `rejected` → `bus += 192` 로 표기됨(파이썬 측 관례).
 
 ## 8. ⚠ 중대 제약 — 판다는 RTR 프레임을 송수신 못함 (신규 발견, 소스 확정)
+
+> ❌ 정정 — 이 RTR 제약은 현행 펌웨어에서 해소됨. §8 이 제안한 필수 패치가 그대로 구현돼 `board/can_definitions.h` 의 `CANPacket_t` 에 `rtr:1` 필드가 존재하고, `board/drivers/bxcan.h` 가 TX(`to_send.rtr`→TIR bit1)·RX(RIR bit1→`to_push.rtr`)·중계(`to_send.rtr`=`to_push.rtr`) 3지점에서 RTR 을 처리한다. `CAN_PACKET_VERSION=2` 유지·와이어 포맷 무변경(rtr 은 `header[0]` bit0 재사용). 따라서 현행 펌웨어는 RTR 을 나르며, guard RTR 이 intercept 중 데이터 프레임으로 변질된다는 우려는 현재 무효 — 다만 실기 guard timeout 재현 검증은 별도 기록으로 확인할 것.
 
 Node Guarding(`0x700+N` **RTR**, 20Hz, guard time 500 ms)에 직접 영향.
 

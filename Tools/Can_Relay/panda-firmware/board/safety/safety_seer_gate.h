@@ -163,12 +163,14 @@ static int seer_gate_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
   }
   bool emulate = cover || pc_authority;
 
+  // pc_authority(제어권 획득) 시 bus0↔bus2 포워딩을 끊어 Seer↔모터를 완전 분리한다
+  // (Seer 대리응답은 유지). passthrough·전환커버(pc_authority=false)는 종전대로 브리지.
   if (bus_num == 0) {
     if (emulate && (addr >= 0x601) && (addr <= 0x604) && (to_fwd->rtr == 0U)) {
       uint8_t cmd = to_fwd->data[0];
       if (cmd == 0x40U) {
         seer_cache_reply(addr, to_fwd);
-        bus_fwd = 2;
+        bus_fwd = pc_authority ? -1 : 2;
       } else {
         seer_fake_ack(addr, to_fwd);
         bus_fwd = -1;
@@ -178,9 +180,9 @@ static int seer_gate_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
       if (seer_guard_valid[gn] != 0U) {
         seer_send_bus0((uint32_t)(0x700 + gn), seer_guard_data[gn], seer_guard_len[gn]);
       }
-      bus_fwd = 2;
+      bus_fwd = pc_authority ? -1 : 2;
     } else {
-      bus_fwd = 2;
+      bus_fwd = pc_authority ? -1 : 2;
     }
   } else if (bus_num == 2) {
     if ((addr >= 0x600) && (addr <= 0x604)) {
@@ -189,7 +191,7 @@ static int seer_gate_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
                            ((addr >= 0x701) && (addr <= 0x704)))) {
       bus_fwd = -1;
     } else {
-      bus_fwd = 0;
+      bus_fwd = pc_authority ? -1 : 0;
     }
   } else {
     bus_fwd = -1;

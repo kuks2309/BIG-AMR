@@ -33,7 +33,7 @@
     <mxCell id="e3" value="4 start() -&gt; 제어 스레드" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="node" target="backend2">
       <mxGeometry relative="1" as="geometry" />
     </mxCell>
-    <mxCell id="e4" value="5 cmd_vel(Twist)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="cli" target="node">
+    <mxCell id="e4" value="5 /motor/low_cmd(MotorCmdArray) [또는 벤치 ~/steer_deg·~/drive_mmps]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="cli" target="node">
       <mxGeometry relative="1" as="geometry" />
     </mxCell>
     <mxCell id="e5" value="6 set_steer_deg / set_drive_mmps" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="node" target="backend2">
