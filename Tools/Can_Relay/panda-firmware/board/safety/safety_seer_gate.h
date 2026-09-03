@@ -53,6 +53,28 @@ static void seer_cache_store_resp(CANPacket_t *r) {
   }
   int slot = (match >= 0) ? match : free_slot;
   if (slot >= 0) {
+    // 위치(0x6064) 0 덮어쓰기 금지 — 조향은 리셋 진행(bit15=1)에서 0x6064=0 을 내지만
+    // (docs/homing/2026-08-03-can-relay-homing-assets.md §0-0-2, ADR 2026-08-08:20),
+    // emulate 는 Seer 에 실위치(0°≈7.87M, foil_a082.yaml steer_home_counts)를 안정적으로 내야 한다.
+    // 0 이 직전 실값을 지우지 않게 last-good 유지.
+    if (match >= 0) {
+      if (index == 0x6064U) {
+        // pos_act: 0 덮어쓰기 금지 (조향 실위치 ≈7.87M 유지)
+        uint32_t nv = (uint32_t)r->data[4] | ((uint32_t)r->data[5] << 8) | ((uint32_t)r->data[6] << 16) | ((uint32_t)r->data[7] << 24);
+        uint32_t ov = (uint32_t)seer_cache[match].data[4] | ((uint32_t)seer_cache[match].data[5] << 8) | ((uint32_t)seer_cache[match].data[6] << 16) | ((uint32_t)seer_cache[match].data[7] << 24);
+        if ((nv == 0U) && (ov != 0U)) { return; }
+      } else if (index == 0x6041U) {
+        // statusword: 조향 operational-at-target(0x9450)을 Seer 에 안정적으로 유지.
+        //  high byte(data[5]) operational 비트: bit15=0x80 · bit12=0x10 · bit10=0x04  (0x9450 -> 0x94)
+        uint8_t nhi = r->data[5];
+        uint8_t ohi = seer_cache[match].data[5];
+        // (1) bit15(operational) 소실 덮어쓰기 금지 (0x9450 -> 0x0050/0x1050 방지)
+        if (((nhi & 0x80U) == 0U) && ((ohi & 0x80U) != 0U)) { return; }
+        // (2) 완전 operational(0x94)이 캐시됐으면 덜한 값으로 덮지 않음 (0x8050 이 0x9450 못 덮음 — debt-128)
+        uint8_t opmask = (uint8_t)(0x80U | 0x10U | 0x04U);
+        if (((ohi & opmask) == opmask) && ((nhi & opmask) != opmask)) { return; }
+      }
+    }
     seer_cache[slot].valid = 1U;
     seer_cache[slot].node = node;
     seer_cache[slot].index = index;
@@ -163,14 +185,12 @@ static int seer_gate_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
   }
   bool emulate = cover || pc_authority;
 
-  // pc_authority(제어권 획득) 시 bus0↔bus2 포워딩을 끊어 Seer↔모터를 완전 분리한다
-  // (Seer 대리응답은 유지). passthrough·전환커버(pc_authority=false)는 종전대로 브리지.
   if (bus_num == 0) {
     if (emulate && (addr >= 0x601) && (addr <= 0x604) && (to_fwd->rtr == 0U)) {
       uint8_t cmd = to_fwd->data[0];
       if (cmd == 0x40U) {
         seer_cache_reply(addr, to_fwd);
-        bus_fwd = pc_authority ? -1 : 2;
+        bus_fwd = 2;
       } else {
         seer_fake_ack(addr, to_fwd);
         bus_fwd = -1;
@@ -180,9 +200,9 @@ static int seer_gate_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
       if (seer_guard_valid[gn] != 0U) {
         seer_send_bus0((uint32_t)(0x700 + gn), seer_guard_data[gn], seer_guard_len[gn]);
       }
-      bus_fwd = pc_authority ? -1 : 2;
+      bus_fwd = 2;
     } else {
-      bus_fwd = pc_authority ? -1 : 2;
+      bus_fwd = 2;
     }
   } else if (bus_num == 2) {
     if ((addr >= 0x600) && (addr <= 0x604)) {
@@ -191,7 +211,7 @@ static int seer_gate_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
                            ((addr >= 0x701) && (addr <= 0x704)))) {
       bus_fwd = -1;
     } else {
-      bus_fwd = pc_authority ? -1 : 0;
+      bus_fwd = 0;
     }
   } else {
     bus_fwd = -1;
