@@ -25,6 +25,11 @@ capture:
 
 # 카메라 시리얼 로스터. name=논리 이름(=토픽·frame_id·노드명의 근원), serial=by-id 시리얼 토큰.
 #
+# 선택 필드 flip: true — 장착이 180° 뒤집힌 카메라 표기(부재=정상 장착). 퍼블리셔는
+# MJPEG 패스스루라 픽셀을 만지지 않으므로, 디코드하는 소비자가 이 필드로 보정한다:
+# 웹 뷰어(cctv_webview)는 CSS 회전, yolo_detector 는 디코드 직후 cv2.flip(frame,-1).
+# (line_vision 은 자체 forward/reverse_flip_180 파라미터 — 로스터 미연동, 별도 설정.)
+#
 # 이름은 **장착 위치**를 뜻한다(2026-07-30 개명, ADR: docs/adr/2026-07-30-camera-position-naming.md):
 #   cam_f=전면 · cam_r=후면 · cam_lf=좌전 · cam_lr=좌후 · cam_rf=우전 · cam_rr=우후
 # 종전 이름 대응: cam0→cam_rf · cam1→cam_lf · cam2→cam_rr · cam3→cam_f · cam4→cam_r · cam5→cam_lr

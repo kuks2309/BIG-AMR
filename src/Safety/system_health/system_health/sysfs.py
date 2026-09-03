@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -35,6 +36,12 @@ _GPU_LOAD_PATHS = (
     Path("/sys/devices/platform/17000000.gpu/load"),
 )
 _GPU_LOAD_PER_MILLE = 10.0
+# 부하 노드는 순간값이다. 배치 추론처럼 수백 ms 주기로 0↔99% 를 오가는 버스트 부하는
+# 긴 간격의 순간 표본 대부분이 유휴 순간에 떨어져 0% 로 보인다(에일리어싱). 그래서
+# 1초 창에서 여러 번 읽어 평균한다 — sampler 주기는 고정 격자(기준선+n×interval)라
+# 수집이 길어져도 표본 시각이 밀리지 않는다.
+_GPU_LOAD_SAMPLES = 20
+_GPU_LOAD_WINDOW_S = 1.0
 _DEVFREQ_ROOT = Path("/sys/class/devfreq")
 # 범용 PC 의 통합 GPU 주파수. Intel i915 는 `gt_cur_freq_mhz`·`gt_max_freq_mhz` 를 **MHz** 로 낸다
 # (Tegra devfreq 는 Hz). 사용률(%) 노드는 주지 않으므로 그 플랫폼에서 `load_pct` 는 None 이다.
@@ -71,10 +78,15 @@ _PAGE_MB = os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
 
 
 def _read_text(path: Path) -> str | None:
-    """파일 내용을 읽어 양끝 공백을 제거해 돌려준다. 읽을 수 없으면 None."""
+    """파일 내용을 읽어 양끝 공백을 제거해 돌려준다. 읽을 수 없으면 None.
+
+    TypeError 도 '읽을 수 없음'이다 — 전원 게이트(power-gate)된 존의 sysfs 노드는
+    raw read 가 None 을 돌려줘 codecs 단계에서 TypeError 로 나타난다(CV 클러스터가
+    꺼진 Orin 기체의 cv*-thermal 실측).
+    """
     try:
         return path.read_text().strip()
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError, TypeError):
         return None
 
 
@@ -517,7 +529,7 @@ class GpuInfo:
     `MemoryInfo` 가 곧 GPU 메모리 압박이기도 하다.
 
     Attributes:
-        load_pct: 사용률(%). 노드 부재 시 None.
+        load_pct: 사용률(%) — 순간값이 아니라 1초 창 평균(`_GPU_LOAD_WINDOW_S`). 노드 부재 시 None.
         freq_hz: 현재 devfreq 주파수. 부재 시 None.
         max_freq_hz: devfreq 최대 주파수. `freq_hz` 가 이보다 낮으면 GPU 주파수 저감
             (throttle 또는 유휴 스케일다운)이 일어난 것이다. 본 장비는 `jetson-clocks` 가
@@ -538,9 +550,19 @@ def read_gpu() -> GpuInfo:
     load_pct: float | None = None
     for path in _GPU_LOAD_PATHS:
         raw = _read_int(path)
-        if raw is not None:
-            load_pct = max(0.0, min(100.0, raw / _GPU_LOAD_PER_MILLE))
-            break
+        if raw is None:
+            continue
+        # 창 평균 — 첫 표본은 위에서 읽었고, 나머지를 창 안에 등간격으로 읽는다.
+        total, count = raw, 1
+        step = _GPU_LOAD_WINDOW_S / _GPU_LOAD_SAMPLES
+        for _ in range(_GPU_LOAD_SAMPLES - 1):
+            time.sleep(step)
+            nxt = _read_int(path)
+            if nxt is not None:
+                total += nxt
+                count += 1
+        load_pct = max(0.0, min(100.0, total / count / _GPU_LOAD_PER_MILLE))
+        break
     freq = max_freq = None
     if _DEVFREQ_ROOT.is_dir():
         for node in sorted(_DEVFREQ_ROOT.glob("*.gpu")):

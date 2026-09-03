@@ -10,8 +10,11 @@ from generate_boards import BOARD_MAP, make_board, mm_to_px
 from register_cameras import (
     build_mapping,
     decide_board,
+    decide_flip,
     detect_board_votes,
+    detect_flip_votes,
     render_udev_rules,
+    rewrite_roster_flips,
     rewrite_roster_serials,
 )
 
@@ -34,6 +37,52 @@ def test_detect_board_votes_ignores_calibration_ids():
     img = board.generateImage((6 * square_px, 6 * square_px),
                               marginSize=square_px, borderBits=1)
     assert not detect_board_votes(img)
+
+
+def test_detect_flip_votes_upright_and_rotated():
+    square_px = mm_to_px(30.0, 150)
+    img = make_board(1).generateImage(
+        (6 * square_px, 6 * square_px), marginSize=square_px, borderBits=1)
+    upright = detect_flip_votes(img)
+    assert upright.get(False, 0) == 18 and upright.get(True, 0) == 0
+    rotated = detect_flip_votes(cv2.rotate(img, cv2.ROTATE_180))
+    assert rotated.get(True, 0) == 18 and rotated.get(False, 0) == 0
+
+
+def test_decide_flip_threshold_tie_and_majority():
+    assert decide_flip(Counter(), 3) is None
+    assert decide_flip(Counter({True: 2}), 3) is None            # 임계 미달
+    assert decide_flip(Counter({True: 5}), 3) is True
+    assert decide_flip(Counter({False: 5}), 3) is False
+    assert decide_flip(Counter({True: 4, False: 4}), 3) is None  # 동률
+    assert decide_flip(Counter({True: 9, False: 2}), 3) is True
+
+
+def test_rewrite_roster_flips_insert_remove_and_preserve():
+    yaml_text = (
+        "cameras:\n"
+        "  - name: \"cam_f\"           # 전면\n"
+        "    serial: \"S_F\"\n"
+        "  - name: \"cam_r\"\n"
+        "    serial: \"S_R\"\n"
+        "    flip: true\n"
+        "  - name: \"cam_lf\"\n"
+        "    serial: \"S_LF\"\n")
+    out = rewrite_roster_flips(yaml_text, {"cam_f": True, "cam_r": False})
+    lines = out.split("\n")
+    assert "    flip: true" in lines[lines.index('    serial: "S_F"') + 1]  # 삽입
+    assert out.count("flip: true") == 1                                     # cam_r 의 줄 제거
+    assert "# 전면" in out                                                   # 주석 보존
+    assert 'serial: "S_LF"' in out and "cam_lf" in out                       # 비대상 불변
+
+
+def test_rewrite_roster_flips_idempotent_when_already_set():
+    yaml_text = (
+        "cameras:\n"
+        "  - name: \"cam_f\"\n"
+        "    serial: \"S_F\"\n"
+        "    flip: true\n")
+    assert rewrite_roster_flips(yaml_text, {"cam_f": True}) == yaml_text
 
 
 def test_decide_board_threshold_tie_and_majority():

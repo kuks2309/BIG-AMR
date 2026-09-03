@@ -82,6 +82,9 @@ class YoloDetectorNode(Node):
         super().__init__("yolo_detector", **kwargs)
 
         self.declare_parameter("camera_topics", DEFAULT_TOPICS)
+        # 장착이 180° 뒤집힌 카메라 이름(로스터 flip: true 파생 — launch 가 주입).
+        # [""] 은 빈 목록 sentinel(rclpy 가 빈 리스트 타입을 추론하지 못한다).
+        self.declare_parameter("flipped_cameras", [""])
         self.declare_parameter("model_path", DEFAULT_MODEL)
         self.declare_parameter("classes", DEFAULT_CLASSES)
         self.declare_parameter("confidence", 0.35)
@@ -93,6 +96,7 @@ class YoloDetectorNode(Node):
         self.declare_parameter(LEGACY_TOTAL_HZ_PARAM, LEGACY_UNSET)
 
         self._topics = list(self.get_parameter("camera_topics").value)
+        self._flipped = {n for n in self.get_parameter("flipped_cameras").value if n}
         model_path = str(self.get_parameter("model_path").value)
         wanted = list(self.get_parameter("classes").value)
         self._conf = float(self.get_parameter("confidence").value)
@@ -206,15 +210,22 @@ class YoloDetectorNode(Node):
         self._infer_batch_and_publish(pending)
 
     def _decode(self, topic: str, msg):
-        """메시지 → BGR 배열. 실패하면 `None` 을 돌려 그 장만 배치에서 뺀다."""
+        """메시지 → BGR 배열. 장착 보정(180° 회전)도 여기서 적용한다.
+
+        실패하면 `None` 을 돌려 그 장만 배치에서 뺀다. 뒤집힌 카메라(`flipped_cameras`)는
+        디코드 직후 회전하므로 이후 추론·검출 좌표는 전부 정립 프레임 기준이다.
+        """
         try:
             if self._compressed:
                 frame = cv2.imdecode(
                     np.frombuffer(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
                 if frame is None:
                     raise ValueError("JPEG 디코드 실패")
-                return frame
-            return self._bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            else:
+                frame = self._bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            if camera_name_from_topic(topic) in self._flipped:
+                frame = cv2.flip(frame, -1)  # 180° (상하+좌우) — line_vision 과 동일 관례
+            return frame
         except Exception as exc:
             self.get_logger().warning(
                 f"{camera_name_from_topic(topic)}: 변환 실패 — 건너뜀: {exc}")

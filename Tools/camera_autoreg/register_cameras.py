@@ -55,6 +55,39 @@ def detect_board_votes(gray: "np.ndarray") -> Counter:
     return votes
 
 
+def detect_flip_votes(gray: "np.ndarray") -> Counter:
+    """한 프레임의 마커 방향 득표 — 키 True=180° 뒤집힘, False=정상 장착.
+
+    마커 코너는 정준 순서(좌상→우상→우하→좌하)로 검출된다. 등록 절차상 보드는 바로
+    세워 두므로, 위쪽 변(코너0→코너1) 벡터가 화면 왼쪽(-x)을 향하면 카메라가 180°
+    뒤집힌 것이다. 등록 보드 대역 밖 ID(캘리브레이션 보드 등)는 버린다.
+    """
+    dictionary = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, ARUCO_DICT_NAME))
+    detector = cv2.aruco.ArucoDetector(dictionary)
+    corners, ids, _rejected = detector.detectMarkers(gray)
+    votes: Counter = Counter()
+    if ids is not None:
+        for marker_corners, marker_id in zip(corners, ids.flatten()):
+            if not board_number_from_marker_id(int(marker_id)):
+                continue
+            top_left, top_right = marker_corners[0][0], marker_corners[0][1]
+            dx = float(top_right[0]) - float(top_left[0])
+            if dx:  # 수직에 가까운 특이 자세(0)는 판정에서 제외
+                votes[dx < 0] += 1
+    return votes
+
+
+def decide_flip(votes: Counter, min_votes: int = 3) -> bool | None:
+    """카메라 1대의 방향 득표 → 뒤집힘 판정. 임계 미만·동률이면 None(불확정)."""
+    if not votes:
+        return None
+    flipped = votes.get(True, 0)
+    upright = votes.get(False, 0)
+    if max(flipped, upright) < min_votes or flipped == upright:
+        return None
+    return flipped > upright
+
+
 def decide_board(votes: Counter, min_votes: int = 3) -> int | None:
     """카메라 1대의 누적 득표 → 보드 판정. 임계 미만·최다 동률이면 None(불확정)."""
     if not votes:
@@ -132,10 +165,40 @@ def rewrite_roster_serials(yaml_text: str, mapping: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def _decode_votes(jpeg_bytes: bytes) -> Counter:
+def rewrite_roster_flips(yaml_text: str, flip_by_name: dict[str, bool]) -> str:
+    """각 카메라 블록의 `flip:` 줄을 판정값에 맞춘다(주석·구조 보존).
+
+    True 는 serial 줄 바로 아래 `flip: true` 를 보장하고, False 는 기존 `flip:` 줄을
+    제거한다(부재=정상 장착 규약). 판정 대상이 아닌 카메라 블록은 건드리지 않는다.
+    """
+    lines = yaml_text.split("\n")
+    out: list[str] = []
+    current_name = None
+    for line in lines:
+        name_match = re.match(r'\s*-\s*name:\s*"?(\w+)"?', line)
+        if name_match:
+            current_name = name_match.group(1)
+            out.append(line)
+            continue
+        if re.match(r"\s*flip:\s*", line) and current_name in flip_by_name:
+            continue  # flip 줄 자리는 serial 다음 한 곳 — 그 외 자리의 flip 줄은 지운다
+        serial_match = re.match(r"(\s*)serial:", line)
+        if serial_match and current_name in flip_by_name:
+            out.append(line)
+            if flip_by_name[current_name]:
+                out.append(f"{serial_match.group(1)}flip: true")
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def _decode_evidence(jpeg_bytes: bytes) -> tuple[Counter, Counter]:
+    """JPEG 1장 → (보드 득표, 방향 득표)."""
     buf = np.frombuffer(jpeg_bytes, dtype=np.uint8)
     gray = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
-    return detect_board_votes(gray) if gray is not None else Counter()
+    if gray is None:
+        return Counter(), Counter()
+    return detect_board_votes(gray), detect_flip_votes(gray)
 
 
 def grab_frames_topics(cameras, frames_per_cam: int, timeout_sec: float) -> dict[str, Counter]:
@@ -150,13 +213,16 @@ def grab_frames_topics(cameras, frames_per_cam: int, timeout_sec: float) -> dict
     rclpy.init()
     node = rclpy.create_node("camera_autoreg")
     votes: dict[str, Counter] = {cam["serial"]: Counter() for cam in cameras}
+    flips: dict[str, Counter] = {cam["serial"]: Counter() for cam in cameras}
     counts: dict[str, int] = {cam["serial"]: 0 for cam in cameras}
 
     def _make_cb(serial):
         def _cb(msg):
             if counts[serial] < frames_per_cam:
                 counts[serial] += 1
-                votes[serial].update(_decode_votes(bytes(msg.data)))
+                board_votes, flip_votes = _decode_evidence(bytes(msg.data))
+                votes[serial].update(board_votes)
+                flips[serial].update(flip_votes)
         return _cb
 
     subs = [
@@ -175,7 +241,7 @@ def grab_frames_topics(cameras, frames_per_cam: int, timeout_sec: float) -> dict
     del subs
     node.destroy_node()
     rclpy.shutdown()
-    return votes
+    return votes, flips
 
 
 def discover_devices(by_id_prefix: str) -> list[str]:
@@ -212,9 +278,11 @@ def grab_frames_devices(serials, by_id_prefix: str, frames_per_cam: int) -> dict
             "camctl stop all 후 --source device 를 다시 실행하거나, 기본(토픽) 모드를 쓰라")
 
     votes: dict[str, Counter] = {}
+    flips: dict[str, Counter] = {}
     for serial in serials:
         path = device_path(by_id_prefix, serial)
         tally: Counter = Counter()
+        flip_tally: Counter = Counter()
         capture = cv2.VideoCapture(path, cv2.CAP_V4L2)
         if capture.isOpened():
             for _ in range(frames_per_cam):
@@ -222,11 +290,13 @@ def grab_frames_devices(serials, by_id_prefix: str, frames_per_cam: int) -> dict
                 if ok and frame is not None:
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
                     tally.update(detect_board_votes(gray))
+                    flip_tally.update(detect_flip_votes(gray))
             capture.release()
         else:
             print(f"⚠ 장치 개방 실패: {path}", file=sys.stderr)
         votes[serial] = tally
-    return votes
+        flips[serial] = flip_tally
+    return votes, flips
 
 
 def main(argv=None) -> int:
@@ -248,24 +318,33 @@ def main(argv=None) -> int:
     prefix = config["by_id_prefix"]
 
     if args.source == "topics":
-        votes = grab_frames_topics(cameras, args.frames, args.timeout)
+        votes, flips = grab_frames_topics(cameras, args.frames, args.timeout)
     else:
         serials = discover_devices(prefix)
         if not serials:
             raise SystemExit("연결된 카메라가 없다 — /dev/v4l/by-id/ 스캔 0건")
         print(f"장치 스캔: 시리얼 {len(serials)}개 발견 — {', '.join(serials)}")
-        votes = grab_frames_devices(serials, prefix, args.frames)
+        votes, flips = grab_frames_devices(serials, prefix, args.frames)
 
     observed = {serial: decide_board(tally, args.min_votes) for serial, tally in votes.items()}
+    flip_verdict = {serial: decide_flip(tally, args.min_votes)
+                    for serial, tally in flips.items()}
     mapping, errors = build_mapping(observed)
+    # 위치가 확정된 카메라의 방향 불확정은 오류다 — 뒤집힘 여부를 모른 채 적용하면
+    # 소비자(웹 뷰어·AI)가 반대로 보정할 수 있다.
+    for name, serial in sorted(mapping.items()):
+        if flip_verdict.get(serial) is None:
+            errors.append(f"{name}({serial}): 장착 방향 불확정(득표 {dict(flips.get(serial, {}))})")
 
     name_by_serial = {cam["serial"]: cam["name"] for cam in cameras}
-    print(f"{'시리얼':<14} {'현재 이름':<8} {'검출 보드':<9} {'판정 위치':<8} 득표")
+    print(f"{'시리얼':<14} {'현재 이름':<8} {'검출 보드':<9} {'판정 위치':<8} {'방향':<6} 득표")
     for serial, board_no in observed.items():
         new_name = BOARD_MAP[board_no][0] if board_no else "-"
+        verdict = flip_verdict.get(serial)
+        direction = "-" if verdict is None else ("뒤집힘" if verdict else "정상")
         tally = dict(votes[serial]) or "-"
         print(f"{serial:<14} {name_by_serial.get(serial, '?'):<8} "
-              f"{board_no if board_no else '-':<9} {new_name:<8} {tally}")
+              f"{board_no if board_no else '-':<9} {new_name:<8} {direction:<6} {tally}")
 
     os.makedirs(args.out, exist_ok=True)
     if errors:
@@ -276,7 +355,9 @@ def main(argv=None) -> int:
 
     with open(args.config, encoding="utf-8") as handle:
         roster_text = handle.read()
-    proposed = rewrite_roster_serials(roster_text, mapping)
+    flip_by_name = {name: bool(flip_verdict[serial]) for name, serial in mapping.items()}
+    proposed = rewrite_roster_flips(
+        rewrite_roster_serials(roster_text, mapping), flip_by_name)
     proposed_path = os.path.join(args.out, "camera_common.proposed.yaml")
     with open(proposed_path, "w", encoding="utf-8") as handle:
         handle.write(proposed)

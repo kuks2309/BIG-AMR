@@ -25,10 +25,13 @@
 | 함수 | 시그니처 | 용도 | 위치 |
 | --- | --- | --- | --- |
 | `detect_board_votes` | `detect_board_votes(gray) -> collections.Counter` | 한 프레임에서 마커 검출(DICT_5X5_1000) → `board_number_from_marker_id` 로 보드 번호 득표 집계(무소속 ID 0 은 버림) | register_cameras.py:44-55 |
-| `decide_board` | `decide_board(votes: Counter, min_votes: int) -> int \| None` | 카메라 1대의 누적 득표 → 보드 판정(최다 득표, 임계 미만·동률이면 None) | register_cameras.py:58-68 |
+| `detect_flip_votes` | `detect_flip_votes(gray) -> Counter` | 한 프레임의 마커 방향 득표(True=180° 뒤집힘) — 마커 코너 정준 순서의 위쪽 변 벡터 부호로 판정, 등록 대역 밖 ID 는 버림 | register_cameras.py:58-77 |
+| `decide_flip` | `decide_flip(votes: Counter, min_votes: int) -> bool \| None` | 카메라 1대의 방향 판정(임계 미만·동률 None) — 위치 확정 카메라의 None 은 오류(--apply 차단) | register_cameras.py:80-88 |
+| `decide_board` | `decide_board(votes: Counter, min_votes: int) -> int \| None` | 카메라 1대의 누적 득표 → 보드 판정(최다 득표, 임계 미만·동률이면 None) | register_cameras.py:91-101 |
 | `build_mapping` | `build_mapping(observed: dict[str, int \| None]) -> tuple[dict[str, str], list[str]]` | 시리얼→보드 관측 → (위치명→시리얼 매핑, 오류 목록[중복 보드·미검출·미배정 위치]) | register_cameras.py:71-95 |
 | `render_udev_rules` | `render_udev_rules(mapping: dict[str, str]) -> str` | 매핑 → udev 규칙 텍스트(`ATTRS{serial}`·`ATTR{index}=="0"` → `SYMLINK+="camera/<위치명>"`) | register_cameras.py:98-112 |
-| `rewrite_roster_serials` | `rewrite_roster_serials(yaml_text: str, mapping) -> str` | 로스터 yaml 의 `- name:`/`serial:` 줄만 표적 치환(주석·구조 보존) — yaml.dump 재직렬화 금지 | register_cameras.py:115-132 |
+| `rewrite_roster_serials` | `rewrite_roster_serials(yaml_text: str, mapping) -> str` | 로스터 yaml 의 `- name:`/`serial:` 줄만 표적 치환(주석·구조 보존) — yaml.dump 재직렬화 금지 | register_cameras.py:148-165 |
+| `rewrite_roster_flips` | `rewrite_roster_flips(yaml_text, flip_by_name: dict[str, bool]) -> str` | 카메라 블록의 `flip:` 줄을 판정값에 맞춤 — True 는 serial 다음 삽입, False 는 제거(부재=정상), 비대상 블록 불변·멱등 | register_cameras.py:168-192 |
 | `grab_frames_topics` | `grab_frames_topics(cameras, frames_per_cam, timeout_sec) -> dict[str, list]` | 기본 소스 — 구동 중인 퍼블리셔의 `<name>/image_raw/compressed` 구독, 카메라별 N프레임 수집(JPEG 디코드는 여기서만) | register_cameras.py:141-178 |
 | `discover_devices` | `discover_devices(by_id_prefix: str) -> list[str]` | `/dev/v4l/by-id/` 실스캔으로 **연결된 카메라의 시리얼을 직접 읽는다**(로스터 무의존 — 신품·교체 카메라도 등록 가능). 시리얼 = 개체 영속 키(향후 시리얼별 내부 캘리브레이션 파일 매칭 예정) | register_cameras.py:181-197 |
 | `grab_frames_devices` | `grab_frames_devices(serials, by_id_prefix, frames_per_cam) -> dict[str, Counter]` | `--source device` — 발견된 장치 직접 개방(usb-cam@ 활성 시 중단 안내, EBUSY 방지) | register_cameras.py:200-229 |
@@ -38,7 +41,7 @@
 
 | 파일 | 용도 | 위치 |
 | --- | --- | --- |
-| `test_register_cameras.py` | 순수 로직 검증 — 합성 보드 비트맵 검출 득표, 판정(임계·동률·미달), 매핑(정상 6대·중복 보드·미검출·누락 위치), udev 규칙 텍스트, 로스터 표적 치환(주석 보존·시리얼만 교체) | test_register_cameras.py:1 |
+| `test_register_cameras.py` | 순수 로직 검증 17개 — 합성 보드 비트맵 검출 득표, **방향 득표(정립/180° 회전)·판정·roster flip 치환(삽입·제거·멱등)**, 보드 판정(임계·동률·미달), 매핑(정상 6대·중복 보드·미검출·누락 위치), udev 규칙 텍스트, 로스터 표적 치환(주석 보존·시리얼만 교체) | test_register_cameras.py:1 |
 
 ## 토픽 표 (register_cameras.py — 소비만, 발행 없음)
 

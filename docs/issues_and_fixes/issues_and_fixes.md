@@ -45,6 +45,37 @@
 
 ---
 
+## 2026-09-04
+
+### [Fix] 전원 게이트된 thermal zone 에서 system_health reader 가 TypeError 로 죽음
+
+- **문제**: orin-nx-ford-test(L4T R36.4.7, CV 클러스터 미사용 기체)에서 system_health
+  테스트 29건 실패·sampler 판독 불가. cv0/cv1/cv2-thermal 존의 `temp` 노드 read 가
+  raw 단계에서 None 을 돌려줘 codecs 가 `TypeError: can't concat NoneType to bytes`.
+- **원인**: `system_health/sysfs.py:80` `_read_text` 의 관대 예외가 `(OSError,
+  UnicodeDecodeError)` 뿐 — 전원 게이트(power-gate)된 sysfs 노드의 TypeError 경로가
+  새어 나감. 설계 불변식("모든 reader 는 노드 부재에 관대")의 구멍.
+- **해결**: 예외 목록에 `TypeError` 추가 + docstring 에 실측 근거 1문단 (+9줄/-2줄).
+- **파일**: `src/Safety/system_health/system_health/sysfs.py`
+- **상태**: 완료 — 기준기 226 PASS·ford-test 226 PASS(29건 실패 해소) 양기체 검증.
+
+## 2026-09-02
+
+### [Fix] system_health GPU 사용률이 버스트 부하에서 0% 로 표시 (표본 에일리어싱)
+
+- **문제**: T3-1 에서 yolo 6캠 배치 추론으로 GPU 가 실제 일하는 중(20Hz 직접 표본 평균
+  40.5%, 90% 초과 22/60)인데 대시보드 GPU 타일·그래프가 대부분 0.0% 표시. 온도(+4°C)·
+  입력 전류(480→768mA)·클럭(306→510MHz) 상승과 모순되는 표시라 사용자 혼선.
+- **원인**: 부하 레지스터는 순간값인데 sampler 가 5초에 1회 한 번만 읽음 —
+  `system_health/sysfs.py`(수정 전 `read_gpu` 단발 `_read_int`). 배치 추론 부하는
+  0↔99% 를 초당 5~7회 오가는 사각파라 5초 순간 표본 대부분이 유휴 골에 떨어짐(에일리어싱).
+- **해결**: `read_gpu` 부하 읽기를 **1초 창 20표본 평균**으로 변경(상수
+  `_GPU_LOAD_SAMPLES`·`_GPU_LOAD_WINDOW_S` 신설). sampler 주기는 고정 격자라 표본
+  시각이 밀리지 않음(sampler.py:423-426 확인). 시그니처·스키마 불변.
+- **파일**: `src/Safety/system_health/system_health/sysfs.py`
+- **상태**: 완료 — 테스트 226 PASS, T3-1 실부하에서 42.2/38.9/44.0% 기록(직접 표본
+  40.5% 와 정합). T3-1 재시작 반영, 기준기 sampler 재시작은 sudo 대기.
+
 ## 2026-08-30
 
 ### [Fix] 카메라 systemd 래퍼의 `set -u` 가 ROS setup.bash 를 죽여 유닛 7개 크래시 루프
