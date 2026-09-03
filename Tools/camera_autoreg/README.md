@@ -53,6 +53,10 @@ python3 Tools/camera_autoreg/register_cameras.py --apply    # 로스터 백업 �
   `--source device` 로 by-id 장치를 직접 스캔·개방한다(신품·교체 카메라 등록 경로).
 - 판정: 카메라별 N프레임(기본 10)에서 마커 득표, 최다 보드(임계 3표·동률 불가).
   미검출·중복·누락이 하나라도 있으면 오류 목록을 내고 `--apply` 를 거부한다.
+- **장착 방향도 같은 프레임에서 판별한다** — 마커 코너의 정준 순서로 180° 뒤집힘을
+  득표 판정(보드를 바로 세워 둔다는 전제). 결과는 로스터 `flip: true` 필드로 반영되고,
+  뒤집기 보정은 소비자(cctv_webview CSS 회전·yolo_detector 디코드 직후 회전) 몫이다.
+  위치가 확정됐는데 방향이 불확정이면 오류로 `--apply` 를 거부한다.
 3. 산출물(`out/`):
    - `camera_common.proposed.yaml` — 제안 로스터(주석·구조 보존, serial 만 교체).
      `--apply` 시 원본을 `.bak-일시` 로 백업 후 갱신 → `camctl restart all` 로 반영.
