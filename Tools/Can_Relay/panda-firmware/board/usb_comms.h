@@ -405,7 +405,8 @@ int usb_cb_control_msg(USB_Setup_TypeDef *setup, uint8_t *resp) {
       break;
     case 0xe8:
       set_intercept_relay(setup->b.wValue.w != 0U);
-      seer_cover_until_us = microsecond_timer_get() + SEER_COVER_US;
+      seer_cover_start_us = microsecond_timer_get();
+      seer_cover_armed = true;
       break;
     case 0xe9:
       pc_authority = (setup->b.wValue.w != 0U);
@@ -416,15 +417,6 @@ int usb_cb_control_msg(USB_Setup_TypeDef *setup, uint8_t *resp) {
     //   개시 전제: 0xe9=1(PC 주도) + safety_mode 30. 구동축(node1·2)은 대상이 아니다.
     case 0xea:
       resp[0] = seer_homing_cmd((setup->b.wValue.w != 0U), setup->b.wIndex.w) ? 1U : 0U;
-      resp_len = 1;
-      break;
-    // **** 0xec: Seer 호밍 트리거 차단 on/off (CAN-Relay)
-    //   wValue: 1=차단, 0=허용(기본).  resp[0]: 적용된 값
-    //   차단 시 Seer 가 보내는 0x60FB.4(RstStart)·0x6098(method) write 를 drop 하고 가짜 ack.
-    //   제어권 반환 직후 Seer 재초기화로 조향축이 137° 왕복하는 것을 막는다.
-    case 0xec:
-      seer_block_homing = (setup->b.wValue.w != 0U);
-      resp[0] = seer_block_homing ? 1U : 0U;
       resp_len = 1;
       break;
     // **** 0xeb: 조향 호밍 상태 조회 (CAN-Relay)
