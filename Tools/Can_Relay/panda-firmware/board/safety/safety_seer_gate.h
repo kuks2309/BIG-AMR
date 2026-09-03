@@ -18,7 +18,6 @@ seer_resp_cache_t seer_cache[SEER_CACHE_N];
 uint8_t seer_guard_data[5][8];
 uint8_t seer_guard_len[5] = {0};
 uint8_t seer_guard_valid[5] = {0};
-uint8_t seer_guard_tgl[5] = {0};   // pc_authority 시 판다가 진행시키는 node guarding 토글(bit7)
 
 seer_resp_cache_t seer_frozen[SEER_CACHE_N];
 uint8_t seer_frozen_valid = 0U;
@@ -66,10 +65,6 @@ static void seer_freeze_snapshot(void) {
   for (int i = 0; i < SEER_CACHE_N; i++) {
     seer_frozen[i] = seer_cache[i];
   }
-  // node guarding 토글 위상을 모터 마지막값에서 이어받아 전환 순간 위상 점프를 막는다.
-  for (int gn = 1; gn <= 4; gn++) {
-    seer_guard_tgl[gn] = (uint8_t)(seer_guard_data[gn][0] & 0x80U);
-  }
   seer_frozen_valid = 1U;
 }
 
@@ -112,35 +107,6 @@ static void seer_fake_ack(int addr, CANPacket_t *req) {
   d[3] = req->data[3];
   d[4] = 0U; d[5] = 0U; d[6] = 0U; d[7] = 0U;
   seer_send_bus0((uint32_t)(0x580 + (addr - 0x600)), d, 8U);
-}
-
-// node guarding 응답을 Seer(bus0)로 보낸다. pc_authority 면 판다가 토글(bit7)을 스스로
-// 진행시켜 「살아있는 모터」를 emulate 하고, 그 외(cover 전환)면 캡처값 그대로 replay 한다.
-static void seer_guard_reply(uint8_t gn) {
-  if (seer_guard_valid[gn] == 0U) { return; }
-  if (pc_authority) {
-    seer_guard_tgl[gn] ^= 0x80U;
-    uint8_t g[8];
-    for (int i = 0; i < 8; i++) { g[i] = seer_guard_data[gn][i]; }
-    g[0] = (uint8_t)((seer_guard_data[gn][0] & 0x7FU) | seer_guard_tgl[gn]);
-    seer_send_bus0((uint32_t)(0x700 + gn), g, seer_guard_len[gn]);
-  } else {
-    seer_send_bus0((uint32_t)(0x700 + gn), seer_guard_data[gn], seer_guard_len[gn]);
-  }
-}
-
-// 판다가 Seer 의 bus0 폴에 「가짜 모터」로 응답한다(모터로 전달할지는 fwd_hook 이 별도 결정).
-static void seer_gate_emulate_bus0(int addr, CANPacket_t *req) {
-  if ((addr >= 0x601) && (addr <= 0x604) && (req->rtr == 0U)) {
-    if (req->data[0] == 0x40U) {
-      seer_cache_reply(addr, req);
-    } else {
-      seer_fake_ack(addr, req);
-    }
-  } else if ((addr >= 0x701) && (addr <= 0x704) && (req->rtr != 0U)) {
-    seer_guard_reply((uint8_t)(addr - 0x700));
-  } else {
-  }
 }
 
 static const addr_checks* seer_gate_init(uint16_t param) {
@@ -197,16 +163,25 @@ static int seer_gate_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
   }
   bool emulate = cover || pc_authority;
 
-  // pc_authority(제어권 획득) 시 bus0↔bus2 포워딩을 끊어 Seer↔모터를 완전 분리한다
-  // (Seer 대리응답은 유지). passthrough·전환커버(pc_authority=false)는 종전대로 브리지.
   if (bus_num == 0) {
-    if (emulate) {
-      seer_gate_emulate_bus0(addr, to_fwd);   // 판다가 가짜 모터로 Seer 에 응답
+    if (emulate && (addr >= 0x601) && (addr <= 0x604) && (to_fwd->rtr == 0U)) {
+      uint8_t cmd = to_fwd->data[0];
+      if (cmd == 0x40U) {
+        seer_cache_reply(addr, to_fwd);
+        bus_fwd = 2;
+      } else {
+        seer_fake_ack(addr, to_fwd);
+        bus_fwd = -1;
+      }
+    } else if (emulate && (addr >= 0x701) && (addr <= 0x704) && (to_fwd->rtr != 0U)) {
+      uint8_t gn = (uint8_t)(addr - 0x700);
+      if (seer_guard_valid[gn] != 0U) {
+        seer_send_bus0((uint32_t)(0x700 + gn), seer_guard_data[gn], seer_guard_len[gn]);
+      }
+      bus_fwd = 2;
+    } else {
+      bus_fwd = 2;
     }
-    // 전달 결정: 완전분리(pc_authority)면 bus2 로 안 보냄. Seer 쓰기는 emulate 중 항상 drop(모터 보호).
-    bool seer_write = emulate && (addr >= 0x601) && (addr <= 0x604) &&
-                      (to_fwd->rtr == 0U) && (to_fwd->data[0] != 0x40U);
-    bus_fwd = (seer_write || pc_authority) ? -1 : 2;
   } else if (bus_num == 2) {
     if ((addr >= 0x600) && (addr <= 0x604)) {
       bus_fwd = -1;
@@ -214,7 +189,7 @@ static int seer_gate_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
                            ((addr >= 0x701) && (addr <= 0x704)))) {
       bus_fwd = -1;
     } else {
-      bus_fwd = pc_authority ? -1 : 0;
+      bus_fwd = 0;
     }
   } else {
     bus_fwd = -1;

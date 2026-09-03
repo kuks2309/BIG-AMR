@@ -135,25 +135,6 @@
 
 ---
 
-## 2026-09-03 — Seer 가짜모터 emulator 분리 + node guarding 토글 자체 생성
-
-**무엇을**: `seer_gate_fwd_hook` 에 뒤엉켜 있던 Seer emulate 를 별도 함수 `seer_gate_emulate_bus0()`
-(읽기→`seer_cache_reply` · 쓰기→`seer_fake_ack` · guard RTR→`seer_guard_reply`)로 분리하고,
-`seer_guard_reply()` + 전역 `seer_guard_tgl[5]` 를 신설해 **pc_authority 시 판다가 node guarding
-토글(bit7)을 스스로 진행**시키도록 했다. `seer_freeze_snapshot()` 은 engage 시 토글 위상을 모터
-마지막값에서 이어받는다. fwd_hook bus0 분기는 「emulate 면 emulator 호출 + 전달결정」만 남겼다.
-
-**왜**: 완전분리(전달 차단) 시 기존 **정적 guard replay 는 토글이 정지**해 Seer node guarding 이
-실패→단절→재호밍(engage 시 조향 스윙)했다. 2026-09-02 bus0 단독(모터 없이) emulate 실험이
-「판다가 가짜 모터를 내면 Seer 가 붙어 있다」를 검증했고 그것을 펌웨어로 옮긴 것이다.
-guard 형식(상태 `0x7F`, 토글 `0x7F`↔`0xFF`)은 실측 캡처 그대로 — 발명 아님.
-
-**동작 보존**: passthrough · cover(전환) 는 종전과 동일. pc_authority 만 guard 토글이 정지→진행으로 바뀐다.
-**신설 함수** `seer_guard_reply(uint8_t gn)` · `seer_gate_emulate_bus0(int addr, CANPacket_t *req)` ·
-**신설 전역** `seer_guard_tgl[5]`. 근거·Rollback: `docs/adr/2026-09-03-seer-motor-emulator.md` · debt-127.
-
----
-
 ## 2026-08-03 — WAIT 에 「이미 홈」 종료 조건 추가 (무해 실증, **필요성 미확인**)
 
 ### 변경 내용
