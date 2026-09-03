@@ -7,8 +7,8 @@
 > v2 는 CN4 역할을 IMU 로 정정하고, 확정 기록 대비 정합 검증과 IMU 후속 확인 3건을 추가했다.
 > 치명 결함 판정(커넥터 라벨 3건)은 변동 없음.
 
-> 대상: [CAN RELAY R02.pdf, page 1](../../Tools/Can_Relay/R02/CAN%20RELAY%20R02.pdf) (A3 1장, 표제란 날짜 2026-08-24)
-> 비교 기준: [CAN RELAY R01.pdf, page 1](../../Tools/Can_Relay/R01/CAN%20RELAY%20R01.pdf) (2026-07-27) ·
+> 대상: [CAN RELAY R02.pdf, page 1](../../CAN%20RELAY%20R02.pdf) (A3 1장, 표제란 날짜 2026-08-24)
+> 비교 기준: [CAN RELAY R01.pdf, page 1](../../CAN%20RELAY%20R01.pdf) (2026-07-27) ·
 > **R02 배선 확정 기록**(2026-08-23, [fw_backups/README-2026-08-23.md](../../Tools/Can_Relay/fw_backups/README-2026-08-23.md) L75-87
 > — Seer=CN2/CAN1/bus0/PB8·9, 모터=CN3/CAN3/bus2/PA8·15, **IMU=CN4(+5V)/CAN2/bus1/PB5·6**) ·
 > R01 실기 분석(2026-08-23 engage 실패 → 근본 원인 = 커넥터 용도 배정 오류 + bus2 트랜시버 미실장)

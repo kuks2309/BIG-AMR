@@ -12,17 +12,20 @@
 | `trnav_2ws_action_server` / **turn · turn_reverse 한정** | [src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/function_table.md](../../src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/function_table.md) | 6 | **부분** — turn · turn_reverse 만 | 2026-08-09 |
 | `seer_pose_publisher` (Seer→/robot_pose) | [src/Navigation/seer_pose_publisher/docs/function_table.md](../../src/Navigation/seer_pose_publisher/docs/function_table.md) | 8 (+이너 0) | 전수 | 2026-08-06 |
 | `mcl2d_core` | [src/Navigation/mcl2d_core/docs/function_table.md](../../src/Navigation/mcl2d_core/docs/function_table.md) | — | (별도 세션 작성) | — |
-| `mcl2d_ros2` (측위 ROS2 어댑터) | [src/Navigation/mcl2d_ros2/docs/code_review/mcl2d-ros2/2026-08-16.md](../../src/Navigation/mcl2d_ros2/docs/code_review/mcl2d-ros2/2026-08-16.md) | 16 (+멤버변수표) | 전수 | 2026-08-16 |
+| `mcl2d_ros2` (측위 ROS2 어댑터) | [src/Navigation/mcl2d_ros2/docs/code_review/mcl2d-ros2/2026-08-16.md](../../src/Navigation/mcl2d_ros2/docs/code_review/mcl2d-ros2/2026-08-16.md) | 23 (+멤버변수표) | 전수 | 2026-08-17 |
+| `seer_odom_core` (Seer OdoCalculator 재구현) | [src/Navigation/seer_odom_core/docs/function_table.md](../../src/Navigation/seer_odom_core/docs/function_table.md) | 8 (+멤버변수표·이탈표) | 전수 | 2026-08-23 |
+| `odom_imu_ekf` (오도·IMU 융합 EKF) | [src/Navigation/odom_imu_ekf/docs/function_table.md](../../src/Navigation/odom_imu_ekf/docs/function_table.md) | 9 (+멤버변수표) | 전수 | 2026-08-17 |
 | `line_vision` (YOLOv8-seg 라인 인식) | [src/AI/line_vision/docs/code_review/ai-line-vision/2026-08-13.md](../../src/AI/line_vision/docs/code_review/ai-line-vision/2026-08-13.md) | 17 (+dataclass 1·상수 8) | 전수 | 2026-08-13 |
 | `trnav_2ws_action_server` / **line_follow 한정** | [src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md](../../src/Control/Motion_Control/2WS/trnav_2ws_action_server/docs/code_review/line-follow/2026-08-14.md) | 13 (+struct 2·enum 1·클래스 2) | **부분** — line_follow 만 | 2026-08-14 |
-| `wall_localizer_core` (벽 3면 정밀 측위 코어) | [src/Navigation/wall_localizer_core/docs/code_review/wall-localizer/2026-08-19.md](../../src/Navigation/wall_localizer_core/docs/code_review/wall-localizer/2026-08-19.md) | 14 (+struct 10·내부 4) | 전수 | 2026-08-19 |
-| `wall_localizer_ros2` (벽 측위 ROS2 어댑터) | [src/Navigation/wall_localizer_ros2/docs/code_review/wall-localizer/2026-08-19.md](../../src/Navigation/wall_localizer_ros2/docs/code_review/wall-localizer/2026-08-19.md) | 7 | 전수 | 2026-08-19 |
-| `trnav_2ws_dock_control` (LGIT 도킹 코어 이식 W1) | [src/Control/Motion_Control/2WS/trnav_2ws_dock_control/docs/function_table.md](../../src/Control/Motion_Control/2WS/trnav_2ws_dock_control/docs/function_table.md) | 20+어댑터(IK 6·관측 1) (+struct 10) | 전수 | 2026-08-23 |
 | `telegram_notifier` (CAN 경보 텔레그램 통보) | [src/Safety/telegram_notifier/docs/code_review/telegram-notifier/2026-08-23.md](../../src/Safety/telegram_notifier/docs/code_review/telegram-notifier/2026-08-23.md) | 13 (+헬퍼 5·상수 5) | 전수 | 2026-08-23 |
 | `camera_manager` (카메라 관리 모드 — 감시·자동 복구·camctl) | [src/Sensors/Camera/USB/camera_manager/docs/function_table.md](../../src/Sensors/Camera/USB/camera_manager/docs/function_table.md) | 25 (+dataclass 4·상수 5) | 전수 | 2026-08-30 |
 | `camera_service` (카메라 systemd 배포 계층) | [Tools/camera_service/docs/function_table.md](../../Tools/camera_service/docs/function_table.md) | 8 (+스크립트·유닛 9) | 전수 | 2026-08-30 |
 | `camera_autoreg` (카메라 자동 등록 — 보드 생성·인식·규칙) | [Tools/camera_autoreg/docs/function_table.md](../../Tools/camera_autoreg/docs/function_table.md) | 15 (+상수 6) | 전수 | 2026-08-31 |
-| `Can_Relay` / **flash_new_board.py 한정** (신규 공장/DFU 보드 플래시) | [Tools/Can_Relay/docs/function_table.md](../../Tools/Can_Relay/docs/function_table.md) | 5 (+전역 3) | **부분** — flash_new_board.py 만 | 2026-09-01 |
+| `pc_setup` (Orin 개발 PC 셋업 + USB 킷 제작) | [Tools/pc_setup/docs/function_table.md](../../Tools/pc_setup/docs/function_table.md) (게이트 인식본: [docs/code_review/pc-setup/2026-08-24.md](../code_review/pc-setup/2026-08-24.md)) | 12 (+본문 5) — 스크립트 2본 | 전수 | 2026-08-24 |
+| `wall_localizer_core` (벽 3면 정밀 측위 코어) | [src/Navigation/wall_localizer_core/docs/code_review/wall-localizer/2026-08-19.md](../../src/Navigation/wall_localizer_core/docs/code_review/wall-localizer/2026-08-19.md) | 14 (+struct 10·내부 4) | 전수 | 2026-08-19 |
+| `wall_localizer_ros2` (벽 측위 ROS2 어댑터) | [src/Navigation/wall_localizer_ros2/docs/code_review/wall-localizer/2026-08-19.md](../../src/Navigation/wall_localizer_ros2/docs/code_review/wall-localizer/2026-08-19.md) | 7 | 전수 | 2026-08-19 |
+| `pgv_driver`·`pgv_interfaces` (P+F PGV 읽기 헤드) | [src/Sensors/Positioning/pgv_ros2/pgv_driver/docs/function_table.md](../../src/Sensors/Positioning/pgv_ros2/pgv_driver/docs/function_table.md) | 16 (+상수 5·파라미터 7·인터페이스 3) | 전수 | 2026-08-24 |
+| `trnav_2ws_dock_control` (LGIT 도킹 코어 이식 W1+W2) | [src/Control/Motion_Control/2WS/trnav_2ws_dock_control/docs/function_table.md](../../src/Control/Motion_Control/2WS/trnav_2ws_dock_control/docs/function_table.md) | 20+어댑터(IK 6·관측 1) (+struct 10) | 전수 | 2026-08-23 |
 
 ## ⚠ 미등재 — inventory-gate 가 빈 통과하는 범위
 

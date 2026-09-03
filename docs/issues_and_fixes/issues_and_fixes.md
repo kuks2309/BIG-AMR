@@ -7,7 +7,7 @@
 > - 조향 0° = **`[7871815, 7840086]`** — ⚠ **Seer 좌표계 기준**이며 **물리적 직진은 미확인**이다.
 > - **`7882020 / 7859062` 는 0° 가 아니다** — 「**호밍 후 정착값**」이며 0° 에서
 >   **+0.178° / +0.331°** 벗어나 있다. 호밍 10회 실측 정착값은 node3 **7,882,021**(σ≈2.8c) ·
->   node4 **7,859,065**(σ≈3.2c) 로 σ≈3 counts 에 재현된다 ⇒ 펌웨어 상수 `SEER_HOME_ZERO_N3/N4` 에 재현성 있게 정착하는 동작이다(상수 적정성은 별건 — **debt-016**). 「**설계 동작·결함 아님**」 단정은 **[E7](2026-08-03 17:00) 재정정으로 철회**됨.
+>   node4 **7,859,065**(σ≈3.2c) 로 σ≈3 counts 에 재현된다 ⇒ **결함이 아니라 설계 동작**이다.
 > - `counts/°` = **57,344**(지령각→CAN 기울기 실측 1.000000) · `0x6098` 호밍 방식 = **1**(−리밋) ·
 >   리밋 스위치 **실재** · 호밍 성공률 **10/10**, 소요 **35.0 s**.
 >
@@ -44,68 +44,6 @@
 >   (node3 +10,204 c / node4 +18,975 c @ 57,344 c/°)이다. 「0° 에 정확히 놓지 않는다」는 결론은 불변.
 
 ---
-
-## 2026-09-02
-
-### [Fix] system_health GPU 사용률이 버스트 부하에서 0% 로 표시 (표본 에일리어싱)
-
-- **문제**: T3-1 에서 yolo 6캠 배치 추론으로 GPU 가 실제 일하는 중(20Hz 직접 표본 평균
-  40.5%, 90% 초과 22/60)인데 대시보드 GPU 타일·그래프가 대부분 0.0% 표시. 온도(+4°C)·
-  입력 전류(480→768mA)·클럭(306→510MHz) 상승과 모순되는 표시라 사용자 혼선.
-- **원인**: 부하 레지스터는 순간값인데 sampler 가 5초에 1회 한 번만 읽음 —
-  `system_health/sysfs.py:519`(수정 전 `read_gpu` 단발 `_read_int`). 배치 추론 부하는
-  0↔99% 를 초당 5~7회 오가는 사각파라 5초 순간 표본 대부분이 유휴 골에 떨어짐(에일리어싱).
-- **해결**: `read_gpu` 부하 읽기를 **1초 창 20표본 평균**으로 변경(상수
-  `_GPU_LOAD_SAMPLES`·`_GPU_LOAD_WINDOW_S` 신설, +14줄/-3줄). sampler 주기는 고정
-  격자(기준선+n×interval)라 수집 1초 소요가 표본 시각을 밀지 않음(sampler.py:423-426 확인).
-  freq/max_freq 읽기는 불변. 시그니처·스키마 불변(trivial fast-path).
-- **파일**: `src/Safety/system_health/system_health/sysfs.py`
-- **상태**: 완료 — 테스트 226 전부 PASS(45.1s), 로컬 실호출 0.96s 소요 확인. T3-1 배포·
-  sampler 재시작 후 실부하에서 42.2/38.9/44.0% 기록 확인(직접 표본 40.5% 와 정합).
-  Big-AMR 로컬 sampler 재시작은 sudo 필요로 보류(사용자: `sudo systemctl restart
-  amr-health-sampler`).
-
-### [진단] amr_test_gui engage 후 조향 137°+Seer 52106/52111 — 원인은 "intercept 중 구동"(heartbeat/바운스 아님)
-
-- **문제**: amr_test_gui 로 engage(제어권 획득) 후 조향 137° 물리 스윙 + Seer `52106`(odo data
-  lost)·`52111`(motor driver connection/timeout)·`54301`(calibrating). 초기엔 "heartbeat 버그"로 의심.
-- **원인 (재현+코드 근거로 확정)**: heartbeat/fail-safe·전환 바운스 **아님**(아래 재현으로 배제).
-  실제 원인 = **intercept 중 실제 구동(drive)**. 전환 커버는 `pc_authority` 중 Seer 가 읽는 모터 motion
-  객체를 **engage 시점 동결값으로 응답**한다 — `board/safety/safety_seer_gate.h:64-69`
-  (`seer_freeze_snapshot`, pc_authority 상승에지에 동결)·`:71-74`(동결 대상 `0x6064`위치·`0x606C`속도·
-  `0x6078`전류·`0x6041`statusword)·`:88-96`(pc_authority 중 이 객체 읽기에 동결값 응답). ⇒ **정차·호밍은
-  동결값이 현실과 안 어긋나 클린이지만, 구동하면 실제 위치·속도가 변하는데 Seer 는 동결(정지)값을 봐**
-  모터-오도가 Seer 레이저-localization(실이동)과 불일치 → `52106`/`52111`.
-- **재현 (2026-09-02 실기, 정차·E-STOP·3m 여유)**:
-  - 정적 hold(`orin_hold_intercept`)·펌웨어 호밍(`orin_homing_run` 0xea) = **Seer 알람 0 (클린)**.
-  - char(heartbeat+읽기·무구동·12s) = safety_mode 30 유지·heartbeat_lost 0·**fail-safe 0** → heartbeat 가설 **반증**.
-  - 전진 30mm/s×1.5s(≈5mm, `docking_drive.DockingDriver` 재사용) = t≈4s에 **52106+52111 발현**,
-    release 후 **즉시 소멸(transient)**. Seer localization dist 3.7→5.1mm(레이저는 이동 추적).
-- ⚠ **실용상 결함 아님**: 알람은 **transient(자동 소멸)** 이고, intercept-drive 로 **도킹은 지금까지
-  문제없이 사용**돼 왔다. 동결-커버 방식의 알려진 특성이며 "고칠 버그"가 아니다.
-- **파일**: 코드 무변경(원인 규명). 근거 `Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h:64-74,88-96`.
-  재현 도구 `Tools/docking_field_kit/{orin_hold_intercept,orin_homing_run,docking_drive}.py`.
-- **상태**: 완료 (원인 규명·재현·코드 근거 확정, 수정 불요).
-
-### [Fix] can_relay systemd 유닛이 ROS 언더레이 미source 로 기동 실패 (`ros2: not found`)
-
-- **문제**: `amr-can-relay`·`amr-can-relay-supervisor` 두 유닛이 부팅 이래 기동 실패 —
-  `/bin/bash: line 1: exec: ros2: not found`(status 127) 반복 후 StartLimitBurst 초과로 failed.
-  ⚠ `systemctl is-active` 가 auto-restart 순간엔 `active` 로 보여 오인하기 쉽다(실제 MainPID=0·failed).
-- **원인**: 유닛 템플릿 ExecStart 가 워크스페이스 오버레이(`install/setup.bash`)만 source 하고
-  **ROS 언더레이(`/opt/ros/humble/setup.bash`)를 안 걸었다** — 오버레이만으로는 `ros2` CLI 가 PATH 에
-  없다. 대화형 셸에선 `~/.bashrc:124` 가 언더레이를 걸어 가려졌으나, systemd 의 `bash -lc` 는
-  **비대화형**이라 `.bashrc` 가 `case $- in *i*) ;; *) return` 로 조기 return → 언더레이 미적용.
-  ⚠ 진단 중 **오염된 셸(이미 ROS source 됨)로 "재기동하면 된다"고 오판 1회** — clean-env(`env -i`)
-  재현으로 정정(A: 오버레이만 NOT_FOUND / B: 언더레이+오버레이 FOUND).
-- **해결**: `Big-AMR-deploy` 템플릿 `systemd/amr-can-relay*.service` 두 ExecStart 에
-  `source /opt/ros/humble/setup.bash &&` 선행 추가 → `install_service.sh --apply` 재설치.
-- **검증(실기, 2026-09-02 12:18)**: 두 유닛 active/running·MainPID≠0·NRestarts 0·`can_relay_node`
-  (pid 56594) 실기동·machine config(foil_a082) 로드·`can_relay 대기 — 제어권 미획득`(idle, engage 안 함).
-  `ros2 not found` 소멸.
-- **잔여**: 이 수정은 **배포 repo 로컬 템플릿** — 정본 origin/main 템플릿에도 반영해야 redeploy 시 유실
-  안 된다. can_relay 05c77ed(USB 링크 안전수정)는 이 기동으로 런타임 반영됐고, 롤백 경로(심박
-  실패→passthrough) 실기 검증은 별건으로 열려 있음.
 
 ## 2026-08-30
 
@@ -159,6 +97,254 @@
 - **상태**: 완료 — 빌드 통과. 실행 검증 2종: params 없이 실행 시
   `rclcpp::exceptions::ParameterUninitializedException`(`parameter 'wheel_radius_m' is not initialized`)
   으로 즉시 종료, params 파일과 함께 실행 시 정상 기동.
+
+### [Fix] GUI 바퀴 그림 좌우 반전 — LGIT 포크의 수정을 정본에 역이식
+
+- **증상**(정본에 실재): `+θ`(좌) 지령이 바퀴 그림에서 화면 오른쪽으로 그려짐 — 값·모션은
+  정상이라 화면만 조용히 거울이 된다. LGIT 포크가 2026-08-12 실기(pose 실측)로 잡아 고친
+  결함이 정본에는 남아 있었다(이식 중 포크 시험이 드러냄).
+- **수정**: 포크의 `wheel_axis()`(기체 `+θ=좌` → 화면 `(−sinθ,−cosθ)`) 를 정본 `app.py` 에
+  역이식, `_draw_wheel` 이 그것을 쓰도록 교체. 화면 규약 시험(`test_wheel_view.py`,
+  기체 무관 순수부)을 정본에 채택 — 기체 실측 앵커부는 포크 소관.
+- **검증**: 정본 512 passed · lgit 표적 282 passed(실측 앵커 포함).
+
+
+### [Fix] `home_and_zero` 잔여 결함 5건 (debt-084) + SIL 에 참여자 재생성 상시 회귀 (debt-087 축소)
+
+- **debt-084 상환 5건**: ① `elapsed()` ROS 시계 → `monotonic`(신선도와 동일 축 —
+  `use_sim_time`+`/clock` 부재 시 무한 대기 제거) ② `target_node`·`steer_nodes`
+  파라미터화(하드코딩 제거, `main()` 한 곳 주입) ③ 0° 지령 `RESEND_PERIOD_S`(1 s)
+  멱등 재발행 + 진단 `steer_target_deg` 대조로 시한 초과를 「미수용」(코드 5)과
+  「미도달」(3)로 분리 ④ `validate_params`(tol∈(0,5]·timeout∈(0,300], 위반 시 코드 6,
+  호밍 요청 전 차단) ⑤ `confirm:=true` 게이트(부재 시 코드 7, 아무 것도 요청 안 함).
+  시험 20종(신규 4) 통과 · 패키지 491 passed.
+- **debt-087 축소**: SIL 실험 11(장기 두절 → 참여자 재생성 → 승계 복귀) 추가 —
+  재생성 반복·감시자 생존·Traceback 부재·승계 복귀를 상시 회귀로 고정. 돌연변이
+  검사(재생성 비활성 → FAIL) 확인. 전체 11/11 PASS ×2.
+- **registry ID 위생**: 완전중복 4건(027~030)을 별칭 스텁으로 전환(외부 인용 보전),
+  022 구본 사본 1행 병합, CSM 충돌 2건 개번(034→088·035→089, 코드 참조 없음 전수 확인),
+  채번 규약 + 「다음 채번」 카운터 신설.
+
+
+### [Fix] systemd 드라이버 유닛 — 노드 크래시에 `Restart=on-failure` 가 발동하지 않음
+
+- **증상**(실장비, 유닛 설치 후 첫 kill 시험): 드라이버 노드를 `kill -9` 하자 유닛이
+  재기동 없이 `inactive` 로 종료. 감시자는 DEAD 를 정확히 판정했지만 되살릴 대상이
+  영영 오지 않는다.
+- **원인**: 노드가 죽으면 `ros2 launch` 가 required-프로세스 종료를 **정상 셧다운**으로
+  처리해 exit 0 으로 내려간다 — systemd 눈에 실패가 아니므로 `on-failure` 는 영영
+  발동하지 않는다. 크래시 소생이라는 유닛의 존재 이유가 정확히 그 크래시에서 무력했다.
+- **수정**: 드라이버 유닛 `Restart=on-failure` → `Restart=always`. `systemctl stop` 은
+  `always` 에서도 재기동을 만들지 않으므로 수동 정지와 충돌하지 않고, crash-loop 는
+  기존 `StartLimitIntervalSec=120`/`StartLimitBurst=3` 이 그대로 차단한다.
+- 같은 시험에서 확인된 정상 동작: 감시자 유닛의 오버레이 소싱·`/run/can_relay`
+  RuntimeDirectory 기록·DEAD 판정·15 s 참여자 재생성은 systemd 아래에서 설계대로.
+  검증 기록은 실험 완료 후 verified_facts 에 통합 기재.
+
+
+### [Fix] `relay_supervisor` — 대상 동결 후 감시자가 영구 무수신(ZOMBIE 고착) → DDS 참여자 재생성
+
+- **증상**: 대상 노드를 60 s+ 동결(SIGSTOP) 후 재개하면 진단 발행은 정상 재개되는데
+  감시자는 두절 카운터만 계속 키우며 ZOMBIE 에 고착. 이후 어떤 상태 변화도 못 본다.
+- **진단**(실기 판별 실험): 신규 구독자·신규 발행자와는 즉시 통신되므로 수신 경로는
+  정상 — 동결됐던 상대와의 **참여자(participant) 세션만 사망**. 엔드포인트 재구독은
+  무효(같은 참여자 안 신규 구독도 무수신, 291 s 관측).
+- **수정**: 두절이 `recycle_after_s`(15 s) 를 넘으면 `main()` 재구축 루프가 컨텍스트·노드를
+  허물고 다시 만든다. 감시 상태(`prev`·`was_down`·stamps·`_last_diag`·판정)는
+  `export_carry` 로 승계 — 승계가 없으면 재구축 순간 「한 번도 못 받음」(WAIT)이 되어
+  대상이 정말 죽은 경우 복귀가 영영 걸리지 않는다.
+- **1차 구현 결함**: 이월 코드가 `_last_saved` 초기화 전에 접근해 AttributeError 사망,
+  launch respawn 이 가려 「성공」처럼 보였다 — 단위·SIL 전건 통과 상태에서 실기 재현만이
+  드러냈다(debt-087 의 재확인 사례). 초기화 순서 정정 + carry 왕복 배선 시험 추가.
+- **검증**: 실기 65 s 동결 재현 — 재생성 4회 동안 두절 시계 연속(승계 정상), ZOMBIE
+  45.4 s 정확 판정, SIGCONT +1.6 s 자가 회복(ZOMBIE → RUNNING). 단위 487 · SIL 10/10.
+  기록: `docs/verified_facts/2026-08-16-can-relay-zombie-freeze-field.md`
+
+
+### [Fix] SIL 하니스 — 실험 4 의 두절 대기가 누적 로그에 걸려 kill 이 감시자를 앞지른다
+
+- **문제**: 실험 4(crash-loop 차단)가 간헐 실패. 4번의 kill 이 ~7초 만에 끝나는데 감시자는
+  복귀를 2회밖에 시도하지 못해(한도 3 미달) 판정이 영원히 안 뜬다.
+- **원인**: `wait_outage_seen` 이 누적 로그에서 `DEAD|ZOMBIE` **존재**를 검사 — 1주기째의
+  기록이 남아 있어 2~4주기째는 기다리지 않고 즉시 참. kill 루프가 감시자의
+  감지→재기동→복귀 주기와 동기화되지 않았다. 이 결함은 `"DEAD" in log` 시절부터 있었고,
+  이전 통과들은 복귀가 빨라 우연히 시도 3회를 채운 것이다.
+- **해결**: 존재 검사 → **횟수 증가** 검사(`outage_count()` + `baseline` 인자). 실험 4는
+  주기마다 「두절 +1 → 재기동 → 복귀 지시 +1」을 확인한 뒤 다음 kill 로 — 시도가
+  결정론적으로 쌓인다. 단일 kill 사용처(실험 1·3·5·7·9·10)는 기준선 0이 옳음을 확인.
+- **파일**: `Tools/can_relay_sil/sil_health.py`
+- **상태**: 완료 — SIL 10/10 PASS. 덧붙여 이 실패 로그는 무응답 시한 수정이 실전 조건에서
+  작동함을 보여 줬다(kill 이 호출 도중 떨어져 「무응답 5s — 포기하고 재시도」 자연 발생)
+
+### [Fix] `relay_supervisor` — 재기동 직후 latched E-stop 도착 전에 자동 복귀가 나간다
+
+- **문제**: E-stop 이 인가된 채(발행자 상주) 드라이버를 재기동하면 감시자가 **E-stop 인가
+  중에 제어권을 자동으로 되찾는다.** SIL 실험 5 실기 로그: `ZOMBIE → RESTORE → 복귀 완료`
+  가 estop 발행 중에 발생. 이전 통과들은 estop 재전달이 첫 진단보다 우연히 빨랐던 것.
+- **원인**: E-stop 토픽은 latched(TRANSIENT_LOCAL)라 재기동한 노드에 재전달되지만 **DDS
+  재전달이 첫 진단 발행보다 늦을 수 있다.** 감시자는 첫 진단 하나(estop=False)만 보고
+  `RESTORE` 를 허가했다 — `decide()` 에 「이 진단이 완전한가」를 묻는 장치가 없었다.
+- **해결**: `restore_settle_s`(기본 3 s) 안정화 창 — 두절 후 진단이 다시 흐르기 시작한 지
+  이 시간이 지나야 `RESTORE` 허가. 검사는 `RESTORE` 직전에만 둔다(차단 게이트는 안정화
+  전에도 동작 — 막는 쪽은 항상 안전하다). `cur_settle_s=None`(모름)은 미충족으로 취급.
+- **파일**: `can_relay/health.py` · `can_relay/supervisor.py` · `test/test_supervisor.py` ·
+  `Tools/can_relay_sil/sil_health.py`
+- **상태**: 완료 — 단위 49 passed(안정화 경계 3점 + 차단 게이트 무대기 확인), SIL 재실행
+
+### [Fix] `relay_supervisor` — 버린 복귀 호출의 늦은 콜백이 새 호출의 시한 기준을 지운다
+
+- **문제**: 시한 초과로 버린 future 의 done 콜백이 **새 호출의 송신 시각을 지울 수 있다**
+  — 그러면 새 호출도 무응답일 때 시한 판정이 다시는 서지 않아, 어제 닫은 영구 차단이
+  다른 문으로 되살아난다. 늦은 응답이 도착하면 「복귀 완료」 이중 처리도 가능.
+- **원인**: `_on_restore_done` 첫 줄이 무조건 `self._pending_since = None`. rclpy 는
+  executor 가 붙은 future 의 콜백을 태스크로 미룰 수 있어, 구 future 의 콜백이 새 호출
+  생성 **후에** 돌 수 있다(현재 humble 에서 인라인으로 도는 것은 구현 우연).
+- **해결**: 콜백 첫 줄에 신원 검사 — `future is not self._pending: return`. 어느 실행
+  순서에서도 버린 호출이 현재 호출의 상태를 건드리지 못한다. 곁들여, 복귀 완료 시
+  「조향 대조」 로그가 `self._cur = None` **직후에 그 값을 읽어 항상 None** 을 찍던 죽은
+  로직을 제거하고 기록된 목표만 남기게 했다.
+- **파일**: `can_relay/supervisor.py`
+- **상태**: 완료 — 경합 자체는 타이밍 의존이라 SIL 로 강제 재현 불가, 코드 검사로 확정
+
+### [Fix] `relay_supervisor` — 무응답 복귀 호출이 이후 복귀를 영구 차단
+
+- **문제**: 감시자가 `~/engage` 를 부른 뒤 응답이 오지 않으면 **그 이후 모든 복귀가
+  조용히 차단**된다. 감시자의 존재 이유가 복귀인데 기능이 0이 된다. 발생 조건이
+  현실적이다 — crash-loop 이 정확히 「복귀 직후 다시 죽는」 상황이다.
+- **원인**: `supervisor.py` `_restore()` 의 중복 방지 가드가
+  `self._pending.done()` 만 본다. `rclpy` 의 `call_async` future 는 **응답이 와야만**
+  완료되고 **자체 시한이 없다**(`rclpy/client.py` `call_async` 소스 확인 — future 를
+  만들어 `_pending_requests` 에 넣고 반환할 뿐, `Future` 에 시한 멤버 없음).
+  대상이 죽으면 `done()` 이 영원히 False 라 가드가 영구히 막는다.
+- **해결**: 판정을 순수 모듈로 분리해 `health.py` 에 `restore_call_expired()` 신설
+  (`restore_call_timeout_s`, 기본 10 s). `supervisor.py` 는 호출 시각을 기록하고
+  시한 초과 시 future 를 **버리고 재시도**한다. 취소된 future 의 done 콜백은 무시한다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/health.py` · `can_relay/supervisor.py` ·
+  `test/test_supervisor.py` · `Tools/can_relay_sil/sil_health.py` ·
+  `Tools/can_relay_sil/deaf_engage.py`(신규)
+- **상태**: 완료 — 3층 검증. 원인 확증(rclpy 소스) · 순수 함수 돌연변이 검출(1 failed) ·
+  **실물 경로 돌연변이 검출**(수정 제거 시 SIL 실험 10 FAIL, 수정본 PASS)
+
+> ⚠ **시험을 세 번 다시 만들었다.** 1차는 「복귀 지시 로그 직후 kill」이었는데 그 시점엔
+> 응답이 이미 도착해 있어(실기 engage 응답 ~7 ms) **수정을 빼도 통과하는 거짓 확신**이었다.
+> 2차는 스텁과 실드라이버가 같은 서비스명을 광고해 실드라이버가 8 ms 에 응답, **재현
+> 조건이 형성되지 않았다.** 3차에서 감시자의 `target_node` 를 스텁 전용 이름으로 돌려
+> 서비스명을 독점하게 하고서야 성립했다. **「시험이 통과했다」는 「기능이 동작한다」가
+> 아니다** — 돌연변이로 시험 자체를 검증하기 전에는 판단을 미룰 것.
+
+### [Fix] SIL 하니스 — 실패한 실험의 로그가 지워져 낡은 디렉토리를 오독
+
+- **문제**: `--keep` 없이 돌린 실험이 실패하면 임시 디렉토리가 삭제된다. 진단하려고
+  `ls -dt /tmp/sil-eN-* | head -1` 하면 **이전 실행분**이 잡히고, 그 로그가 그럴듯해
+  잘못된 결론으로 이어진다. 같은 세션에서 3회 발생했다.
+- **원인**: `main()` 이 `ctx.cleanup()` 을 무조건 부르고, 보존은 `--keep` 플래그에만 의존.
+- **해결**: 실험이 실패하면 `--keep` 여부와 무관하게 `ctx.keep_logs()` 로 보존하고
+  경로를 항상 출력한다(3줄).
+- **파일**: `Tools/can_relay_sil/sil_health.py`
+- **상태**: 완료
+
+## 2026-08-15
+
+### [Fix] `relay_supervisor` 결함 5건 — SIL 하니스가 잡은 「단위는 통과, 기능은 0」
+
+- **문제**: 노드 health 감시·복귀가 `main` 병합 시점에 **전 기능 무동작**이었다. 단위 회귀
+  40여 건이 전건 통과하는 동안 감시자는 기동 몇 초 만에 죽거나, 죽지 않아도 복귀를 한 번도
+  수행하지 못했다. 실기였다면 「감시 중」으로 보이면서 실제로는 아무것도 안 하는 상태로
+  운용됐을 것이다.
+- **원인**: 5건 모두 **순수 판정(`health.py` 로직)이 아니라 ROS 껍데기·실물 타입 경계**에 있었다.
+  단위 시험이 `decide()` 만 함수로 부르고 프로세스·메시지·타이머를 한 번도 통과시키지 않았다.
+  | # | 근본 원인 | 위치 |
+  | --- | --- | --- |
+  | 1 | `DiagnosticStatus.level` 은 rclpy 에서 `bytes` 한 바이트인데 `int()` 로 변환 → 첫 진단에 크래시 | `health.py` `parse_diag` |
+  | 2 | rclpy 로거는 **호출 지점마다 severity 고정** — 한 줄에서 `warn`/`info` 를 골라 부르면 두 번째가 `ValueError` | `supervisor.py` `_on_tick` |
+  | 3 | `_prev` 를 기동 시 파일에서 한 번만 읽고 승격하지 않음 → 「감시자는 살고 드라이버만 재기동」이라는 **설계 의도 경로에서 복귀가 성립하지 않음** | `supervisor.py` `_on_tick` |
+  | 4 | `_home_failed` 게이트가 `cur` 만 검사 → **재기동이 지우는 값을 게이트가 따라감**(막으려던 그 소실) | `health.py` `decide` |
+  | 5 | `_was_down` 을 복귀 서비스 응답으로 내림 + 판정 이름으로만 세움 → 복귀가 1회만 되고, 빠른 재기동은 유예 `WAIT` 로 덮여 표시가 안 섬 | `supervisor.py` `_on_restore_done` · `health.py` `next_was_down` |
+  ⚠ **5번의 절반은 자초분**이다 — 4번을 고치며 넣은 좀비 유예(`zombie_after_s`)가 새 구멍을 열었다.
+- **해결**: 판정에 해당하는 부분을 **순수 모듈로 이관**해 단위로 고정했다 —
+  `as_level()` · `next_prev()` · `next_was_down()` · `is_outage()` 신설, `decide()` 가 `home_failed` 를
+  `cur`·`prev` 양쪽에서 검사. 껍데기에는 타이머·구독·서비스 호출·파일 입출력만 남겼다.
+  회귀 13건 추가(33 → 46), 돌연변이 2종 검출 확인.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/health.py` · `can_relay/supervisor.py` ·
+  `test/test_supervisor.py` · `Tools/can_relay_sil/sil_health.py`(신설) ·
+  `docs/function_table.md` · `docs/sw_structure/function_table.md`
+- **상태**: 완료 — SIL **8/8 PASS**, 단위 회귀 전건 통과. ⚠ **실기 미검증**(debt-075·076)
+- **적용 범위**: 4번(`home_failed` 차단)은 **감시자가 래치를 1회 관측한 뒤**에만 적용된다 — 호밍 개시 1초 안의 사망은 덮지 않는다(실험 9 경계 관측). 호밍 중단 자체는 펌웨어(`seer_homing_tick()` 이 `!pc_authority` 확인 → 취소)와 드라이버 래치가 담당하므로 **그 구간에도 보호는 유효**하다. 결함이 아니라 설계상의 하한이다
+
+> ⚠ 병합 주기(2026-08-16): 아래 두 건은 다른 세션이 **구 supervisor** 에 가한 병행 수정이다. 병합에서 supervisor 는 세션 브랜치 판(순수 `health.py` 분리·위 5건 수정 포함)으로 채택되어 아래 수정 중 supervisor 코드 부분은 대체됐고, `_tick_guarded`(틱 예외 가드)만 채택판에 이식해 유지한다. `mutation_check.py`·`home_and_zero` 관련 부분은 그대로 유효하다.
+
+### [Fix] 감시 노드가 첫 상태 전이에서 죽는다 · 복귀 시도가 1회로 끝난다 · 검출력 검사기 거짓 초록 (적대적 리뷰 3건)
+
+- **문제**: ① 감시 노드가 상태 전이 로그에서 `ValueError` 로 죽고, `Restart=always` 아래에서
+  2초 crash-loop 가 된다. ② 복귀 시도가 실패해도 재시도하지 않고 영구 포기한다.
+  ③ 검출력 검사기가 무관한 기존 실패 1건만 있으면 모든 돌연변이를 「검출」로 집계한다.
+  ④ 배선 시험이 미소싱 환경에서 파일 전체 수집을 중단시킨다.
+- **원인**:
+  ① `supervisor.py` 전이 로그가 **한 줄에서** `warn`/`info` 를 번갈아 불렀다. rclpy 는 로그
+  컨텍스트를 **호출 지점(파일·함수·줄)** 으로 캐시하고 severity 변경을 거부한다
+  (`rcutils_logger.py` `Logger severity cannot be changed between calls.`). 직접 재현 확인.
+  예외가 `self._verdict = verdict`·`self._was_down = True` **앞에서** 터지므로 두절 사실이
+  기록되지 않고, `main()` 은 `KeyboardInterrupt` 만 잡아 프로세스가 죽는다.
+  ⇒ 같은 날 넣은 `_prev` 갱신(복귀 활성화)이 **실행에 도달한 적이 없다**.
+  ② `decide()` → `_prev = _cur` → `_restore()` 순서라 **복귀를 내는 그 틱에 판정 입력이
+  지워진다.** `_restore()` 가 서비스 미준비로 실패하면 다음 틱은 `IDLE` 이고 재시도가 없다.
+  ③ `mutation_check.py` 가 검출을 `" failed" in 요약줄` 로 판정했다 — 실패의 **원인**을 묻지 않는다.
+  ④ 배선 시험이 모듈 스코프에서 `import rclpy` 했다. `conftest.py` 는 「설치·소싱 없이도 돈다」를
+  계약으로 선언하며, 수집 에러는 실행 전체를 중단시킨다.
+- **해결**:
+  ① severity 별 **호출 지점 분리** + 타이머 진입점을 `_tick_guarded` 로 감싸 틱 예외로 감시자가
+  죽지 않게 한다(시험은 `_on_tick` 을 직접 부르므로 가드에 가려지지 않는다).
+  ② 복귀·보류 틱에는 `_prev` 를 덮지 않는다. 아울러 별칭이 아니라 `dict()` 사본으로 넘긴다.
+  ③ 대상 시험별 **기준선 실패 집합을 먼저 재고, 거기 없던 시험이 새로 깨질 때만** 검출로 인정.
+  출력에 신규 실패 시험 이름을 싣는다.
+  ④ `pytest.importorskip("rclpy")` 로 감싸 배선 시험만 건너뛴다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/supervisor.py` ·
+  `src/Comm/CAN/can_relay/mutation_check.py` · `src/Comm/CAN/can_relay/test/test_supervisor.py`
+- **상태**: 완료 — can_relay **467 passed / 1 skipped / 0 failed** ·
+  돌연변이 **C1·H5·F1 3/3 검출**(각각 어느 시험이 새로 깨졌는지 함께 출력) ·
+  미소싱 경로 **16 passed / 1 skipped**, 소싱 경로 **47 passed**.
+  ⚠ **실기 미검증** — 드라이버를 실제로 죽여 복귀가 나가는지 확인한 적이 없다.
+  ⚠ 이 3건은 **작성자가 아닌 별도 lane(적대적 리뷰)** 이 찾았다. 작성자의 배선 시험 2건은
+  `RUNNING→IDLE` 만 밟아 `RUNNING→DEAD→RESTORE` 경로를 지나가지 않았다.
+  ⚠ 잔여 지적은 `debt-082`(검사기가 실 소스를 덮어씀) · `debt-083`(`joint_states` 다중 발행자) ·
+  `debt-084`(CLI 잔여 5건 — 시계축 혼용·하드코딩 등) · `debt-085`(주입 경계 바깥 시험 0건).
+
+---
+
+
+### [Fix] 감시 복귀가 한 번도 발동하지 않음 · 0° 도달 판정에 신선도 없음 · 종료코드 미도달 (3건)
+
+- **문제**: ① 드라이버가 죽어도 감시자가 제어권을 복귀시키지 않는다. 반대로 운용자가 의도적으로
+  반환한 뒤에는 요청하지 않은 재획득이 날 수 있다. ② 0° 복귀 대기 도중 한 축의 피드백이 끊겨도
+  굳은 값으로 「조향 0° 복귀 완료」가 날 수 있다. ③ 「서비스 없음」이 호밍 실패와 같은 종료코드로
+  나와 원인이 구분되지 않는다.
+- **원인**:
+  ① `supervisor.py:89` — `self._prev` 대입이 파일 전체에서 그 한 곳뿐이다(`__init__`).
+  `_save()`(`:152`)는 매 틱 파일에 쓰지만 아무도 되읽지 않아 `decide(self._prev, …)`(`:138`)가
+  **부팅 시점 스냅샷**을 계속 쓴다. 두 유닛이 함께 부팅되면 `_prev=None` 이라
+  `health.py` 의 「직전 기록도 미획득」 분기로 떨어져 복귀가 걸리지 않는다.
+  ② `home_and_zero.py` `_RosClient._on_joint_states` — 받은 축만 덮어쓰고 **없는 축을 지우지 않는다.**
+  발행자는 믿을 수 없는 축을 빼고 보내는데(`driver_node.py:409-415` `if deg is None: continue`)
+  그 보호가 수신 측에서 되돌려진다. 수신 시각도 쓰지 않아 통신 두절을 알 수 없다.
+  ③ `home_and_zero.py` — `EXIT_NO_SERVICE` 는 정의만 있고 `return` 0회.
+  `call_home()` 이 `(False, …)` 를 돌려주므로 `run()` 은 `EXIT_HOME_FAILED`(2)를 낸다.
+- **해결**:
+  ① `_save()` 직후 `self._prev = self._cur`(1줄 + 근거 주석). 부팅 시 `_load()` 는 유지.
+  ② 순수 함수 2개 신설 — `steer_angles_from_joint_states()`(매 장마다 재구성, 없는 축은 `None`) ·
+  `fresh_or_none()`(`FEEDBACK_TTL_S` 초과 또는 수신 이력 없음 → 전 축 `None`). 배선 갱신.
+  ③ client 계약에 `service_available()` 추가, `run()` 이 그것으로 갈라 `EXIT_NO_SERVICE`(4) 반환.
+  미도달 메시지의 「목표는 걸려 있으므로」 삭제 — `~/steer_deg` 는 응답 없는 발행이라 수리 여부를 알 수 없다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/{supervisor.py,home_and_zero.py}` ·
+  `src/Comm/CAN/can_relay/test/{test_supervisor.py,test_home_and_zero.py}` ·
+  `src/Comm/CAN/can_relay/mutation_check.py`
+- **상태**: 완료 — can_relay **465 passed / 1 skipped / 0 failed** ·
+  돌연변이 **F1·F2a·F2b·F3 4/4 검출** · 주석검사 5종 5파일 0건.
+  ⚠ **실기 미검증** — ①은 드라이버를 실제로 죽여 복귀를 확인한 적이 없다.
+  ⚠ ①의 회귀는 **배선 시험**이라야 잡힌다 — 기존 `test_supervisor.py` 는 `decide()` 에 `prev` 를
+  직접 넣는 순수 시험 16건뿐이라 이 결함을 지나갔다. 같은 형태로 검사기에서도 결함이 하나 나왔다:
+  요청한 돌연변이 id 를 대소문자 불일치로 조용히 건너뛰고 「전 항목 검출」을 찍었다(같은 커밋에서 정정).
+
+---
 
 ## 2026-08-10
 
@@ -861,8 +1047,6 @@ yaw_control 실패 건   ω ≈ 0.6 °/s    ✘   ← 조향 14° = 유효반경
   오늘 쓴 R=1.0 m 조합은 안전 구간이다. 큰 반경 `turn` 은 미검증이므로 그때 확인한다.
 
 ### [Trap] `yaw_control_reverse` 는 **존재하지 않는 토픽**을 구독한다 — 실행하면 pose 를 못 받는다
-
-> ❌ 정정 2026-08-10: 본 [Trap]은 반증됐다 — `yaw_control_reverse_pose_topic` 은 코드가 읽지 않는 죽은 yaml 키였고, 실제로는 `LocalizationMonitor` 기본값 `/robot_pose` 로 pose 를 정상 수신한다(현행 `yaw_control_reverse_action_server.cpp:77`, `yaml:52`). 상세: 위 [Retract→Fix] debt-050 절.
 
 ```
 yaw_control          yaw_control_pose_topic:         "/robot_pose"                  발행자 1 (정상)
@@ -3271,8 +3455,6 @@ JSON 본문을 헤더로 읽고 있었다. 이 프로토콜에는 **요청 ID �
 서버 매핑은 `−4`(측위 갱신 없음)이되 로그 문자열로 구분한다. 7개 서버 일괄 적용 —
 `LocalizationMonitor` 에 넣었으므로 `mpc` 포함 전 소비자가 함께 닫힌다.
 
-> ❌ 정정 2026-08-11: 이 일괄 적용은 `mpc` 에서 발화하지 못했다 — `mpc` 는 바닥값(`behind_start_speed` 0.2) 적용 전에 `setMaxCmdSpeed` 를 불러 감시기에 0 을 넣었고 `max_cmd_speed_ <= 0.01` 조기반환으로 우회됐다(사고 서버가 열려 있었다). 5개 서버의 `setMaxCmdSpeed` 를 바닥값 뒤로 옮겨 상환. 상세: 2026-08-11 11인 배타 감사 절.
-
 **작성 중 오탐 1건을 냈다**: 처음에는 **연속 두 메시지**의 변화량과 임계(2 mm)를 비교했다.
 0.05 m/s · 50 Hz 면 메시지당 1 mm 라 임계를 영원히 못 넘어 **정상 주행이 STUCK 으로
 잡혔다**(SIL 실측: `dist=0.079 m` 에서 발화). **기준점에서의 누적** 비교로 정정했다.
@@ -3334,9 +3516,7 @@ SIL 에 `yaw_frozen_pose` 케이스 신설 — 값은 얼리고 **stamp 만 신�
 | 결과 | −3, 충돌 직전 | 0, 종점오차 11 mm |
 
 **지령의 2배로 나가는 `vx` 가 얼어붙은 자세로 제어가 발산한다는 신호였다.**
-피드백에 그 숫자가 찍히고 있었는데 읽지 못했다.
-
-> ❌ 정정 2026-08-11: `vx` 0.200 은 제어 발산 신호가 아니라 설계된 바닥값(`behind_start_speed` 0.2 m/s)이다 — 얼어붙은 pose 로 진행이 0 으로 읽혀 바닥값이 걸린 것. '2배=발산' 해석은 무효. 상세: 2026-08-11 감사 절. 이후 감시 도구는 이 모순
+피드백에 그 숫자가 찍히고 있었는데 읽지 못했다. 이후 감시 도구는 이 모순
 (진행 0 인데 속도 지령이 나감)을 자동 판정 조건에 넣었다.
 
 가드는 한 번도 발화하지 않았다 — 값-정지·여유·이동량 모두 **오탐 0**.
@@ -3565,3 +3745,64 @@ goal 을 그대로 들고 있어 로봇은 목표까지 간다 — 작업자가 
 **「미수정 인수인계」로 넘긴 항목이 그 세션 안에서 나를 물었다.** 감사가 짚은 것 중
 「내가 지금 계속 쓰는 도구의 결함」은 인수인계 대상이 아니라 **즉시 수정 대상**이다.
 비용이 30분이 아니라 5분이었다.
+
+
+## 2026-08-19 — [Fix] Charging never finished, and homing was a NameError
+
+Found together in one live run, by starting the whole fleet at 20% battery to
+check the charging path end to end.
+
+### What was seen
+
+amr2 and amr3 climbed 20% → 90% and stopped. **amr1 climbed to about 30% and
+then started falling again**, while the live view went on reporting
+`charging_to 90` the whole way down. In the same run the supervisor logged
+`[drive] step failed (n): NameError("name 'segment' is not defined")` five
+times in six minutes.
+
+### Cause 1 — a charging robot was not excluded from dispatch
+
+`SimAcs._dispatch` picked candidates with:
+
+    free = [r for r in self.robots
+            if not r.busy and r.pose is not None and r.can_move ...]
+
+A robot standing on a charger passes all three. It is **not busy**, and it
+**can move** — that is precisely the problem. So the dispatcher handed amr1 a
+job, it drove off the charger part-charged, and began draining. Nothing cleared
+`_charging_to`, so every reader still called it charging.
+
+Fixed by adding `not r.charging`, a property that is true while `_charging_to`
+is set. `_step_battery` already clears that on reaching the target, so the
+exclusion lifts itself; nothing has to remember to release the robot.
+
+### Cause 2 — `_go_home` referenced an undefined name
+
+    self._home_waypoints = list(
+        ROADS.route_to_node(self.pose[:2], f"park_{segment}")) or [bay]
+
+`segment` is not defined anywhere in that method. Present since `861b958`
+(2026-08-07) and never seen, because homing is only reached by a robot that is
+idle **and** away from its bay — which this fleet rarely was until charging
+started sending robots out. The charging work is what made an old bug reachable.
+
+The node name now comes from `roads.park_node()`, beside `build()`, which is
+what invents those names (`park_A`, then `park_A2`, `park_A3`). Which slot a
+robot owns comes from the new `plant.parking_index`, shared with
+`plant.parking_for`, so the node and the coordinates cannot drift apart.
+
+### Verification
+
+Re-ran the same 20% start. All three robots reached 90% in 140 s with no
+interruption and no `step failed`. 9 tests added in
+`test_charging_is_not_interrupted.py`, including one asserting the park node
+resolves to a node that actually exists in the graph and matches
+`plant.parking_for` — a name that is merely well-formed still routes nowhere.
+
+### Lesson
+
+**Neither bug had a failing test, and neither would have.** One needed a robot
+to be idle away from its bay; the other needed a robot to be part-charged when
+work arrived. Both are states the unit tests never construct and the running
+system reaches on its own. The charging feature did not introduce either
+fault — it made both reachable.
