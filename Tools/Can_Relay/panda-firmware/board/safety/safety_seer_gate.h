@@ -13,11 +13,16 @@ typedef struct {
   uint16_t index;
   uint8_t sub;
   uint8_t data[8];
+  uint8_t data2[8];  // debt-129: 직전 서로다른 값(2슬롯 replay) — engage 중 실측 토글/디더 복원용
+  uint8_t rtog;      // debt-129: replay 교대 토글
 } seer_resp_cache_t;
 seer_resp_cache_t seer_cache[SEER_CACHE_N];
 uint8_t seer_guard_data[5][8];
 uint8_t seer_guard_len[5] = {0};
 uint8_t seer_guard_valid[5] = {0};
+uint8_t seer_guard_rtoggle[5] = {0};  // debt-129: node-guarding 토글을 매 응답 반전 생성 (정적 replay 정지 토글 → Seer 재init→재호밍 수정)
+uint32_t seer_last_target[5] = {0};  // debt-129: Seer 가 쓴 조향 목표(0x607A) — pos_act 를 이걸로 되돌려 following error=0
+uint8_t seer_target_valid[5] = {0};
 
 seer_resp_cache_t seer_frozen[SEER_CACHE_N];
 uint8_t seer_frozen_valid = 0U;
@@ -63,17 +68,18 @@ static void seer_cache_store_resp(CANPacket_t *r) {
         uint32_t nv = (uint32_t)r->data[4] | ((uint32_t)r->data[5] << 8) | ((uint32_t)r->data[6] << 16) | ((uint32_t)r->data[7] << 24);
         uint32_t ov = (uint32_t)seer_cache[match].data[4] | ((uint32_t)seer_cache[match].data[5] << 8) | ((uint32_t)seer_cache[match].data[6] << 16) | ((uint32_t)seer_cache[match].data[7] << 24);
         if ((nv == 0U) && (ov != 0U)) { return; }
-      } else if (index == 0x6041U) {
-        // statusword: 조향 operational-at-target(0x9450)을 Seer 에 안정적으로 유지.
-        //  high byte(data[5]) operational 비트: bit15=0x80 · bit12=0x10 · bit10=0x04  (0x9450 -> 0x94)
-        uint8_t nhi = r->data[5];
-        uint8_t ohi = seer_cache[match].data[5];
-        // (1) bit15(operational) 소실 덮어쓰기 금지 (0x9450 -> 0x0050/0x1050 방지)
-        if (((nhi & 0x80U) == 0U) && ((ohi & 0x80U) != 0U)) { return; }
-        // (2) 완전 operational(0x94)이 캐시됐으면 덜한 값으로 덮지 않음 (0x8050 이 0x9450 못 덮음 — debt-128)
-        uint8_t opmask = (uint8_t)(0x80U | 0x10U | 0x04U);
-        if (((ohi & opmask) == opmask) && ((nhi & opmask) != opmask)) { return; }
       }
+      // debt-129 2슬롯 replay: 새 값이 현재값과 다르면 현재값을 data2 로 밀어 직전 서로다른 값을 보존.
+      // engage 중 seer_cache_reply 가 두 값을 교대 재생 → 실측 statusword 토글·cur 홀드전류·pos 디더를 복원.
+      bool differ = false;
+      for (int i = 0; i < 8; i++) { if (seer_cache[match].data[i] != r->data[i]) { differ = true; break; } }
+      if (differ) {
+        for (int i = 0; i < 8; i++) { seer_cache[match].data2[i] = seer_cache[match].data[i]; }
+      }
+    } else {
+      // 신규 슬롯: data2 를 첫 값으로 초기화, 토글 리셋
+      for (int i = 0; i < 8; i++) { seer_cache[slot].data2[i] = r->data[i]; }
+      seer_cache[slot].rtog = 0U;
     }
     seer_cache[slot].valid = 1U;
     seer_cache[slot].node = node;
@@ -88,11 +94,21 @@ static void seer_freeze_snapshot(void) {
     seer_frozen[i] = seer_cache[i];
   }
   seer_frozen_valid = 1U;
+  // debt-129: engage 시작부터 pos=target 정합 — 조향 목표를 frozen pos 로 초기화(첫 0x607A 전 창 제거)
+  for (int i = 0; i < SEER_CACHE_N; i++) {
+    if ((seer_frozen[i].valid != 0U) && (seer_frozen[i].index == 0x6064U) &&
+        ((seer_frozen[i].node == 3U) || (seer_frozen[i].node == 4U))) {
+      uint8_t nd = seer_frozen[i].node;
+      seer_last_target[nd] = (uint32_t)seer_frozen[i].data[4] | ((uint32_t)seer_frozen[i].data[5] << 8) |
+                             ((uint32_t)seer_frozen[i].data[6] << 16) | ((uint32_t)seer_frozen[i].data[7] << 24);
+      seer_target_valid[nd] = 1U;
+    }
+  }
 }
 
 static bool seer_is_motion_obj(uint16_t index) {
-  return (index == 0x6064U) || (index == 0x606CU) ||
-         (index == 0x6078U) || (index == 0x6041U);
+  return (index == 0x6041U) || (index == 0x6064U) || (index == 0x606CU) ||
+         (index == 0x6078U);  // debt-129: statusword·pos·vel·cur → frozen 2슬롯 교대 replay 로 실측 토글/디더 복원
 }
 
 static void seer_cache_reply(int addr, CANPacket_t *req) {
@@ -117,11 +133,34 @@ static void seer_cache_reply(int addr, CANPacket_t *req) {
     }
   }
   if (chosen != NULL) {
-    seer_send_bus0((uint32_t)(0x580 + node), chosen->data, 8U);
+    uint8_t out[8];
+    // debt-129 2슬롯 replay: engage 중 motion 객체는 frozen 의 두 값(data/data2)을 교대로 내보내
+    // passthrough 실측 토글(statusword)·디더(pos)·홀드전류(cur)를 그대로 복원한다.
+    if ((pc_authority) && (index == 0x6064U) && ((node == 3U) || (node == 4U)) && (seer_target_valid[node] != 0U)) {
+      // debt-129: 조향 pos_act = Seer 명령 목표(0x607A) → following error 0 → Seer "완벽 홀드"로 인식(재init 없음)
+      out[0] = chosen->data[0]; out[1] = chosen->data[1]; out[2] = chosen->data[2]; out[3] = chosen->data[3];
+      out[4] = (uint8_t)(seer_last_target[node] & 0xFFU);
+      out[5] = (uint8_t)((seer_last_target[node] >> 8) & 0xFFU);
+      out[6] = (uint8_t)((seer_last_target[node] >> 16) & 0xFFU);
+      out[7] = (uint8_t)((seer_last_target[node] >> 24) & 0xFFU);
+    } else if ((pc_authority) && (seer_frozen_valid != 0U) && seer_is_motion_obj(index)) {
+      chosen->rtog ^= 1U;
+      const uint8_t *src = (chosen->rtog != 0U) ? chosen->data2 : chosen->data;
+      for (int i = 0; i < 8; i++) { out[i] = src[i]; }
+    } else {
+      for (int i = 0; i < 8; i++) { out[i] = chosen->data[i]; }
+    }
+    seer_send_bus0((uint32_t)(0x580 + node), out, 8U);
   }
 }
 
 static void seer_fake_ack(int addr, CANPacket_t *req) {
+  uint8_t fn = (uint8_t)(addr - 0x600);
+  uint16_t fidx = (uint16_t)(req->data[1] | ((uint16_t)req->data[2] << 8));
+  if ((fidx == 0x607AU) && (fn < 5U)) {  // Seer 가 명령한 조향 목표위치 저장
+    seer_last_target[fn] = (uint32_t)req->data[4] | ((uint32_t)req->data[5] << 8) | ((uint32_t)req->data[6] << 16) | ((uint32_t)req->data[7] << 24);
+    seer_target_valid[fn] = 1U;
+  }
   uint8_t d[8];
   d[0] = 0x60U;
   d[1] = req->data[1];
@@ -198,7 +237,15 @@ static int seer_gate_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
     } else if (emulate && (addr >= 0x701) && (addr <= 0x704) && (to_fwd->rtr != 0U)) {
       uint8_t gn = (uint8_t)(addr - 0x700);
       if (seer_guard_valid[gn] != 0U) {
-        seer_send_bus0((uint32_t)(0x700 + gn), seer_guard_data[gn], seer_guard_len[gn]);
+        // debt-129: 캐시 정적 replay 는 토글이 정지(Seer node-guarding 흔들림 → handover 재init → 재호밍).
+        // 실모터처럼 매 응답 토글(bit7) 반전, 상태는 실측(bootup 0x00 이면 operational 0x7F 로).
+        uint8_t gst = (uint8_t)(seer_guard_data[gn][0] & 0x7FU);
+        if (gst == 0U) { gst = 0x7FU; }
+        seer_guard_rtoggle[gn] ^= 0x80U;
+        uint8_t gd[8]; gd[0] = (uint8_t)(gst | seer_guard_rtoggle[gn]);
+        for (int gi = 1; gi < 8; gi++) { gd[gi] = 0U; }
+        uint8_t gl = (seer_guard_len[gn] > 0U) ? seer_guard_len[gn] : 1U;
+        seer_send_bus0((uint32_t)(0x700 + gn), gd, gl);
       }
       bus_fwd = 2;
     } else {
