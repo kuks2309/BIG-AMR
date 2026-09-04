@@ -175,6 +175,11 @@ static int seer_gate_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
   } else {
   }
 
+  // debt-129: engage(pc_authority) 중에는 판다가 버스로 아무 프레임도 내보내지 않는다.
+  // Seer 와 모터가 같은 CAN 버스에 있어 모터가 Seer 에 직접 응답하므로, 판다가 포워딩이나
+  // 대리응답을 송신하면 같은 COB-ID 로 실모터 응답과 충돌해 Seer 가 CAN 오류를 감지하고
+  // 모터를 재init(제어권 반환 시 재호밍)한다. 무송신으로 충돌을 없앤다. (제어권 hold/release 전용)
+  if (pc_authority) { return -1; }
   bool cover = false;
   if (seer_cover_armed) {
     if (get_ts_elapsed(microsecond_timer_get(), seer_cover_start_us) < SEER_COVER_US) {
