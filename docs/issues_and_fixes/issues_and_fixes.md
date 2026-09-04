@@ -47,6 +47,24 @@
 
 ## 2026-09-04
 
+### [Change] 제어권 반환 시 펌웨어가 조향을 Seer 목표로 복원한 뒤 넘긴다 (핸드오버 복원 시퀀서)
+
+- **문제**: 반환이 조향 위치와 무관하게 그 자리에서 일어나 조향 90° 등에서 반환하면 Seer 가 자기 목표로 되돌리는 동작·following error·재init 위험. 오늘 시험이 깨끗했던 것은 호스트 스크립트가 반환 전 0° 로 되돌렸기 때문.
+- **원인**: 노드 `backend.shutdown()` 은 구동 0·조향 목표 재송신 중단만 하고(`backend.py:180-199`), 펌웨어 0xe8/0xe9 는 즉시 권한 해제 — 복원 주체 부재.
+- **해결**: 펌웨어 시퀀서(`safety_seer_gate.h` 끝 절, `usb_comms.h` 0xe8/0xe9/0xdc/0xec, `main.c` tick·fail-safe). 반환 요청 → 구동 0·조향 `seer_last_target` 복원(≤0.1°, 8 s 타임아웃) → 0.5 s 정착 → 권한 해제·보류 SILENT. heartbeat 상실도 같은 경로.
+- **파일**: `Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h`, `board/usb_comms.h`, `board/main.c`(미추적, ADR 에 원문)
+- **상태**: 완료 — 검증 (a) 노드 반환 +30°→홈 2.0 s·Seer 알람 0 (b) heartbeat 중단 fail-safe 1.2 s 뒤 복원→SILENT·알람 0 (c) hold 회귀 10/10 PASS. ADR `docs/adr/2026-09-04-canrelay-handover-restore-sequencer.md`, 펌웨어 md5 `639b4654…`.
+
+### [Fix] CAN relay 보드 하네스 방향 판정이 릴레이·버스 매핑을 덮어써 intercept 가 부팅 복권에 걸림 (debt-130)
+
+- **문제**: 판다 부팅마다 `car_harness_status` 가 1/2 로 흔들리고, 2(FLIPPED)이면 engage 시 릴레이가 안 붙어 브리징 루프 폭주(node4 EMCY 0x8110 ≈1000 f/s, 52111 Motor[1][2][3][4]), SILENT 복귀 시 릴레이가 절체로 남아 로봇이 Seer 와 분리됨(14:09 부팅 이후 실제 발생, E1 15:26 실측 `Log/e1_all_260904_152648.jsonl`).
+- **원인**: 하네스 없는 자작 보드에서 `harness_init()` 이 PC0(=CAN3_EN)/PC3(미연결) ADC 로 방향을 판정 — `board/boards/black.h:166-168` 이 FLIPPED 면 `can_flip_buses(0,2)`, `board/drivers/harness.h:29-31` 의 `set_intercept_relay()` 가 릴레이핀 PC10 을 `!intercept` 로 구동해 `main.c` SILENT/SEER_GATE 의 push-pull 제어와 충돌.
+- **해결**: `black.h` 에서 `harness_init()` 제거 → `car_harness_status = HARNESS_STATUS_NC` 고정(4줄 주석+1줄), FLIPPED 전용 `can_flip_buses` 블록 3줄 삭제, `has_harness` true→false. 빌드 31,172 B md5 `1f9fe50b…`, DFU 플래시(버전 DEV-8dcca835) 서명 검증 OK. ADR `docs/adr/2026-09-04-canrelay-harness-orientation-neutralize.md`.
+- **파일**: `Tools/Can_Relay/panda-firmware/board/boards/black.h`(git 미추적 — 원문 ADR·분석 §7 보존), 신규 `Tools/Can_Relay/flash_dfu_direct.py`, `Tools/docking_field_kit/orin_cycle_capture.py`
+- **상태**: 완료 — 검증: 플래시 직후 harness=0·safety=0, 양 버스 요청·응답 동시 관측(passthrough), Seer 오류 0·조향 30 s 내 0° 복귀; 1사이클 engage 에서 bus0=Seer 요청만·bus2=모터 응답만·EMCY 0, release 뒤 passthrough·알람 0·재호밍 없음(`Log/e1_all_260904_172049.jsonl`); 리셋 2회 후에도 harness=0. 이어진 사이클 런 32/32 PASS(engage 4 s 24회·6 s 8회)·Seer 재init 쓰기 0·EMCY 0·신규 알람 0 → 이어 100사이클 확인 런 100/100 PASS(누적 133/133, 재init 0·EMCY 0·알람 0) → debt-129 해결 확정.
+
+## 2026-09-04
+
 ### [Fix] 전원 게이트된 thermal zone 에서 system_health reader 가 TypeError 로 죽음
 
 - **문제**: orin-nx-ford-test(L4T R36.4.7, CV 클러스터 미사용 기체)에서 system_health
@@ -59,22 +77,17 @@
 - **파일**: `src/Safety/system_health/system_health/sysfs.py`
 - **상태**: 완료 — 기준기 226 PASS·ford-test 226 PASS(29건 실패 해소) 양기체 검증.
 
-## 2026-09-02
+### [진단] R02(4e002c) intercept 시 52111/52106 — emulate/firmware 로 해결 불가(결정실험 확정). 원인 계층은 emulate 밖(bus2 응답전달)
 
-### [Fix] system_health GPU 사용률이 버스트 부하에서 0% 로 표시 (표본 에일리어싱)
-
-- **문제**: T3-1 에서 yolo 6캠 배치 추론으로 GPU 가 실제 일하는 중(20Hz 직접 표본 평균
-  40.5%, 90% 초과 22/60)인데 대시보드 GPU 타일·그래프가 대부분 0.0% 표시. 온도(+4°C)·
-  입력 전류(480→768mA)·클럭(306→510MHz) 상승과 모순되는 표시라 사용자 혼선.
-- **원인**: 부하 레지스터는 순간값인데 sampler 가 5초에 1회 한 번만 읽음 —
-  `system_health/sysfs.py`(수정 전 `read_gpu` 단발 `_read_int`). 배치 추론 부하는
-  0↔99% 를 초당 5~7회 오가는 사각파라 5초 순간 표본 대부분이 유휴 골에 떨어짐(에일리어싱).
-- **해결**: `read_gpu` 부하 읽기를 **1초 창 20표본 평균**으로 변경(상수
-  `_GPU_LOAD_SAMPLES`·`_GPU_LOAD_WINDOW_S` 신설). sampler 주기는 고정 격자라 표본
-  시각이 밀리지 않음(sampler.py:423-426 확인). 시그니처·스키마 불변.
-- **파일**: `src/Safety/system_health/system_health/sysfs.py`
-- **상태**: 완료 — 테스트 226 PASS, T3-1 실부하에서 42.2/38.9/44.0% 기록(직접 표본
-  40.5% 와 정합). T3-1 재시작 반영, 기준기 sampler 재시작은 sudo 대기.
+- **문제**: 4e002c 로 engage(intercept) 시 Seer 52111(Motor response timeout)·52106(odo lost) 간헐 발생. 판다 카운터로 intercept 중 bus2 REC 100~240·bus_off·bit-dominant(lec5) 관측.
+- **실측 확정 범위**:
+  - **A/B 보드 스왑**: 4e002c + `athome_fix`(DEV-cc5e0491, 서명검증) → 발생 / 4f0040 + **동일** athome_fix(서명 동일) → engage 전 구간 0 에러. 동일 firmware·하네스 → **차이는 물리 보드 개체(4e002c)**.
+  - **결정실험(emulate ON, pc_authority=1, 4 run — scratchpad `decisive_emulate_on.py`)**: emulate ON 유지해도 **resp(모터→판다 bus2 응답) 급락(→0)·bus_off 시 52111/52106 발생**(2/4 run). resp 정상이면 미발생(2/4). ⇒ **emulate 는 이걸 못 덮는다** — 52111 은 emulate(Seer측 bus0 내용) 밖, **intercept 중 bus2 응답전달(resp)이 간헐 끊기는 것**과 동반.
+- **Seer SW 정본 분석(amap-server 63G, 2026-09-04)**: `rbk.error` 정의 = 52111 **"motor driver connection error"**·52106 "odo data lost"·54301 "motor status report". 발생 주체 = `plugins/libDSPChassis.so`(Tongyi 드라이버). **트리거 = CANopen node-guarding 만료**: Seer 가 모터에 `guard_time(0x100C)=500ms`·`life_factor(0x100D)=1` 씀(캡처 실측, 전 노드) → node life time **500ms**. 모터 guard 응답이 **500ms 없으면** Seer 가 노드 상실 판정 → 52111. **52106 임계는 `robot.param [MCLoc] OdoLostTimeThresh=300ms`** → CAN odometer 데이터 300ms 무 → 52106(그래서 52106 이 52111 보다 먼저 뜰 수 있음). intercept 중 bus_off(양버스, bit-dominant — 결정실험 Run3 실측)가 그 300~500ms 무응답을 만들어 발동. emulate 는 bus_off 순간 판다 TX 불가라 500ms 내 guard 응답을 못 보내 **못 막음**(결정실험이 emulate ON 에도 52111 낸 것과 정합).
+- **미판정(추적 종료)**: **bus_off 자체의 물리 원인**은 미판정이다. 종단은 과거 반증(`docs/claude-mistake/2026-09-01-001`), 트랜시버/배선은 미확정. **하드웨어/종단 추적은 사용자 지시로 종료** — 「4e002c 에서 intercept 중 bus_off 로 500ms node-guarding 이 만료돼 52111 발생」까지가 실측 확정이고 bus_off 의 근인은 확정하지 않는다.
+- **firmware 시도 결과(전부 원인 오판, 폐기·롤백)**: emulate 분리·0xec 복원·disengage handover-restore. 단 pos_act(0x6064)/statusword(0x6041) 내용 가드는 **별개의 진짜 개선**(emulate 가 실값을 냄) — 유지. 52111 은 이것으로도 안 사라짐(결정실험 확정).
+- **파일**: 근거 도구 `Tools/docking_field_kit/orin_hold_intercept.py`(emulate OFF 재현) · scratchpad `decisive_emulate_on.py`(emulate ON 결정실험). fw_backups `panda.bin.signed.athome_fix_2026-08-03_91fe4282`. (⚠ 이전판이 인용한 `orin_home_experiment.py:diagnose_engage` 는 그 파일에 없는 함수 — 실제 근거는 scratchpad 진단 스크립트였음, 정정.)
+- **상태**: emulate/firmware 로 해결 불가 = 실측 확정. 구체 물리 원인 = 미판정(추적 종료).
 
 ## 2026-08-30
 

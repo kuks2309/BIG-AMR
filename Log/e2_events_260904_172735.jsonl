@@ -1,0 +1,8 @@
+{"cyc": 1, "pass": true, "steer": 0.0, "emcy": 0, "leak": {"seer_on_bus2": 332, "motor_on_bus0": 330}, "ev": [], "post": [], "t_rel": 6.0018110275268555, "alarms": []}
+{"cyc": 2, "pass": true, "steer": 0.0, "emcy": 0, "leak": {"motor_on_bus0": 332, "seer_on_bus2": 330}, "ev": [], "post": [], "t_rel": 6.000857830047607, "alarms": []}
+{"cyc": 3, "pass": true, "steer": 0.0, "emcy": 0, "leak": {"motor_on_bus0": 332, "seer_on_bus2": 333}, "ev": [], "post": [], "t_rel": 6.0000622272491455, "alarms": []}
+{"cyc": 4, "pass": true, "steer": 0.0, "emcy": 0, "leak": {"seer_on_bus2": 331, "motor_on_bus0": 328}, "ev": [], "post": [], "t_rel": 6.001820802688599, "alarms": []}
+{"cyc": 5, "pass": true, "steer": 0.0, "emcy": 0, "leak": {"motor_on_bus0": 333, "seer_on_bus2": 333}, "ev": [], "post": [], "t_rel": 6.00080132484436, "alarms": []}
+{"cyc": 6, "pass": true, "steer": 0.0, "emcy": 0, "leak": {"motor_on_bus0": 330, "seer_on_bus2": 330}, "ev": [], "post": [], "t_rel": 6.001121282577515, "alarms": []}
+{"cyc": 7, "pass": true, "steer": 0.0, "emcy": 0, "leak": {"motor_on_bus0": 330, "seer_on_bus2": 331}, "ev": [], "post": [], "t_rel": 6.000234365463257, "alarms": []}
+{"cyc": 8, "pass": true, "steer": 0.0, "emcy": 0, "leak": {"seer_on_bus2": 330, "motor_on_bus0": 330}, "ev": [], "post": [], "t_rel": 6.00112247467041, "alarms": []}

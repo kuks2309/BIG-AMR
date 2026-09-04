@@ -642,3 +642,124 @@ const safety_hooks seer_gate_hooks = {
   .tx_lin = seer_gate_tx_lin_hook,
   .fwd = seer_gate_fwd_hook,
 };
+
+// ── 핸드오버 복원 시퀀서 (ADR 2026-09-04-canrelay-handover-restore-sequencer) ─────────────
+// 반환 요청(0xe8=0 · 0xe9=0 · heartbeat 상실)이 오면 바로 passthrough 로 가지 않는다.
+// 구동 0 → 조향을 Seer 의 마지막 목표(seer_last_target)로 되돌려 도달 확인 → 권한 해제 →
+// 보류된 SILENT 적용. 그동안 emulate 는 계속 Seer 를 가리고 릴레이는 절체를 유지한다.
+#define SEER_HO_IDLE          0U
+#define SEER_HO_RESTORE       1U
+#define SEER_HO_SETTLE        2U
+#define SEER_HO_TOL_COUNTS    5734     // 0.1° (57,344 counts/°)
+#define SEER_HO_TIMEOUT_TICKS 64U      // 8 s @ 8 Hz
+#define SEER_HO_SETTLE_TICKS  4U       // 0.5 s
+#define SEER_HO_RESEND_TICKS  8U       // 1 s 마다 목표 재송신
+#define SEER_HO_SRC_HOST      1U
+#define SEER_HO_SRC_FAILSAFE  2U
+#define SEER_HO_RES_NONE      0U
+#define SEER_HO_RES_REACHED   1U
+#define SEER_HO_RES_TIMEOUT   2U
+#define SEER_HO_RES_NOTARGET  3U
+#define SEER_HO_MODE_SILENT   0U       // == SAFETY_SILENT (safety.h 가 이 헤더 뒤에서 정의)
+
+uint8_t seer_ho_state = SEER_HO_IDLE;
+uint8_t seer_ho_source = 0U;
+uint8_t seer_ho_result = SEER_HO_RES_NONE;
+uint8_t seer_ho_ticks = 0U;
+uint8_t seer_ho_settle = 0U;
+bool seer_ho_pending_silent = false;
+bool seer_ho_reengage = false;   // 복원 진행 중 받은 재engage(0xe9=1) — 복원 완료 뒤 권한을 유지한 채 넘긴다
+
+void set_safety_mode(uint16_t mode, uint16_t param);
+
+bool seer_handover_active(void) {
+  return (seer_ho_state == SEER_HO_RESTORE) || (seer_ho_state == SEER_HO_SETTLE);
+}
+
+static void seer_ho_send_targets(void) {
+  for (uint8_t n = SEER_HOME_NODE_LO; n <= SEER_HOME_NODE_HI; n++) {
+    if (seer_target_valid[n] != 0U) {
+      seer_home_sdo_write(n, 0x607AU, 0U, seer_last_target[n], 4U);
+      seer_home_sdo_write(n, 0x6040U, 0U, (uint32_t)SEER_HOME_CW_SETPOINT, 2U);
+    }
+  }
+}
+
+static bool seer_ho_have_target(void) {
+  return (seer_target_valid[SEER_HOME_NODE_LO] != 0U) || (seer_target_valid[SEER_HOME_NODE_HI] != 0U);
+}
+
+static bool seer_ho_reached(void) {
+  for (uint8_t n = SEER_HOME_NODE_LO; n <= SEER_HOME_NODE_HI; n++) {
+    if (seer_target_valid[n] == 0U) { continue; }
+    uint32_t pos = 0U;
+    if (!seer_home_cached(n, 0x6064U, &pos)) { return false; }
+    int32_t err = (int32_t)pos - (int32_t)seer_last_target[n];
+    if (err < 0) { err = -err; }
+    if (err > SEER_HO_TOL_COUNTS) { return false; }
+  }
+  return true;
+}
+
+// 반환 요청. pc_authority 가 없으면 복원할 것이 없어 아무 것도 하지 않는다(호출자가 즉시 처리).
+void seer_handover_request(uint8_t source) {
+  if (!pc_authority) { return; }
+  if (seer_handover_active()) {
+    if (source == SEER_HO_SRC_FAILSAFE) { seer_ho_source = SEER_HO_SRC_FAILSAFE; }
+    return;
+  }
+  seer_ho_state = SEER_HO_RESTORE;
+  seer_ho_source = source;
+  seer_ho_result = SEER_HO_RES_NONE;
+  seer_ho_ticks = 0U;
+  seer_ho_settle = 0U;
+  if (!seer_home_is_terminal(seer_home_state)) {
+    seer_home_cancel_frames();           // 드라이브 내부 호밍 루틴이 축을 쥐고 있으면 먼저 놓게 한다
+    seer_home_state = SEER_HOME_ERR_ABORT;
+  }
+  seer_stop_drives();
+  seer_ho_send_targets();
+}
+
+static void seer_handover_finish(void) {
+  bool failsafe = (seer_ho_source == SEER_HO_SRC_FAILSAFE);
+  bool go_silent = seer_ho_pending_silent || failsafe || heartbeat_lost;
+  seer_ho_state = SEER_HO_IDLE;
+  seer_ho_pending_silent = false;
+  if (seer_ho_reengage && !failsafe) {
+    // 복원은 끝났고 호스트가 다시 쥐겠다고 했다 — 권한·emulate 를 그대로 유지한 채 끝낸다
+    seer_ho_reengage = false;
+    return;
+  }
+  seer_ho_reengage = false;
+  pc_authority = false;
+  seer_frozen_valid = 0U;
+  seer_cover_start_us = microsecond_timer_get();   // 전환 창을 emulate 로 덮는다
+  seer_cover_armed = true;
+  set_intercept_relay(false);
+  if (failsafe) { relay_off_latched = true; }
+  if (go_silent && (current_safety_mode != SEER_HO_MODE_SILENT)) {
+    set_safety_mode(SEER_HO_MODE_SILENT, 0U);
+  }
+}
+
+void seer_handover_tick(void) {   // 8 Hz
+  if (!seer_handover_active()) { return; }
+  if (!pc_authority) { seer_ho_state = SEER_HO_IDLE; return; }
+  seer_ho_ticks++;
+  if (seer_ho_state == SEER_HO_RESTORE) {
+    if ((seer_ho_ticks % SEER_HO_RESEND_TICKS) == 0U) { seer_ho_send_targets(); }
+    if (!seer_ho_have_target()) {
+      seer_ho_result = SEER_HO_RES_NOTARGET; seer_ho_state = SEER_HO_SETTLE; seer_ho_settle = 0U;
+    } else if (seer_ho_reached()) {
+      seer_ho_result = SEER_HO_RES_REACHED; seer_ho_state = SEER_HO_SETTLE; seer_ho_settle = 0U;
+    } else if (seer_ho_ticks >= SEER_HO_TIMEOUT_TICKS) {
+      seer_ho_result = SEER_HO_RES_TIMEOUT; seer_ho_state = SEER_HO_SETTLE; seer_ho_settle = 0U;
+    } else {
+    }
+  } else {
+    seer_ho_settle++;
+    if (seer_ho_settle >= SEER_HO_SETTLE_TICKS) { seer_handover_finish(); }
+  }
+}
+

@@ -5,6 +5,61 @@ extern int _app_start[0xc000]; // Only first 3 sectors of size 0x4000 are used
 
 // Prototypes
 void set_safety_mode(uint16_t mode, uint16_t param);
+
+#ifdef STM32H7
+  #include "stm32h7/llflash.h"
+#else
+  #include "stm32fx/llflash.h"
+#endif
+
+// ── 보드 이름 (런타임 USB 기록, 플래시 섹터 4 = 0x08010000, 앱 재플래시에도 보존) ─────────
+// 레코드: [magic 'CRNM'][name 32B, NUL 패딩]. 0xee 로 RAM 스테이징(2바이트씩) → 0xef 로 커밋(섹터 erase+program).
+#define BOARD_NAME_ADDR   0x08010000U
+#define BOARD_NAME_SECTOR 4U
+#define BOARD_NAME_MAGIC  0x4D4E5243U   // 'C','R','N','M' little-endian
+#define BOARD_NAME_LEN    32U
+#define BOARD_NAME_COMMIT_KEY 0x5AA5U
+uint8_t board_name_stage[BOARD_NAME_LEN] = {0};
+
+static uint8_t board_name_read(uint8_t *out) {   // out: 32B, 반환 = 이름 길이(0 = 미기록)
+  const uint32_t *rec = (const uint32_t *)BOARD_NAME_ADDR;
+  uint8_t n = 0U;
+  for (uint8_t i = 0U; i < BOARD_NAME_LEN; i++) { out[i] = 0U; }
+  if (rec[0] != BOARD_NAME_MAGIC) { return 0U; }
+  const uint8_t *nm = (const uint8_t *)(BOARD_NAME_ADDR + 4U);
+  while ((n < (BOARD_NAME_LEN - 1U)) && (nm[n] != 0U) && (nm[n] != 0xFFU)) { out[n] = nm[n]; n++; }
+  return n;
+}
+
+static bool board_name_commit(void) {
+#ifndef STM32F4
+  return false;   // 섹터 배치가 F413 기준 — 다른 MCU 빌드는 기록 기능 없음
+#else
+  // SILENT idle 에서만 — 섹터 erase 동안 코어가 정지해 CAN 수신을 놓치므로 intercept 중엔 금지
+  if ((current_safety_mode != SAFETY_SILENT) || seer_handover_active() || pc_authority) { return false; }
+  uint32_t words[1U + (BOARD_NAME_LEN / 4U)];
+  words[0] = BOARD_NAME_MAGIC;
+  for (uint8_t i = 0U; i < (BOARD_NAME_LEN / 4U); i++) {
+    words[1U + i] = (uint32_t)board_name_stage[4U * i] | ((uint32_t)board_name_stage[(4U * i) + 1U] << 8) |
+                    ((uint32_t)board_name_stage[(4U * i) + 2U] << 16) | ((uint32_t)board_name_stage[(4U * i) + 3U] << 24);
+  }
+  disable_interrupts();
+  if (flash_is_locked()) { flash_unlock(); }
+  bool ok = flash_erase_sector(BOARD_NAME_SECTOR, true);
+  if (ok) {
+    for (uint8_t i = 0U; i < (1U + (BOARD_NAME_LEN / 4U)); i++) {
+      flash_write_word((void *)(BOARD_NAME_ADDR + (4U * i)), words[i]);
+    }
+  }
+  FLASH->CR |= FLASH_CR_LOCK;
+  enable_interrupts();
+  if (ok) {
+    const uint32_t *rec = (const uint32_t *)BOARD_NAME_ADDR;
+    for (uint8_t i = 0U; i < (1U + (BOARD_NAME_LEN / 4U)); i++) { if (rec[i] != words[i]) { ok = false; } }
+  }
+  return ok;
+#endif
+}
 bool is_car_safety_mode(uint16_t mode);
 
 int get_health_pkt(void *dat) {
@@ -252,6 +307,15 @@ int usb_cb_control_msg(USB_Setup_TypeDef *setup, uint8_t *resp) {
       COMPILE_TIME_ASSERT(sizeof(gitversion) <= USBPACKET_MAX_SIZE);
       (void)memcpy(resp, gitversion, sizeof(gitversion));
       resp_len = sizeof(gitversion) - 1U;
+      {
+        // 보드 이름이 기록돼 있으면 "#<name>" 을 덧붙인다 (총 64B 이내)
+        uint8_t nm[BOARD_NAME_LEN];
+        uint8_t nl = board_name_read(nm);
+        if ((nl > 0U) && ((resp_len + 1U + nl) <= USBPACKET_MAX_SIZE)) {
+          resp[resp_len] = (uint8_t)'#'; resp_len += 1U;
+          (void)memcpy(&resp[resp_len], nm, nl); resp_len += nl;
+        }
+      }
       break;
     // **** 0xd8: reset ST
     case 0xd8:
@@ -307,7 +371,12 @@ int usb_cb_control_msg(USB_Setup_TypeDef *setup, uint8_t *resp) {
 
     // **** 0xdc: set safety mode
     case 0xdc:
-      set_safety_mode(setup->b.wValue.w, (uint16_t)setup->b.wIndex.w);
+      // 핸드오버 복원 중의 SILENT 요청은 보류했다가 시퀀서 완료 시 적용한다.
+      if ((setup->b.wValue.w == SAFETY_SILENT) && seer_handover_active()) {
+        seer_ho_pending_silent = true;
+      } else {
+        set_safety_mode(setup->b.wValue.w, (uint16_t)setup->b.wIndex.w);
+      }
       break;
     // **** 0xdd: get healthpacket and CANPacket versions
     case 0xdd:
@@ -404,12 +473,58 @@ int usb_cb_control_msg(USB_Setup_TypeDef *setup, uint8_t *resp) {
       set_power_save_state(setup->b.wValue.w);
       break;
     case 0xe8:
-      set_intercept_relay(setup->b.wValue.w != 0U);
-      seer_cover_start_us = microsecond_timer_get();
-      seer_cover_armed = true;
+      // wValue=0(반환)이고 PC 주도 중이면 핸드오버 시퀀서가 복원 뒤 권한을 내리고 cover 를 건다.
+      if (setup->b.wValue.w != 0U) {
+        set_intercept_relay(true);
+        seer_cover_start_us = microsecond_timer_get();
+        seer_cover_armed = true;
+      } else if (pc_authority) {
+        seer_handover_request(SEER_HO_SRC_HOST);
+      } else {
+        set_intercept_relay(false);
+        seer_cover_start_us = microsecond_timer_get();
+        seer_cover_armed = true;
+      }
       break;
     case 0xe9:
-      pc_authority = (setup->b.wValue.w != 0U);
+      if (setup->b.wValue.w != 0U) {
+        if (seer_handover_active()) {
+          // 복원 진행 중의 재engage: 복원을 끝까지 수행한 뒤 권한을 유지한 채 넘긴다(보류 SILENT 폐기)
+          seer_ho_reengage = true;
+          seer_ho_pending_silent = false;
+        } else {
+          pc_authority = true;
+        }
+      } else if (pc_authority) {
+        seer_handover_request(SEER_HO_SRC_HOST);   // 복원 뒤 시퀀서가 pc_authority 를 내린다
+      } else {
+        pc_authority = false;
+      }
+      break;
+    // **** 0xec: 핸드오버 복원 시퀀서 상태 조회 (CAN-Relay)
+    //   resp[0]=state(0 IDLE·1 RESTORE·2 SETTLE) resp[1]=source(1 host·2 failsafe)
+    //   resp[2]=result(0 none·1 reached·2 timeout·3 no-target) resp[3]=pending_silent
+    //   resp[4]=ticks(8 Hz) resp[5]=pc_authority
+    case 0xec:
+      resp[0] = seer_ho_state; resp[1] = seer_ho_source; resp[2] = seer_ho_result;
+      resp[3] = seer_ho_pending_silent ? 1U : 0U; resp[4] = seer_ho_ticks; resp[5] = pc_authority ? 1U : 0U;
+      resp_len = 6;
+      break;
+    // **** 0xed: 보드 이름 읽기 (CAN-Relay) — 32B, 미기록이면 길이 0
+    case 0xed:
+      resp_len = board_name_read(resp);
+      break;
+    // **** 0xee: 보드 이름 스테이징 — wValue=바이트 인덱스(0..30, 짝수), wIndex=2바이트(lo=idx, hi=idx+1)
+    case 0xee:
+      if ((setup->b.wValue.w + 1U) < BOARD_NAME_LEN) {
+        board_name_stage[setup->b.wValue.w] = (uint8_t)(setup->b.wIndex.w & 0xFFU);
+        board_name_stage[setup->b.wValue.w + 1U] = (uint8_t)((setup->b.wIndex.w >> 8) & 0xFFU);
+      }
+      break;
+    // **** 0xef: 보드 이름 커밋 (wValue=0x5AA5) — SILENT idle 에서만. resp[0]=1 성공/0 거부·실패
+    case 0xef:
+      resp[0] = ((setup->b.wValue.w == BOARD_NAME_COMMIT_KEY) && board_name_commit()) ? 1U : 0U;
+      resp_len = 1;
       break;
     // **** 0xea: 조향 호밍 개시/중단 (CAN-Relay)
     //   wValue: 1=개시, 0=중단   wIndex: 호밍속도(0.1 r/min), 0 이면 기본값 2500
