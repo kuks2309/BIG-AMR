@@ -58,6 +58,13 @@ case SAFETY_SILENT:                          // release/idle = 릴레이 OFF = p
 - engage CAN 오류 40건 → 2건.
 - 잔여 ~25% 는 간헐(미세 타이밍/레이스 추정). 클린 보드(51003b) 검증 권장.
 
-## 상태
-- 릴레이 미작동 **근본(open-drain) 해결** — push-pull 로 물리 절체 성립.
-- 재호밍 100%→25% — 완전 0 은 잔여 타이밍 과제.
+### 3) 추가 개선 — 조향 statusword 상시 operational
+
+2슬롯 replay 는 statusword 를 0x0050↔0x9450 로 토글하는데, **0x0050(switch-on-disabled = 모터 off) 순간이
+Seer 를 간헐 혼란**시켜 재init→재호밍을 유발했다. `seer_cache_reply` 에서 조향(node3·4) statusword(0x6041)를
+**상시 0x9450(op-enabled+target-reached+homing-attained)** 로 서브하니 재호밍이 크게 줄었다.
+
+## 상태 (실측)
+- 릴레이 미작동 **근본(open-drain) 해결** — push-pull 로 물리 절체 성립. **보드 정상, 하드웨어 결함 아님.**
+- 재호밍: open-drain 100%(0/4) → push-pull+pos=target 30%(14/20) → **+상시-op statusword ~13%(14/16 PASS)**.
+- 잔여 ~13% 는 간헐 타이밍/레이스 — seamless disengage / CiA402 homing-attained 이 남은 과제.
