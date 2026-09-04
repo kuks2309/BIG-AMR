@@ -143,6 +143,10 @@ static void seer_cache_reply(int addr, CANPacket_t *req) {
       out[5] = (uint8_t)((seer_last_target[node] >> 8) & 0xFFU);
       out[6] = (uint8_t)((seer_last_target[node] >> 16) & 0xFFU);
       out[7] = (uint8_t)((seer_last_target[node] >> 24) & 0xFFU);
+    } else if ((pc_authority) && (index == 0x6041U) && ((node == 3U) || (node == 4U))) {
+      // debt-129: 조향 statusword 상시 operational(0x9450 = op-enabled+target-reached+homing-attained) — 토글의 0x0050(switch-on-disabled) 순간 제거로 Seer 재init 억제
+      out[0] = chosen->data[0]; out[1] = chosen->data[1]; out[2] = chosen->data[2]; out[3] = chosen->data[3];
+      out[4] = 0x50U; out[5] = 0x94U; out[6] = 0U; out[7] = 0U;
     } else if ((pc_authority) && (seer_frozen_valid != 0U) && seer_is_motion_obj(index)) {
       chosen->rtog ^= 1U;
       const uint8_t *src = (chosen->rtog != 0U) ? chosen->data2 : chosen->data;
