@@ -39,3 +39,37 @@
 | `DEPLOY` | str | 배포 워크트리 루트(판다 파이썬·설정 yaml 출처) | orin_ros_stall_test.py:19 |
 | `CFG`·`MACHINE` | str | 노드 파라미터 yaml 2종(배포 사본, 구동 상한 포함) | orin_ros_stall_test.py:30-31 |
 | `STEER_DEG` | float | 정체 전 넣는 조향 목표(+5°) | orin_ros_stall_test.py:32 |
+
+## 함수표 — orin_supervisor_e2e.py (배포 감시자 복귀 E2E — 드라이버 사망 복귀·감시자 동반 재기동 pid 추론·수동 해제 비복귀)
+
+| 함수 | 시그니처 | 용도 | 위치 |
+|---|---|---|---|
+| `Observer.__init__` | `Observer()` | rclpy 노드(도메인 125) — `/diagnostics` 구독으로 드라이버(`can_relay:`)·감시자(`can_relay_supervisor`) 최신 상태·수신 시각 보관, `/can_relay_node/engage` 클라이언트 | orin_supervisor_e2e.py:38 |
+| `Observer._spin` | `_spin() -> None` | `rclpy.ok()` 동안 `spin_once` — shutdown 뒤 스레드가 자연 종료돼 종료 시 abort 가 없다 | orin_supervisor_e2e.py:48 |
+| `Observer._on_diag` | `_on_diag(msg)` | 상태 이름 접두로 드라이버/감시자 KeyValue 를 dict 로 갱신 | orin_supervisor_e2e.py:52 |
+| `Observer.engage` | `engage(on: bool) -> tuple[bool, str]` | `~/engage` 동기 호출(10 s) | orin_supervisor_e2e.py:63 |
+| `Observer.wait_for` | `wait_for(pred, timeout) -> bool` | 0.2 s 폴로 조건 대기(`while` 재확인) | orin_supervisor_e2e.py:71 |
+| `main_pid` | `main_pid(unit) -> int` | `systemctl show -p MainPID` | orin_supervisor_e2e.py:79 |
+| `kill_driver_node` | `kill_driver_node(ob) -> dict` | 진단 `pid` 의 드라이버 노드 프로세스에 SIGKILL(크래시 재현, launch 종료→systemd 재기동) | orin_supervisor_e2e.py:85 |
+| `kill_sup_node` | `kill_sup_node() -> dict` | `pgrep -f lib/can_relay/relay_supervisor` 로 감시자 노드 프로세스에 SIGKILL | orin_supervisor_e2e.py:93 |
+| `journal_since` | `journal_since(unit, since) -> list[str]` | 감시자 저널에서 판정 전이·복귀 지시·pid 추론 줄만 추출 | orin_supervisor_e2e.py:90 |
+| `seer_probe` | `seer_probe() -> dict` | Seer API 알람 코드 목록(52111 확인) | orin_supervisor_e2e.py:99 |
+| `path_a` | `path_a(ob) -> dict` | engage→RUNNING→드라이버 kill→(WAIT/DEAD)→RESTORE→새 pid 로 engaged→RUNNING→수동 해제→IDLE 유지 | orin_supervisor_e2e.py:110 |
+| `path_b` | `path_b(ob) -> dict` | engage→RUNNING→드라이버·감시자 동시 kill→새 감시자 pid 추론 warn→RESTORE→engaged→해제 | orin_supervisor_e2e.py:141 |
+| `path_c` | `path_c(ob) -> dict` | engage→감시자만 kill→RUNNING(복귀 호출 0)→해제→감시자만 kill→IDLE 유지(비복귀) | orin_supervisor_e2e.py:170 |
+| `main` | `main() -> None` | 인자(A/B/C)로 고른 경로를 순차 실행(무인자=전부), 판정 표 출력, JSON 저장(부분 실행은 `_<경로>` 접미) | orin_supervisor_e2e.py:213 |
+
+## 전역변수표 — orin_supervisor_e2e.py
+
+| 이름 | 타입 | 용도 | 위치 |
+|---|---|---|---|
+| `DRV`·`SUP` | str | systemd 유닛 이름 2종 | orin_supervisor_e2e.py:30-31 |
+| `OUT` | str | 결과 JSON 경로 `logs/orin_supervisor_e2e.json` | orin_supervisor_e2e.py:32 |
+
+## 토픽·서비스표 — orin_supervisor_e2e.py
+
+| 토픽/서비스 | 타입 | QoS | 위치 |
+|---|---|---|---|
+| `/diagnostics` (구독) | `diagnostic_msgs/DiagnosticArray` | 기본(RELIABLE·VOLATILE, depth 10) — 드라이버 `pub_diag` 와 동일 | orin_supervisor_e2e.py:42 |
+| `/relay_supervisor/status` (구독) | `diagnostic_msgs/DiagnosticArray` | 기본(RELIABLE·VOLATILE, depth 10) — 감시자 `pub_status` 와 동일 | orin_supervisor_e2e.py:43 |
+| `/can_relay_node/engage` (클라이언트) | `std_srvs/SetBool` | 서비스 기본 | orin_supervisor_e2e.py:44 |

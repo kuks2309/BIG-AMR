@@ -1,0 +1,403 @@
+opening device 4e002c001151323238343935 0xddcc
+connected
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc1 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc2 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc3 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc4 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc5 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc6 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc7 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc8 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc9 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc10 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc11 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc12 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc13 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc14 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc15 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc16 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc17 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc18 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc19 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc20 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc21 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc22 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc23 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc24 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc25 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc26 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc27 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc28 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc29 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc30 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc31 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc32 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc33 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc34 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc35 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc36 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc37 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc38 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc39 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc40 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc41 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc42 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc43 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc44 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc45 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc46 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc47 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc48 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc49 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc50 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc51 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc52 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc53 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc54 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc55 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc56 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc57 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc58 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc59 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc60 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc61 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc62 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc63 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc64 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc65 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc66 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc67 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc68 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc69 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc70 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc71 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc72 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc73 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc74 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc75 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc76 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc77 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc78 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc79 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc80 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc81 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc82 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc83 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc84 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc85 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc86 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc87 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc88 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc89 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc90 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc91 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc92 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc93 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc94 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc95 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc96 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc97 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc98 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc99 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+>>> 제어권 획득 (safety=30 · auth=PC · intercept)
+[release] 제어권 반환 + passthrough 복귀
+⚠ Seer 가 재호밍을 개시할 수 있습니다 — 조향축 스윙 주의
+cyc100 PASS |steer|=0.000 emcy=0 leak={} reinit_ev=0 last_ev=None rel=4.00 post_wire=[] new_alarms=[] passthrough=ok harness=0 safety=0
+=== 100/100 PASS (engage 4.0s) ===
