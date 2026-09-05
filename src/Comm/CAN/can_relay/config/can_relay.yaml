@@ -26,7 +26,7 @@
     # 모션 체인은 크랩 여유(115°)를 쓰고, 사람이 손으로 넣는 경로는 90° 가드를 유지한다.
     # 기체 파일이 이 값을 덮지 않는 한 90° 다(machine yaml 에는 두지 않는다).
     steer_limit_bench_deg: 90.0
-    vel_max_units: 4889           # ≈0.2 m/s. 실측이 아니라 config 환산 + 계승 상한
+    vel_max_units: 29336          # ≈1.2 m/s (24.447 units/mmps × 1200)
     cmd_timeout_s: 0.3            # 워치독. 갱신 없으면 속도 0 으로 수렴
     cmd_hz: 20.0                  # 지령 재송신 주기(단발 송신 금지)
     poll_hz: 5.0                  # 피드백 폴링
