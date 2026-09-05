@@ -181,6 +181,8 @@ class RelayBackend:
     def start(self):
         if self._running:
             raise RuntimeError("이미 기동돼 있다 — 두 번 부르면 버스 writer 가 둘이 된다")
+        if self._thread is not None and self._thread.is_alive():
+            raise RuntimeError("이전 제어 스레드가 아직 살아 있다 — 재기동을 거부한다(버스 writer 둘 방지)")
         if not self.link.engaged:
             raise RuntimeError("제어권을 먼저 획득해야 한다")
         if self.cfg.allow_bringup:
@@ -212,7 +214,11 @@ class RelayBackend:
         self._running = False
         if self._thread is not None:
             self._thread.join(timeout=1.5)
-            self._thread = None
+            if self._thread.is_alive():
+                # 살아 있는 스레드의 참조를 지우면 다음 start() 가 두 번째 루프를 띄운다(버스 writer 둘).
+                self._log("⚠ 제어 스레드가 1.5 s 안에 끝나지 않았다 — 참조를 유지해 재기동을 막는다")
+            else:
+                self._thread = None
         self._log("백엔드 종료")
 
     # ── 생존 표시 ─────────────────────────────────────────────────────
