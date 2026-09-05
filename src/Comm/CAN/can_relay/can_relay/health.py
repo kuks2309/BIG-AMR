@@ -199,7 +199,23 @@ def parse_diag(values, level: int = 0, message: str = "") -> dict:
         out["steer_target_deg"] = _as_float(kv["steer_target_deg"])
     if "drive_units" in kv:
         out["drive_units"] = kv["drive_units"]
+    if "pid" in kv:
+        out["pid"] = kv["pid"]              # 프로세스 정체 — 재기동 여부의 유일한 증거
     return out
+
+
+def restart_inferred(prev: Optional[dict], cur: Optional[dict]) -> bool:
+    """감시자 재기동 뒤 첫 진단에서 「대상이 그 사이 재기동했는가」를 추론한다.
+
+    감시자가 죽어 있던 동안의 두절은 관측할 수 없다. 대신 기록의 `pid` 와 현재 `pid` 를
+    대조한다 — 사람이 내린 해제는 프로세스를 바꾸지 않고, 재기동은 반드시 바꾼다.
+    기록이 제어권 보유였고 양쪽 모두 `pid` 를 가지며 서로 다를 때만 참이다. 한쪽이라도
+    `pid` 가 없으면 거짓 — 모름을 두절로 치지 않는다(보수 방향).
+    """
+    if not prev or not cur or not prev.get("engaged"):
+        return False
+    a, b = prev.get("pid"), cur.get("pid")
+    return bool(a) and bool(b) and a != b
 
 
 def next_prev(prev: Optional[dict], cur: Optional[dict],

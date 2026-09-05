@@ -15,7 +15,7 @@ from can_relay.health import (DEAD, HOLD, IDLE, RESTORE, RUNNING, WAIT, ZOMBIE,
                               Observation, SupervisorConfig, as_level, boot_id,
                               decide, default_state_dir, is_outage, next_prev,
                               next_was_down, parse_diag, proc_alive, prune_stamps,
-                              restore_call_expired, recycle_due)
+                              restart_inferred, restore_call_expired, recycle_due)
 
 CFG = SupervisorConfig(diag_timeout_s=3.0, restart_limit=3, restart_window_s=120.0)
 ENGAGED = {"engaged": True}
@@ -69,6 +69,21 @@ def test_parse_diag_accepts_objects_with_key_attr():
 def test_parse_diag_bad_float_becomes_none():
     st = parse_diag([("steer_target_deg", "None")])
     assert st["steer_target_deg"] is None
+
+
+def test_parse_diag_keeps_pid_as_opaque_identity():
+    assert parse_diag([("pid", "4321")])["pid"] == "4321"
+    assert "pid" not in parse_diag([("engaged", "True")])
+
+
+# ── restart_inferred: 감시자 재기동 뒤 첫 진단의 pid 대조 ──────────────────
+def test_restart_inferred_only_when_engaged_record_and_pid_changed():
+    assert restart_inferred({"engaged": True, "pid": "1"}, {"engaged": False, "pid": "2"}) is True
+    assert restart_inferred({"engaged": True, "pid": "1"}, {"engaged": False, "pid": "1"}) is False  # 수동 해제
+    assert restart_inferred({"engaged": False, "pid": "1"}, {"engaged": False, "pid": "2"}) is False
+    assert restart_inferred({"engaged": True}, {"engaged": False, "pid": "2"}) is False       # 모름 ≠ 두절
+    assert restart_inferred({"engaged": True, "pid": "1"}, {"engaged": False}) is False
+    assert restart_inferred(None, {"engaged": False, "pid": "2"}) is False
 
 
 # ── decide: 진단이 있는 경우 ───────────────────────────────────────────────
@@ -514,6 +529,47 @@ def test_restore_eligibility_survives_a_failed_attempt(sup, monkeypatch):
     _observe(sup, engaged=False)     # 창 밖 첫 틱
     _observe(sup, engaged=False)     # 다음 틱
     assert len(tried) >= 2, f"복귀 시도가 {len(tried)}회뿐 — 실패하면 영구 포기한다"
+
+
+def _seed_record(tmp_path, **fields):
+    rec = {"level": 0, "message": "정상", "estop": False, "boot_id": boot_id(),
+           "saved_at": 1.0, "restore_stamps": []}
+    rec.update(fields)
+    (tmp_path / "state.json").write_text(json.dumps(rec))
+
+
+def test_supervisor_restart_infers_outage_from_pid_change(tmp_path):
+    """감시자가 재기동해 두절을 못 봤어도, 기록 pid ≠ 현재 pid 면 복귀 자격을 준다."""
+    _seed_record(tmp_path, engaged=True, pid="111")
+    rclpy.init(args=["--ros-args", "-p", f"state_dir:={tmp_path}"])
+    try:
+        node = RelaySupervisor()
+        node._cur = {"level": 0, "message": "정상", "engaged": False,
+                     "estop": False, "pid": "222"}
+        node._last_diag = _time.monotonic()
+        node._on_tick()
+        assert node._was_down is True
+        assert node._verdict != IDLE, node._verdict     # 안정화 WAIT 또는 RESTORE
+        node.destroy_node()
+    finally:
+        rclpy.shutdown()
+
+
+def test_supervisor_restart_does_not_restore_manual_release(tmp_path):
+    """pid 가 같으면 사람이 내린 것 — 감시자 재기동이 그것을 되살리면 안 된다."""
+    _seed_record(tmp_path, engaged=True, pid="111")
+    rclpy.init(args=["--ros-args", "-p", f"state_dir:={tmp_path}"])
+    try:
+        node = RelaySupervisor()
+        node._cur = {"level": 0, "message": "정상", "engaged": False,
+                     "estop": False, "pid": "111"}
+        node._last_diag = _time.monotonic()
+        node._on_tick()
+        assert node._was_down is False
+        assert node._verdict == IDLE
+        node.destroy_node()
+    finally:
+        rclpy.shutdown()
 
 
 def test_carry_roundtrip_preserves_watch_state(tmp_path):
