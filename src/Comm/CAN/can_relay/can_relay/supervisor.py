@@ -46,6 +46,7 @@ from std_srvs.srv import SetBool
 from .health import (DEAD, HOLD, IDLE, RESTORE, RUNNING, WAIT, ZOMBIE,
                      Observation, SupervisorConfig, boot_id, decide,
                      default_state_dir, is_outage, next_prev, next_was_down,
+                     restart_inferred,
                      recycle_due,
                      parse_diag, proc_alive, prune_stamps,
                      restore_call_expired)
@@ -101,6 +102,7 @@ class RelaySupervisor(Node):
         self._cur: Optional[dict] = None
         self._last_diag: Optional[float] = None     # monotonic
         self._was_down = False
+        self._identity_checked = False  # 기동 뒤 첫 진단의 pid 대조를 마쳤는가
         self._restore_stamps: list = list(
             (self._prev or {}).get("restore_stamps") or [])
         self._verdict = WAIT
@@ -116,6 +118,7 @@ class RelaySupervisor(Node):
             # 죽어 있던 경우 「한 번도 못 받음」으로 읽혀 복귀가 영영 걸리지 않는다.
             self._prev = carry.get("prev", self._prev)
             self._was_down = bool(carry.get("was_down", False))
+            self._identity_checked = bool(carry.get("identity_checked", False))
             self._restore_stamps = list(carry.get("restore_stamps", []))
             self._last_diag = carry.get("last_diag")
             self._verdict = carry.get("verdict", self._verdict)
@@ -170,6 +173,16 @@ class RelaySupervisor(Node):
             self._cur_seen_since = None
         elif self._cur_seen_since is None:
             self._cur_seen_since = now
+        # 감시자 자신이 재기동했으면 그 사이의 두절은 못 봤다 — 첫 진단의 pid 를 기록과
+        # 대조해 대상 재기동을 추론한다. 수동 해제는 pid 가 같으므로 복귀시키지 않는다.
+        if self._cur is not None and not self._identity_checked:
+            self._identity_checked = True
+            if restart_inferred(self._prev, self._cur):
+                self._was_down = True
+                self.get_logger().warn(
+                    f"감시자가 없는 사이 대상이 재기동했다(pid "
+                    f"{(self._prev or {}).get('pid')} → {self._cur.get('pid')}) — "
+                    f"두절을 겪은 것으로 보고 복귀 자격을 준다")
 
         # 두절이 길면 DDS 참여자(컨텍스트·노드)를 재생성한다 — 발행은 도는데 이쪽
         # 참여자만 못 받는 상태와 진짜 두절을 밖에서 구분할 수 없으므로, 무해한 쪽
@@ -347,6 +360,7 @@ class RelaySupervisor(Node):
         return {
             "prev": self._prev,
             "was_down": self._was_down,
+            "identity_checked": self._identity_checked,
             "restore_stamps": list(self._restore_stamps),
             "last_diag": self._last_diag,
             "verdict": self._verdict,

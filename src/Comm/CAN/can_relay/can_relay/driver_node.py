@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 import math
+import os
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
@@ -483,6 +484,7 @@ class CanRelayNode(Node):
         # 아니라
         # key/value 로 낸다 — 문장 파싱에 기대면 문구를 고치는 순간 감시가 깨진다.
         st.values = [
+            KeyValue(key="pid", value=str(os.getpid())),   # 감시자가 재기동을 가려내는 정체
             KeyValue(key="engaged", value=str(snap["engaged"])),
             KeyValue(key="estop", value=str(snap["estop"])),
             KeyValue(key="home_failed", value=str(snap["home_failed"])),
