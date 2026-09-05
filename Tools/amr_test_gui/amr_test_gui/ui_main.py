@@ -430,10 +430,6 @@ class MainWindow(QWidget):
         self._usb_ok = True
         self._log(f"[gui] USB 연결됨 — fw={st.get('version')} "
                   f"safety_mode={st.get('safety_mode')} harness={st.get('car_harness_status')}")
-        # 제어권 전환(획득·반환) 때 Seer 가 호밍을 걸지 못하게 막는다.
-        # 우리 브링업의 호밍 트리거는 backend 에서 제거했고, Seer 쪽은 이 플래그로 막는다.
-        # 호밍은 '호밍' 버튼으로만 명시적으로 수행한다.
-        self.link.block_seer_homing(True)
         self.btn_usb_on.setEnabled(False)
         self.btn_usb_off.setEnabled(True)
         self.btn_connect.setEnabled(True)       # 이제서야 제어권 획득이 가능해진다
@@ -833,10 +829,6 @@ class MainWindow(QWidget):
         except Exception:
             pass
         if self.link is not None:
-            try:
-                self.link.block_seer_homing(False)   # 도구 종료 — Seer 거동을 원상 복구한다
-            except Exception as exc:
-                print(f"[gui] ⚠ 종료 중 block_seer_homing 예외: {exc}", flush=True)
             try:
                 self.link.close()      # 제어권 반환 후 USB 도 정리
             except Exception as exc:

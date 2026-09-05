@@ -112,37 +112,6 @@ class PandaLink:
             self.error = f"{type(exc).__name__}: {exc}"
             return {"error": self.error}
 
-    def block_seer_homing(self, on: bool) -> bool:
-        """Seer 의 호밍 트리거(0x60FB.4=1 · 0x6098) 차단 on/off — 펌웨어 0xec.
-
-        제어권을 반환하면 Seer 가 자기 초기화로 호밍을 걸어 조향축이 137° 왕복한다.
-        테스트 도구를 쓰는 동안에는 이걸 막는다. 호밍은 '호밍' 버튼으로만 명시적으로 한다.
-        ⚠ 가짜 ack 를 주므로 Seer 는 호밍이 된 줄 안다 — 도구 종료 시 반드시 해제한다.
-        """
-        if self.p is None:
-            return False
-        try:
-            r = self.p._handle.controlRead(self._Panda.REQUEST_IN, 0xec, 1 if on else 0, 0, 1)
-            got = bool(r and r[0] == 1)
-            self.log(f"[PandaLink] Seer 호밍 트리거 차단 {'ON' if got else 'OFF'}")
-            return got
-        except Exception as exc:
-            self.log(f"[PandaLink] ⚠ 0xec 실패(구 펌웨어?): {type(exc).__name__}: {exc}")
-            return False
-
-    # ── 펌웨어 조향 호밍 (0xea 개시/중단 · 0xeb 상태) ──────────────────────
-    # 호밍은 **펌웨어가 지휘**한다(board/safety/safety_seer_gate.h 의 시퀀서).
-    # 호밍 = 원점(리밋) 탐색 → 펌웨어 정착 위치 이동까지. 원점에 머무는 것이 아니다.
-    # ⚠ 그 정착 위치는 **조향 0° 가 아니다** — SEER_HOME_ZERO_N3/N4(7,882,020 / 7,859,062)는
-    #   이름만 ZERO 일 뿐 0° 정본 [7871815, 7840086] 에서 +0.178° / +0.331° 떨어진 지점이다.
-    #   펌웨어에는 0° 로 보내는 동작이 없고, 0° 복귀는 호스트가 별도로 지령해야 한다.
-    # 펌웨어 인터록: pc_authority(0xe9=1) + safety_mode 30 이어야 개시가 수락된다.
-    HOMING_STATE = {0: "대기", 1: "enable", 2: "속도설정", 3: "개시", 4: "원점 탐색 중",
-                    5: "완료 (정착 위치)", 6: "실패: 탐색 타임아웃", 7: "실패: 중단",
-                    8: "프로파일 복원", 9: "정착 위치 지령", 10: "실패: 정착 위치 미도달",
-                    11: "정착 위치 이동 중"}
-    HOMING_TERMINAL = (0, 5, 6, 7, 10)
-
     def homing_start(self, speed: int = 0) -> bool:
         """호밍 개시. 반환 False = 펌웨어가 거부(권한 없음·이미 진행중)."""
         if self.p is None:
