@@ -47,6 +47,14 @@
 
 ## 2026-09-05
 
+### [Fix] `map/260709_test.smap` 정본이 로봇 로드 맵과 달라 시각화가 허구의 스테이션을 그림
+
+- **문제**: rviz2 에 띄운 Seer 맵의 스테이션이 실제와 달랐다(LM1~LM4 가 (−15.9, 2.4) 등에 표시). 로봇 실제 맵은 LM1(−3.743, 13.931)·LM2(−10.000, 13.931) 두 개뿐이다.
+- **원인**: 정본 `map/260709_test.smap` 이 md5 `a20cbe5c…`(2026-08-08 판)에 머물러 로봇 현재 맵 `0319831d…` 와 달랐다 — `Tools/seer_map/download_map.py` 로 1300 조회·4011 다운로드해 md5 대조로 확정. 여기에 날짜·md5 접미 사본 3종(`…_2026-08-06_79e59a5a`·`…_2026-08-25_92e73074`·당일 받은 사본)이 공존해 어느 것이 현재인지 파일만 봐서는 알 수 없었다 — 문서마다 다른 사본을 지목하고 있었다.
+- **해결**: 정본을 로봇 현재 맵(`0319831d…`, md5 대조 통과)으로 갱신하고 **사본 3종 전부 삭제**(이력은 git). `map/README.md` 신설 — 맵 이름당 파일 1개·정본은 로봇 로드 맵과 일치·갱신은 다운로드 도구의 md5 대조·문서에 md5 를 적을 땐 관측 시각 병기. 사본을 지목하던 `Tools/motion_chain_check/RUNBOOK-first-drive.md`·`Tools/waypoint_nav/route_lm12.yaml` 참조를 정본으로 정정.
+- **파일**: `map/260709_test.smap` · `map/README.md`(신설) · `map/260709_test_2026-08-25_92e73074.smap`(삭제) · `Tools/motion_chain_check/RUNBOOK-first-drive.md` · `Tools/waypoint_nav/route_lm12.yaml`
+- **상태**: 완료 (재시각화로 스테이션 2개·마커 8개 확인)
+
 ### [Fix] can_relay GUI(backend_direct) 반환 경로가 `P_` 미정의로 0xE8/0xE9 단계를 건너뛰었다
 
 - **문제**: `_release_steps()` 의 람다가 `P_` 를 참조하는데 그 스코프에 정의가 없어 NameError → intercept/authority 해제 단계가 예외로 빠지고 `set_safety_mode(0)` 만 나갔다(단계별 예외 흡수 설계라 조용히 지나감). 15인 적대적 검토 쟁점 #2.
