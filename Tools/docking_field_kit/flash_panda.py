@@ -134,7 +134,8 @@ def main():
     #   재빌드하면 달라지는 것이 정상이라 **성공한 플래시가 실패처럼 읽혔다**(2026-08-05 실사용에서 실제 오독 유발).
     #   이제는 `<fw 경로>/../version`(SConscript 가 빌드마다 갱신)과 대조해 일치 = 성공으로 단정한다.
     expected = read_build_version(fw)
-    if expected and expected == str(after).strip():
+    # 펌웨어 0xd6 는 보드 이름이 있으면 '#<name>' 을 덧붙인다 — 접미를 뗀 버전으로 대조
+    if expected and expected == str(after).strip().split('#', 1)[0]:
         print(f"=== ✅ 플래시 성공 — 장치 version 이 빌드 사이드카와 일치: {expected} ===")
     elif expected:
         print(f"=== ⚠ 불일치 — 빌드 사이드카 {expected} vs 장치 {after} ===")

@@ -45,6 +45,40 @@
 
 ---
 
+## 2026-09-05
+
+### [Fix] can_relay GUI(backend_direct) 반환 경로가 `P_` 미정의로 0xE8/0xE9 단계를 건너뛰었다
+
+- **문제**: `_release_steps()` 의 람다가 `P_` 를 참조하는데 그 스코프에 정의가 없어 NameError → intercept/authority 해제 단계가 예외로 빠지고 `set_safety_mode(0)` 만 나갔다(단계별 예외 흡수 설계라 조용히 지나감). 15인 적대적 검토 쟁점 #2.
+- **원인**: `src/Comm/CAN/can_relay/can_relay/ui/backend_direct.py:326-330` — `P_ = self._cls` 가 engage 경로(:269)와 심박 경로(:506)에만 있었다.
+- **해결**: `_release_steps()` 첫 줄에 `P_ = self._cls` 추가(1줄). 펌웨어 쪽도 단독 SILENT 요청을 복원 뒤 적용하도록 보강(ADR 09-05 절)해 어느 쪽이든 순서가 지켜진다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/ui/backend_direct.py` (배포 사본 `Big-AMR-deploy` 는 main 병합 후 재빌드 필요)
+- **상태**: 완료 — `py_compile` PASS. GUI 실기 반환은 배포 재빌드 후 확인.
+
+### [Fix] flash_new_board.py·flash_panda.py 사이드카 버전 대조가 보드 이름 접미(`#<name>`)에서 MISMATCH
+
+- **문제**: 이름이 기록된 보드(4e002c=trworks-t3-1)에서 검증이 MISMATCH 로 끝난다.
+- **원인**: `Tools/Can_Relay/flash_new_board.py:114`·`Tools/docking_field_kit/flash_panda.py:137` 등호 대조가 0xd6 접미를 모른다.
+- **해결**: 접미를 뗀 뒤 대조(각 1줄).
+- **파일**: `Tools/Can_Relay/flash_new_board.py`, `Tools/docking_field_kit/flash_panda.py`
+- **상태**: 완료 — `py_compile` PASS.
+
+### [Fix] can_relay backend 가 심박 억제 중에도 조향 setpoint 를 20 Hz 로 재송신해 펌웨어 복원과 경합
+
+- **문제**: ROS 정체로 심박을 끊은 뒤(`_hb_suppressed`)에도 `_loop` 가 0x607A/0x3F 를 계속 내보내 펌웨어 fail-safe 복원(1 Hz 재송신)과 bus2 writer 둘이 된다. 결과는 8 s 타임아웃 뒤 SILENT 로 같지만 복원 이득이 0 이 된다. 15인 검토 쟁점 #5.
+- **원인**: `backend.py:989` 조건이 `_homing`·`_estop` 만 본다.
+- **해결**: 조건에 `and not self._hb_suppressed` 추가(1줄) — 심박을 끊었으면 조향 재송신도 멈춘다.
+- **파일**: `src/Comm/CAN/can_relay/can_relay/backend.py`
+- **상태**: 완료 — `py_compile` PASS. 실기는 ROS 정체 주입 시험으로 확인 예정.
+
+### [Fix] amr-can-relay systemd 템플릿에 ROS 언더레이 source 누락 (배포 사본 로컬 수정을 저장소로 회수)
+
+- **문제**: 템플릿 ExecStart 가 `install/setup.bash` 만 source 해 새 설치에서 `ros2` 를 못 찾을 수 있다. 배포 사본은 09-02 부터 로컬 수정(`source /opt/ros/humble/setup.bash &&`)으로만 돌고 있었다. 15인 검토 쟁점 #13.
+- **원인**: `src/Comm/CAN/can_relay/systemd/amr-can-relay.service:33`·supervisor 유닛 동일.
+- **해결**: 두 템플릿 ExecStart 에 언더레이 source 추가(배포 사본과 동일).
+- **파일**: `src/Comm/CAN/can_relay/systemd/amr-can-relay.service`, `amr-can-relay-supervisor.service`
+- **상태**: 완료 — 배포 사본과 diff 0.
+
 ## 2026-09-04
 
 ### [Change] 제어권 반환 시 펌웨어가 조향을 Seer 목표로 복원한 뒤 넘긴다 (핸드오버 복원 시퀀서)
@@ -53,7 +87,7 @@
 - **원인**: 노드 `backend.shutdown()` 은 구동 0·조향 목표 재송신 중단만 하고(`backend.py:180-199`), 펌웨어 0xe8/0xe9 는 즉시 권한 해제 — 복원 주체 부재.
 - **해결**: 펌웨어 시퀀서(`safety_seer_gate.h` 끝 절, `usb_comms.h` 0xe8/0xe9/0xdc/0xec, `main.c` tick·fail-safe). 반환 요청 → 구동 0·조향 `seer_last_target` 복원(≤0.1°, 8 s 타임아웃) → 0.5 s 정착 → 권한 해제·보류 SILENT. heartbeat 상실도 같은 경로.
 - **파일**: `Tools/Can_Relay/panda-firmware/board/safety/safety_seer_gate.h`, `board/usb_comms.h`, `board/main.c`(미추적, ADR 에 원문)
-- **상태**: 완료 — 검증 (a) 노드 반환 +30°→홈 2.0 s·Seer 알람 0 (b) heartbeat 중단 fail-safe 1.2 s 뒤 복원→SILENT·알람 0 (c) hold 회귀 10/10 PASS. ADR `docs/adr/2026-09-04-canrelay-handover-restore-sequencer.md`, 펌웨어 md5 `639b4654…`.
+- **상태**: 완료 — 검증 (a) 노드 반환 +30°→홈 2.0 s·Seer 알람 0 (b) heartbeat 중단 fail-safe 1.2 s 뒤 복원→SILENT·알람 0 (c) hold 회귀 10/10 PASS. **2026-09-05 정정**: 재engage 플래그 잔류로 반환→복원 중 재engage→재반환 순서에서 권한이 유지될 수 있던 결함을 수정(최신 요청 우선), 직접 USB 타이밍 검증 5종·회귀 3/3 PASS, 단독 SILENT 반환도 복원 뒤 적용(펌웨어 md5 `6ffe710d…`). ADR `docs/adr/2026-09-04-canrelay-handover-restore-sequencer.md`.
 
 ### [Fix] CAN relay 보드 하네스 방향 판정이 릴레이·버스 매핑을 덮어써 intercept 가 부팅 복권에 걸림 (debt-130)
 
@@ -88,6 +122,24 @@
 - **firmware 시도 결과(전부 원인 오판, 폐기·롤백)**: emulate 분리·0xec 복원·disengage handover-restore. 단 pos_act(0x6064)/statusword(0x6041) 내용 가드는 **별개의 진짜 개선**(emulate 가 실값을 냄) — 유지. 52111 은 이것으로도 안 사라짐(결정실험 확정).
 - **파일**: 근거 도구 `Tools/docking_field_kit/orin_hold_intercept.py`(emulate OFF 재현) · scratchpad `decisive_emulate_on.py`(emulate ON 결정실험). fw_backups `panda.bin.signed.athome_fix_2026-08-03_91fe4282`. (⚠ 이전판이 인용한 `orin_home_experiment.py:diagnose_engage` 는 그 파일에 없는 함수 — 실제 근거는 scratchpad 진단 스크립트였음, 정정.)
 - **상태**: emulate/firmware 로 해결 불가 = 실측 확정. 구체 물리 원인 = 미판정(추적 종료).
+
+## 2026-09-02
+
+### [Fix] system_health GPU 사용률이 버스트 부하에서 0% 로 표시 (표본 에일리어싱)
+
+- **문제**: T3-1 에서 yolo 6캠 배치 추론으로 GPU 가 실제 일하는 중(20Hz 직접 표본 평균
+  40.5%, 90% 초과 22/60)인데 대시보드 GPU 타일·그래프가 대부분 0.0% 표시. 온도(+4°C)·
+  입력 전류(480→768mA)·클럭(306→510MHz) 상승과 모순되는 표시라 사용자 혼선.
+- **원인**: 부하 레지스터는 순간값인데 sampler 가 5초에 1회 한 번만 읽음 —
+  `system_health/sysfs.py`(수정 전 `read_gpu` 단발 `_read_int`). 배치 추론 부하는
+  0↔99% 를 초당 5~7회 오가는 사각파라 5초 순간 표본 대부분이 유휴 골에 떨어짐(에일리어싱).
+- **해결**: `read_gpu` 부하 읽기를 **1초 창 20표본 평균**으로 변경(상수
+  `_GPU_LOAD_SAMPLES`·`_GPU_LOAD_WINDOW_S` 신설). sampler 주기는 고정 격자라 표본
+  시각이 밀리지 않음(sampler.py:423-426 확인). 시그니처·스키마 불변.
+- **파일**: `src/Safety/system_health/system_health/sysfs.py`
+- **상태**: 완료 — 테스트 226 PASS, T3-1 실부하에서 42.2/38.9/44.0% 기록(직접 표본
+  40.5% 와 정합). T3-1 재시작 반영, 기준기 sampler 재시작은 sudo 대기.
+
 
 ## 2026-08-30
 

@@ -20,7 +20,7 @@ User=@USER@
 Group=@GROUP@
 Environment=PYTHONUNBUFFERED=1
 Environment=ROS_DOMAIN_ID=@DOMAIN@
-ExecStart=/bin/bash -lc 'source @REPO@/install/setup.bash && exec ros2 launch can_relay relay_supervisor.launch.py'
+ExecStart=/bin/bash -lc 'source /opt/ros/humble/setup.bash && source @REPO@/install/setup.bash && exec ros2 launch can_relay relay_supervisor.launch.py'
 
 Restart=always
 RestartSec=2

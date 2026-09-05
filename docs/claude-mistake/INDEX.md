@@ -6,82 +6,89 @@
 
 | id | kind | detector | status | 제목 |
 |---|---|---|---|---|
-| [2026-07-26-001](2026-07-26-001_emulate-stopvalue-false-claim.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | emulate가 "정지값 송신"한다는 미검증 완료보고 |
-| [2026-07-27-001](2026-07-27-001_freeze-object-list-guessed.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | freeze 대상 객체를 문서 아닌 추측으로 작성 |
-| [2026-07-27-002](2026-07-27-002_node4-unverified-command-damage.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 검증 안 된 조향지령으로 node4 물리 손상 + 세션 반복 추측 |
-| [2026-07-27-003](2026-07-27-003_sign-contradiction-false-claim.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 실측 2건을 "기하학적 모순"으로 오판, 확정된 방향을 미검증으로 격하 |
-| [2026-07-27-004](2026-07-27-004_repo-wide-dir-survey-skipped.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 디렉토리 병합 지시에 저장소 전수 조사 없이 지목된 2개만 처리 |
-| [2026-07-28-001](2026-07-28-001_soak-stall-count-misread.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 내구 로그의 "정지 구간" 수치를 대조 없이 확정 보고 |
-| [2026-07-28-002](2026-07-28-002_other-session-scope-intrusion.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 남의 세션 범위를 끌어들이고, 종결된 결정을 재질문 |
-| [2026-07-28-003](2026-07-28-003_gui-referent-misresolved.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | "gui 실행해서 테스트" 의 지시대상을 CAN relay GUI 로 오해 |
-| [2026-07-28-003](2026-07-28-003_invented-steer-ramp-mechanism.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 시험 절차를 "시스템의 방식"으로 단정, 정정 중 귀속마저 미확인 단정 |
-| [2026-07-28-004](2026-07-28-004_standard-procedure-omitted-by-design.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 표준 동작을 근거 없이 생략한 설계 3연속 |
-| [2026-07-28-005](2026-07-28-005_negative-assertion-without-verification.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | "Seer 호밍은 우리가 못 막습니다" 검증 없는 부정형 단정 |
-| [2026-07-28-006](2026-07-28-006_errata-v1-condemned-correct-citations.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 정오표 v1 이 정확한 Handbook 인용을 "오진" 으로 규정 |
-| [2026-07-28-007](2026-07-28-007_flash-without-size-limit-check.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 앱 영역 한계 미확인 플래시로 판다가 부트스텁에 갇힘 |
-| [2026-07-28-008](2026-07-28-008_stale-process-state-reported.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 이미 종료된 GUI 를 "점유 중" 이라고 보고 |
-| [2026-07-28-009](2026-07-28-009_shared-tree-head-moved-by-checkout.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 공유 워킹트리에서 `git checkout -b` 로 20개 세션의 HEAD 를 끌고 감 |
-| [2026-07-28-010](2026-07-28-010_existing-asset-survey-skipped.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | ICP 오도메트리를 사용자 기존 자산 조사 없이 "없다"고 단정하고 신규 구현·외부 GPL 패키지를 권고 |
-| [2026-07-28-011](2026-07-28-011_device-state-claimed-from-staging-file.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 장치 상태를 조회 없이 배포 파일 md5 로 확정 |
-| [2026-07-28-012](2026-07-28-012_unsourced-measured-labels-and-bare-negatives.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 무근거 수치에 '실측' 라벨 + 조건 없는 부정형 단정 재발 |
-| [2026-07-28-013](2026-07-28-013_inventory-excerpted-and-verification-unreproducible.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 인벤토리 발췌 + 검증 주장이 저장소에서 재현 불가 |
-| [2026-07-28-014](2026-07-28-014_ui-diagnosed-without-looking-at-screen.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 화면 한 번 안 보고 UI 결함을 네 번 오진 |
-| [2026-07-28-015](2026-07-28-015_upstream-merge-blocker-unverified.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 검증 없이 "upstream merge 가 깨진다" 로 변경을 막았다 |
-| [2026-07-28-016](2026-07-28-016_out-of-scope-annotation-creep.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 우리 규약이 미치지 않는 남의 경로에 주석을 달았다 |
-| [2026-07-29-001](2026-07-29-001_structural-impossibility-reassertion.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 이 세션 실수 전수 기록 (부정형 과단정 재발 + 근거없는 단정 + 추측 코드 누적 + 과잉 자기정정) |
-| [2026-07-29-002](2026-07-29-002_process-state-and-tool-output-misread.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 오염된 수치를 두 번 보고 |
-| [2026-07-29-003](2026-07-29-003_audit-claims-overturned-and-negative-assertion-relapse.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 10인 감사 결론 5건이 심문에서 뒤집힘 + 같은 세션에서 부정형 단정 재발 |
-| [2026-07-31-001](2026-07-31-001_ssh-denial-inferred-from-timeout.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 타임아웃을 정책 거부로 오독해 "SSH 차단" 을 5턴 확정 보고 |
-| [2026-07-31-002](2026-07-31-002_session-state-manual-edit.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 훅 소관 세션 상태 저장소를 모델이 직접 편집 |
-| [2026-07-31-003](2026-07-31-003_git-option-misdescribed-before-reading-sop.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | SOP 를 읽기 전에 git 선택지를 썼고, 그 오설명 위에서 결정이 내려졌다 |
-| [2026-07-31-004](2026-07-31-004_can-relay-designed-without-motion-stack-contract.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | can_relay ROS2 드라이버를 저장소 모션 스택(QD/2WS)의 명령 계약과 대조하지 않고 단독 설계 |
-| [2026-08-01-001](2026-08-01-001_reopened-settled-scope-without-reading-own-records.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 이미 후속으로 합의된 캘리브레이션을 세 턴 연속 현재 블로커로 되살림 (내가 쓴 기록을 안 읽음) |
-| [2026-08-02-001](2026-08-02-001_contaminated-rate-measurement.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 노드 인스턴스 2개가 뜬 상태의 발행률을 성능 수치로 확정 보고 |
-| [2026-08-02-001](2026-08-02-001_crosscheck-sign-and-false-zero-config-claim.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 교차검증 도구의 역산 **부호**가 틀렸고, 그 도구를 "설정 호출 0건"이라 거짓 단정했다 |
-| [2026-08-03-001](2026-08-03-001_fanout-baseline-unverified.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 팬아웃 기준선을 원자료로 검증하지 않고 14명에게 배포 |
-| [2026-08-03-002](2026-08-03-002_halt-steer-verdict-without-capture.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 실측 캡처를 안 보고 「우리가 만든 우회 기법」이라 판정했다 |
-| [2026-08-03-003](2026-08-03-003_halt-steer-inserted-without-verification.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 검증 없이 하드웨어 정지 지령을 넣었고, 그 사실을 「부채」로 적었다 |
-| [2026-08-04-001](2026-08-04-001_regression-without-detection-power.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 통과하는 회귀를 「고정했다」로 보고했다 (검출력 미확인) |
-| [2026-08-05-001](2026-08-05-001_invented-stop-while-manual-had-one.md) | A | `detectors/2026-08-05-001.sh` | closed | 매뉴얼에 있는 정지 명령을 안 찾고 없는 명령을 만들어 4일을 썼다 |
-| [2026-08-05-001](2026-08-05-001_pm90-unique-solution-filed-as-defect.md) | A | `detectors/2026-08-05-001.sh` | closed | 합의된 유일해 구속(±90°)을 결함으로 등재 |
-| [2026-08-06-001](2026-08-06-001_merge-decision-from-comments-not-code.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 병합 충돌을 **주석으로** 판정하고, 비교 대상을 `origin/main` 하나로 한정했다 |
-| [2026-08-06-002](2026-08-06-002_absence-claimed-without-checking-and-tool-scope-inflation.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 도구가 보증하는 범위를 주장의 범위로 부풀렸다 (부재 주장 3건 + 순환 측정 + 두절 누락) |
-| [2026-08-06-003](2026-08-06-003_coding-sop-inventory-step-skipped.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | coding SOP §2 사전조사(함수표·전역변수표) 미이행 상태로 패키지 신설·수정 |
-| [2026-08-06-003](2026-08-06-003_coding-sop-skipped-tables-adr-selfapprove.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | coding SOP 4개 절을 건너뛰고 자기승인으로 커밋·푸시 |
-| [2026-08-06-003](2026-08-06-003_removed-other-session-worktree.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 정리 루프가 다른 세션 워크트리를 삭제 |
-| [2026-08-06-004](2026-08-06-004_mpc-reverse-defect-from-bad-probe.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 내 시험 입력을 검증하지 않고 「제어 결함」으로 단정해 공유 기록에 커밋 |
-| [2026-08-06-004](2026-08-06-004_zmq-claim-denied-without-checking-original.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 원본 하드를 조회하지 않고 「zmq 근거 없음」으로 판정 |
-| [2026-08-06-005](2026-08-06-005_hostname-typed-by-hand-ignoring-two-records.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 개명된 호스트명을 손으로 적어 실패, 정답은 기록 2곳에 이미 있었다 |
-| [2026-08-07-001](2026-08-07-001_alternative-rejected-on-bench-that-lacked-the-bottleneck.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 병목이 빠진 벤치로 대안을 기각했다 (ADR §Alternatives) |
-| [2026-08-07-001](2026-08-07-001_narrow-scope-double-reversal.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 좁은 범위만 보고 같은 사안을 두 번 뒤집었다 |
-| [2026-08-07-001](2026-08-07-001_qos-rule-downgraded-in-own-review.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 같은 리뷰 안에서 같은 QoS 결함을 한쪽은 High 로 고치고 한쪽은 Low 로 남김 |
-| [2026-08-07-002](2026-08-07-002_vendor-question-drafted-while-holding-the-source.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 원본 하드를 들고 있으면서 「벤더에 물어볼 목록」을 작성했다 |
-| [2026-08-08-001](2026-08-08-001_hardware-fault-declared-from-shared-backend.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 「두 경로 다 실패」로 소프트웨어를 배제하고 하드웨어 고장을 선언했다. 두 경로는 같은 백엔드였다 |
-| [2026-08-08-002](2026-08-08-002_filtered-test-count-reported-as-whole.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 제외하고 돌린 시험 숫자를 전체인 것처럼 「311 passed / 0 failed」로 보고했다 |
-| [kind: B](2026-08-09-001_sample-count-and-sign-convention-mixed-in-record.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | `turn` 오차 자료를 표본 수·부호 규약 둘 다 틀리게 커밋했다 |
-| [kind: B](2026-08-10-001_localizer-declared-broken-without-arbitration.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 두 센서가 어긋나자 한쪽을 「고장」으로 단정하고, 그 판단으로 로봇을 움직였다 |
-| [2026-08-10-001](2026-08-10-001_shared-head-moved-from-linked-worktree.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 링크드 워크트리에서 공유 트리의 `main` 을 밀어버렸다 |
-| [2026-08-10-002](2026-08-10-002_verified-then-edited-then-committed.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 검증을 끝낸 뒤에 파일을 고치고, 재검증 없이 커밋했다 |
-| [2026-08-10-003](2026-08-10-003_unread-then-framed-as-reversal.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 읽지 않고 단정하고, 읽은 뒤에는 「중요한 반전」이라고 포장했다 |
-| [2026-08-10-004](2026-08-10-004_registered-debt-that-records-already-answered.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 같은 날 세 번째 |
-| [2026-08-10-005](2026-08-10-005_speculation-driven-code-change.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 관측된 고장이 아니라 추정 위에서 실측 기반 설계를 바꿨다 |
-| [2026-08-10-006](2026-08-10-006_unmonitored-first-drive-with-warned-pose-source.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 경고를 무시한 측위원으로, 감시 없이 첫 실기 주행을 돌려 충돌 직전까지 갔다 |
-| [2026-08-13-001](2026-08-13-001_history-narrative-injected-into-code-comments.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 감사 1라운드를 자초했다 |
-| [2026-08-24-001](2026-08-24-001_pgv-purpose-guessed-as-line-follow.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | PGV 용도를 묻지 않고 라인 추종으로 추정해 ADR 에 적었다 |
-| [2026-08-24-002](2026-08-24-002_r02-decision-record-not-swept.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | R02 검토에서 「R02 배선 확정」 기록 자체를 안 열었다 — CN4=IMU 를 "예비"로 서술 |
-| [2026-08-25-001](2026-08-25-001_crab-declared-unverified-without-record-search.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | crab 을 "실기 미검증 위험 기동"으로 단정 — 기록 검색 없이 |
-| [2026-08-26-001](2026-08-26-001_rosbag-absence-declared-on-shallow-find.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | rosbag 부재를 얕은 find 로 단정 — 일곱 번째 「없다」 계열 |
-| [2026-08-26-002](2026-08-26-002_data-request-set-names-misread.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | "단거리 4종·주행 3개"를 bag 폴더명으로 오해석 |
-| [2026-08-26-003](2026-08-26-003_trip-ui-built-without-yesterday-method.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | 왕복 실험 UI 를 어제 실기 방식 기록을 안 보고 설계 |
-| [2026-08-30-001](2026-08-30-001_cctv-and-rgbd-framed-as-separate-camera-groups.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | CCTV 6대와 "Orbbec RGBD 4대"를 별개 카메라군으로 오서술 |
-| [2026-08-30-002](2026-08-30-002_systemd-wrapper-shipped-untested-in-clean-env.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | systemd 래퍼를 클린 환경 실행 없이 출하 — `set -u` × ROS setup.bash 고전 함정 재생산 |
+| [2026-07-26-001](2026-07-26-001_emulate-stopvalue-false-claim.md) | ? | ? | open | emulate가 "정지값 송신"한다는 미검증 완료보고 |
+| [2026-07-27-001](2026-07-27-001_freeze-object-list-guessed.md) | ? | ? | open | freeze 대상 객체를 문서 아닌 추측으로 작성 |
+| [2026-07-27-002](2026-07-27-002_node4-unverified-command-damage.md) | ? | ? | open | 검증 안 된 조향지령으로 node4 물리 손상 + 세션 반복 추측 |
+| [2026-07-27-003](2026-07-27-003_sign-contradiction-false-claim.md) | ? | ? | closed | 실측 2건을 "기하학적 모순"으로 오판, 확정된 방향을 미검증으로 격하 |
+| [2026-07-27-004](2026-07-27-004_repo-wide-dir-survey-skipped.md) | ? | ? | closed | 디렉토리 병합 지시에 저장소 전수 조사 없이 지목된 2개만 처리 |
+| [2026-07-28-001](2026-07-28-001_soak-stall-count-misread.md) | ? | ? | closed | 내구 로그의 "정지 구간" 수치를 대조 없이 확정 보고 |
+| [2026-07-28-002](2026-07-28-002_other-session-scope-intrusion.md) | ? | ? | open | 남의 세션 범위를 끌어들이고, 종결된 결정을 재질문 |
+| [2026-07-28-003](2026-07-28-003_invented-steer-ramp-mechanism.md) | ? | ? | closed | 시험 절차를 "시스템의 방식"으로 단정, 정정 중 귀속마저 미확인 단정 |
+| [2026-07-28-004](2026-07-28-004_standard-procedure-omitted-by-design.md) | ? | ? | open | 표준 동작을 근거 없이 생략한 설계 3연속 |
+| [2026-07-28-005](2026-07-28-005_negative-assertion-without-verification.md) | ? | ? | open | "Seer 호밍은 우리가 못 막습니다" 검증 없는 부정형 단정 |
+| [2026-07-28-006](2026-07-28-006_errata-v1-condemned-correct-citations.md) | ? | ? | closed | 정오표 v1 이 정확한 Handbook 인용을 "오진" 으로 규정 |
+| [2026-07-28-007](2026-07-28-007_flash-without-size-limit-check.md) | ? | ? | closed | 앱 영역 한계 미확인 플래시로 판다가 부트스텁에 갇힘 |
+| [2026-07-28-008](2026-07-28-008_stale-process-state-reported.md) | ? | ? | open | 이미 종료된 GUI 를 "점유 중" 이라고 보고 |
+| [2026-07-28-009](2026-07-28-009_shared-tree-head-moved-by-checkout.md) | ? | ? | open | 공유 워킹트리에서 `git checkout -b` 로 20개 세션의 HEAD 를 끌고 감 |
+| [2026-07-28-010](2026-07-28-010_existing-asset-survey-skipped.md) | ? | ? | closed | ICP 오도메트리를 사용자 기존 자산 조사 없이 "없다"고 단정하고 신규 구현·외부 GPL 패키지를 권고 |
+| [2026-07-28-011](2026-07-28-011_device-state-claimed-from-staging-file.md) | ? | ? | closed | 장치 상태를 조회 없이 배포 파일 md5 로 확정 |
+| [2026-07-28-012](2026-07-28-012_unsourced-measured-labels-and-bare-negatives.md) | ? | ? | closed | 무근거 수치에 '실측' 라벨 + 조건 없는 부정형 단정 재발 |
+| [2026-07-28-013](2026-07-28-013_inventory-excerpted-and-verification-unreproducible.md) | ? | ? | closed | 인벤토리 발췌 + 검증 주장이 저장소에서 재현 불가 |
+| [2026-07-28-014](2026-07-28-014_ui-diagnosed-without-looking-at-screen.md) | ? | ? | open | 화면 한 번 안 보고 UI 결함을 네 번 오진 |
+| [2026-07-28-015](2026-07-28-015_upstream-merge-blocker-unverified.md) | ? | ? | open | 검증 없이 "upstream merge 가 깨진다" 로 변경을 막았다 |
+| [2026-07-28-016](2026-07-28-016_out-of-scope-annotation-creep.md) | ? | ? | open | 우리 규약이 미치지 않는 남의 경로에 주석을 달았다 |
+| [2026-07-29-002](2026-07-29-002_process-state-and-tool-output-misread.md) | ? | ? | open | 오염된 수치를 두 번 보고 |
+| [2026-07-29-003](2026-07-29-003_audit-claims-overturned-and-negative-assertion-relapse.md) | ? | ? | closed | 10인 감사 결론 5건이 심문에서 뒤집힘 + 같은 세션에서 부정형 단정 재발 |
+| [2026-07-31-001](2026-07-31-001_ssh-denial-inferred-from-timeout.md) | ? | ? | closed | 타임아웃을 정책 거부로 오독해 "SSH 차단" 을 5턴 확정 보고 |
+| [2026-07-31-002](2026-07-31-002_session-state-manual-edit.md) | ? | ? | closed | 훅 소관 세션 상태 저장소를 모델이 직접 편집 |
+| [2026-07-31-003](2026-07-31-003_git-option-misdescribed-before-reading-sop.md) | ? | ? | open | SOP 를 읽기 전에 git 선택지를 썼고, 그 오설명 위에서 결정이 내려졌다 |
+| [2026-07-31-004](2026-07-31-004_can-relay-designed-without-motion-stack-contract.md) | ? | ? | closed | can_relay ROS2 드라이버를 저장소 모션 스택(QD/2WS)의 명령 계약과 대조하지 않고 단독 설계 |
+| [2026-08-02-001](2026-08-02-001_contaminated-rate-measurement.md) | ? | ? | closed | 노드 인스턴스 2개가 뜬 상태의 발행률을 성능 수치로 확정 보고 |
+| [2026-08-03-001](2026-08-03-001_fanout-baseline-unverified.md) | ? | ? | closed | 팬아웃 기준선을 원자료로 검증하지 않고 14명에게 배포 |
+| [2026-08-03-002](2026-08-03-002_halt-steer-verdict-without-capture.md) | ? | ? | closed | 실측 캡처를 안 보고 「우리가 만든 우회 기법」이라 판정했다 |
+| [2026-08-03-003](2026-08-03-003_halt-steer-inserted-without-verification.md) | ? | ? | closed | 검증 없이 하드웨어 정지 지령을 넣었고, 그 사실을 「부채」로 적었다 |
+| [2026-08-04-001](2026-08-04-001_regression-without-detection-power.md) | ? | ? | closed | 통과하는 회귀를 「고정했다」로 보고했다 (검출력 미확인) |
+| [2026-08-05-001](2026-08-05-001_invented-stop-while-manual-had-one.md) | ? | ? | open | 매뉴얼에 있는 정지 명령을 안 찾고 없는 명령을 만들어 4일을 썼다 |
+| [2026-08-05-001](2026-08-05-001_pm90-unique-solution-filed-as-defect.md) | ? | ? | closed | 합의된 유일해 구속(±90°)을 결함으로 등재 |
+| [2026-08-06-001](2026-08-06-001_merge-decision-from-comments-not-code.md) | ? | ? | closed | 병합 충돌을 **주석으로** 판정하고, 비교 대상을 `origin/main` 하나로 한정했다 |
+| [2026-08-06-002](2026-08-06-002_absence-claimed-without-checking-and-tool-scope-inflation.md) | ? | ? | closed | 도구가 보증하는 범위를 주장의 범위로 부풀렸다 (부재 주장 3건 + 순환 측정 + 두절 누락) |
+| [2026-08-06-003](2026-08-06-003_coding-sop-inventory-step-skipped.md) | ? | ? | closed | coding SOP §2 사전조사(함수표·전역변수표) 미이행 상태로 패키지 신설·수정 |
+| [2026-08-06-003](2026-08-06-003_coding-sop-skipped-tables-adr-selfapprove.md) | ? | ? | open | coding SOP 4개 절을 건너뛰고 자기승인으로 커밋·푸시 |
+| [2026-08-06-003](2026-08-06-003_removed-other-session-worktree.md) | ? | ? | open | 정리 루프가 다른 세션 워크트리를 삭제 |
+| [2026-08-06-004](2026-08-06-004_mpc-reverse-defect-from-bad-probe.md) | ? | ? | open | 내 시험 입력을 검증하지 않고 「제어 결함」으로 단정해 공유 기록에 커밋 |
+| [2026-08-06-004](2026-08-06-004_zmq-claim-denied-without-checking-original.md) | ? | ? | closed | 원본 하드를 조회하지 않고 「zmq 근거 없음」으로 판정 |
+| [2026-08-06-005](2026-08-06-005_hostname-typed-by-hand-ignoring-two-records.md) | ? | ? | closed | 개명된 호스트명을 손으로 적어 실패, 정답은 기록 2곳에 이미 있었다 |
+| [2026-08-07-001](2026-08-07-001_narrow-scope-double-reversal.md) | ? | ? | closed | 좁은 범위만 보고 같은 사안을 두 번 뒤집었다 |
+| [2026-08-07-001](2026-08-07-001_qos-rule-downgraded-in-own-review.md) | ? | ? | closed | 같은 리뷰 안에서 같은 QoS 결함을 한쪽은 High 로 고치고 한쪽은 Low 로 남김 |
+| [2026-08-07-002](2026-08-07-002_vendor-question-drafted-while-holding-the-source.md) | ? | ? | closed | 원본 하드를 들고 있으면서 「벤더에 물어볼 목록」을 작성했다 |
+| [2026-08-08-001](2026-08-08-001_hardware-fault-declared-from-shared-backend.md) | ? | ? | closed | 「두 경로 다 실패」로 소프트웨어를 배제하고 하드웨어 고장을 선언했다. 두 경로는 같은 백엔드였다 |
+| [2026-08-08-002](2026-08-08-002_filtered-test-count-reported-as-whole.md) | ? | ? | closed | 제외하고 돌린 시험 숫자를 전체인 것처럼 「311 passed / 0 failed」로 보고했다 |
+| [](2026-08-09-001_sample-count-and-sign-convention-mixed-in-record.md) | ? | ? | ? | `turn` 오차 자료를 표본 수·부호 규약 둘 다 틀리게 커밋했다 |
+| [](2026-08-10-001_localizer-declared-broken-without-arbitration.md) | ? | ? | ? | 두 센서가 어긋나자 한쪽을 「고장」으로 단정하고, 그 판단으로 로봇을 움직였다 |
+| [2026-08-10-001](2026-08-10-001_shared-head-moved-from-linked-worktree.md) | ? | ? | closed | 링크드 워크트리에서 공유 트리의 `main` 을 밀어버렸다 |
+| [2026-08-10-002](2026-08-10-002_verified-then-edited-then-committed.md) | ? | ? | ? | 검증을 끝낸 뒤에 파일을 고치고, 재검증 없이 커밋했다 |
+| [2026-08-10-003](2026-08-10-003_unread-then-framed-as-reversal.md) | ? | ? | ? | 읽지 않고 단정하고, 읽은 뒤에는 「중요한 반전」이라고 포장했다 |
+| [2026-08-10-004](2026-08-10-004_registered-debt-that-records-already-answered.md) | ? | ? | ? | 같은 날 세 번째 |
+| [2026-08-10-005](2026-08-10-005_speculation-driven-code-change.md) | ? | ? | ? | 관측된 고장이 아니라 추정 위에서 실측 기반 설계를 바꿨다 |
+| [2026-08-10-006](2026-08-10-006_unmonitored-first-drive-with-warned-pose-source.md) | ? | ? | ? | 경고를 무시한 측위원으로, 감시 없이 첫 실기 주행을 돌려 충돌 직전까지 갔다 |
+| [2026-08-13-001](2026-08-13-001_history-narrative-injected-into-code-comments.md) | ? | ? | ? | 감사 1라운드를 자초했다 |
+| [2026-08-13-001](2026-08-13-001_machine-placed-into-the-gap-it-was-dropped-in.md) | ? | ? | ? | A 6.9 m machine was drawn 2.82 m wide, because it was sized to the gap it was dropped into |
+| [2026-08-15-001](2026-08-15-001_homing-cancel-used-despite-recorded-decision.md) | ? | ? | closed | 「호밍 취소 사용 안 함」 결정을 조회하지 않고 시험 경로로 채택 |
+| [2026-08-16-001](2026-08-16-001_odom-fusion-denied-from-one-plugin-scope.md) | ? | ? | closed | 플러그인 하나의 구독 목록으로 시스템 전체의 융합 부재를 단정 |
+| [2026-08-18-001](2026-08-18-001_evidence-stuffed-into-comments.md) | ? | ? | closed | 근거·인용·정정 이력을 주석에 넣었다 (같은 규칙 재위반) |
+| [2026-08-18-002](2026-08-18-002_language-never-raised-as-a-decision.md) | ? | ? | closed | 언어를 결정 항목으로 올리지 않고 Python 으로 시작했다 |
+| [2026-08-19-001](2026-08-19-001_empty-launch-argument-silently-dropped.md) | ? | ? | closed | I verified a launch argument was DECLARED, not that it ARRIVED |
+| [2026-08-20-001](2026-08-20-001_capacity-wired-without-checking-return-type.md) | ? | ? | closed | The whole equipment monitor was dead for two minutes and the test suite was green |
+| [2026-08-24-001](2026-08-24-001_pgv-purpose-guessed-as-line-follow.md) | ? | ? | closed | PGV 용도를 묻지 않고 라인 추종으로 추정해 ADR 에 적었다 |
+| [2026-08-24-002](2026-08-24-002_r02-decision-record-not-swept.md) | ? | ? | closed | R02 검토에서 「R02 배선 확정」 기록 자체를 안 열었다 — CN4=IMU 를 "예비"로 서술 |
+| [2026-08-25-001](2026-08-25-001_crab-declared-unverified-without-record-search.md) | ? | ? | closed | crab 을 "실기 미검증 위험 기동"으로 단정 — 기록 검색 없이 |
+| [](2026-08-25-002_circular-evidence-commanded-value-as-observation.md) | ? | ? | closed | 순환을 「0.003° 일치」로 포장 |
+| [2026-08-26-001](2026-08-26-001_rosbag-absence-declared-on-shallow-find.md) | ? | ? | closed | rosbag 부재를 얕은 find 로 단정 — 일곱 번째 「없다」 계열 |
+| [2026-08-26-002](2026-08-26-002_data-request-set-names-misread.md) | ? | ? | closed | "단거리 4종·주행 3개"를 bag 폴더명으로 오해석 |
+| [2026-08-26-003](2026-08-26-003_trip-ui-built-without-yesterday-method.md) | ? | ? | closed | 왕복 실험 UI 를 어제 실기 방식 기록을 안 보고 설계 |
+| [2026-08-30-001](2026-08-30-001_cctv-and-rgbd-framed-as-separate-camera-groups.md) | ? | ? | closed | CCTV 6대와 "Orbbec RGBD 4대"를 별개 카메라군으로 오서술 |
+| [2026-08-30-002](2026-08-30-002_systemd-wrapper-shipped-untested-in-clean-env.md) | ? | ? | closed | systemd 래퍼를 클린 환경 실행 없이 출하 — `set -u` × ROS setup.bash 고전 함정 재생산 |
 | [2026-09-01-001](2026-09-01-001_r02-intercept-diagnosed-without-reading-records-and-asserted-confirmed.md) | B | none (사유 미기재 — 검출 가능한지 재판정 필요) | open | R02 intercept 진단: 실기 기록 미독 + 미확정 가설을 "확정"으로 기재 |
 | [2026-09-02-001](2026-09-02-001_flash-gui-ui-separation-not-followed.md) | B | none (UI-분리 적용은 판단 의존 — 도구 자체가 GUI 면 `ui/` 밖이 정상이라 「PyQt 파일이 ui/ 밖」 패턴 검사는 오탐 다발) | closed | 펌웨어 플래시 GUI 를 UI 분리 원칙 없이 단일 파일로 신설 |
+| [2026-09-02-001](2026-09-02-001_registered-debt-held-the-answer.md) | ? | ? | closed | 설정 API 편호 4종이 전부 틀렸고, 정답은 3주 전부터 부채 대장에 적혀 있었다 |
 | [2026-09-02-002](2026-09-02-002_firmware-release-claim-unverified.md) | B | none (특정 발화의 진위는 코드 패턴으로 잡을 지점이 없음 — 판단·소통 실패) | closed | 펌웨어 버전 대조 없이 "현장 킷은 release 계열" 이라 단정 |
+| [2026-09-02-002](2026-09-02-002_unverified-claimed-without-reading-field-records.md) | ? | ? | closed | 실기 기록을 안 읽고 남은 일 목록을 만들었다 |
 | [2026-09-02-003](2026-09-02-003_r01-r02-conflation-board-overattribution.md) | B | none (판단·소통 실패 — 내 검증 기록과 모순된 귀속을 잡을 코드 지점이 없음) | closed | R01/R02 혼동 + 내 검증 기록과 모순되게 "보드/회로 탓" 과-귀속 |
 | [2026-09-02-003](2026-09-02-003_unrequested-jetpack-install-on-remote.md) | B | none (정당하게 승인된 설치와 도구 호출 형태가 동일해 기계가 구분할 지점이 없다 — 판단 실패) | open | 시키지 않은 시스템 스택(nvidia-jetpack) 설치를 원격 기체에 무승인 진행 |
-| [2026-09-03-001](2026-09-03-001_records-not-read-before-implementing-can-relay-emulate.md) | B | none (「정본 기록을 읽었는지」는 코드 패턴·파일상태로 검출 불가 — 판단·절차 실패) | open | 정본 기록을 먼저 안 읽고 CAN relay emulate 를 추정·구현 (세션 내 반복) |
 | [2026-09-04-001](2026-09-04-001_untested-path-declared-unreproducible.md) | B | none (검증을 건너뛰고 "재현 안 됨" 이라고 적는 판단 실패 — 코드·파일 상태로 재도출할 지점이 없다) | open | 검증 가능한 경로를 "타이밍상 재현 안 됨" 으로 적고 넘겼다 |
+| [2026-09-05-001](2026-09-05-001_reengage-broke-restore-then-release-order.md) | B | none (상태기 설계 판단 실패 — 코드 패턴으로 재도출할 지점이 없다; 실기 순서 시험으로만 드러난다) | open | 재engage 처리가 "복원 완료 → 제어권 해제" 순서를 깰 수 있게 구현했다 |
+| [2026-09-05-002](2026-09-05-002_stale-usb-backlog-read-reported-as-anomaly.md) | B | none (시험 스크립트 작성 판단 — 큐를 비우지 않은 SDO 읽기를 정적으로 잡을 지점이 없다) | open | USB 백로그를 비우지 않은 SDO 읽기 값을 실측이라 보고했다 |
+| [2026-09-05-003](2026-09-05-003_shared-tree-copy-clobbered-other-session-entry.md) | A | none (검출자 미작성 — 아래 규칙으로 재도출 가능: 세션 워크트리에 복사한 추적 파일이 origin/main 대비 자기 세션이 쓰지 않은 줄을 삭제하면 exit 1. 다음 세션에서 detectors/2026-09-05-003.sh 로 작성할 것) | open | 공유 작업트리의 낡은 파일을 세션 워크트리에 복사해 다른 세션의 기록 16줄을 지웠다 |
 
 ## 검출자 (기계로 막히는 것)
 
@@ -95,77 +102,38 @@
 
 | id | kind | status | 제목 |
 |---|---|---|---|
-| 2026-07-26-001 | B | open | 2026-07-26 18:20 (KST) — emulate가 "정지값 송신"한다는 미검증 완료보고 |
-| 2026-07-27-001 | B | open | 2026-07-27 12:14 (KST) — freeze 대상 객체를 문서 아닌 추측으로 작성 |
-| 2026-07-27-002 | B | open | 2026-07-27 18:30 (KST) — 검증 안 된 조향지령으로 node4 물리 손상 + 세션 반복 추측 |
-| 2026-07-27-003 | B | open | 2026-07-27 19:00 (KST) — 실측 2건을 "기하학적 모순"으로 오판, 확정된 방향을 미검증으로 격하 |
-| 2026-07-27-004 | B | open | 2026-07-27 21:45 (KST) — 디렉토리 병합 지시에 저장소 전수 조사 없이 지목된 2개만 처리 |
-| 2026-07-28-001 | B | open | 2026-07-28 08:25 (KST) — 내구 로그의 "정지 구간" 수치를 대조 없이 확정 보고 |
-| 2026-07-28-002 | B | open | 2026-07-28 14:34 (KST) — 남의 세션 범위를 끌어들이고, 종결된 결정을 재질문 |
-| 2026-07-28-003 | B | open | 2026-07-28 16:05 (KST) — "gui 실행해서 테스트" 의 지시대상을 CAN relay GUI 로 오해 |
-| 2026-07-28-003 | B | open | 2026-07-28 14:31 (KST) — 시험 절차를 "시스템의 방식"으로 단정, 정정 중 귀속마저 미확인 단정 |
-| 2026-07-28-004 | B | open | 2026-07-27 23:00 (KST) — 표준 동작을 근거 없이 생략한 설계 3연속 |
-| 2026-07-28-005 | B | open | 2026-07-27 23:25 (KST) — "Seer 호밍은 우리가 못 막습니다" 검증 없는 부정형 단정 |
-| 2026-07-28-006 | B | open | 2026-07-28 15:00 (KST) — 정오표 v1 이 정확한 Handbook 인용을 "오진" 으로 규정 |
-| 2026-07-28-007 | B | open | 2026-07-27 22:40 (KST) — 앱 영역 한계 미확인 플래시로 판다가 부트스텁에 갇힘 |
-| 2026-07-28-008 | B | open | 2026-07-27 23:03 (KST) — 이미 종료된 GUI 를 "점유 중" 이라고 보고 |
-| 2026-07-28-009 | B | open | 2026-07-28 15:56 (KST) — 공유 워킹트리에서 `git checkout -b` 로 20개 세션의 HEAD 를 끌고 감 |
-| 2026-07-28-010 | B | open | 2026-07-28 17:21 (KST) — ICP 오도메트리를 사용자 기존 자산 조사 없이 "없다"고 단정하고 신규 구현·외부 GPL 패키지를 권고 |
-| 2026-07-28-011 | B | open | 2026-07-28 17:45 (KST) — 장치 상태를 조회 없이 배포 파일 md5 로 확정 |
-| 2026-07-28-012 | B | open | 2026-07-28 17:50 (KST) — 무근거 수치에 '실측' 라벨 + 조건 없는 부정형 단정 재발 |
-| 2026-07-28-013 | B | open | 2026-07-28 17:55 (KST) — 인벤토리 발췌 + 검증 주장이 저장소에서 재현 불가 |
-| 2026-07-28-014 | B | open | 2026-07-28 21:07 (KST) — 화면 한 번 안 보고 UI 결함을 네 번 오진 |
-| 2026-07-28-015 | B | open | 2026-07-28 16:25 (KST) — 검증 없이 "upstream merge 가 깨진다" 로 변경을 막았다 |
-| 2026-07-28-016 | B | open | 2026-07-28 16:20 (KST) — 우리 규약이 미치지 않는 남의 경로에 주석을 달았다 |
-| 2026-07-29-001 | B | open | 2026-07-29 (KST) — 이 세션 실수 전수 기록 (부정형 과단정 재발 + 근거없는 단정 + 추측 코드 누적 + 과잉 자기정정) |
-| 2026-07-29-002 | B | open | 프로세스 상태 미확인 + 도구 출력 의미 오독 — 오염된 수치를 두 번 보고 |
-| 2026-07-29-003 | B | open | 2026-07-29 13:58 (KST) — 10인 감사 결론 5건이 심문에서 뒤집힘 + 같은 세션에서 부정형 단정 재발 |
-| 2026-07-31-001 | B | open | 2026-07-31 17:10 (KST) — 타임아웃을 정책 거부로 오독해 "SSH 차단" 을 5턴 확정 보고 |
-| 2026-07-31-002 | B | open | 2026-07-31 17:30 (KST) — 훅 소관 세션 상태 저장소를 모델이 직접 편집 |
-| 2026-07-31-003 | B | open | 2026-07-31 17:52 (KST) — SOP 를 읽기 전에 git 선택지를 썼고, 그 오설명 위에서 결정이 내려졌다 |
-| 2026-07-31-004 | B | open | 2026-07-31 21:15 (KST) — can_relay ROS2 드라이버를 저장소 모션 스택(QD/2WS)의 명령 계약과 대조하지 않고 단독 설계 |
-| 2026-08-01-001 | B | open | 2026-08-01 17:23 (KST) — 이미 후속으로 합의된 캘리브레이션을 세 턴 연속 현재 블로커로 되살림 (내가 쓴 기록을 안 읽음) |
-| 2026-08-02-001 | B | open | 2026-08-02 20:40 (KST) — 노드 인스턴스 2개가 뜬 상태의 발행률을 성능 수치로 확정 보고 |
-| 2026-08-02-001 | B | open | 2026-08-02 19:4x (KST) — 교차검증 도구의 역산 **부호**가 틀렸고, 그 도구를 "설정 호출 0건"이라 거짓 단정했다 |
-| 2026-08-03-001 | B | open | 2026-08-03 15:40 (KST) — 팬아웃 기준선을 원자료로 검증하지 않고 14명에게 배포 |
-| 2026-08-03-002 | B | open | 2026-08-03 22:44 (KST) — 실측 캡처를 안 보고 「우리가 만든 우회 기법」이라 판정했다 |
-| 2026-08-03-003 | B | open | 2026-08-03 23:00 (KST) — 검증 없이 하드웨어 정지 지령을 넣었고, 그 사실을 「부채」로 적었다 |
-| 2026-08-04-001 | B | open | 2026-08-04 14:40 (KST) — 통과하는 회귀를 「고정했다」로 보고했다 (검출력 미확인) |
-| 2026-08-06-001 | B | open | 2026-08-06 13:2x (KST) — 병합 충돌을 **주석으로** 판정하고, 비교 대상을 `origin/main` 하나로 한정했다 |
-| 2026-08-06-002 | B | open | 2026-08-06 15:20 (KST) — 도구가 보증하는 범위를 주장의 범위로 부풀렸다 (부재 주장 3건 + 순환 측정 + 두절 누락) |
-| 2026-08-06-003 | B | open | 2026-08-06 18:40 (KST) — coding SOP §2 사전조사(함수표·전역변수표) 미이행 상태로 패키지 신설·수정 |
-| 2026-08-06-003 | B | open | 2026-08-06 17:50 (KST) — coding SOP 4개 절을 건너뛰고 자기승인으로 커밋·푸시 |
-| 2026-08-06-003 | B | open | 2026-08-06 19:59 (KST) — 정리 루프가 다른 세션 워크트리를 삭제 |
-| 2026-08-06-004 | B | open | 2026-08-06 19:30 (KST) — 내 시험 입력을 검증하지 않고 「제어 결함」으로 단정해 공유 기록에 커밋 |
-| 2026-08-06-004 | B | open | 2026-08-06 20:05 (KST) — 원본 하드를 조회하지 않고 「zmq 근거 없음」으로 판정 |
-| 2026-08-06-005 | B | open | 2026-08-06 21:38 (KST) — 개명된 호스트명을 손으로 적어 실패, 정답은 기록 2곳에 이미 있었다 |
-| 2026-08-07-001 | B | open | 2026-08-07 22:40 (KST) — 병목이 빠진 벤치로 대안을 기각했다 (ADR §Alternatives) |
-| 2026-08-07-001 | B | open | 2026-08-07 23:2x (KST) — 좁은 범위만 보고 같은 사안을 두 번 뒤집었다 |
-| 2026-08-07-001 | B | open | 2026-08-07 19:53 (KST) — 같은 리뷰 안에서 같은 QoS 결함을 한쪽은 High 로 고치고 한쪽은 Low 로 남김 |
-| 2026-08-07-002 | B | open | 2026-08-07 18:16 (KST) — 원본 하드를 들고 있으면서 「벤더에 물어볼 목록」을 작성했다 |
-| 2026-08-08-001 | B | open | 2026-08-08 14:54 (KST) — 「두 경로 다 실패」로 소프트웨어를 배제하고 하드웨어 고장을 선언했다. 두 경로는 같은 백엔드였다 |
-| 2026-08-08-002 | B | open | 2026-08-08 — 제외하고 돌린 시험 숫자를 전체인 것처럼 「311 passed / 0 failed」로 보고했다 |
-| kind: B | B | open | `turn` 오차 자료를 표본 수·부호 규약 둘 다 틀리게 커밋했다 |
-| kind: B | B | open | 두 센서가 어긋나자 한쪽을 「고장」으로 단정하고, 그 판단으로 로봇을 움직였다 |
-| 2026-08-10-001 | B | open | 2026-08-10 07:30 (KST) — 링크드 워크트리에서 공유 트리의 `main` 을 밀어버렸다 |
-| 2026-08-10-002 | B | open | 검증을 끝낸 뒤에 파일을 고치고, 재검증 없이 커밋했다 |
-| 2026-08-10-003 | B | open | 읽지 않고 단정하고, 읽은 뒤에는 「중요한 반전」이라고 포장했다 |
-| 2026-08-10-004 | B | open | 기록에 이미 있는 것을 「미확인 부채」로 등록했다 — 같은 날 세 번째 |
-| 2026-08-10-005 | B | open | 관측된 고장이 아니라 추정 위에서 실측 기반 설계를 바꿨다 |
-| 2026-08-10-006 | B | open | 경고를 무시한 측위원으로, 감시 없이 첫 실기 주행을 돌려 충돌 직전까지 갔다 |
-| 2026-08-13-001 | B | open | 잘못된 주석을 고치면서 「무엇을 고쳤는지」를 주석 안에 적었다 — 감사 1라운드를 자초했다 |
-| 2026-08-24-001 | B | open | 2026-08-24 17:00 (KST) — PGV 용도를 묻지 않고 라인 추종으로 추정해 ADR 에 적었다 |
-| 2026-08-24-002 | B | open | 2026-08-24 18:26 (KST) — R02 검토에서 「R02 배선 확정」 기록 자체를 안 열었다 — CN4=IMU 를 "예비"로 서술 |
-| 2026-08-25-001 | B | open | 2026-08-25 19:38 (KST) — crab 을 "실기 미검증 위험 기동"으로 단정 — 기록 검색 없이 |
-| 2026-08-26-001 | B | open | 2026-08-26 22:24 (KST) — rosbag 부재를 얕은 find 로 단정 — 일곱 번째 「없다」 계열 |
-| 2026-08-26-002 | B | open | 2026-08-26 22:31 (KST) — "단거리 4종·주행 3개"를 bag 폴더명으로 오해석 |
-| 2026-08-26-003 | B | open | 2026-08-26 22:37 (KST) — 왕복 실험 UI 를 어제 실기 방식 기록을 안 보고 설계 |
-| 2026-08-30-001 | B | open | 2026-08-30 16:05 (KST) — CCTV 6대와 "Orbbec RGBD 4대"를 별개 카메라군으로 오서술 |
-| 2026-08-30-002 | B | open | 2026-08-30 21:05 (KST) — systemd 래퍼를 클린 환경 실행 없이 출하 — `set -u` × ROS setup.bash 고전 함정 재생산 |
+| 2026-07-26-001 | ? | open | 2026-07-26 18:20 (KST) — emulate가 "정지값 송신"한다는 미검증 완료보고 |
+| 2026-07-27-001 | ? | open | 2026-07-27 12:14 (KST) — freeze 대상 객체를 문서 아닌 추측으로 작성 |
+| 2026-07-27-002 | ? | open | 2026-07-27 18:30 (KST) — 검증 안 된 조향지령으로 node4 물리 손상 + 세션 반복 추측 |
+| 2026-07-28-002 | ? | open | 2026-07-28 14:34 (KST) — 남의 세션 범위를 끌어들이고, 종결된 결정을 재질문 |
+| 2026-07-28-004 | ? | open | 2026-07-27 23:00 (KST) — 표준 동작을 근거 없이 생략한 설계 3연속 |
+| 2026-07-28-005 | ? | open | 2026-07-27 23:25 (KST) — "Seer 호밍은 우리가 못 막습니다" 검증 없는 부정형 단정 |
+| 2026-07-28-008 | ? | open | 2026-07-27 23:03 (KST) — 이미 종료된 GUI 를 "점유 중" 이라고 보고 |
+| 2026-07-28-009 | ? | open | 2026-07-28 15:56 (KST) — 공유 워킹트리에서 `git checkout -b` 로 20개 세션의 HEAD 를 끌고 감 |
+| 2026-07-28-014 | ? | open | 2026-07-28 21:07 (KST) — 화면 한 번 안 보고 UI 결함을 네 번 오진 |
+| 2026-07-28-015 | ? | open | 2026-07-28 16:25 (KST) — 검증 없이 "upstream merge 가 깨진다" 로 변경을 막았다 |
+| 2026-07-28-016 | ? | open | 2026-07-28 16:20 (KST) — 우리 규약이 미치지 않는 남의 경로에 주석을 달았다 |
+| 2026-07-29-002 | ? | open | 프로세스 상태 미확인 + 도구 출력 의미 오독 — 오염된 수치를 두 번 보고 |
+| 2026-07-31-003 | ? | open | 2026-07-31 17:52 (KST) — SOP 를 읽기 전에 git 선택지를 썼고, 그 오설명 위에서 결정이 내려졌다 |
+| 2026-08-05-001 | ? | open | 2026-08-05 21:20 (KST) — 매뉴얼에 있는 정지 명령을 안 찾고 없는 명령을 만들어 4일을 썼다 |
+| 2026-08-06-003 | ? | open | 2026-08-06 17:50 (KST) — coding SOP 4개 절을 건너뛰고 자기승인으로 커밋·푸시 |
+| 2026-08-06-003 | ? | open | 2026-08-06 19:59 (KST) — 정리 루프가 다른 세션 워크트리를 삭제 |
+| 2026-08-06-004 | ? | open | 2026-08-06 19:30 (KST) — 내 시험 입력을 검증하지 않고 「제어 결함」으로 단정해 공유 기록에 커밋 |
+|  | ? | ? | `turn` 오차 자료를 표본 수·부호 규약 둘 다 틀리게 커밋했다 |
+|  | ? | ? | 두 센서가 어긋나자 한쪽을 「고장」으로 단정하고, 그 판단으로 로봇을 움직였다 |
+| 2026-08-10-002 | ? | ? | 검증을 끝낸 뒤에 파일을 고치고, 재검증 없이 커밋했다 |
+| 2026-08-10-003 | ? | ? | 읽지 않고 단정하고, 읽은 뒤에는 「중요한 반전」이라고 포장했다 |
+| 2026-08-10-004 | ? | ? | 기록에 이미 있는 것을 「미확인 부채」로 등록했다 — 같은 날 세 번째 |
+| 2026-08-10-005 | ? | ? | 관측된 고장이 아니라 추정 위에서 실측 기반 설계를 바꿨다 |
+| 2026-08-10-006 | ? | ? | 경고를 무시한 측위원으로, 감시 없이 첫 실기 주행을 돌려 충돌 직전까지 갔다 |
+| 2026-08-13-001 | ? | ? | 잘못된 주석을 고치면서 「무엇을 고쳤는지」를 주석 안에 적었다 — 감사 1라운드를 자초했다 |
+| 2026-08-13-001 | ? | ? | A 6.9 m machine was drawn 2.82 m wide, because it was sized to the gap it was dropped into |
 | 2026-09-01-001 | B | open | 2026-09-01 23:5x (KST) — R02 intercept 진단: 실기 기록 미독 + 미확정 가설을 "확정"으로 기재 |
 | 2026-09-02-003 | B | open | 2026-09-02 21:44 (KST) — 시키지 않은 시스템 스택(nvidia-jetpack) 설치를 원격 기체에 무승인 진행 |
-| 2026-09-03-001 | B | open | 2026-09-03 22:34 (KST) — 정본 기록을 먼저 안 읽고 CAN relay emulate 를 추정·구현 (세션 내 반복) |
 | 2026-09-04-001 | B | open | 2026-09-04 21:10 (KST) — 검증 가능한 경로를 "타이밍상 재현 안 됨" 으로 적고 넘겼다 |
+| 2026-09-05-001 | B | open | 2026-09-05 09:04 (KST) — 재engage 처리가 "복원 완료 → 제어권 해제" 순서를 깰 수 있게 구현했다 |
+| 2026-09-05-002 | B | open | 2026-09-05 09:2x (KST) — USB 백로그를 비우지 않은 SDO 읽기 값을 실측이라 보고했다 |
+| 2026-09-05-003 | A | open | 2026-09-05 09:5x (KST) — 공유 작업트리의 낡은 파일을 세션 워크트리에 복사해 다른 세션의 기록 16줄을 지웠다 |
 
 ## 키워드 색인
 
@@ -173,6 +141,7 @@
 
 | 토큰 | 사건 |
 |---|---|
+| `ADR` | 2026-08-18-001 |
 | `AMR` | 2026-07-31-002 |
 | `APITCPServerMaxConnections` | 2026-08-07-002 |
 | `AskUserQuestion` | 2026-07-31-003 |
@@ -182,7 +151,7 @@
 | `CAN3` | 2026-09-02-003 |
 | `CCW` | 2026-07-27-003 |
 | `CERT` | 2026-09-02-002 |
-| `CLAUDE.md` | 2026-07-28-002, 2026-07-28-005, 2026-07-28-008, 2026-07-28-009, 2026-07-28-011, 2026-07-28-014, 2026-07-28-015, 2026-07-28-016, 2026-07-31-003, 2026-08-04-001, 2026-08-06-003, 2026-09-04-001, kind: B |
+| `CLAUDE.md` | , 2026-07-28-002, 2026-07-28-005, 2026-07-28-008, 2026-07-28-009, 2026-07-28-011, 2026-07-28-014, 2026-07-28-015, 2026-07-28-016, 2026-07-31-003, 2026-08-04-001, 2026-08-06-003, 2026-09-04-001 |
 | `CMakeLists.txt` | 2026-07-28-015 |
 | `CN4` | 2026-08-24-002 |
 | `CODING_GATE` | 2026-08-06-003 |
@@ -193,30 +162,47 @@
 | `CalSpeed` | 2026-08-07-001 |
 | `CaldPose` | 2026-08-07-001 |
 | `Candidate` | 2026-07-28-010 |
+| `Controller` | 2026-08-16-001 |
 | `Could` | 2026-08-06-005 |
 | `DEV-cc5e0491-DEBUG` | 2026-09-02-002 |
 | `DI4/DI2` | 2026-07-28-006 |
-| `DISPLAY` | 2026-07-28-003 |
 | `DT_NEEDED` | 2026-08-06-004 |
+| `Decision` | 2026-08-18-001 |
 | `Diag` | 2026-08-06-004 |
-| `ERR_TIMEOUT` | 2026-07-28-004, 2026-07-29-001, 2026-07-29-003, 2026-08-02-001 |
+| `ERR_GOZERO` | 2026-08-15-001 |
+| `ERR_TIMEOUT` | 2026-07-28-004, 2026-07-29-003, 2026-08-15-001 |
+| `EquipmentMonitorTask.step` | 2026-08-20-001 |
 | `FB.4` | 2026-07-28-006 |
 | `FITO_AMR_ros2_ws` | 2026-07-28-010 |
 | `FlagCumEncPoseMode` | 2026-08-07-001 |
 | `FlashGui` | 2026-09-02-001 |
+| `GRAVURE1_BODY` | 2026-08-13-001 |
+| `GRAVURE1_BODY_RETRACTED` | 2026-08-13-001 |
+| `GRAVURE1_CONNECTORS` | 2026-08-13-001 |
+| `GRAVURE_SIZE` | 2026-08-13-001 |
+| `GRAVURE_STATIONS` | 2026-08-13-001 |
+| `GRAVURE_X` | 2026-08-13-001 |
+| `GRAVURE_Y` | 2026-08-13-001 |
 | `HEAD` | 2026-08-06-001 |
 | `HOME_0DEG` | 2026-08-06-002 |
 | `INDEX.md` | 2026-08-04-001 |
 | `Info` | 2026-08-10-003 |
 | `IxLII-IxLs-IxH_Servo_Driver_Handbook_V7.0.txt` | 2026-08-03-002 |
 | `Last` | 2026-07-31-001 |
+| `LaunchConfiguration` | 2026-08-19-001 |
+| `LineCapacity` | 2026-08-20-001 |
 | `LocalizationMonitor` | 2026-08-10-004, 2026-08-10-006 |
-| `Log` | 2026-07-28-004, 2026-07-29-001, 2026-07-29-003, 2026-08-02-001, 2026-08-03-001 |
+| `Log` | 2026-07-28-004, 2026-07-29-003, 2026-08-03-001 |
 | `Log/dock_precision_0825` | 2026-08-26-001 |
 | `Log/drive_0825` | 2026-08-26-001 |
-| `Log/home_experiment_260803_153319_summary.json` | 2026-07-29-001 |
 | `Log/homing_capture_220350.jsonl` | 2026-07-27-002, 2026-07-28-003, 2026-08-03-002 |
+| `MCLoc` | 2026-08-16-001 |
+| `Message_MotorInfo` | 2026-08-16-001 |
+| `MockLink.homing_cancel` | 2026-08-15-001 |
+| `MotorInfos` | 2026-08-16-001 |
+| `NavSpeed` | 2026-08-16-001 |
 | `NetProtocol` | 2026-08-07-002 |
+| `OdoCalculator` | 2026-08-16-001 |
 | `Orbbec_Gemini_E_RGB_Camera` | 2026-08-30-001 |
 | `PA8/15` | 2026-09-02-003 |
 | `PB8/9` | 2026-09-02-003 |
@@ -228,36 +214,41 @@
 | `QoS` | 2026-08-07-001 |
 | `R01` | 2026-09-02-003 |
 | `R02` | 2026-08-24-002, 2026-09-02-003 |
-| `README.md` | 2026-07-27-004, 2026-07-28-015, 2026-07-28-016 |
+| `README.md` | 2026-07-27-004, 2026-07-28-015, 2026-07-28-016, 2026-08-18-002 |
+| `References` | 2026-08-18-001 |
+| `References/Seer-Driver/robokit_tcp_api.md` | 2026-08-18-001 |
 | `RelayBackend` | 2026-08-08-001 |
 | `RelayBackend.halt_steer` | 2026-08-03-003 |
+| `Rig.sdo_read` | 2026-09-05-002 |
 | `Robot` | 2026-08-07-002 |
+| `RobotNote` | 2026-09-02-001 |
+| `RobotPosEKF` | 2026-08-16-001 |
 | `STOP` | 2026-09-02-003 |
 | `SensorDataQoS` | 2026-08-07-001 |
 | `SetCumEncPoseMode` | 2026-08-07-001 |
 | `SteerRamp` | 2026-07-27-002 |
+| `TCP_IP/seer_api` | 2026-08-18-002 |
 | `TaskStop` | 2026-07-29-002 |
 | `Terminated` | 2026-07-31-001 |
 | `Tool` | 2026-07-27-004 |
 | `Tools` | 2026-07-27-004, 2026-07-28-015, 2026-07-28-016 |
 | `Tools/Can_Relay` | 2026-09-02-001 |
-| `Tools/Can_Relay/FIELD-RECORD-2026-07-25.md` | 2026-09-03-001 |
 | `Tools/Can_Relay/R02/README.md` | 2026-09-01-001 |
 | `Tools/Can_Relay/fw_backups/README-2026-08-23.md` | 2026-08-24-002 |
 | `Tools/Can_Relay/panda-firmware/.git` | 2026-07-28-015 |
 | `Tools/Can_Relay/panda-firmware/board/usb_comms.h` | 2026-07-28-007 |
-| `Tools/amr_test_gui` | 2026-07-27-004, 2026-07-28-002, 2026-07-28-003 |
+| `Tools/amr_test_gui` | 2026-07-27-004, 2026-07-28-002 |
 | `Tools/amr_test_gui/amr_test_gui/ramp.py` | 2026-07-27-002, 2026-07-28-003 |
-| `Tools/amr_test_gui/gui.py` | 2026-07-28-003, 2026-07-28-009, 2026-07-28-012, 2026-08-04-001, 2026-09-02-001 |
+| `Tools/amr_test_gui/gui.py` | 2026-07-28-003, 2026-07-28-009, 2026-07-28-012, 2026-08-04-001, 2026-09-02-001, 2026-09-02-002 |
 | `Tools/amr_test_gui/mutation_check.py` | 2026-08-08-002 |
-| `Tools/docking_field_kit` | 2026-07-27-002 |
 | `Tools/docking_field_kit/MIGRATION-orin-nx.md` | 2026-07-28-016 |
 | `Tools/docking_field_kit/NEXT-SESSION-PROMPT.md` | 2026-07-28-016 |
 | `Tools/docking_field_kit/master_command_census.py` | 2026-08-03-002 |
 | `Tools/docking_field_kit/orin_` | 2026-09-01-001 |
 | `Tools/docking_field_kit/orin_hold_intercept.py` | 2026-09-01-001 |
-| `Tools/docking_field_kit/orin_steer_crosscheck.py` | 2026-08-01-001, 2026-08-02-001 |
+| `Tools/docking_field_kit/orin_home_experiment.py` | 2026-09-05-002 |
 | `Tools/docking_field_kit/orin_steer_sweep_1005.py` | 2026-08-06-002 |
+| `Tools/docking_field_kit/orin_steer_two_phase.py` | 2026-09-02-002 |
 | `Tools/docking_field_kit/panda/python/__init__.py` | 2026-07-28-007 |
 | `Tools/docking_field_kit/verify_homing_claims.py` | 2026-08-03-001 |
 | `Tools/find_experiment_data.sh` | 2026-08-26-001 |
@@ -266,16 +257,21 @@
 | `Tools/motion_chain_check/RUNBOOK-first-drive.md` | 2026-08-10-003, 2026-08-10-006 |
 | `Tools/motion_sil_regression/sil_regression.py` | 2026-08-10-002 |
 | `Tools/repo_tools/branch_superseded.py` | 2026-08-06-001 |
+| `Tools/seer_jog/README.md` | 2026-09-02-002 |
+| `TypeError` | 2026-08-20-001 |
+| `T大AGV路线` | 2026-08-13-001 |
 | `V7.0` | 2026-07-28-006 |
 | `WRAP_MARGIN` | 2026-08-05-001 |
 | `Write` | 2026-07-31-002 |
 | `__file__` | 2026-07-28-013 |
 | `_app_start` | 2026-07-28-007 |
 | `_code_updates.md` | 2026-08-13-001 |
+| `_home_failed` | 2026-08-15-001 |
 | `_loop` | 2026-08-04-001 |
 | `_on_poll_died` | 2026-08-04-001 |
 | `_rendered_delta` | 2026-07-28-001 |
-| `_steer_to` | 2026-07-28-003 |
+| `_steer_axis` | 2026-07-27-002 |
+| `_steer_to` | 2026-07-27-002, 2026-07-28-003 |
 | `_sync_sliders` | 2026-07-28-014 |
 | `a7420a6` | 2026-08-08-001 |
 | `active` | 2026-07-31-002 |
@@ -287,24 +283,32 @@
 | `amap` | 2026-07-31-001, 2026-08-06-005 |
 | `amap-1` | 2026-07-31-001, 2026-08-06-005 |
 | `amap-server` | 2026-08-06-004, 2026-08-06-005, 2026-08-07-002 |
+| `ament_cmake` | 2026-08-18-002 |
+| `ament_python` | 2026-08-18-002 |
 | `amr` | 2026-07-31-002 |
-| `amr_test_gui` | 2026-07-28-003, 2026-07-28-008 |
+| `amr_test_gui` | 2026-07-28-008 |
+| `api.py` | 2026-08-18-001 |
 | `app` | 2026-09-02-001 |
 | `apt-get` | 2026-09-02-003 |
+| `array` | 2026-09-02-002 |
 | `arrows` | 2026-07-28-013 |
 | `assert` | 2026-08-10-002, 2026-09-02-002 |
+| `atan` |  |
+| `audit_cad_world.py` | 2026-08-13-001 |
 | `b1ff211` | 2026-08-08-001 |
 | `b31d67899631bdf30483a12a6ced7b4e` | 2026-07-28-011 |
+| `backend.home` | 2026-08-15-001 |
 | `backend.py` | 2026-08-10-001, 2026-08-10-003 |
 | `backend_` | 2026-09-02-001 |
 | `bag` | 2026-08-26-001 |
-| `baseline` | 2026-07-28-004, 2026-07-29-001, 2026-07-29-003, 2026-08-02-001, 2026-08-03-001 |
+| `baseline` | 2026-07-28-004, 2026-07-29-003, 2026-08-03-001 |
 | `bash` | 2026-08-30-002 |
 | `biguamr-amap1-access.md` | 2026-08-06-005 |
 | `biguamr-camera-port-cctv-soak` | 2026-08-30-001 |
 | `biguamr-canrelay-custom-board-bus-wiring` | 2026-08-24-002 |
 | `biguamr-canrelay-emulate-realpos-leak` | 2026-07-26-001 |
 | `biguamr-canrelay-flash-new-board` | 2026-09-01-001 |
+| `biguamr-comment-no-history` | 2026-08-18-001 |
 | `biguamr-experiment-set-names.md` | 2026-08-26-002 |
 | `biguamr-icp-odometry-assets.md` | 2026-08-02-001 |
 | `biguamr-motor-node4-sign-crab` | 2026-07-27-002 |
@@ -316,18 +320,20 @@
 | `boxes` | 2026-07-28-013 |
 | `bus0` | 2026-09-02-003 |
 | `bus2` | 2026-09-02-003 |
-| `bus_fwd` | 2026-09-03-001 |
 | `by_id_prefix` | 2026-08-30-001 |
 | `c5bb4` | 2026-08-06-004 |
 | `cam0/image_raw` | 2026-07-28-001 |
-| `can_relay` | 2026-08-01-001, 2026-08-03-003, 2026-08-05-001, 2026-08-08-002, 2026-08-10-005 |
+| `can_recv` | 2026-09-05-002 |
+| `can_relay` | 2026-08-03-003, 2026-08-05-001, 2026-08-08-002, 2026-08-10-005, 2026-08-15-001 |
 | `can_relay/ui` | 2026-08-04-001 |
 | `cancel_home` | 2026-08-06-001 |
 | `capture-test` | 2026-07-28-014 |
+| `ceea4` | 2026-08-15-001 |
 | `cert_fn` | 2026-09-02-002 |
+| `charge_to` | 2026-08-19-001 |
 | `check_chain_contract.py` | 2026-08-05-001 |
 | `checkout` | 2026-07-28-009, 2026-08-10-001 |
-| `checks` | 2026-07-28-005, 2026-07-28-011, kind: B |
+| `checks` | , 2026-07-28-005, 2026-07-28-011 |
 | `checks/adr-fields.sh` | 2026-07-28-002 |
 | `claude-mistake` | 2026-08-03-001 |
 | `claude/settings.json` | 2026-08-06-003 |
@@ -335,39 +341,49 @@
 | `cmd_vel` | 2026-07-31-004 |
 | `cmpb` | 2026-08-07-001 |
 | `code_updates` | 2026-08-25-001 |
-| `code_updates/2026-08-26-drive-test-ui.md` | 2026-08-26-003 |
+| `coding-comment-gate` | 2026-08-18-001 |
 | `coding-inventory-gate.py` | 2026-08-06-003 |
 | `coding-reminder.py` | 2026-08-06-003 |
-| `coding.md` | 2026-08-06-003, 2026-08-06-004 |
+| `coding.md` | 2026-08-06-003, 2026-08-06-004, 2026-08-18-002, 2026-09-05-001 |
 | `computeSpin` | 2026-08-06-003 |
 | `config/camera/camera_common.yaml` | 2026-08-30-001 |
 | `config/tongyi_amr.yaml` | 2026-07-27-003 |
-| `context-missing` | 2026-07-27-004, 2026-08-01-001, 2026-08-03-002, 2026-08-05-001, 2026-08-06-001 |
+| `context-missing` | 2026-07-27-004, 2026-08-03-002, 2026-08-05-001, 2026-08-06-001, 2026-08-15-001 |
 | `count` | 2026-08-02-001 |
 | `counts` | 2026-07-27-003, 2026-08-06-002 |
 | `crab` | 2026-08-25-001 |
 | `csm` | 2026-08-10-004 |
+| `d09c55..07f8661` | 2026-09-05-003 |
 | `d46347a` | 2026-08-10-001 |
 | `d5f6` | 2026-08-07-001 |
 | `d5fe` | 2026-08-07-001 |
+| `data` | 2026-09-02-002 |
 | `db3` | 2026-08-26-001 |
-| `debt-004` | 2026-07-27-003 |
-| `debt-016` | 2026-07-28-004, 2026-07-29-001, 2026-07-29-003, 2026-08-02-001 |
+| `debt-004` | , 2026-07-27-003 |
+| `debt-007` |  |
+| `debt-016` | 2026-07-28-004, 2026-07-29-003 |
 | `debt-068` | 2026-08-10-003, 2026-08-10-004 |
 | `debt-071` | 2026-08-13-001 |
+| `debt-095` | 2026-09-02-001 |
+| `debt-111` | 2026-09-02-002 |
+| `debt-126` | 2026-09-02-001 |
 | `def` | 2026-08-06-001 |
+| `default_value` | 2026-08-19-001 |
 | `deg` | 2026-08-06-002 |
 | `delta_f` | 2026-08-06-004 |
 | `delta_f/r` | 2026-08-10-005 |
 | `deselect` | 2026-08-08-002 |
 | `detect` | 2026-09-02-001 |
-| `detect_hz` | 2026-08-07-001 |
 | `detection.py` | 2026-08-06-003 |
 | `detector_node.py` | 2026-08-06-003 |
+| `detectors/2026-09-05-003.sh` | 2026-09-05-003 |
 | `dev/sda2` | 2026-08-06-005 |
 | `dev/sdb2` | 2026-08-06-005 |
 | `dev/shm` | 2026-07-29-002 |
 | `dfb626` | 2026-08-10-001 |
+| `dict` | 2026-08-20-001 |
+| `died` | 2026-08-19-001 |
+| `diff` | 2026-09-05-003 |
 | `docking_drive.py` | 2026-07-27-003 |
 | `docs/adr` | 2026-08-05-001 |
 | `docs/adr/2026-07-26-qd-ik-pm90-unique-solution.md` | 2026-08-05-001 |
@@ -376,8 +392,8 @@
 | `docs/adr/2026-07-28-cctv-ai-overlay-toggle.md` | 2026-07-29-002 |
 | `docs/adr/2026-07-28-icp-odometry-bringup.md` | 2026-08-02-001 |
 | `docs/adr/2026-07-29-can-relay-ros2-package.md` | 2026-07-31-004 |
+| `docs/adr/2026-08-04-amr-test-gui-swappable-backend.md` | 2026-08-15-001 |
 | `docs/adr/2026-08-15-line-follow-common-diff-control.md` | 2026-08-25-001 |
-| `docs/adr/2026-08-24-pgv-driver.md` | 2026-08-24-001 |
 | `docs/can_relay` | 2026-08-24-002, 2026-09-01-001 |
 | `docs/can_relay/2026-07-07-design-inputs.md` | 2026-07-28-012 |
 | `docs/can_relay/R02-schematic-review-2026-08-24.md` | 2026-08-24-002, 2026-09-02-003 |
@@ -386,69 +402,67 @@
 | `docs/claude-mistake/2026-07-27-002` | 2026-08-03-003 |
 | `docs/claude-mistake/2026-07-28-001` | 2026-07-28-013 |
 | `docs/claude-mistake/2026-07-28-005` | 2026-09-04-001 |
-| `docs/claude-mistake/2026-07-31-004` | 2026-08-01-001 |
-| `docs/claude-mistake/INDEX.md` | 2026-07-28-005, 2026-08-01-001, 2026-08-03-002, 2026-08-25-001, 2026-08-26-001, kind: B |
-| `docs/claude_guideline` | 2026-07-28-003 |
+| `docs/claude-mistake/2026-08-13-001` | 2026-08-18-001 |
+| `docs/claude-mistake/INDEX.md` | , 2026-07-28-005, 2026-08-03-002 |
 | `docs/claude_guideline/code_review/domains/ros2-review.md` | 2026-08-07-001 |
 | `docs/claude_guideline/code_review/review.md` | 2026-07-28-013, 2026-08-06-001 |
-| `docs/claude_guideline/coding/adr-template.md` | 2026-08-07-001 |
-| `docs/claude_guideline/coding/coding.md` | 2026-07-26-001, 2026-07-27-001, 2026-07-27-002, 2026-07-28-001, 2026-08-01-001, 2026-08-02-001, 2026-08-03-001, 2026-08-03-003, 2026-08-04-001, 2026-08-05-001, 2026-08-06-003, 2026-08-07-001, 2026-09-02-001 |
+| `docs/claude_guideline/coding/coding.md` | 2026-07-26-001, 2026-07-27-001, 2026-07-27-002, 2026-07-28-001, 2026-08-02-001, 2026-08-03-001, 2026-08-03-003, 2026-08-04-001, 2026-08-05-001, 2026-08-06-003, 2026-09-02-001 |
 | `docs/claude_guideline/external_reference/handling.md` | 2026-07-28-005, 2026-07-28-006, 2026-08-05-001, 2026-08-06-002 |
-| `docs/claude_guideline/git_workflow/git_workflow.md` | 2026-07-28-002, 2026-07-28-009, 2026-07-31-003, 2026-08-06-003 |
+| `docs/claude_guideline/git_workflow/git_workflow.md` | 2026-07-28-002, 2026-07-28-009, 2026-07-31-003, 2026-08-06-003, 2026-09-05-003 |
 | `docs/claude_guideline/issue_fix/issue_fix.md` | 2026-07-28-001, 2026-07-28-014, 2026-09-04-001 |
 | `docs/claude_guideline/mistake/mistake.md` | 2026-07-28-016, 2026-07-29-002, 2026-08-03-001, 2026-08-04-001 |
 | `docs/claude_guideline/reverse_engineering/principle.md` | 2026-07-26-001, 2026-07-27-001, 2026-07-27-002, 2026-07-28-011, 2026-08-03-001, 2026-08-06-001, 2026-08-07-001, 2026-09-01-001 |
 | `docs/claude_guideline/session_workflow/session_workflow.md` | 2026-07-31-002 |
 | `docs/code_review/ai-yolo-detector/2026-08-06.md` | 2026-08-06-003 |
 | `docs/code_review/pose-topic-wiring/2026-08-10.md` | 2026-08-10-003 |
-| `docs/debt/registry.md` | 2026-07-28-002, 2026-08-03-002, 2026-08-03-003, 2026-08-08-002, kind: B |
-| `docs/homing/2026-08-03-can-relay-homing-assets.md` | 2026-07-29-001, 2026-08-02-001 |
+| `docs/debt/registry.md` | 2026-07-28-002, 2026-08-03-002, 2026-08-03-003, 2026-09-02-001 |
 | `docs/issues_and_fixes` | 2026-08-10-004 |
-| `docs/issues_and_fixes/issues_and_fixes.md` | 2026-08-06-004, 2026-08-08-002, 2026-08-10-002, 2026-08-10-004, 2026-08-10-005, 2026-08-25-001, 2026-08-30-002, kind: B |
+| `docs/issues_and_fixes/issues_and_fixes.md` | 2026-08-06-004, 2026-08-10-004, 2026-08-10-005, 2026-08-25-001, 2026-08-30-002, 2026-09-05-003 |
 | `docs/tongyi_can_protocol/2026-08-05.md` | 2026-08-06-002 |
 | `docs/user_instructions/sessions/56a709a5` | 2026-07-28-003 |
+| `docs/user_instructions/user_instructions.md` | 2026-08-15-001 |
 | `docs/verified_facts/2026-07-27.md` | 2026-07-28-003 |
 | `docs/verified_facts/2026-07-28-errata.md` | 2026-07-28-006 |
 | `docs/verified_facts/2026-08-02-steer-home-closed.md` | 2026-07-28-004, 2026-07-29-003 |
 | `domains/ros2-review.md` | 2026-08-07-001 |
+| `dpos` | 2026-08-16-001 |
 | `drive_accel_mps2` | 2026-08-06-003 |
 | `drive_decel_mps2` | 2026-08-06-003 |
 | `drive_sign` | 2026-07-27-003 |
 | `driver_node` | 2026-07-27-003 |
 | `driver_node.py` | 2026-07-31-004 |
 | `dual_laser_merger` | 2026-07-28-010 |
+| `duration` | 2026-09-02-002 |
 | `e002c` | 2026-09-02-003 |
 | `e0064d5` | 2026-08-13-001 |
 | `e_theta` | 2026-08-06-004 |
 | `effective_yaw` | 2026-08-06-004 |
 | `emulate` | 2026-07-28-005 |
+| `encoder` | 2026-08-16-001 |
 | `engage` | 2026-09-01-001 |
-| `errors` | 2026-09-03-001 |
 | `estop` | 2026-08-03-003, 2026-08-05-001 |
 | `euo` | 2026-08-30-002 |
-| `exit` | 2026-08-07-001, 2026-08-10-002 |
+| `exit` | 2026-08-10-002 |
 | `expected_steer_f/r` | 2026-08-10-005 |
 | `extern` | 2026-07-28-007, 2026-07-28-013 |
 | `external_reference/handling.md` | 2026-07-28-005 |
 | `f46` | 2026-08-10-002 |
-| `fatals` | 2026-09-03-001 |
 | `fb40d` | 2026-07-31-003 |
 | `fb9663` | 2026-08-13-001 |
-| `fd97825` | kind: B |
+| `fd97825` |  |
 | `fe77556` | 2026-07-31-003 |
 | `file` | 2026-07-28-014 |
-| `find` | 2026-07-27-004, 2026-07-28-016, 2026-08-26-001 |
+| `find` | 2026-07-27-004, 2026-07-28-016, 2026-08-18-002, 2026-08-26-001 |
 | `flash_gui.py` | 2026-09-02-001 |
 | `flash_new_board.py` | 2026-09-02-002 |
+| `fleet.launch.py` | 2026-08-19-001 |
 | `foil_a082.yaml` | 2026-08-05-001, 2026-08-13-001 |
 | `force` | 2026-08-06-003 |
 | `fps` | 2026-07-29-002 |
 | `fps/1435f` | 2026-07-28-001 |
 | `frames` | 2026-07-28-001 |
-| `freeze_v1_wholecache` | 2026-09-03-001 |
 | `from` | 2026-07-31-001 |
 | `fw_backups/panda.bin.signed.pre_homing_2026-07-27` | 2026-07-28-011 |
-| `fw_backups/safety_seer_gate.h.freeze_v1_wholecache` | 2026-09-03-001 |
 | `gate_min_err_deg` | 2026-08-10-005 |
 | `gear_steer` | 2026-08-06-003 |
 | `gear_walk` | 2026-08-06-003 |
@@ -458,21 +472,20 @@
 | `git/git_workflow/sessions` | 2026-07-28-009 |
 | `git/session_workflow` | 2026-07-31-002 |
 | `git_workflow-session.sh` | 2026-07-31-003 |
-| `git_workflow.md` | 2026-07-28-002 |
+| `git_workflow.md` | 2026-07-28-002, 2026-08-18-002 |
 | `gitmodules` | 2026-07-28-015 |
-| `grep` | 2026-07-28-012, 2026-07-31-004, 2026-08-01-001, 2026-08-06-001, 2026-08-06-004, 2026-08-06-005, 2026-08-10-004, 2026-08-24-002, 2026-08-25-001, 2026-09-01-001 |
+| `grep` | 2026-07-28-012, 2026-07-31-004, 2026-08-06-001, 2026-08-06-004, 2026-08-06-005, 2026-08-10-004, 2026-08-24-002, 2026-08-25-001, 2026-09-01-001, 2026-09-02-002 |
 | `gui.py` | 2026-08-10-001 |
 | `halt_steer` | 2026-08-03-002, 2026-08-05-001 |
 | `hard` | 2026-08-06-003, 2026-08-10-001 |
-| `hold_steer` | kind: B |
+| `has` | 2026-08-19-001 |
+| `hold_steer` |  |
 | `hold_steer_at_measured` | 2026-08-05-001 |
 | `home/nvidia` | 2026-08-26-001 |
 | `home/nvidia/Project/Ford-CATL-AMR/Big-AMR` | 2026-07-28-009 |
-| `home_offset` | 2026-08-01-001 |
+| `home_cancel` | 2026-08-15-001 |
 | `homed` | 2026-08-08-002 |
 | `homing` | 2026-08-08-002 |
-| `homing_enabled` | 2026-08-01-001 |
-| `homing_method` | 2026-08-01-001 |
 | `hostname` | 2026-08-06-005 |
 | `icp_odometry` | 2026-07-28-010 |
 | `ignore` | 2026-08-08-002 |
@@ -480,14 +493,14 @@
 | `imu_yaw_noise_deg` | 2026-08-06-003 |
 | `iname` | 2026-07-27-004 |
 | `info` | 2026-08-02-001, 2026-08-10-004 |
-| `initialpose` | kind: B |
+| `initialpose` |  |
 | `input` | 2026-07-28-006 |
 | `install` | 2026-09-02-003 |
 | `install.sh` | 2026-08-30-002 |
 | `int` | 2026-07-28-007 |
-| `intent-guess` | 2026-07-28-003, 2026-08-24-001 |
+| `intent-guess` | 2026-08-24-001 |
 | `issue_fix` | 2026-07-28-014 |
-| `issues_and_fixes.md` | 2026-08-08-001, 2026-08-08-002, 2026-08-10-001, kind: B |
+| `issues_and_fixes.md` | , 2026-08-08-001, 2026-08-08-002, 2026-08-10-001 |
 | `jammy.20260622.101306` | 2026-07-28-010 |
 | `joint_states` | 2026-07-31-004 |
 | `key` | 2026-08-10-002 |
@@ -498,10 +511,13 @@
 | `kuksauto` | 2026-07-31-001 |
 | `laser_mounts` | 2026-08-07-001 |
 | `laser_scan_matcher` | 2026-07-28-010 |
+| `launch` | 2026-08-19-001 |
 | `launch/mpc.launch.py` | 2026-08-13-001 |
 | `launch/sil_mpc.launch.py` | 2026-08-13-001 |
+| `leg_of` | 2026-08-20-001 |
 | `libMCLoc.so` | 2026-07-31-001, 2026-08-06-004 |
 | `libNetProtocol.so` | 2026-08-07-002 |
+| `libOdoCalculator.so` | 2026-08-16-001 |
 | `libprotobuf.so.17` | 2026-08-06-004 |
 | `libzmq.so.5` | 2026-08-06-004 |
 | `light_intercept.py` | 2026-09-01-001 |
@@ -511,9 +527,11 @@
 | `list` | 2026-07-28-009, 2026-07-31-003 |
 | `login` | 2026-07-31-001 |
 | `lookupMapToBase` | 2026-08-10-006 |
+| `low-battery` | 2026-08-19-001 |
 | `ls-files` | 2026-08-03-002, 2026-08-03-003 |
 | `m/s` | 2026-08-10-006 |
-| `main` | 2026-08-06-001, 2026-08-10-001 |
+| `machines` | 2026-08-13-001 |
+| `main` | , 2026-08-06-001, 2026-08-10-001 |
 | `main_window._report_display_stats` | 2026-07-28-001 |
 | `math_utils.hpp` | 2026-08-10-003 |
 | `max_steer_deg` | 2026-08-10-005 |
@@ -522,12 +540,11 @@
 | `mcl2d_localization_node` | 2026-08-02-001, 2026-08-07-001 |
 | `mcl2d_localization_node.cpp` | 2026-08-07-001 |
 | `mcl_pose` | 2026-08-02-001 |
-| `memory/biguamr-system-health-monitor.md` | 2026-07-28-003 |
 | `method35` | 2026-08-08-002 |
 | `minValue` | 2026-08-07-002 |
-| `mistake` | 2026-07-27-004, 2026-07-28-003 |
-| `mistake-relevance` | 2026-09-02-002, 2026-09-02-003, 2026-09-03-001, 2026-09-04-001 |
-| `mistake.md` | 2026-07-28-002, 2026-07-28-003 |
+| `mistake` | 2026-07-27-004 |
+| `mistake-relevance` | 2026-09-02-002, 2026-09-02-003, 2026-09-04-001, 2026-09-05-001, 2026-09-05-002 |
+| `mistake.md` | 2026-07-28-002 |
 | `mixed` | 2026-08-10-001 |
 | `mmd` | 2026-07-28-013 |
 | `mode` | 2026-08-05-001 |
@@ -542,34 +559,38 @@
 | `mpc_reverse_action_server.hpp` | 2026-08-13-001 |
 | `mpc_reverse_debug` | 2026-08-06-004 |
 | `mutation_check.py` | 2026-08-06-002 |
-| `name` | 2026-08-26-001 |
+| `name` | 2026-08-18-002, 2026-08-26-001 |
 | `node` | 2026-08-06-002 |
 | `node1` | 2026-08-08-001 |
+| `numstat` | 2026-09-05-003 |
 | `nvidia` | 2026-07-31-001 |
 | `nvidia-jetpack` | 2026-09-02-003 |
 | `odom` | 2026-08-02-001, 2026-08-07-001 |
 | `orbbec_multi_bringup/config` | 2026-08-30-001 |
 | `origin` | 2026-07-28-015 |
-| `origin/main` | 2026-08-06-001, 2026-08-10-001 |
+| `origin/main` | 2026-08-06-001, 2026-08-10-001, 2026-09-05-003 |
 | `origin/session` | 2026-08-06-001 |
 | `orin_hold_intercept.py` | 2026-09-01-001 |
-| `orin_home_experiment.py` | 2026-08-03-001 |
+| `orin_home_experiment.py` | 2026-08-03-001, 2026-09-05-002 |
 | `orin_homing_run.py` | 2026-07-28-011 |
 | `os.path.abspath` | 2026-07-28-013 |
 | `os.path.dirname` | 2026-07-28-013 |
+| `package.xml` | 2026-08-18-002 |
 | `page` | 2026-07-28-006 |
 | `panda.bin.signed` | 2026-09-02-002 |
+| `param_probe` | 2026-09-02-001 |
 | `passed` | 2026-08-04-001 |
 | `pc_authority` | 2026-07-26-001 |
 | `pidstat` | 2026-07-29-002 |
 | `pipefail` | 2026-08-30-002 |
-| `pkill` | 2026-07-29-002, 2026-08-02-001, 2026-09-02-003, kind: B |
+| `pkill` | , 2026-07-29-002, 2026-08-02-001, 2026-09-02-003 |
+| `plant.segment_of_station` | 2026-08-20-001 |
 | `pm90-unique-solution` | 2026-08-05-001 |
 | `pose_node.py` | 2026-08-10-003, 2026-08-10-006 |
 | `pose_topic` | 2026-08-10-003, 2026-08-10-006 |
 | `position` | 2026-08-05-001 |
-| `predict` | 2026-08-07-001 |
 | `prefix` | 2026-08-10-002 |
+| `process` | 2026-08-19-001 |
 | `pulses_per_rev` | 2026-08-06-003 |
 | `purpose` | 2026-07-31-002 |
 | `push` | 2026-08-06-003 |
@@ -578,71 +599,92 @@
 | `ramp.py` | 2026-07-28-003 |
 | `range` | 2026-07-28-007 |
 | `rbk/product.version.h` | 2026-08-07-002 |
+| `rbk/rbk.plugin` | 2026-08-16-001 |
 | `rclcpp` | 2026-08-07-001 |
 | `references/seer/libMCLoc` | 2026-08-06-004 |
-| `reflected_assets` | 2026-07-27-001, 2026-07-28-003, 2026-08-07-001, 2026-08-08-002, 2026-08-10-002, 2026-08-10-003, 2026-08-10-005, 2026-08-10-006, 2026-08-24-001, 2026-08-24-002, 2026-08-25-001, 2026-08-26-001, 2026-08-26-002, 2026-08-26-003, 2026-08-30-001, 2026-09-01-001, kind: B |
+| `reflected_assets` | 2026-09-01-001 |
 | `reliability-24h-results.md` | 2026-09-01-001 |
+| `reloadParams` | 2026-09-02-002 |
 | `remote` | 2026-07-28-015 |
 | `remove` | 2026-08-06-003 |
 | `rendered` | 2026-07-28-001 |
 | `reset` | 2026-07-27-002, 2026-08-06-003, 2026-08-10-001 |
 | `resolve` | 2026-08-06-005 |
+| `restoreFactoryParams` | 2026-09-02-002 |
 | `result` | 2026-08-06-004 |
-| `ret_code` | 2026-08-07-002 |
+| `ret_code` | 2026-08-07-002, 2026-08-18-001, 2026-09-02-001, 2026-09-02-002 |
+| `return` | 2026-08-20-001 |
 | `rf2o_laser_odometry` | 2026-07-28-010 |
 | `rni` | 2026-08-24-002 |
 | `robot.model` | 2026-08-07-001 |
 | `robot.param` | 2026-07-31-001, 2026-08-07-001, 2026-08-07-002 |
+| `robot_config_clearfatal_req` | 2026-09-02-001 |
+| `robot_config_reloadparams_req` | 2026-09-02-001 |
+| `robot_config_saveparams_req` | 2026-09-02-001 |
+| `robot_config_setparams_req` | 2026-09-02-001 |
 | `robot_pose` | 2026-08-10-003, 2026-08-10-004, 2026-08-10-006 |
 | `ros-humble-rtabmap-odom` | 2026-07-28-010 |
-| `ros2` | 2026-08-02-001, 2026-08-10-004 |
-| `rule-violation` | 2026-07-27-004, 2026-07-28-002, 2026-07-28-003, 2026-07-29-002 |
+| `ros2` | 2026-08-02-001, 2026-08-10-004, 2026-08-19-001 |
+| `rule-violation` | 2026-07-27-004, 2026-07-28-002, 2026-07-29-002 |
 | `run_camera.sh` | 2026-08-30-002 |
 | `run_manager.sh` | 2026-08-30-002 |
-| `rviz2` | kind: B |
+| `rviz2` |  |
 | `safe_release` | 2026-07-28-009 |
 | `safety_seer_gate` | 2026-09-02-003 |
-| `safety_seer_gate.h` | 2026-07-26-001, 2026-07-28-004, 2026-07-29-001, 2026-07-29-003, 2026-08-02-001, 2026-09-03-001, 2026-09-04-001 |
+| `safety_seer_gate.h` | 2026-07-26-001, 2026-07-28-004, 2026-07-29-003, 2026-09-04-001, 2026-09-05-001 |
 | `saturate` | 2026-08-13-001 |
 | `scan_front` | 2026-08-07-001 |
 | `scan_merged` | 2026-07-28-010, 2026-08-07-001 |
 | `scan_rear` | 2026-08-07-001 |
+| `sdo_read` | 2026-09-05-002 |
+| `seer-api-tcp-hal.md` | 2026-08-18-002 |
 | `seer/robot_pose` | 2026-08-10-003 |
-| `seer_cache_reply` | 2026-07-26-001, 2026-09-03-001 |
+| `seer_cache_reply` | 2026-07-26-001 |
 | `seer_freeze_snapshot` | 2026-07-26-001 |
-| `seer_gate_fwd_hook` | 2026-07-26-001, 2026-09-03-001 |
+| `seer_gate_fwd_hook` | 2026-07-26-001 |
+| `seer_handover_request` | 2026-09-05-001 |
 | `seer_handover_tick` | 2026-09-04-001 |
-| `seer_ho_reengage` | 2026-09-04-001 |
-| `seer_home_cancel_frames` | 2026-07-28-004, 2026-07-29-001, 2026-07-29-003, 2026-08-02-001 |
-| `seer_home_digital_in` | 2026-07-28-004, 2026-07-29-001, 2026-07-29-003, 2026-08-02-001 |
+| `seer_ho_reengage` | 2026-09-04-001, 2026-09-05-001 |
+| `seer_home_cancel_frames` | 2026-07-28-004, 2026-07-29-003 |
+| `seer_home_digital_in` | 2026-07-28-004, 2026-07-29-003 |
 | `seer_pose_publisher` | 2026-08-10-003, 2026-08-10-006 |
+| `seer_tcp_ip` | 2026-09-02-001, 2026-09-02-002 |
+| `segment_of_station` | 2026-08-20-001 |
 | `select_motion_source` | 2026-08-05-001 |
 | `self.poll_died.emit` | 2026-08-04-001 |
 | `session/520bf3ab` | 2026-08-06-001 |
 | `session_id` | 2026-07-31-002, 2026-07-31-003 |
 | `session_workflow.md` | 2026-07-31-002 |
 | `set` | 2026-08-06-002, 2026-08-30-002 |
+| `setparams/saveparams` | 2026-09-02-001 |
+| `show-args` | 2026-08-19-001 |
+| `sim_node.py` | 2026-08-20-001 |
 | `soak_monitor` | 2026-07-28-001 |
 | `soak_samples.csv` | 2026-07-28-001 |
 | `soak_stats.parse_display_line` | 2026-07-28-001 |
-| `spin` | kind: B |
+| `spin` |  |
 | `src/AI/line_vision` | 2026-08-24-001 |
 | `src/AI/yolo_detector` | 2026-08-06-003 |
 | `src/Actuators/motor_control/motor_control/protocol.py` | 2026-07-28-006 |
 | `src/Comm/CAN/can_relay` | 2026-07-31-004, 2026-08-03-002, 2026-08-03-003 |
 | `src/Comm/CAN/can_relay/can_relay/ui` | 2026-09-02-001 |
-| `src/Comm/CAN/can_relay/config/machine/foil_a082.yaml` | 2026-07-28-004, 2026-07-29-003, 2026-08-01-001, 2026-08-05-001 |
+| `src/Comm/CAN/can_relay/config/machine/foil_a082.yaml` | 2026-07-28-004, 2026-07-29-003, 2026-08-05-001 |
 | `src/Comm/TCP_IP/seer_api` | 2026-08-07-002 |
+| `src/Comm/seer_tcp_ip` | 2026-08-18-002 |
 | `src/Control/AMR-Motor` | 2026-07-31-004 |
-| `src/Safety/system_health` | 2026-07-28-003 |
 | `src/Sensors/Camera/RGBD/OrbbecSDK_ROS2/.git` | 2026-07-28-015 |
 | `src/Sensors/Camera/RGBD/OrbbecSDK_ROS2/orbbec_camera/tools` | 2026-07-28-015 |
 | `src/Tools` | 2026-07-27-004 |
 | `src/UI` | 2026-09-02-001 |
 | `ssh` | 2026-08-06-005 |
+| `stack.md` | 2026-08-18-002 |
 | `start` | 2026-07-31-003 |
+| `start_battery` | 2026-08-19-001 |
 | `static` | 2026-07-28-013 |
-| `steerOffset` | 2026-07-28-004, 2026-07-29-001, 2026-07-29-003, 2026-08-02-001, 2026-08-03-001 |
+| `steer3` |  |
+| `steer4` |  |
+| `steerOffset` | 2026-07-28-004, 2026-07-29-003, 2026-08-03-001 |
+| `steer_angles` | 2026-09-05-002 |
 | `steer_home_counts` | 2026-07-27-002, 2026-08-05-001 |
 | `steer_limit_deg` | 2026-08-05-001 |
 | `steer_origin` | 2026-08-08-002 |
@@ -655,12 +697,13 @@
 | `surround_depth` | 2026-08-30-001 |
 | `surround_depth.yaml` | 2026-08-30-001 |
 | `switch` | 2026-07-28-009, 2026-07-31-003 |
-| `system_health` | 2026-07-28-002, 2026-07-28-003 |
+| `system_health` | 2026-07-28-002 |
 | `systemd-analyze` | 2026-08-30-002 |
 | `systemd-run` | 2026-08-30-002 |
 | `tailnet` | 2026-07-31-001 |
 | `tailscale` | 2026-08-06-005 |
 | `tech-debt-shortcut` | 2026-07-31-002 |
+| `test_line_capacity.py` | 2026-08-20-001 |
 | `test_measurement_never_moves_the_slider` | 2026-07-28-014 |
 | `test_poll_death_drops_the_control_toggle` | 2026-08-04-001 |
 | `test_ramp.py` | 2026-07-27-002 |
@@ -669,7 +712,7 @@
 | `tmp/merge-do-safety` | 2026-08-06-003 |
 | `tongyi-canopen-protocol-reference.md` | 2026-07-27-001 |
 | `tongyi-motor-protocol-tables.md` | 2026-07-27-001 |
-| `tongyi_amr.yaml` | 2026-07-27-002 |
+| `tongyi_amr.yaml` |  |
 | `tools` | 2026-07-27-004, 2026-07-28-015, 2026-07-28-016 |
 | `tools/docking_field_kit` | 2026-07-28-016 |
 | `tools/verify/smoke_run` | 2026-07-28-016 |
@@ -678,34 +721,40 @@
 | `touched` | 2026-07-28-009 |
 | `translate_sim_odom` | 2026-08-06-003 |
 | `trnav_2ws_action_server` | 2026-08-24-001 |
+| `trnav_2ws_core/config/robot_geometry_2ws.yaml` |  |
 | `trnav_2ws_core/package.xml` | 2026-08-13-001 |
 | `trnav_pose_publisher` | 2026-08-10-004 |
-| `turn` | kind: B |
+| `turn` |  |
 | `turn_action_server.cpp` | 2026-08-06-003 |
-| `turn_reverse` | kind: B |
+| `turn_reverse` |  |
 | `ubuntu` | 2026-07-31-001 |
 | `ui/flash_backend.py` | 2026-09-02-001 |
 | `ui/flash_gui.py` | 2026-09-02-001 |
+| `unhashable` | 2026-08-20-001 |
 | `update` | 2026-09-02-003 |
 | `usb_cam_publisher` | 2026-08-30-001 |
-| `usb_comms.h` | 2026-09-04-001 |
+| `usb_comms.h` | 2026-09-04-001, 2026-09-05-001 |
+| `user_instructions.md` | 2026-08-15-001 |
 | `v1.7.5-EON-unknown-DEBUG` | 2026-07-28-007 |
 | `v3.4.5.22` | 2026-08-07-002 |
+| `v_enc` | 2026-08-16-001 |
 | `valid` | 2026-07-28-012 |
 | `value` | 2026-07-28-012 |
 | `velocity` | 2026-07-28-012 |
 | `verified` | 2026-07-27-003 |
+| `verified_facts` |  |
 | `verify` | 2026-08-30-002 |
-| `verify-skip` | 2026-07-28-008, 2026-07-29-002, 2026-08-03-001, 2026-08-04-001 |
+| `verify-skip` | 2026-07-28-008, 2026-07-29-002, 2026-08-03-001, 2026-08-04-001, 2026-08-20-001 |
 | `verify.py` | 2026-07-28-013 |
 | `verify_doc_claims.py` | 2026-08-06-002 |
+| `w1_x` |  |
 | `walk_front` | 2026-08-08-001 |
-| `warnings` | 2026-09-03-001 |
 | `wheel_motor_state` | 2026-07-31-004 |
 | `wheel_motor_state_detailed` | 2026-08-06-003 |
 | `wheel_radius` | 2026-08-06-003 |
 | `worktree` | 2026-07-28-009, 2026-07-31-003, 2026-08-06-003 |
 | `wrong-assumption` | 2026-07-27-003, 2026-08-30-001, 2026-08-30-002 |
+| `x/R` |  |
 | `x08004000` | 2026-07-28-007 |
 | `x0800FFFF` | 2026-07-28-007 |
 | `x100C` | 2026-08-08-001 |
@@ -716,9 +765,9 @@
 | `x601` | 2026-07-28-012 |
 | `x604` | 2026-07-28-012 |
 | `x6040` | 2026-07-28-014, 2026-08-03-002, 2026-08-03-003, 2026-08-08-001 |
-| `x6041` | 2026-07-28-004, 2026-07-29-001, 2026-07-29-003, 2026-08-02-001, 2026-08-03-001 |
+| `x6041` | 2026-07-28-004, 2026-07-29-003, 2026-08-03-001 |
 | `x6060` | 2026-07-28-014, 2026-08-08-001 |
-| `x6064` | 2026-07-26-001, 2026-07-27-001, 2026-07-28-003, 2026-07-28-004, 2026-07-28-012, 2026-07-29-001, 2026-07-29-003, 2026-08-01-001, 2026-08-02-001, 2026-08-03-001, 2026-09-04-001 |
+| `x6064` | 2026-07-26-001, 2026-07-27-001, 2026-07-28-003, 2026-07-28-004, 2026-07-28-012, 2026-07-29-003, 2026-08-03-001, 2026-09-04-001 |
 | `x606C` | 2026-07-26-001, 2026-07-27-001, 2026-07-28-012 |
 | `x6078` | 2026-07-26-001, 2026-07-27-001 |
 | `x607A` | 2026-07-28-014, 2026-08-03-002, 2026-08-03-003, 2026-08-05-001 |
@@ -741,9 +790,6 @@
 | `yaw_control` | 2026-08-10-005 |
 | `yaw_control_heading_divergence_count` | 2026-08-10-002 |
 | `yaw_frozen_pose` | 2026-08-10-006 |
-| `yolo_detector` | 2026-08-07-001 |
-| `yolo_final_cmp.py` | 2026-08-07-001 |
-| `yolo_parallel.py` | 2026-08-07-001 |
 | `zmq_bind` | 2026-08-06-004 |
 | `zmq_connect` | 2026-08-06-004 |
 | `zmq_ctx_new` | 2026-08-06-004 |

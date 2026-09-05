@@ -97,7 +97,7 @@
 | `seer_ho_result` | uint8 (0 none·1 reached·2 timeout·3 no-target) | 마지막 복원 결과(0xec 로 조회) | 〃 |
 | `seer_ho_ticks` / `seer_ho_settle` | uint8 | 경과 tick / 정착 tick | 〃 |
 | `seer_ho_pending_silent` | bool | 진행 중 받은 0xdc SILENT 보류 플래그 | 〃 |
-| `seer_ho_reengage` | bool | 복원 진행 중 받은 0xe9=1 — 완료 시 권한 유지 | 〃 |
+| `seer_ho_reengage` | bool | 복원 진행 중 받은 0xe9=1 — 완료 시 권한 유지(출처 무관). 뒤이은 반환 요청이 지운다(최신 요청 우선), 대기 중엔 목표 재송신 중지 | 〃 |
 
 ## 함수표 — board_name.py (보드 이름 USB 읽기/쓰기)
 

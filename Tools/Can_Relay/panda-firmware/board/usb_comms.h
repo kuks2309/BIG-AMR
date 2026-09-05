@@ -371,10 +371,20 @@ int usb_cb_control_msg(USB_Setup_TypeDef *setup, uint8_t *resp) {
 
     // **** 0xdc: set safety mode
     case 0xdc:
-      // 핸드오버 복원 중의 SILENT 요청은 보류했다가 시퀀서 완료 시 적용한다.
-      if ((setup->b.wValue.w == SAFETY_SILENT) && seer_handover_active()) {
-        seer_ho_pending_silent = true;
+      if (setup->b.wValue.w == SAFETY_SILENT) {
+        if (seer_handover_active()) {
+          // 복원 중의 SILENT 요청은 보류했다가 시퀀서 완료 시 적용한다
+          seer_ho_pending_silent = true;
+        } else if (pc_authority) {
+          // 0xe8/0xe9 없이 SILENT 만 온 반환(예: 호스트 롤백 일부 실패) — 그래도 복원 뒤 해제한다
+          seer_handover_request(SEER_HO_SRC_HOST);
+          seer_ho_pending_silent = true;
+        } else {
+          set_safety_mode(setup->b.wValue.w, (uint16_t)setup->b.wIndex.w);
+        }
       } else {
+        // 라이브 모드 요청(재engage 시작) — 보류된 SILENT 는 더 이상 유효하지 않다
+        if (seer_handover_active()) { seer_ho_pending_silent = false; }
         set_safety_mode(setup->b.wValue.w, (uint16_t)setup->b.wIndex.w);
       }
       break;
