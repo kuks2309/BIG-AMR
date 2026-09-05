@@ -7,3 +7,4 @@
   사용자 결정(21:1x) "런타임에 USB 로 써 넣기". ADR `docs/adr/2026-09-04-canrelay-board-name-runtime.md`.
 - **검증**: 미기록 '' → `set trworks-t3-1` commit OK·readback 일치 → 판다 리셋 후 유지 → `get_version()` 에 `#trworks-t3-1` 접미.
 - **함수표**: `Tools/Can_Relay/docs/function_table.md` "board_name.py" 절.
+- **2026-09-05 (펌웨어 md5 `c04e7b07…`)**: 0xef 커밋 전 `board_name_stage_valid()` 로 `[A-Za-z0-9_-]` 1~31자·NUL 패딩만 허용(검토 #19). 실기: 비ASCII·공백·빈 값·NUL 뒤 문자 4종 거부·기존 이름 보존, 유효 이름 수락, hold 1/1. 백업 `fw_backups/panda-c04e7b07-boardname-validate_2026-09-05.bin.signed`.

@@ -31,7 +31,24 @@ static uint8_t board_name_read(uint8_t *out) {   // out: 32B, 반환 = 이름 �
   return n;
 }
 
+// 이름 형식: [A-Za-z0-9_-] 1~31자 + NUL 패딩(첫 NUL 뒤는 전부 NUL). 위반이면 커밋 거부.
+static bool board_name_stage_valid(void) {
+  bool ended = false;
+  uint8_t n = 0U;
+  for (uint8_t i = 0U; i < BOARD_NAME_LEN; i++) {
+    uint8_t c = board_name_stage[i];
+    if (c == 0U) { ended = true; continue; }
+    if (ended) { return false; }
+    bool ok = ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) || ((c >= (uint8_t)'a') && (c <= (uint8_t)'z')) ||
+              ((c >= (uint8_t)'0') && (c <= (uint8_t)'9')) || (c == (uint8_t)'_') || (c == (uint8_t)'-');
+    if (!ok) { return false; }
+    n++;
+  }
+  return (n >= 1U) && (n <= (BOARD_NAME_LEN - 1U));
+}
+
 static bool board_name_commit(void) {
+  if (!board_name_stage_valid()) { return false; }
 #ifndef STM32F4
   return false;   // 섹터 배치가 F413 기준 — 다른 MCU 빌드는 기록 기능 없음
 #else
