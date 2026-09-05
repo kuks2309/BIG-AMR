@@ -325,6 +325,7 @@ class DirectBackend(BackendBase):
 
     def _release_steps(self) -> None:
         """릴레이·권한·safety mode 를 **각각** 되돌린다(한 단계 실패가 나머지를 막지 않는다)."""
+        P_ = self._cls   # 람다가 참조하는 Panda 클래스 — 이 스코프에 없으면 NameError 로 0xE8/0xE9 단계가 빠진다
         for what, fn in (
             ("intercept(0xE8)", lambda: self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xE8, 0, 0, b"")),
             ("authority(0xE9)", lambda: self.panda._handle.controlWrite(P_.REQUEST_OUT, 0xE9, 0, 0, b"")),

@@ -111,7 +111,8 @@ def main():
     print(f"[verify] safety_mode={h.get('safety_mode')} hw_type={bytes(p.get_type()).hex()} serial={p.get_usb_serial()}")
     p.close()
     want = read_sidecar_version(APP)
-    ok = (sig_dev == sig_file) and (want is None or ver.strip() == want)
+    # 펌웨어 0xd6 는 보드 이름이 기록돼 있으면 '#<name>' 을 덧붙인다 — 사이드카 대조는 접미를 뗀 버전으로 한다
+    ok = (sig_dev == sig_file) and (want is None or ver.strip().split('#', 1)[0] == want)
     print("=== RESULT:", "OK 플래시+서명검증 통과" if ok else "MISMATCH — 재확인 필요", "===")
     print("  ※ 부팅 250 kbps 정합은 실기 버스 장착 후 별도 확인(수 초 수신·can_rx_errs=0)")
     sys.exit(0 if ok else 3)

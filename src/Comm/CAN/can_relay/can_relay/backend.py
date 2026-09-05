@@ -986,7 +986,8 @@ class RelayBackend:
                 # 0 으로 만들고 `0x607A` 는 계속 보냈다 — 근거는 회귀
                 # `test_estop_stops_resending_steer_setpoints` 가 고정한다
                 # (E-stop 후 0.3s 동안 `0x607A` 송신 증가분 0 을 단언).
-                if not self._homing and not self._estop:
+                # 심박을 끊었으면(_hb_suppressed) 조향 재송신도 멈춘다 — 펌웨어 fail-safe 복원과 bus2 writer 가 겹치지 않게
+                if not self._homing and not self._estop and not self._hb_suppressed:
                     for n, counts in steer.items():
                         frames.extend(P.steer_target_frames(n, counts, cfg.bus))
                 if now >= next_poll:
