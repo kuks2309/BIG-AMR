@@ -1,7 +1,7 @@
 ---
 id: 2026-09-05-003
 kind: A
-detector: none (검출자 미작성 — 아래 규칙으로 재도출 가능: 세션 워크트리에 복사한 추적 파일이 origin/main 대비 자기 세션이 쓰지 않은 줄을 삭제하면 exit 1. 다음 세션에서 detectors/2026-09-05-003.sh 로 작성할 것)
+detector: docs/claude-mistake/detectors/2026-09-05-003.sh
 status: open
 ---
 
@@ -20,5 +20,5 @@ status: open
 편집을 공유 트리에서 했기 때문에 "내가 고친 파일 = 복사하면 된다" 로 생각했고, 그 파일의 공유 트리 버전이 main 과 같은지 확인하지 않았다. 문서 파일(여러 세션이 prepend 하는 로그)은 특히 위험하다.
 
 ## 재발 방지
-A류 후보 — 검출 규칙: 세션 워크트리 커밋 직전 `git diff --numstat origin/main -- <추적파일>` 에서 **삭제 줄이 있는 파일**을 모두 나열하고, 삭제된 블록이 이 세션 작성분이 아니면 차단(exit 1). 검출자는 다음 세션에서 번들 `detectors/2026-09-05-003.sh` 로 작성한다(본 세션은 실기·펌웨어 작업 중이라 미작성 — 사유 1줄).
+A류 후보 — 검출 규칙: 세션 워크트리 커밋 직전 `git diff --numstat origin/main -- <추적파일>` 에서 **삭제 줄이 있는 파일**을 모두 나열하고, 삭제된 블록이 이 세션 작성분이 아니면 차단(exit 1). 검출자 `docs/claude-mistake/detectors/2026-09-05-003.sh <repo-root> [base=origin/main] [session-id]` 작성(2026-09-05): 스테이징(또는 base..HEAD)에서 append-only 기록 파일의 삭제 줄을 base 에 blame 해 자기 세션 커밋(`session/<id>`)이 아니면 exit 1. 음성 대조 `detectors/2026-09-05-003.fixture/make.sh` 4/4 통과, 본 워크트리 스캔 exit 0.
 절차 처방(즉시 적용): 세션 워크트리에는 **복사하지 않고 패치**한다 — 워크트리(main 기준)의 파일을 열어 같은 변경을 적용한다. 부득이 복사하려면 먼저 `git -C <공유트리> diff origin/main -- <파일>` 이 비어 있는지 확인한다. 공유 로그 파일(issues_and_fixes·registry·INDEX)은 항상 패치 방식.
