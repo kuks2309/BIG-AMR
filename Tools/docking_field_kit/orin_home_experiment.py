@@ -91,7 +91,7 @@ class Rig:
     (같은 줄 주석: "끊기면 펌웨어가 fail-safe 로 intercept 를 푼다"). 그 패턴을 재사용한다.
 
     추가로 `assert_authority()` 로 **판독 전 제어권 생존을 확인**한다 — 조용한 오염을 막는
-    유일한 방법이다(fail-safe 는 `relay_off_latched` 도 세우므로 `0xe8=1` 재engage 도 무시된다).
+    유일한 방법이다(fail-safe 뒤 재획득은 `0xe9=1`→`0xe8=1` 순서로 다시 한다; 별도 래치는 없다).
     """
 
     def __init__(self, log_path: str):

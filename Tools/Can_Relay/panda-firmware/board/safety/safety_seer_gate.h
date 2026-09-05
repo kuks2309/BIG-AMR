@@ -1,6 +1,4 @@
 bool pc_authority = false;
-// 안전 off 후 재engage 차단 래치 — 0xe9 주도권 재취득 시 해제.
-bool relay_off_latched = false;
 
 #define SEER_COVER_US 300000U
 uint32_t seer_cover_start_us = 0U;
@@ -738,7 +736,6 @@ static void seer_handover_finish(void) {
   seer_cover_start_us = microsecond_timer_get();   // 전환 창을 emulate 로 덮는다
   seer_cover_armed = true;
   set_intercept_relay(false);
-  if (failsafe) { relay_off_latched = true; }
   if (go_silent && (current_safety_mode != SEER_HO_MODE_SILENT)) {
     set_safety_mode(SEER_HO_MODE_SILENT, 0U);
   }
