@@ -1,0 +1,39 @@
+[
+ {
+  "path": "C 감시자만 재기동 — 복귀 없음(부정 대조)",
+  "engage": [
+   true,
+   "제어권 획득 — 판다 intercept, fail-safe 무장"
+  ],
+  "running": true,
+  "killed_sup_1": {
+   "supervisor_node": [
+    1660653
+   ]
+  },
+  "sup_back_running": true,
+  "sup_restart_seen": true,
+  "driver_pid_unchanged": true,
+  "release": [
+   true,
+   "제어권 반환 — passthrough"
+  ],
+  "idle_after_release": true,
+  "killed_sup_2": {
+   "supervisor_node": [
+    1661940
+   ]
+  },
+  "stays_released": true,
+  "journal": [
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575561.556032218] [relay_supervisor]: IDLE → RUNNING — 제어권 보유\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575566.743936884] [relay_supervisor]: 감시 시작 — 대상 'can_relay_node' · 기록 /run/can_relay/state.json · 두절 임계 3.0s · 복귀 활성 · 직전 ",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575569.720745684] [relay_supervisor]: WAIT → RUNNING — 제어권 보유\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575570.720696855] [relay_supervisor]: RUNNING → IDLE — 제어권 미획득 (두절 없음 — 수동 해제로 본다)\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575575.841484485] [relay_supervisor]: 감시 시작 — 대상 'can_relay_node' · 기록 /run/can_relay/state.json · 두절 임계 3.0s · 복귀 활성 · 직전 ",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575576.818365953] [relay_supervisor]: WAIT → IDLE — 제어권 미획득 (두절 없음 — 수동 해제로 본다)\u001b[0m"
+  ],
+  "no_restore_call": true,
+  "PASS": true
+ }
+]

@@ -1,0 +1,160 @@
+[
+ {
+  "path": "A 드라이버 사망 → 자동 복귀",
+  "engage": [
+   true,
+   "제어권 획득 — 판다 intercept, fail-safe 무장"
+  ],
+  "running": true,
+  "pid_before": "1619641",
+  "killed": {
+   "driver_node": 1619641
+  },
+  "restored": true,
+  "restore_after_s": 10.4,
+  "pid_after": "1659466",
+  "verdicts": [
+   [
+    5.4,
+    "RUNNING"
+   ],
+   [
+    7.9,
+    "DEAD"
+   ],
+   [
+    9.9,
+    "WAIT"
+   ],
+   [
+    14.4,
+    "RESTORE"
+   ],
+   [
+    14.9,
+    "WAIT"
+   ],
+   [
+    15.4,
+    "RUNNING"
+   ]
+  ],
+  "restores_in_window": "1",
+  "release": [
+   true,
+   "제어권 반환 — passthrough"
+  ],
+  "idle_after_release": true,
+  "stays_released": true,
+  "journal": [
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575430.317240502] [relay_supervisor]: IDLE → RUNNING — 제어권 보유\u001b[0m",
+   "[relay_supervisor-1] \u001b[33m[WARN] [1788575433.334874510] [relay_supervisor]: RUNNING → DEAD — 진단 두절 3.3s · 프로세스 없음\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575435.334468736] [relay_supervisor]: DEAD → WAIT — 진단 두절 5.3s · 프로세스는 있다 — 기동 중일 수 있다(좀비 판정까지 45s)\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575439.817258316] [relay_supervisor]: WAIT → RESTORE — 직전 상태가 제어권 보유였다 — 복귀한다\u001b[0m",
+   "[relay_supervisor-1] \u001b[33m[WARN] [1788575439.818490124] [relay_supervisor]: 복귀 지시 — /can_relay_node/engage true (창 내 1/3회)\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575440.317306404] [relay_supervisor]: RESTORE → WAIT — 진단 0.8s 경과 (임계 3.0s)\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575440.817276603] [relay_supervisor]: WAIT → RUNNING — 제어권 보유\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575441.817233640] [relay_supervisor]: RUNNING → IDLE — 제어권 미획득 (두절 없음 — 수동 해제로 본다)\u001b[0m"
+  ],
+  "seer": {
+   "alarm_codes": [
+    null
+   ],
+   "no_52111": true
+  },
+  "PASS": true
+ },
+ {
+  "path": "B 드라이버+감시자 동시 사망 → pid 추론 복귀",
+  "engage": [
+   true,
+   "제어권 획득 — 판다 intercept, fail-safe 무장"
+  ],
+  "running": true,
+  "pid_before": "1659466",
+  "killed": {
+   "driver_node": 1659466,
+   "supervisor_node": [
+    1619602
+   ]
+  },
+  "restored": true,
+  "restore_after_s": 10.6,
+  "pid_after": "1660202",
+  "verdicts": [
+   [
+    36.9,
+    "WAIT"
+   ],
+   [
+    42.5,
+    "RESTORE"
+   ],
+   [
+    42.9,
+    "WAIT"
+   ],
+   [
+    43.5,
+    "RUNNING"
+   ]
+  ],
+  "journal": [
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575455.817267520] [relay_supervisor]: IDLE → RUNNING — 제어권 보유\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575460.871312605] [relay_supervisor]: 감시 시작 — 대상 'can_relay_node' · 기록 /run/can_relay/state.json · 두절 임계 3.0s · 복귀 활성 · 직전 ",
+   "[relay_supervisor-1] \u001b[33m[WARN] [1788575464.847431084] [relay_supervisor]: 감시자가 없는 사이 대상이 재기동했다(pid 1659466 → 1660202) — 두절을 겪은 것으로 보고 복귀 자격을 준다\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575467.847406078] [relay_supervisor]: WAIT → RESTORE — 직전 상태가 제어권 보유였다 — 복귀한다\u001b[0m",
+   "[relay_supervisor-1] \u001b[33m[WARN] [1788575467.848443801] [relay_supervisor]: 복귀 지시 — /can_relay_node/engage true (창 내 2/3회)\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575468.347501881] [relay_supervisor]: RESTORE → WAIT — 진단 0.9s 경과 (임계 3.0s)\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575468.847365614] [relay_supervisor]: WAIT → RUNNING — 제어권 보유\u001b[0m"
+  ],
+  "pid_inference_logged": true,
+  "release": [
+   true,
+   "제어권 반환 — passthrough"
+  ],
+  "idle_after_release": true,
+  "seer": {
+   "alarm_codes": [
+    null
+   ],
+   "no_52111": true
+  },
+  "PASS": true
+ },
+ {
+  "path": "C 감시자만 재기동 — 복귀 없음(부정 대조)",
+  "engage": [
+   true,
+   "제어권 획득 — 판다 intercept, fail-safe 무장"
+  ],
+  "running": true,
+  "killed_sup_1": {
+   "supervisor_node": [
+    1660133
+   ]
+  },
+  "sup_back_running": true,
+  "driver_pid_unchanged": true,
+  "release": [
+   true,
+   "제어권 반환 — passthrough"
+  ],
+  "idle_after_release": true,
+  "killed_sup_2": {
+   "supervisor_node": [
+    1660429
+   ]
+  },
+  "stays_released": true,
+  "journal": [
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575475.847465418] [relay_supervisor]: IDLE → RUNNING — 제어권 보유\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575481.000880965] [relay_supervisor]: 감시 시작 — 대상 'can_relay_node' · 기록 /run/can_relay/state.json · 두절 임계 3.0s · 복귀 활성 · 직전 ",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575482.478466243] [relay_supervisor]: WAIT → IDLE — 제어권 미획득 (두절 없음 — 수동 해제로 본다)\u001b[0m",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575488.579825083] [relay_supervisor]: 감시 시작 — 대상 'can_relay_node' · 기록 /run/can_relay/state.json · 두절 임계 3.0s · 복귀 활성 · 직전 ",
+   "[relay_supervisor-1] \u001b[0m[INFO] [1788575491.556012450] [relay_supervisor]: WAIT → IDLE — 제어권 미획득 (두절 없음 — 수동 해제로 본다)\u001b[0m"
+  ],
+  "no_restore_call": true,
+  "PASS": true
+ }
+]
