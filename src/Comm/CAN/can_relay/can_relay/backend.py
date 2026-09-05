@@ -219,6 +219,11 @@ class RelayBackend:
                 self._log("⚠ 제어 스레드가 1.5 s 안에 끝나지 않았다 — 참조를 유지해 재기동을 막는다")
             else:
                 self._thread = None
+        # 루프가 멈추면 헬스 폴링도 멈춘다 — 마지막 에러 상태를 남겨 두면 반환 뒤에도
+        # 진단이 「CAN 버스 이상」을 계속 올린다(고착). 폴링이 없으면 판정도 없다.
+        with self._lock:
+            self._bus_health = {}
+        self._health_error = None
         self._log("백엔드 종료")
 
     # ── 생존 표시 ─────────────────────────────────────────────────────
