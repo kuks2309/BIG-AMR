@@ -22,8 +22,8 @@
 | `camera_service` (카메라 systemd 배포 계층) | [Tools/camera_service/docs/function_table.md](../../Tools/camera_service/docs/function_table.md) | 8 (+스크립트·유닛 9) | 전수 | 2026-08-30 |
 | `camera_autoreg` (카메라 자동 등록 — 보드 생성·인식·규칙) | [Tools/camera_autoreg/docs/function_table.md](../../Tools/camera_autoreg/docs/function_table.md) | 15 (+상수 6) | 전수 | 2026-08-31 |
 | `pc_setup` (Orin 개발 PC 셋업 + USB 킷 제작) | [Tools/pc_setup/docs/function_table.md](../../Tools/pc_setup/docs/function_table.md) (게이트 인식본: [docs/code_review/pc-setup/2026-08-24.md](../code_review/pc-setup/2026-08-24.md)) | 12 (+본문 5) — 스크립트 2본 | 전수 | 2026-08-24 |
-| `wall_localizer_core` (벽 3면 정밀 측위 코어) | [src/Navigation/wall_localizer_core/docs/code_review/wall-localizer/2026-08-19.md](../../src/Navigation/wall_localizer_core/docs/code_review/wall-localizer/2026-08-19.md) | 14 (+struct 10·내부 4) | 전수 | 2026-08-19 |
-| `wall_localizer_ros2` (벽 측위 ROS2 어댑터) | [src/Navigation/wall_localizer_ros2/docs/code_review/wall-localizer/2026-08-19.md](../../src/Navigation/wall_localizer_ros2/docs/code_review/wall-localizer/2026-08-19.md) | 7 | 전수 | 2026-08-19 |
+| `feature_localizer_core` (특징면 정밀 측위 코어) | [src/Navigation/feature_localizer_core/docs/code_review/feature-localizer/2026-08-19.md](../../src/Navigation/feature_localizer_core/docs/code_review/feature-localizer/2026-08-19.md) | 14 (+struct 10·내부 4) | 전수 | 2026-08-19 |
+| `feature_localizer_ros2` (특징면 측위 ROS2 어댑터) | [src/Navigation/feature_localizer_ros2/docs/code_review/feature-localizer/2026-08-19.md](../../src/Navigation/feature_localizer_ros2/docs/code_review/feature-localizer/2026-08-19.md) | 7 | 전수 | 2026-08-19 |
 | `pgv_driver`·`pgv_interfaces` (P+F PGV 읽기 헤드) | [src/Sensors/Positioning/pgv_ros2/pgv_driver/docs/function_table.md](../../src/Sensors/Positioning/pgv_ros2/pgv_driver/docs/function_table.md) | 16 (+상수 5·파라미터 7·인터페이스 3) | 전수 | 2026-08-24 |
 | `trnav_2ws_dock_control` (LGIT 도킹 코어 이식 W1+W2) | [src/Control/Motion_Control/2WS/trnav_2ws_dock_control/docs/function_table.md](../../src/Control/Motion_Control/2WS/trnav_2ws_dock_control/docs/function_table.md) | 20+어댑터(IK 6·관측 1) (+struct 10) | 전수 | 2026-08-23 |
 

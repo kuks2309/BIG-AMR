@@ -137,7 +137,7 @@ class DockApproachServer : public rclcpp::Node
         // 이 감속률로만 낮춘다(속도 절벽 제거). 0 = 미적용(즉시 목표 속도).
         approach_decel_mps2_ = declare_parameter<double>("approach_decel_mps2", 0.0);
         // 사전 대기(armed) 인수 거리(m) — >0 이면 goal 을 수락해도 mux 를 바로 뺏지
-        // 않고, wall 관측 잔거리 |e_d| 가 이 값 이내로 들어온 순간 인수한다(주행
+        // 않고, 특징면 관측 잔거리 |e_d| 가 이 값 이내로 들어온 순간 인수한다(주행
         // 액션과의 무공백 전환). 0 = 수락 즉시 인수. goal 수락 시점 값으로 재독.
         arm_engage_dist_m_ = declare_parameter<double>("arm_engage_dist_m", 0.0);
         // 접근 중 d·lat 만 수렴하고 yaw 미달이 지속되면 행 방지로 VERIFY 로 넘긴다
