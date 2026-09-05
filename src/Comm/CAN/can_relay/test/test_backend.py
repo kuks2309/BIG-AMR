@@ -947,6 +947,20 @@ def test_bus_off_outranks_error_passive_on_other_bus():
     assert "BUS-OFF" in be.bus_fault()
 
 
+def test_shutdown_clears_stale_bus_fault():
+    """반환 뒤에는 헬스 폴링이 없다 — 마지막 BUS-OFF 가 진단에 영구히 남으면 안 된다."""
+    link, be = make()
+    link.health_fixture = {0: health(), 2: health(bus_off=1, rec=255)}
+    be.start()
+    try:
+        assert wait(lambda: be.bus_fault() is not None)
+    finally:
+        be.shutdown()
+    assert be.bus_fault() is None
+    assert be.snapshot()["bus_health"] == {}
+    assert be.snapshot()["health_error"] is None
+
+
 # ── 브링업 ────────────────────────────────────────────────────────────────
 def test_bringup_is_off_by_default():
     """실기 검증 이력이 없는 경로라 기본값이 꺼져 있어야 한다."""
