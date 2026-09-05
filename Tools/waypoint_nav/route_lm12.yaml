@@ -1,4 +1,4 @@
-# LM1↔LM2 저속 왕복 — smap 260709_test(md5 92e73074 판)의 노드 2개 대상.
+# LM1↔LM2 저속 왕복 — smap 260709_test(map/260709_test.smap, 정본)의 노드 2개 대상.
 # 실기 초회 검증용 보수 속도. 노드 좌표는 --smap 로 smap 에서 직접 읽는다(여기 nodes 없음).
 route:
   - {to: LM2, max_speed: 0.3, accel: 0.2}

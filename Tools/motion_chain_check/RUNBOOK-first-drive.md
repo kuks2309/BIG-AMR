@@ -20,7 +20,7 @@
 
 ```
 기체            model Foil_A082 · vehicle_id Foil_A082
-맵              current_map 260709_test · md5 a20cbe5cb35fe90bde5685174220ffd5
+맵              current_map 260709_test · md5 a20cbe5cb35fe90bde5685174220ffd5 (2026-08-08 관측 — §0 에서 재측정할 것, 2026-09-05 값은 0319831d…)
 측위            x −11.988 · y 2.412 · angle 3.1413 rad(179.98°) · confidence 0.805 · loc_state 0
                 in_forbidden_area False
 작업            task_status 4 · task_type 3 · target_id LM1
@@ -64,7 +64,7 @@ export ROS_DOMAIN_ID=0                     # 실 운용 도메인
 ros2 launch seer_pose_publisher seer_pose.launch.py \
      expected_map_md5:=a20cbe5cb35fe90bde5685174220ffd5   # ⚠ §0 에서 재측정한 값으로
 python3 Tools/seer_viz/seer_map_viz.py \
-     --smap map/260709_test_2026-08-06_79e59a5a.smap --no-tf
+     --smap map/260709_test.smap --no-tf      # 정본 1개만 둔다(map/README.md)
 rviz2 -d Tools/seer_viz/seer_map.rviz
 ```
 
