@@ -48,6 +48,14 @@ class PgvDriver : public rclcpp::Node
         declare_parameter("position_resolution_mm", 0.1);
         declare_parameter("angle_resolution_deg", 0.1);
         declare_parameter("frame_id", "pgv_link");
+        // 기동 시 자동 방향 결정 — **전원 인가 후 이 명령이 없으면 장치는 error code 5**
+        // 를 내고 위치를 일절 판독하지 않는다(매뉴얼 §4.1, Table 5.4). 서비스 수동 호출에
+        // 의존하면 재부팅·센서 전원 재인가 때마다 조용히 계측 불능이 된다.
+        // -1 = 자동 전송 안 함(수동 서비스만), 0..3 = Direction 값(3 = 직진).
+        declare_parameter("startup_direction", 3);
+        // error code 5 를 관측하면 자동으로 방향을 재전송한다(센서만 전원 재인가된 경우).
+        declare_parameter("auto_recover_direction", true);
+        declare_parameter("direction_retry_period_s", 2.0);
 
         serial_port_ = get_parameter("serial_port").as_string();
         baudrate_ = static_cast<int>(get_parameter("baudrate").as_int());
@@ -57,6 +65,9 @@ class PgvDriver : public rclcpp::Node
         position_resolution_mm_ = get_parameter("position_resolution_mm").as_double();
         angle_resolution_deg_ = get_parameter("angle_resolution_deg").as_double();
         frame_id_ = get_parameter("frame_id").as_string();
+        startup_direction_ = static_cast<int>(get_parameter("startup_direction").as_int());
+        auto_recover_direction_ = get_parameter("auto_recover_direction").as_bool();
+        direction_retry_period_s_ = get_parameter("direction_retry_period_s").as_double();
 
         // QoS: RELIABLE (SensorData 깊이 유지) — RELIABLE 발행자는 RELIABLE·BEST_EFFORT
         // 구독자 모두와 호환되므로 제어기/로거 어느 쪽 기본 QoS 로도 수신 가능
@@ -74,6 +85,23 @@ class PgvDriver : public rclcpp::Node
                       std::placeholders::_2));
 
         serialOpen();
+
+        // 폴링 시작 **전에** 방향을 정한다 — 순서가 반대면 첫 프레임들이 전부 error 5 다.
+        if (fd_ >= 0 && startup_direction_ >= 0 && startup_direction_ <= 3)
+        {
+            std::uint8_t applied = 0;
+            if (applyDirection(static_cast<std::uint8_t>(startup_direction_), applied))
+            {
+                RCLCPP_INFO(get_logger(), "기동 방향 결정: 요청 %d → 적용 %u",
+                            startup_direction_, applied);
+            }
+            else
+            {
+                RCLCPP_WARN(get_logger(),
+                            "기동 방향 결정 실패 — 장치가 error code 5 로 남는다. "
+                            "auto_recover_direction 이 참이면 폴링 중 재시도한다");
+            }
+        }
 
         const double rate = get_parameter("poll_rate_hz").as_double();
         const auto period =
@@ -225,6 +253,37 @@ class PgvDriver : public rclcpp::Node
         }
         fail_count_ = 0;
         position_pub_->publish(toMsg(frame));
+        maybeRecoverDirection(frame);
+    }
+
+    /// `error code 5`(방향 미결정)를 관측하면 방향을 재전송한다.
+    /// 센서만 전원이 재인가되면 장치는 방향을 잊고 판독을 멈추는데, 그 상태는 통신 정상
+    /// (응답 20 Hz)이라 무응답 경고에 걸리지 않는다 — 이 경로가 없으면 조용히 계측 불능이다.
+    void maybeRecoverDirection(const pgv_protocol::PositionFrame &f)
+    {
+        if (!auto_recover_direction_ || !f.error ||
+            f.error_code != pgv_protocol::kErrNoDirection)
+        {
+            return;
+        }
+        const auto t = now();
+        if (last_direction_retry_.nanoseconds() != 0 &&
+            (t - last_direction_retry_).seconds() < direction_retry_period_s_)
+        {
+            return;
+        }
+        last_direction_retry_ = t;
+        const int dir = (last_direction_ >= 0) ? last_direction_ : startup_direction_;
+        if (dir < 0 || dir > 3)
+        {
+            return;
+        }
+        std::uint8_t applied = 0;
+        if (applyDirection(static_cast<std::uint8_t>(dir), applied))
+        {
+            RCLCPP_WARN(get_logger(),
+                        "error code 5(방향 미결정) 관측 — 방향 %d 재전송, 적용 %u", dir, applied);
+        }
     }
 
     pgv_interfaces::msg::PgvPosition toMsg(const pgv_protocol::PositionFrame &f)
@@ -266,34 +325,46 @@ class PgvDriver : public rclcpp::Node
         return m;
     }
 
-    void onSetDirection(const std::shared_ptr<pgv_interfaces::srv::SetDirection::Request> req,
-                        std::shared_ptr<pgv_interfaces::srv::SetDirection::Response> rsp)
+    /// 방향 결정 텔레그램 1회 왕복. 기동 자동 전송과 서비스가 **같은 출처**를 쓴다 —
+    /// 두 벌로 두면 한쪽만 고쳐져 갈라진다.
+    bool applyDirection(std::uint8_t direction, std::uint8_t &applied)
     {
-        rsp->success = false;
-        rsp->applied = 0;
-        if (req->direction > 3)
+        applied = 0;
+        if (direction > 3)
         {
-            RCLCPP_ERROR(get_logger(), "direction=%u 범위 밖 (0..3)", req->direction);
-            return;
+            RCLCPP_ERROR(get_logger(), "direction=%u 범위 밖 (0..3)", direction);
+            return false;
         }
         const auto telegram = pgv_protocol::makeDirectionRequest(
-            static_cast<pgv_protocol::Direction>(req->direction), address_);
+            static_cast<pgv_protocol::Direction>(direction), address_);
         std::uint8_t buf[pgv_protocol::kDirectionResponseLen];
         if (!transact(telegram.data(), telegram.size(), buf, sizeof(buf)))
         {
             RCLCPP_ERROR(get_logger(), "방향 결정 응답 없음");
-            return;
+            return false;
         }
         std::uint8_t dir_bits = 0;
         if (pgv_protocol::parseDirectionResponse(buf, sizeof(buf), dir_bits) !=
             pgv_protocol::ParseResult::kOk)
         {
             RCLCPP_ERROR(get_logger(), "방향 결정 응답 파싱 실패");
-            return;
+            return false;
         }
-        rsp->applied = dir_bits;
-        rsp->success = true;
-        RCLCPP_INFO(get_logger(), "방향 결정: 요청 %u → 적용 %u", req->direction, dir_bits);
+        applied = dir_bits;
+        last_direction_ = direction;
+        return true;
+    }
+
+    void onSetDirection(const std::shared_ptr<pgv_interfaces::srv::SetDirection::Request> req,
+                        std::shared_ptr<pgv_interfaces::srv::SetDirection::Response> rsp)
+    {
+        std::uint8_t applied = 0;
+        rsp->success = applyDirection(req->direction, applied);
+        rsp->applied = applied;
+        if (rsp->success)
+        {
+            RCLCPP_INFO(get_logger(), "방향 결정: 요청 %u → 적용 %u", req->direction, applied);
+        }
     }
 
     void onSetColor(const std::shared_ptr<pgv_interfaces::srv::SetColor::Request> req,
@@ -337,6 +408,11 @@ class PgvDriver : public rclcpp::Node
     int fd_{-1};
     std::mutex io_mutex_;
     std::size_t fail_count_{0};
+    int startup_direction_{3};
+    bool auto_recover_direction_{true};
+    double direction_retry_period_s_{2.0};
+    int last_direction_{-1};            // 마지막으로 적용에 성공한 방향(재전송 기준)
+    rclcpp::Time last_direction_retry_{0, 0, RCL_ROS_TIME};
 
     rclcpp::Publisher<pgv_interfaces::msg::PgvPosition>::SharedPtr position_pub_;
     rclcpp::Service<pgv_interfaces::srv::SetDirection>::SharedPtr set_direction_srv_;

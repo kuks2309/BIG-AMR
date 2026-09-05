@@ -58,8 +58,10 @@ ros2 service call /pgv/set_direction pgv_interfaces/srv/SetDirection "{direction
 
 ## 커미셔닝 주의 (매뉴얼 §4.1–4.2, §5.1.2)
 
-- **전원 인가 후 방향 결정이 없으면 장치는 error code 5** 를 낸다 — 기동 시퀀스에서
-  `pgv/set_direction` 호출을 포함할 것.
+- **전원 인가 후 방향 결정이 없으면 장치는 error code 5** 를 낸다.
+  **드라이버가 기동 시 자동으로 보낸다**(`startup_direction`, 기본 3=직진; −1 이면 안 보냄).
+  폴링 중 error 5 를 관측하면 `auto_recover_direction`(기본 참)이 마지막 방향을 재전송한다 —
+  센서만 전원이 재인가된 경우를 덮는다. 수동 개입이 필요하면 `pgv/set_direction` 서비스를 쓴다.
 - Data Matrix 코드 테이프/태그가 시야에 있으면 **컬러 레인보다 우선**한다 (§2.1).
 - 레인 추적 중 X 는 무부호, 태그 위에서는 부호 있음 — 메시지의 `tag_detected` 로 구분.
 - `error=true` 프레임에서는 위치 필드가 무효이고 `error_code`(2/5/6/>1000, Table 5.4)만
