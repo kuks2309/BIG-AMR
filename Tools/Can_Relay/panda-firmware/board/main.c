@@ -245,7 +245,6 @@ void tick_handler(void) {
 
             set_intercept_relay(false);
             pc_authority = false;
-            relay_off_latched = true;  // 안전 off 래치 — 재engage 차단
 
             if (power_save_status != POWER_SAVE_STATUS_ENABLED) {
               set_power_save_state(POWER_SAVE_STATUS_ENABLED);

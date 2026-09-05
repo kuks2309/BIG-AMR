@@ -21,7 +21,7 @@
 릴레이가 intercept 로 남고 모터가 방치된다.
 
 `0xf3` 을 보내면 검사가 되살아난다. 그 뒤로 심박이 끊기면 펌웨어가 구동 0 → 릴레이 개방 →
-재engage 래치를 건다(해제는 `0xe9` 재전송뿐).
+SILENT 로 내린다(재engage 는 `0xe9=1`→`0xe8=1` 로 다시 획득한다; 별도 래치는 없다).
 
 ⚠ **임계는 점화 상태로 갈린다** — 펌웨어는 1 Hz 틱에서 `heartbeat_counter` 를 점화 on 이면
 5, off 면 2 와 비교한다(`main.c` `HEARTBEAT_IGNITION_CNT_ON/OFF`). 즉 **off 1~2 s ·
@@ -49,7 +49,7 @@ MOTOR_BUS = 2           # 드라이브 측
 SAFETY_SEER_GATE = 30   # 유일하게 릴레이를 강제 전환하지 않는 safety_mode
 CAN_KBPS = 250          # 부팅 기본값과 동일. ⚠ 500k 로 덮으면 버스가 죽는다
 
-REQ_AUTHORITY = 0xE9    # wValue: 0=Seer 주도 · 1=PC 주도(재engage 래치도 해제)
+REQ_AUTHORITY = 0xE9    # wValue: 0=Seer 주도(펌웨어가 조향 복원 뒤 해제) · 1=PC 주도
 REQ_INTERCEPT = 0xE8    # wValue: 0=passthrough · 1=intercept(+300 ms 전환 커버)
 REQ_HEARTBEAT = 0xF3    # 보내면 fail-safe 검사가 되살아난다
 
@@ -426,7 +426,7 @@ class PandaLink(BaseLink):
         """제어권 획득. 순서가 곧 사양이다.
 
         safety_mode → 버스속도 → 버스 enable → auth → intercept → heartbeat.
-        auth(0xe9)가 intercept(0xe8)보다 **먼저**여야 재engage 래치가 걸려 있을 때
+        auth(0xe9)가 intercept(0xe8)보다 **먼저**여야 펌웨어가 PC 주도 상태에서 intercept 를 받는다 —
         intercept 가 조용히 무시되지 않는다. 중간에 실패하면 어중간한 상태로 두지 않고
         롤백한 뒤 `LinkError` 를 올린다.
 

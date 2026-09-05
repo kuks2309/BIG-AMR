@@ -23,7 +23,7 @@
    engage 시 frozen pos 로 초기화) + `0x6040=0x3F`. 1 s 마다 재송신. 캐시 `0x6064`(Seer 폴 포워딩으로
    갱신)로 잔차 확인, |잔차| ≤ 5,734 counts(0.1°) 이면 도달. 8 s 타임아웃, 목표 미보유면 즉시 통과.
 3. SETTLE 0.5 s 뒤 FINISH: `pc_authority=false`, frozen 해제, 전환 cover arm, fail-safe 발 트리거면
-   `relay_off_latched`, 보류된 SILENT(`0xdc`) 또는 fail-safe·heartbeat 상실이면 `set_safety_mode(SILENT)`.
+   보류된 SILENT(`0xdc`) 또는 fail-safe·heartbeat 상실이면 `set_safety_mode(SILENT)`. (`relay_off_latched` 는 읽는 곳이 없어 09-05 에 제거.)
 4. 시퀀서 진행 중에는 emulate 가 계속 Seer 를 가린다(`pc_authority` 유지), 릴레이는 절체 유지,
    USB `0xdc SILENT` 는 보류 플래그로 받는다. 호밍 진행 중이면 먼저 취소한다.
 5. 진단: USB `0xec` → `[state, source, result, pending_silent, ticks, pc_authority]`.
@@ -52,7 +52,7 @@
 
           set_intercept_relay(false);
           pc_authority = false;
-          relay_off_latched = true;  // 안전 off 래치 — 재engage 차단
+          relay_off_latched = true;  // (09-05 제거 — 읽는 곳 없음)
 
           if (power_save_status != POWER_SAVE_STATUS_ENABLED) {
             set_power_save_state(POWER_SAVE_STATUS_ENABLED);
@@ -73,7 +73,6 @@
 
             set_intercept_relay(false);
             pc_authority = false;
-            relay_off_latched = true;  // 안전 off 래치 — 재engage 차단
 
             if (power_save_status != POWER_SAVE_STATUS_ENABLED) {
               set_power_save_state(POWER_SAVE_STATUS_ENABLED);

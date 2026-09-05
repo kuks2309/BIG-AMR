@@ -93,7 +93,7 @@
 | 이름 | 값/형 | 용도 | 위치 |
 | --- | --- | --- | --- |
 | `seer_ho_state` | uint8 (0 IDLE·1 RESTORE·2 SETTLE) | 시퀀서 상태 | safety_seer_gate.h |
-| `seer_ho_source` | uint8 (1 host·2 failsafe) | 요청 출처 — failsafe 면 완료 시 `relay_off_latched`·SILENT | 〃 |
+| `seer_ho_source` | uint8 (1 host·2 failsafe) | 요청 출처 — failsafe 면 완료 시 SILENT 강제 | 〃 |
 | `seer_ho_result` | uint8 (0 none·1 reached·2 timeout·3 no-target) | 마지막 복원 결과(0xec 로 조회) | 〃 |
 | `seer_ho_ticks` / `seer_ho_settle` | uint8 | 경과 tick / 정착 tick | 〃 |
 | `seer_ho_pending_silent` | bool | 진행 중 받은 0xdc SILENT 보류 플래그 | 〃 |
