@@ -112,4 +112,5 @@
 | 함수 | 시그니처 | 용도 | 위치 |
 | --- | --- | --- | --- |
 | `board_name_read` | `static uint8_t board_name_read(uint8_t *out)` | 섹터 4 레코드(magic 'CRNM') 읽기, 길이 반환 | usb_comms.h |
-| `board_name_commit` | `static bool board_name_commit(void)` | SILENT idle 에서만 섹터 4 erase+program 후 검증(F413 전용) | usb_comms.h |
+| `board_name_stage_valid` | `static bool board_name_stage_valid(void)` | 스테이징 버퍼 형식 검사 — `[A-Za-z0-9_-]` 1~31자, 첫 NUL 뒤는 전부 NUL | usb_comms.h |
+| `board_name_commit` | `static bool board_name_commit(void)` | 형식 검사 통과 + SILENT idle 에서만 섹터 4 erase+program 후 검증(F413 전용) | usb_comms.h |

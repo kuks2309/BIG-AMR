@@ -19,3 +19,6 @@
 ## Verification (2026-09-04 21:2x)
 - 미기록 상태 읽기 → '' · `set trworks-t3-1` → commit OK, readback 일치, version `DEV-8dcca835-DEBUG#trworks-t3-1`.
 - 판다 리셋 후 readback 'trworks-t3-1' 유지. 이후 핸드오버 회귀(조향 +30° 반환 복원 1.1 s)·hold 3/3 PASS.
+
+### 2026-09-05 보강
+펌웨어가 커밋 전 이름 형식(`[A-Za-z0-9_-]` 1~31자, NUL 패딩)을 검사해 위반을 거부한다 — 도구 검사에만 의존하지 않는다(md5 `c04e7b07…`, 거부 4종·수락 1종 실기 확인).
