@@ -59,10 +59,21 @@ ver = p.get_version()
 sig_dev = p.get_signature()
 sig_file = Panda.get_signature_from_firmware(APP)
 h = p.health()
+try:   # 펌웨어 0xed 보드 이름(섹터 4) — 위 erase 범위(섹터 1~3) 밖이라 재플래시 전과 같아야 한다
+    name = bytes(p._handle.controlRead(Panda.REQUEST_IN, 0xED, 0, 0, 32)).split(b"\0", 1)[0].decode("ascii", "replace")
+except Exception:
+    name = ""
+try:   # 펌웨어 0xec 핸드오버 시퀀서 상태 6 B — 현행 펌웨어의 표지. 빈 응답이면 그 이전 이미지(운용하지 않음)
+    ho = bytes(p._handle.controlRead(Panda.REQUEST_IN, 0xEC, 0, 0, 6))
+    ho = (ho[0], ho[5]) if len(ho) >= 6 else None
+except Exception:
+    ho = None
 print(f"[D] device version : {ver}")
 print(f"[D] sig device==file: {sig_dev == sig_file}")
 print(f"[D] safety_mode={h.get('safety_mode')} hw_type={bytes(p.get_type()).hex()} serial={p.get_usb_serial()}")
+print(f"[D] board_name='{name}'  (미기록이면 빈값)")
+print(f"[D] handover(0xec) : {'없음 — 현행 펌웨어 아님' if ho is None else f'state={ho[0]} pc_authority={ho[1]}'}")
 p.close()
-ok = (sig_dev == sig_file)
-print("=== RESULT:", "OK flash+서명검증 통과" if ok else "MISMATCH 재확인", "===")
+ok = (sig_dev == sig_file) and (ho is not None)
+print("=== RESULT:", "OK flash+서명+현행펌웨어 검증 통과" if ok else "MISMATCH 재확인", "===")
 sys.exit(0 if ok else 3)

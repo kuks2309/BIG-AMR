@@ -48,6 +48,24 @@ def dfus():
     except Exception: return []
 
 
+def read_board_name(p):
+    """펌웨어 0xed 보드 이름(플래시 섹터 4). 미기록이면 ''(USB 예외도 '')."""
+    try:
+        raw = bytes(p._handle.controlRead(Panda.REQUEST_IN, 0xED, 0, 0, 32))
+        return raw.split(b"\0", 1)[0].decode("ascii", "replace")
+    except Exception:
+        return ""
+
+
+def read_ho_status(p):
+    """펌웨어 0xec 핸드오버 시퀀서 상태 → (state, pc_authority). 빈 응답·예외면 None = 현행 펌웨어가 아니다."""
+    try:
+        r = bytes(p._handle.controlRead(Panda.REQUEST_IN, 0xEC, 0, 0, 6))
+        return (r[0], r[5]) if len(r) >= 6 else None
+    except Exception:
+        return None
+
+
 def main():
     APP = pick_fw(sys.argv)
     if not os.path.isfile(APP):
@@ -106,14 +124,19 @@ def main():
     sig_dev = p.get_signature()
     sig_file = Panda.get_signature_from_firmware(APP)
     h = p.health()
+    name = read_board_name(p)
+    ho = read_ho_status(p)
     print(f"[verify] device version : {ver}")
     print(f"[verify] sig device==file: {sig_dev == sig_file}  (sigtail md5 {hashlib.md5(sig_dev).hexdigest()[:16]})")
     print(f"[verify] safety_mode={h.get('safety_mode')} hw_type={bytes(p.get_type()).hex()} serial={p.get_usb_serial()}")
+    print(f"[verify] board_name='{name}'  (섹터 4 — 앱 erase 범위 밖이라 재플래시 전과 같아야 한다; 미기록이면 빈값)")
+    print(f"[verify] handover(0xec) : {'없음 — 현행 펌웨어 아님' if ho is None else f'state={ho[0]} pc_authority={ho[1]}'}")
     p.close()
     want = read_sidecar_version(APP)
-    # 펌웨어 0xd6 는 보드 이름이 기록돼 있으면 '#<name>' 을 덧붙인다 — 사이드카 대조는 접미를 뗀 버전으로 한다
-    ok = (sig_dev == sig_file) and (want is None or ver.strip().split('#', 1)[0] == want)
-    print("=== RESULT:", "OK 플래시+서명검증 통과" if ok else "MISMATCH — 재확인 필요", "===")
+    # 펌웨어 0xd6 는 보드 이름이 기록돼 있으면 '#<name>' 을 덧붙인다 — 사이드카 대조는 접미를 뗀 버전으로 한다.
+    # 0xec 응답은 현행 펌웨어(핸드오버 시퀀서 탑재)의 표지다 — 그 이전 이미지는 운용하지 않으므로 없으면 실패.
+    ok = (sig_dev == sig_file) and (want is None or ver.strip().split('#', 1)[0] == want) and (ho is not None)
+    print("=== RESULT:", "OK 플래시+서명+현행펌웨어 검증 통과" if ok else "MISMATCH — 재확인 필요", "===")
     print("  ※ 부팅 250 kbps 정합은 실기 버스 장착 후 별도 확인(수 초 수신·can_rx_errs=0)")
     sys.exit(0 if ok else 3)
 
