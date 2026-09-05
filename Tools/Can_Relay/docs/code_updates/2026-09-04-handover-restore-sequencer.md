@@ -14,3 +14,5 @@
 - **롤백 드릴(18:4x)**: 롤백 이미지 플래시→부팅·passthrough 확인→최종 이미지 재플래시→0xec·hold 1사이클 확인. 최종 이미지 백업 `fw_backups/panda-0eee6d66-handover-restore_2026-09-04.bin.signed`.
 - **호스트 변경 없음(사용자 결정 18:41)**: 해제 명령 즉시 펌웨어가 복원·핸드오버를 수행하며 노드·GUI·Rig 는 그대로 둔다.
 - **변경(21:2x, 최종 md5 `bdac6012…` 32,280 B)**: 재engage 중단 → **복원 완료 후 권한 유지**로 교체(`seer_ho_reengage`). 보드 이름 런타임 기록 기능 동반(ADR 2026-09-04-canrelay-board-name-runtime, 도구 `board_name.py`). 4e002c 이름 `trworks-t3-1` 기록·리셋 보존 확인. 최종 이미지 백업 `fw_backups/panda-bdac6012-handover-boardname_2026-09-04.bin.signed`.
+- **2026-09-05 (md5 `218cfc53…`)**: 재engage 의미 정정 — 복원은 항상 완료, 최신 요청 우선(request 가 재engage 플래그 삭제), finish 는 출처 무관 재engage 존중, 재engage 대기 중 목표 재송신 중지. 직접 USB 타이밍 검증 5종 + 회귀 3/3 PASS(ADR 09-05 절).
+- **2026-09-05 09:3x (md5 `6ffe710d…`)**: usb_comms.h 0xdc — pc_authority 중 단독 SILENT 요청도 시퀀서(복원)를 거친 뒤 적용, 라이브 모드 요청은 보류 SILENT 폐기. 검증: 단독 SILENT 반환 복원 1.4 s·회귀 3/3. 백업 `fw_backups/panda-6ffe710d-handover-silent-guard_2026-09-05.bin.signed`.

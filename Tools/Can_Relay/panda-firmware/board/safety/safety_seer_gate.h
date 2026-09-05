@@ -668,7 +668,7 @@ uint8_t seer_ho_result = SEER_HO_RES_NONE;
 uint8_t seer_ho_ticks = 0U;
 uint8_t seer_ho_settle = 0U;
 bool seer_ho_pending_silent = false;
-bool seer_ho_reengage = false;   // 복원 진행 중 받은 재engage(0xe9=1) — 복원 완료 뒤 권한을 유지한 채 넘긴다
+bool seer_ho_reengage = false;   // 복원 진행 중 받은 재engage(0xe9=1) — 복원 완료 뒤 권한 유지. 뒤이은 반환 요청이 오면 지워진다
 
 void set_safety_mode(uint16_t mode, uint16_t param);
 
@@ -705,6 +705,7 @@ static bool seer_ho_reached(void) {
 void seer_handover_request(uint8_t source) {
   if (!pc_authority) { return; }
   if (seer_handover_active()) {
+    seer_ho_reengage = false;   // 최신 요청이 이긴다 — 복원 뒤 반드시 권한을 내린다
     if (source == SEER_HO_SRC_FAILSAFE) { seer_ho_source = SEER_HO_SRC_FAILSAFE; }
     return;
   }
@@ -726,8 +727,8 @@ static void seer_handover_finish(void) {
   bool go_silent = seer_ho_pending_silent || failsafe || heartbeat_lost;
   seer_ho_state = SEER_HO_IDLE;
   seer_ho_pending_silent = false;
-  if (seer_ho_reengage && !failsafe) {
-    // 복원은 끝났고 호스트가 다시 쥐겠다고 했다 — 권한·emulate 를 그대로 유지한 채 끝낸다
+  if (seer_ho_reengage) {
+    // 복원은 끝났고 호스트가 다시 쥐겠다고 했다(출처 무관) — 권한·emulate 를 유지한 채 끝낸다
     seer_ho_reengage = false;
     return;
   }
@@ -748,7 +749,7 @@ void seer_handover_tick(void) {   // 8 Hz
   if (!pc_authority) { seer_ho_state = SEER_HO_IDLE; return; }
   seer_ho_ticks++;
   if (seer_ho_state == SEER_HO_RESTORE) {
-    if ((seer_ho_ticks % SEER_HO_RESEND_TICKS) == 0U) { seer_ho_send_targets(); }
+    if (((seer_ho_ticks % SEER_HO_RESEND_TICKS) == 0U) && !seer_ho_reengage) { seer_ho_send_targets(); }
     if (!seer_ho_have_target()) {
       seer_ho_result = SEER_HO_RES_NOTARGET; seer_ho_state = SEER_HO_SETTLE; seer_ho_settle = 0U;
     } else if (seer_ho_reached()) {
