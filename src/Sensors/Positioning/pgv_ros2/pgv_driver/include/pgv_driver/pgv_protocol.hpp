@@ -19,6 +19,9 @@ constexpr std::size_t kColorResponseLen = 2;
 constexpr std::size_t kRequestLen = 2;
 constexpr std::uint8_t kMaxAddress = 3;  // A1·A0 2비트
 
+// 오류 코드 (Table 5.4) — 위치 프레임의 ERR 비트가 서면 XP 필드에 실린다.
+constexpr std::uint32_t kErrNoDirection = 5;  // 전원 인가 후 방향 결정 없음 (§4.1)
+
 // 방향 결정 — 값 = 응답 byte 2 의 (LL << 1 | RL) 비트 배치 (Table 5.6)
 enum class Direction : std::uint8_t
 {
