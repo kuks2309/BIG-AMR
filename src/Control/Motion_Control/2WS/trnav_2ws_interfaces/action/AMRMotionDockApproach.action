@@ -1,8 +1,8 @@
-# AMRMotionDockApproach Action — 벽 3면 측위(/wall_pose) 기준 정밀 도킹 접근
+# AMRMotionDockApproach Action — 특징면 측위(/feature_pose) 기준 정밀 도킹 접근
 # trnav_2ws_interfaces/action/AMRMotionDockApproach
 #
 # 알고리즘 (trnav_2ws_dock_control 코어 — LGIT dock_control 이식본):
-#   관측: /wall_pose(T_station_base) + goal 목표 → wallPoseToDockObs → {e_d, e_lat, e_yaw}
+#   관측: /feature_pose(T_station_base) + goal 목표 → featurePoseToDockObs → {e_d, e_lat, e_yaw}
 #   페이즈: PRE_ALIGN (geomEntryTranslateNeed>0 일 때만 도크면 평행 translate)
 #         → APPROACH (거리 distPidStep + 기하 진입 crab geomEntryDeltaBiased
 #                     + phase4Steer 합성 + 근접 감속 phase4Vcap + 속도차 yaw 미세 보정)
@@ -12,7 +12,7 @@
 #         모든 종료 경로에서 정지 지령 → mux 원복 순서.
 
 # Goal
-float64 target_x_m           # 도킹 목표 X (스테이션 프레임, m — wall_localizer 티치 좌표계)
+float64 target_x_m           # 도킹 목표 X (스테이션 프레임, m — feature_localizer 티치 좌표계)
 float64 target_y_m           # 도킹 목표 Y (m)
 float64 target_yaw_deg       # 도킹 목표 자세 (deg, 스테이션 프레임)
 float64 approach_axis_deg    # base_link 기준 접근축 (0=전방 +x, +90=좌측 +y) — 실기 검증으로 확정

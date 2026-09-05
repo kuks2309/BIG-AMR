@@ -49,13 +49,13 @@
 
 <h2>1. 목적</h2>
 <p>FAT(Factory Acceptance Test) 시나리오 "노드 간 주행 중 스테이션 근접 시 정밀 도킹 전환"의 핵심 성능인
-<b>도킹 반복 정밀도 ≤3 mm</b> 를 실기에서 검증한다. 제어는 라이다 벽 기준면 측위(wall_localizer) 단독으로 수행하고,
+<b>도킹 반복 정밀도 ≤3 mm</b> 를 실기에서 검증한다. 제어는 라이다 벽 기준면 측위(feature_localizer) 단독으로 수행하고,
 정밀도 판정은 제어에 관여하지 않는 독립 계측기(PGV, 분해능 0.1 mm)로 한다.</p>
 
 <h2>2. 시스템 구성</h2>
 <table class="data">
   <tr><th class="l">계층</th><th class="l">구성</th><th class="l">핵심 수치</th></tr>
-  <tr><td class="l">측위(제어용)</td><td class="l">SICK 2D 라이다 ×2 병합 → wall_localizer (기준면: 좌벽 14.5 m + 전방 보드 1.0 m/4.7 m 전방)</td>
+  <tr><td class="l">측위(제어용)</td><td class="l">SICK 2D 라이다 ×2 병합 → feature_localizer (기준면: 좌벽 14.5 m + 전방 보드 1.0 m/4.7 m 전방)</td>
       <td class="l num">정지 잡음 σ — 종 0.69 mm · 횡 0.52 mm · 각 0.01°</td></tr>
   <tr><td class="l">도킹 제어</td><td class="l">거리 PID(Proportional-Integral-Derivative) + 근접 속도 캡 + 이동평균 도달 판정 + 검증 후 정밀 크립</td>
       <td class="l num">접근 0.03 m/s · 크립 0.015 m/s · 판정 5주기 이동평균</td></tr>
@@ -94,7 +94,7 @@
       <td class="num">−1.1 ± 0.2 (−1.4)</td><td class="num">+1.8</td><td class="num">≤0.24</td></tr>
 </table>
 <p class="small">참오차 = PGV 판독 − 기준값(타깃 캡처 시점 PGV). 음수 종방향 = 타깃 직전 정지.
-제어기 자체 판정(wall_pose)과 PGV 참값의 차이는 전 회 1.5 mm 이내 — 측정·제어 사슬 상호 검증.</p>
+제어기 자체 판정(feature_pose)과 PGV 참값의 차이는 전 회 1.5 mm 이내 — 측정·제어 사슬 상호 검증.</p>
 
 <h2>5. 분석 — 하루 동안의 정밀도 개선 경로</h2>
 <table class="data">
@@ -122,7 +122,7 @@
   <li><b>기준면 운용</b> — 전방 보드는 기준면이므로 이동 시 재티치 필수. FAT 스테이션은 상설 도크면으로 대체.</li>
   <li><b>재부팅 절차</b> — 센서 네트워크(eth1) 영구화(netplan), PGV 방향설정(STRAIGHT) 재적용, 드라이브 전원 사이클 시
       can_relay 재기동이 체크리스트로 확정됨.</li>
-  <li><b>주행 측위</b> — 복도 방향 mcl 표류(정지 중 m 급)는 스테이션 진입 전 재시드 또는 wall_pose 인계로 대응.
+  <li><b>주행 측위</b> — 복도 방향 mcl 표류(정지 중 m 급)는 스테이션 진입 전 재시드 또는 feature_pose 인계로 대응.
       노드 간 장거리 주행의 도착 반복은 별도 시험(왕복 5회: 횡 σ 0.38 mm·종 σ 25.7 mm)으로 계량됨.</li>
 </ul>
 

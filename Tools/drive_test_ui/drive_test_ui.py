@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (QApplication, QDoubleSpinBox, QGridLayout, QGroupBo
 os.environ.setdefault('ROS_DOMAIN_ID', '125')
 
 REPO = '/home/nvidia/Project/Ford-CATL-AMR/Big-AMR'
-SMAP = f'{REPO}/map/260709_test_2026-08-25_92e73074.smap'
+SMAP = f'{REPO}/map/260709_test.smap'          # 정본 1개 규약(map/README.md)
 LOGDIR = f'{REPO}/Log'
 SRC = f'source /opt/ros/humble/setup.bash && source {REPO}/install/setup.bash 2>/dev/null'
 
