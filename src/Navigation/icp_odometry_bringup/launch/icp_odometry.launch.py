@@ -56,6 +56,10 @@ def generate_launch_description():
             ('odom', odom_topic),
         ],
         output='screen',
+        # 죽으면 자동 재기동. ⚠ 재기동한 icp 는 odom 을 원점(항등)부터 다시 적산하므로
+        # odom→base_link 가 점프한다 — 하류 mcl2d 는 재수렴이 필요할 수 있다(initialpose 재지정).
+        respawn=True,
+        respawn_delay=2.0,
     )
 
     return LaunchDescription([

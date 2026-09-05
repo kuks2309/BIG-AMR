@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>seer_odom_core</name>
+  <version>0.1.0</version>
+  <description>
+    Seer OdoCalculator(MultiSteersOdometer) 재구현. 원본과 대조할 목적의 ROS 무의존 코어.
+    복원 근거는 docs/comparison/seer-odom-production_vs_big-amr_2026-08-07.md.
+  </description>
+  <maintainer email="drko@knj-robotics.com">kuks2309</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>eigen</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

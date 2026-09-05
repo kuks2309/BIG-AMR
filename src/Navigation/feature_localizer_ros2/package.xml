@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>feature_localizer_ros2</name>
+  <version>0.1.0</version>
+  <description>
+    벽 3면 라이다 정밀 측위 ROS2 어댑터. 프레임워크-독립 코어(feature_localizer_core)를
+    rclcpp 노드로 감싼다. LaserScan → 스테이션 프레임 PoseStamped(/feature_pose) + 진단.
+    근거: docs/adr/2026-08-18-wall3-precision-localizer.md
+  </description>
+  <maintainer email="kukwonko@gmail.com">Big-AMR</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>visualization_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

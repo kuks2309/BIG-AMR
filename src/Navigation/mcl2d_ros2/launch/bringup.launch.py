@@ -2,11 +2,16 @@
 #
 #   sick_safetyscanners2 x2 ──> dual_laser_merger ──/scan_merged──> icp_odometry ──/odom──┐
 #                          └────/scan_front,/scan_rear──────────────────────────────────> mcl2d
+#   smap_map_server(같은 map_path) ──/map(latch)──> rviz·costmap
+#
+# 구동 한 줄 (라이다 + 오도메트리 + 측위 + 맵 서버 전부):
+#   ros2 launch mcl2d_ros2 bringup.launch.py map_path:=/home/nvidia/Project/Ford-CATL-AMR/Big-AMR/map/260709_test.smap
+#   (rviz 까지 같이 띄우려면 로봇 화면에서 rviz:=true 를 덧붙인다 — DISPLAY 필요라 기본 false)
 #
 # 계층별로 끌 수 있다 — 이미 떠 있는 것을 중복 기동하지 않도록:
-#   ros2 launch mcl2d_ros2 bringup.launch.py map_path:=/…/map/x.smap
 #   ros2 launch mcl2d_ros2 bringup.launch.py map_path:=… lidar:=false        # 라이다는 이미 떠 있음
 #   ros2 launch mcl2d_ros2 bringup.launch.py map_path:=… lidar:=false icp:=false
+#   ros2 launch mcl2d_ros2 bringup.launch.py map_path:=… map_server:=false   # /map 발행 불요 시
 #
 # ⚠ 전제 — 라이다 네트워크. 센서는 eth1 유선이고 호스트에 192.168.192.10/24 와 센서별 /32 라우트
 #   (src 명시)가 있어야 한다. 재부팅하면 사라진다. 절차: docs/network/seer_network_access.md.
@@ -20,6 +25,7 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -50,6 +56,29 @@ def generate_launch_description():
             'params_file': LaunchConfiguration('params_file'),
         }.items(),
     )
+    # 맵 서버 — 측위와 같은 .smap 을 OccupancyGrid(/map, latch)로 발행한다. rviz·costmap 소비용.
+    map_server = Node(
+        package='mcl2d_ros2',
+        executable='smap_map_server',
+        name='smap_map_server',
+        parameters=[{'map_path': LaunchConfiguration('map_path')}],
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('map_server')),
+        # /map 은 latch — 새로 붙는 구독자(rviz·costmap)는 발행자가 살아 있어야 맵을
+        # 받으므로 respawn 으로 발행자를 유지한다. rviz 는 사람이 여닫는 창이라 respawn 제외.
+        respawn=True,
+        respawn_delay=2.0,
+    )
+    rviz = Node(
+        package='rviz2',
+        executable='rviz2',
+        # rviz 설정은 install 사본이 아니라 src 원본을 직접 읽는다 — RViz 안에서
+        # 저장한 변경이 재빌드로 증발하지 않도록 (단일 기체 고정 배치라 절대경로 사용)
+        arguments=['-d', '/home/nvidia/Project/Ford-CATL-AMR/Big-AMR/'
+                   'src/Navigation/mcl2d_ros2/config/mcl2d_check.rviz'],
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('rviz')),
+    )
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -67,7 +96,15 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'localization', default_value='true',
             description='mcl2d 위치추정(/mcl_pose, TF map→odom)을 함께 띄운다'),
+        DeclareLaunchArgument(
+            'map_server', default_value='true',
+            description='smap_map_server(/map latch, 같은 map_path)를 함께 띄운다'),
+        DeclareLaunchArgument(
+            'rviz', default_value='false',
+            description='rviz2(mcl2d_check.rviz)를 함께 띄운다 — DISPLAY 필요, 로봇 화면에서만 true'),
         lidar_launch,
         icp_launch,
         loc_launch,
+        map_server,
+        rviz,
     ])

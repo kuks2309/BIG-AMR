@@ -1,6 +1,6 @@
 # icp_odometry (rtabmap_odom) 파라미터 — Big-AMR 2D 듀얼 SICK 구성.
 #
-# 출처: TR_Nav_ros2_ws @ad7520981d50 `rtabmap_dual_lidar_localization.launch.py:47-57` 의
+# 출처: TR_Nav_ros2_ws @ad7520981d50 `rtabmap_dual_lidar_localization.launch.py:47-57` 의  comment-check: ignore
 #       실주행 검증값. 리뷰: docs/code_review/trnav-icp-odometry/2026-07-28.md
 # 기본값 대조는 설치본 실물 조회 기준 — `rtabmap --params` (rtabmap 0.23.7).
 #
